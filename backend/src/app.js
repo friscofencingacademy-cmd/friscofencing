@@ -14,6 +14,7 @@ const priceRoutes = require('./routes/price.routes');
 const userRoutes = require('./routes/user.routes');
 const studentRoutes = require('./routes/student.routes');
 const trialClassRoutes = require('./routes/trialClass.routes');
+const paymentMethodRoutes = require('./routes/paymentMethod.routes');
 
 configurePassport(passport);
 
@@ -43,5 +44,6 @@ app.use('/api/v1/prices', priceRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/students', studentRoutes);
 app.use('/api/v1/trial-classes', trialClassRoutes);
+app.use('/api/v1/payment-methods', paymentMethodRoutes);
 
 module.exports = app;

@@ -47,6 +47,15 @@ const userSchema = new Schema(
       type: String,
       enum: SKILL_LEVELS,
     },
+    // Set the first time a parent saves a card (stripeCustomer.service.js).
+    // Not schema-required: most users (students, coaches, admins who never
+    // pay) never get one. sparse: true for the same reason as email above —
+    // without it, every user missing this field would collide on `null`.
+    stripeCustomerId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   {
     timestamps: true,
