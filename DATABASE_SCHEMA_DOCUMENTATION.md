@@ -39,9 +39,18 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 
 `POST /auth/register` is the platform's first public (unauthenticated) endpoint — parent self-signup. Students (`role: 'student'`) are created via `POST /students`; a parent's own `parentId` is forced server-side and cannot be overridden by the request body.
 
+## `PaymentMethod` — implemented (Phase 7a — card save only, no charging yet)
+| Field | Type | Notes |
+|---|---|---|
+| `parentId` | ObjectId ref `User` | required, **unique** — one saved card per parent for MVP |
+| `stripePaymentMethodId` | String | required |
+| `cardBrand`, `cardLast4` | String | required, display-safe (never the full card number, which we never touch) |
+| `cardExpMonth`, `cardExpYear` | Number | required |
+
+`User.stripeCustomerId` (String, unique + sparse — same null-collision-safe pattern as `email`) is created lazily on first card save. Replacing a saved card detaches the old Stripe PaymentMethod first — nothing orphaned is left attached to the Stripe customer.
+
 | Collection | Purpose |
 |---|---|
-| `PaymentMethod` | A parent's saved card (Stripe Customer + PaymentMethod IDs). |
 | `Registration` | The enrollment record — student, class/schedule ref, status. |
 | `Subscription` | Recurring billing state — status, current period, next billing date, `cancelAtPeriodEnd`, sibling-discount fields. |
 | `WebhookEvent` | Dedup log of processed Stripe webhook event IDs. |
