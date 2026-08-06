@@ -73,6 +73,39 @@ describe('POST /api/v1/auth/login', () => {
   });
 });
 
+describe('POST /api/v1/auth/register', () => {
+  it('registers a new parent, sets the accessToken cookie, and omits passwordHash', async () => {
+    const res = await request(app).post('/api/v1/auth/register').send({
+      firstName: 'New',
+      lastName: 'Parent',
+      email: 'new-parent@example.com',
+      password: 'a-strong-password',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.user.email).toBe('new-parent@example.com');
+    expect(res.body.user.role).toBe('parent');
+    expect(res.body.user.passwordHash).toBeUndefined();
+
+    const cookies = res.headers['set-cookie'];
+    expect(cookies).toBeDefined();
+    expect(cookies.some((cookie) => cookie.startsWith('accessToken='))).toBe(true);
+  });
+
+  it('returns 409 when the email is already registered', async () => {
+    await seedTestUser({ email: 'dup-parent@example.com' });
+
+    const res = await request(app).post('/api/v1/auth/register').send({
+      firstName: 'Another',
+      lastName: 'Person',
+      email: 'dup-parent@example.com',
+      password: 'a-strong-password',
+    });
+
+    expect(res.status).toBe(409);
+  });
+});
+
 describe('GET /api/v1/auth/me', () => {
   it('returns the user when the accessToken cookie from a successful login is sent', async () => {
     await seedTestUser();

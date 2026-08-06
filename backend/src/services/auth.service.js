@@ -1,5 +1,5 @@
 const User = require('../models/user.model');
-const { comparePassword } = require('../utils/password');
+const { comparePassword, hashPassword } = require('../utils/password');
 const { signToken } = require('../utils/jwt');
 
 // Standard practice: never reveal whether a login failed because the email
@@ -32,4 +32,34 @@ async function login({ email, password }) {
   return { token, user: user.toSafeJSON() };
 }
 
-module.exports = { login };
+// Public self-signup, parent-only. The unique+sparse index on User.email
+// (user.model.js) is the race-safety backstop behind this pre-check — same
+// two-layer duplicate-prevention pattern as price.service.js's
+// assertNoExistingPrice.
+async function register({ firstName, lastName, email, password }) {
+  const normalizedEmail = String(email || '').toLowerCase().trim();
+
+  const existing = await User.findOne({ email: normalizedEmail });
+
+  if (existing) {
+    const error = new Error('An account with this email already exists');
+    error.status = 409;
+    throw error;
+  }
+
+  const passwordHash = await hashPassword(password);
+
+  const user = await User.create({
+    role: 'parent',
+    firstName,
+    lastName,
+    email: normalizedEmail,
+    passwordHash,
+  });
+
+  const token = signToken({ id: user._id, role: user.role });
+
+  return { token, user: user.toSafeJSON() };
+}
+
+module.exports = { login, register };

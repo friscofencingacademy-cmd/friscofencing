@@ -28,6 +28,12 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (
+    firstName: string,
+    lastName: string,
+    email: string,
+    password: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -76,13 +82,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.data.user);
   }, []);
 
+  const register = useCallback(
+    async (firstName: string, lastName: string, email: string, password: string) => {
+      const res = await api.post<{ user: AuthUser }>('/auth/register', {
+        firstName,
+        lastName,
+        email,
+        password,
+      });
+      setUser(res.data.user);
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     await api.post('/auth/logout');
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

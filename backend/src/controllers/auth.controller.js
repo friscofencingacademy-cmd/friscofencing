@@ -23,6 +23,26 @@ async function login(req, res) {
   }
 }
 
+async function register(req, res) {
+  try {
+    const { firstName, lastName, email, password } = req.body;
+    const { token, user } = await authService.register({ firstName, lastName, email, password });
+
+    res.cookie(COOKIE_NAME, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      // TODO: must become `true` once this runs over HTTPS (production).
+      secure: false,
+      maxAge: COOKIE_MAX_AGE_MS,
+    });
+
+    return res.status(201).json({ user });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Registration failed' });
+  }
+}
+
 function me(req, res) {
   return res.status(200).json({ user: req.user });
 }
@@ -32,4 +52,4 @@ function logout(req, res) {
   return res.status(200).json({ success: true });
 }
 
-module.exports = { login, me, logout };
+module.exports = { login, register, me, logout };
