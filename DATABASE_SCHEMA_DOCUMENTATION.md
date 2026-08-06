@@ -31,9 +31,16 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 | `levelId` | ObjectId ref `Level` | required, **unique** — one price per level (fencing is in-person only, no online/in-person split) |
 | `monthlyFee` | Number | required, min 0 |
 
+## `TrialClass` — implemented
+| Field | Type | Notes |
+|---|---|---|
+| `studentId` | ObjectId ref `User` | required, **unique** — one trial ever, platform-wide, backed by a service-layer pre-check + this index (same two-layer pattern as `Price.levelId`) |
+| `sessionId` | ObjectId ref `GroupClassSession` | required — booking adds the student into this session's roster |
+
+`POST /auth/register` is the platform's first public (unauthenticated) endpoint — parent self-signup. Students (`role: 'student'`) are created via `POST /students`; a parent's own `parentId` is forced server-side and cannot be overridden by the request body.
+
 | Collection | Purpose |
 |---|---|
-| `TrialClass` | Free one-time trial booking — no payment. |
 | `PaymentMethod` | A parent's saved card (Stripe Customer + PaymentMethod IDs). |
 | `Registration` | The enrollment record — student, class/schedule ref, status. |
 | `Subscription` | Recurring billing state — status, current period, next billing date, `cancelAtPeriodEnd`, sibling-discount fields. |

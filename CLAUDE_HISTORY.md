@@ -4,6 +4,7 @@ One row per shipped feature/PR, most recent first.
 
 | Date | Change |
 |---|---|
+| 2026-08-06 | Trial class booking — public parent signup, student creation (parentId forced server-side), TrialClass (one ever, adds student to session roster), /register + /parent/children + /parent/book-trial pages. |
 | 2026-08-06 | Attendance marking — PATCH endpoint (admin: any session; coach: own assigned schedule only, checked in the service), shared attendance page for coach + admin, new coach schedule/session listing pages. |
 | 2026-08-06 | Price model + admin CRUD — one monthlyFee per level, looked up dynamically at billing time (no FK on GroupClass). |
 | 2026-08-06 | Location/Level/GroupClass/Schedule/Session models + CRUD + admin pages. Schedule creation auto-generates an 8-week session window (no cron). `ProtectedRoute` frontend guard added. |
