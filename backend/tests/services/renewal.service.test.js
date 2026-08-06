@@ -4,6 +4,11 @@
 // registration.routes.test.js.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
+// Mocked so this suite never touches nodemailer/Ethereal — receipt email is
+// Phase 10's own concern (see mail.service.test.js), unrelated to what this
+// suite exists to cover (real Stripe TEST-mode renewal charges).
+jest.mock('../../src/services/mail.service');
+
 const User = require('../../src/models/user.model');
 const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
@@ -19,6 +24,7 @@ const { generateInitialSessions } = require('../../src/services/groupClassSessio
 const { renewOne, runRenewals } = require('../../src/services/renewal.service');
 const { addOneMonth } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const mailService = require('../../src/services/mail.service');
 
 const MONTHLY_FEE = 150;
 // Fixed historical/far-future instants, never "now + N days" — see
@@ -182,6 +188,17 @@ describe('renewOne', () => {
       expect(updated.nextBillingDate.toISOString()).toBe(expectedNewPeriodEnd.toISOString());
       expect(updated.lastChargeAmount).toBe(MONTHLY_FEE);
       expect(updated.lastSiblingDiscountApplied).toBe(false);
+
+      // Confirms the mail wiring actually fires on the 'charged' branch with
+      // the right participants — proving it fires, not just that mocking it
+      // doesn't break the renewal.
+      expect(mailService.sendRenewalReceiptEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parent: expect.objectContaining({ email: 'renew-charge-ok@example.com' }),
+          student: expect.objectContaining({ firstName: student.firstName }),
+          chargeAmount: MONTHLY_FEE,
+        })
+      );
     },
     30000
   );

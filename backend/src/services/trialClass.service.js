@@ -1,6 +1,7 @@
 const TrialClass = require('../models/trialClass.model');
 const User = require('../models/user.model');
 const GroupClassSession = require('../models/groupClassSession.model');
+const mailService = require('./mail.service');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -63,6 +64,10 @@ async function create({ studentId, sessionId }, requestingUser) {
   }
 
   const trialClass = await TrialClass.create({ studentId, sessionId });
+
+  // Fire-and-forget confirmation email — never throws, never affects this
+  // response (see mail.service.js's send-function contract).
+  await mailService.sendTrialConfirmationEmail({ parent: requestingUser, student, session });
 
   return populateTrialClass(trialClass._id);
 }

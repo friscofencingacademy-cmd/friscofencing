@@ -1,6 +1,11 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
+// Mocked so this suite never touches nodemailer/Ethereal — confirmation
+// email is Phase 10's own concern (see mail.service.test.js), unrelated to
+// what these routes tests exist to cover.
+jest.mock('../../src/services/mail.service');
+
 const request = require('supertest');
 const mongoose = require('mongoose');
 
@@ -12,6 +17,7 @@ const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const mailService = require('../../src/services/mail.service');
 
 const TEST_PASSWORD = 'correct-password';
 
@@ -116,6 +122,17 @@ describe('TrialClass routes', () => {
         (entry) => String(entry.studentId) === String(student._id)
       );
       expect(onRoster).toBe(true);
+
+      // Confirms the mail wiring actually fires with the right participants
+      // (not just that mocking it doesn't break the route). Compared by
+      // email/name rather than _id — asymmetric matchers don't reliably
+      // deep-equal raw ObjectId instances.
+      expect(mailService.sendTrialConfirmationEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parent: expect.objectContaining({ email: parent.email }),
+          student: expect.objectContaining({ firstName: student.firstName }),
+        })
+      );
     });
 
     it('returns 403 when booking for a child belonging to a different parent', async () => {

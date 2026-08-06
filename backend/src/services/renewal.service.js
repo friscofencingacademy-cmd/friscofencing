@@ -9,6 +9,7 @@ const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const mailService = require('./mail.service');
 
 // Resolves a subscription's schedule -> class -> level -> Price chain, the
 // same walk registration.service.js does for the initial charge. Returns
@@ -204,6 +205,21 @@ async function renewOne(subscriptionId) {
       },
     }
   );
+
+  // Re-fetch the schedule for the receipt email — resolveMonthlyFee already
+  // walked this chain but doesn't return the schedule itself, and it isn't
+  // worth restructuring that function's return shape just for this.
+  const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
+
+  // Fire-and-forget receipt email — never throws, never affects this
+  // outcome (see mail.service.js's send-function contract).
+  await mailService.sendRenewalReceiptEmail({
+    parent,
+    student,
+    schedule,
+    chargeAmount: amount,
+    siblingDiscountApplied,
+  });
 
   return {
     subscriptionId,

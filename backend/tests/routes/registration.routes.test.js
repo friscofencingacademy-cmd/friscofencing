@@ -1,6 +1,11 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
+// Mocked so this suite never touches nodemailer/Ethereal — confirmation
+// email is Phase 10's own concern (see mail.service.test.js), unrelated to
+// what these routes tests exist to cover (real Stripe TEST-mode charges).
+jest.mock('../../src/services/mail.service');
+
 // STRIPE_SECRET_KEY must be loaded from the real .env BEFORE app.js (and
 // therefore src/config/stripe.js) is required below — this test hits
 // Stripe's real TEST-mode API over the network rather than mocking the
@@ -23,6 +28,7 @@ const Subscription = require('../../src/models/subscription.model');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const mailService = require('../../src/services/mail.service');
 
 const TEST_PASSWORD = 'correct-password';
 const MONTHLY_FEE = 150;
@@ -224,6 +230,17 @@ describe('Registration routes', () => {
           );
           expect(onRoster).toBe(true);
         });
+
+        // Confirms the mail wiring actually fires with the right shape —
+        // proving it fires, not just that mocking it doesn't break the
+        // route.
+        expect(mailService.sendRegistrationConfirmationEmail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            parent: expect.objectContaining({ email: 'reg-parent1@example.com' }),
+            student: expect.objectContaining({ firstName: student.firstName }),
+            chargeAmount: expect.any(Number),
+          })
+        );
       },
       30000
     );

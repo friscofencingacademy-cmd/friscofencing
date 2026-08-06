@@ -10,6 +10,7 @@ const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const mailService = require('./mail.service');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -163,6 +164,16 @@ async function create({ studentId, scheduleId }, requestingUser) {
       return session.save();
     })
   );
+
+  // Fire-and-forget confirmation email — never throws, never affects this
+  // response (see mail.service.js's send-function contract).
+  await mailService.sendRegistrationConfirmationEmail({
+    parent: requestingUser,
+    student,
+    schedule,
+    chargeAmount,
+    siblingDiscountApplied,
+  });
 
   return {
     registration,
