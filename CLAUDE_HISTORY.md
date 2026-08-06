@@ -4,4 +4,5 @@ One row per shipped feature/PR, most recent first.
 
 | Date | Change |
 |---|---|
+| 2026-08-06 | Users/Auth: `User` model, JWT/Passport (httpOnly `accessToken` cookie), login/me/logout endpoints, idempotent superadmin seed script, frontend `AuthContext` + login page. Integration tests use `mongodb-memory-server`; frontend auth test uses MSW. |
 | 2026-08-06 | Project scaffolded — repo structure, backend/frontend skeletons, docs (CLAUDE.md, TESTING_STRATEGY.md, DATABASE_SCHEMA_DOCUMENTATION.md, ADR 001). |
