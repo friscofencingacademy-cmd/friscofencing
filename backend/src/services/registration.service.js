@@ -9,6 +9,7 @@ const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
+const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -38,21 +39,6 @@ function paymentFailedError(message) {
   const error = new Error(message);
   error.status = 402;
   return error;
-}
-
-// Same calendar month a month later, e.g. Jan 31 -> Mar 3 in a
-// non-leap-year (JS Date's own setMonth rollover behavior) — acceptable for
-// MVP; no custom day-clamping logic.
-function addOneMonth(date) {
-  const result = new Date(date);
-  result.setMonth(result.getMonth() + 1);
-  return result;
-}
-
-function todayAtMidnight() {
-  const result = new Date();
-  result.setHours(0, 0, 0, 0);
-  return result;
 }
 
 // Registers `studentId` for `scheduleId`: validates permission + pricing,

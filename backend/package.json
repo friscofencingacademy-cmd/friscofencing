@@ -8,7 +8,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "jest",
-    "seed:superadmin": "node scripts/seed-superadmin.js"
+    "seed:superadmin": "node scripts/seed-superadmin.js",
+    "renewals": "node scripts/run-renewals.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
