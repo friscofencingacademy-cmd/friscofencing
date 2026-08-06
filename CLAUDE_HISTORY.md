@@ -4,6 +4,7 @@ One row per shipped feature/PR, most recent first.
 
 | Date | Change |
 |---|---|
+| 2026-08-06 | Phase 11: Stripe webhook (scoped: record + dedup payment_intent.succeeded/failed, no reconciliation). Raw-body middleware ordering verified correct. |
 | 2026-08-06 | Phase 10: confirmation/receipt emails (trial, registration, renewal) via mail.service.js -- never throws, zero-setup local dev via Ethereal auto-fallback when SMTP_HOST is unset. |
 | 2026-08-06 | Phase 9: idempotent renewal job (renewOne/runRenewals) + two-stage cancellation. Implements ADR 001 in full. No scheduler yet -- standalone script (`npm run renewals`). |
 | 2026-08-06 | Phase 8: 10% sibling discount in calculateChargeAmount -- dynamic lower-payer rule, deterministic tie-break, live re-derivation every call. Known accepted limitation: simultaneous-first-registration race, not fixed (real usage is serial). |

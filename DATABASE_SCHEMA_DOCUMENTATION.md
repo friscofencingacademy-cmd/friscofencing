@@ -63,6 +63,11 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 
 The charge-amount calculation lives in its own file, `backend/src/services/billing/calculateChargeAmount.service.js` — deliberately isolated so Phase 8 (sibling discount) can edit it in place and Phase 9 (renewal job) can reuse it without extraction.
 
-| Collection | Purpose |
-|---|---|
-| `WebhookEvent` | Dedup log of processed Stripe webhook event IDs. |
+## `WebhookEvent` — implemented (Phase 11, scoped)
+| Field | Type | Notes |
+|---|---|---|
+| `stripeEventId` | String | required, **unique** — the dedup key; Stripe redelivers events, this makes redelivery a safe no-op |
+| `type` | String | required |
+| `paymentIntentId`, `status` | String | not required — only meaningful for `payment_intent.*` events |
+
+`POST /api/v1/webhooks/stripe` verifies Stripe's signature (registered with its own `express.raw()` middleware BEFORE the global `express.json()` — the raw body is required for signature verification and would otherwise be destroyed). Only records `payment_intent.succeeded`/`payment_intent.payment_failed`; other event types are acknowledged but not stored. Deliberately scoped down from full reconciliation — every charge in this project is synchronous (`off_session`/`confirm: true`, no 3DS), so this is a safety net for a narrow crash-recovery window, not something the core flow depends on.
