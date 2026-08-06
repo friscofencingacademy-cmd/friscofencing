@@ -38,7 +38,7 @@ Class-management platform for Frisco Fencing Academy. Single repo, local-only fo
 | Frontend | Next.js 14, React 18, TypeScript, CSS Modules |
 | Auth | JWT + Passport (backend), React context (frontend) |
 | Payments | Stripe — `PaymentIntent`s against a saved `PaymentMethod`, in-house subscription/billing model (NOT Stripe's native Subscriptions object). See `docs/decisions/001-in-house-subscription-billing.md`. |
-| Email | Brevo or Nodemailer — added in a later phase |
+| Email | Nodemailer — real SMTP via `SMTP_HOST` env vars, or a zero-setup Ethereal test account auto-created for local dev when unset |
 
 ## Repo Structure
 - `backend/` — Express/Mongoose API (`src/`: routes → controllers → services → models)
