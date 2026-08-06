@@ -2,7 +2,7 @@
 
 ## Layers
 - **Unit** — pure functions/services (discount math, renewal eligibility, date/period calculations). Jest.
-- **Integration** — API routes against a real local MongoDB test database. Jest + Supertest, backend only for now.
+- **Integration** — API routes against a real MongoDB instance. Jest + Supertest, backend only for now. Uses `mongodb-memory-server` to spin up an ephemeral real MongoDB process per test run — this is a real Mongo engine, not a mock, so it doesn't require a MongoDB server already running on the machine (relevant until local MongoDB is actually installed).
 - **E2E** — full browser flows (registration, attendance marking). Playwright — added once the frontend has real flows worth covering end-to-end; not needed for the initial scaffold.
 
 ## Conventions
