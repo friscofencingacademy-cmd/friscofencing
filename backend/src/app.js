@@ -10,6 +10,7 @@ const levelRoutes = require('./routes/level.routes');
 const groupClassRoutes = require('./routes/groupClass.routes');
 const groupClassScheduleRoutes = require('./routes/groupClassSchedule.routes');
 const groupClassSessionRoutes = require('./routes/groupClassSession.routes');
+const priceRoutes = require('./routes/price.routes');
 const userRoutes = require('./routes/user.routes');
 
 configurePassport(passport);
@@ -36,6 +37,7 @@ app.use('/api/v1/levels', levelRoutes);
 app.use('/api/v1/group-classes', groupClassRoutes);
 app.use('/api/v1/group-class-schedules', groupClassScheduleRoutes);
 app.use('/api/v1/group-class-sessions', groupClassSessionRoutes);
+app.use('/api/v1/prices', priceRoutes);
 app.use('/api/v1/users', userRoutes);
 
 module.exports = app;
