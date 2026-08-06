@@ -50,6 +50,19 @@ const subscriptionSchema = new Schema(
       type: Date,
       required: true,
     },
+    // Record of what happened at the most recent charge — for
+    // display/record-keeping only. NOT the source of truth for future
+    // discount decisions: calculateChargeAmount.service.js always re-derives
+    // the sibling discount live from current Subscription/Price state, never
+    // reads these back.
+    lastChargeAmount: {
+      type: Number,
+      default: null,
+    },
+    lastSiblingDiscountApplied: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

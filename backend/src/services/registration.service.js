@@ -108,7 +108,8 @@ async function create({ studentId, scheduleId }, requestingUser) {
 
   const stripeCustomerId = await ensureStripeCustomer(requestingUser);
 
-  const chargeAmount = calculateChargeAmount(student, price.monthlyFee);
+  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount } =
+    await calculateChargeAmount(student, price.monthlyFee);
 
   const paymentIntent = await stripe.paymentIntents.create(
     {
@@ -144,6 +145,8 @@ async function create({ studentId, scheduleId }, requestingUser) {
     currentPeriodStart: now,
     currentPeriodEnd,
     nextBillingDate: currentPeriodEnd,
+    lastChargeAmount: chargeAmount,
+    lastSiblingDiscountApplied: siblingDiscountApplied,
   });
 
   const alreadyOnRoster = schedule.students.some(
@@ -180,6 +183,8 @@ async function create({ studentId, scheduleId }, requestingUser) {
     subscription,
     chargeAmount,
     paymentIntentStatus: paymentIntent.status,
+    siblingDiscountApplied,
+    siblingDiscountAmount,
   };
 }
 

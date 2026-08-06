@@ -139,6 +139,50 @@ async function seedParentAndStudent(parentEmail) {
   return { parent, student };
 }
 
+// Like seedSchedule, but lets the caller set a different monthlyFee — used
+// by the sibling-discount test, which needs two schedules priced
+// differently so the second child's price is strictly higher than the
+// first's.
+async function seedScheduleWithFee(monthlyFee, { levelName = 'Level', levelOrder = 1 } = {}) {
+  const level = await Level.create({ name: levelName, order: levelOrder });
+  const location = await Location.create({
+    name: `Frisco HQ ${levelName}`,
+    address: '123 Main St',
+  });
+  const groupClass = await GroupClass.create({
+    name: `${levelName} Foil`,
+    levelId: level._id,
+    locationId: location._id,
+    capacity: 10,
+  });
+
+  await Price.create({ levelId: level._id, monthlyFee });
+
+  const coach = await User.create({
+    role: 'coach',
+    firstName: 'Coach',
+    lastName: levelName,
+    email: `coach-${levelName}-${Date.now()}@example.com`,
+    passwordHash: await hashPassword(TEST_PASSWORD),
+  });
+
+  await seedUser({ role: 'admin', email: `admin-${levelName}-setup@example.com` });
+  const adminAgent = await loginAgent(`admin-${levelName}-setup@example.com`);
+
+  const scheduleRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+    classId: groupClass._id.toString(),
+    coachId: coach._id.toString(),
+    dayOfWeek: 4,
+    startTime: '17:00',
+    endTime: '18:00',
+    students: [],
+  });
+
+  expect(scheduleRes.status).toBe(201);
+
+  return scheduleRes.body.schedule._id;
+}
+
 describe('Registration routes', () => {
   describe('POST /api/v1/registrations', () => {
     it(
@@ -285,5 +329,88 @@ describe('Registration routes', () => {
 
       expect(res.status).toBe(403);
     });
+
+    // Sibling discount E2E case. NOTE ON PRICING DIRECTION: the algorithm
+    // (calculateChargeAmount.service.js) implements the "dynamic
+    // lower-payer rule" from ADR 001 — whichever sibling has the strictly
+    // LOWER price gets 10% off THEIR OWN price. So for the second child's
+    // registration to actually receive the discount, their class must be
+    // priced LOWER than the already-active first child's class, not
+    // higher. (A "higher-priced second child" would make the FIRST child
+    // the winner instead, and the second child's own charge — the one this
+    // test is asserting on — would be full price.)
+    it(
+      "applies the 10% sibling discount to the second child's real Stripe charge when their class is priced lower than the first child's (the sibling discount's lower-payer rule, per ADR 001)",
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'reg-sibling-parent@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'Sibling',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'Sibling',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('reg-sibling-parent@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'SiblingPricier',
+          levelOrder: 10,
+        });
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'SiblingCheap',
+          levelOrder: 11,
+        });
+
+        // First child registers for the pricier class first — no sibling
+        // with an active subscription exists yet, so no discount.
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+
+        expect(firstRes.status).toBe(201);
+        expect(firstRes.body.chargeAmount).toBe(MONTHLY_FEE * 2);
+        expect(firstRes.body.siblingDiscountApplied).toBe(false);
+
+        // Second child registers for the cheaper class. Their own price
+        // (MONTHLY_FEE) is strictly lower than the first child's current
+        // fee (2x MONTHLY_FEE) -> second child is the lower payer and gets
+        // 10% off their own price.
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+
+        expect(secondRes.status).toBe(201);
+        expect(secondRes.body.chargeAmount).toBe(MONTHLY_FEE * 0.9);
+        expect(secondRes.body.siblingDiscountApplied).toBe(true);
+        expect(secondRes.body.siblingDiscountAmount).toBe(MONTHLY_FEE * 0.1);
+
+        const secondSubscription = await Subscription.findOne({
+          studentId: secondChild._id,
+        });
+        expect(secondSubscription.lastSiblingDiscountApplied).toBe(true);
+        expect(secondSubscription.lastChargeAmount).toBe(MONTHLY_FEE * 0.9);
+
+        // Verify the actual Stripe PaymentIntent was charged for the
+        // discounted amount, not the full price — the real assertion this
+        // test exists for: the real-Stripe-test-mode charge reflects the
+        // discount, not just our own response body's math.
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const secondChildIntent = paymentIntents.data.find(
+          (intent) => intent.amount === Math.round(MONTHLY_FEE * 0.9 * 100)
+        );
+        expect(secondChildIntent).toBeDefined();
+        expect(secondChildIntent.status).toBe('succeeded');
+      },
+      40000
+    );
   });
 });
