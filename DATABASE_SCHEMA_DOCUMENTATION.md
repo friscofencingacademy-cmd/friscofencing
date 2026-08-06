@@ -14,13 +14,19 @@ Planned schema — filled in with real fields as each model is built. Collection
 
 Login is email+password for `parent`/`coach`/`admin`/`superadmin` only — students don't log in in this MVP (no student portal). No public signup endpoint yet; the only account-creation path is `backend/scripts/seed-superadmin.js` (idempotent, env-driven). Parent self-registration is deferred to the trial-booking phase.
 
+## `Location`, `Level`, `GroupClass`, `GroupClassSchedule`, `GroupClassSession` — implemented
+| Collection | Key fields |
+|---|---|
+| `Location` | `name` (unique), `address`, `timezone` (default `America/Chicago`) |
+| `Level` | `name` (unique), `order` (unique, for sorting) |
+| `GroupClass` | `name`, `levelId` ref, `locationId` ref, `capacity`. **No price reference** — `Price` (Phase 4) is looked up dynamically by level at billing time, not stored as a foreign key here. |
+| `GroupClassSchedule` | `classId` ref, `coachId` ref (must be a `User` with `role: 'coach'`), `dayOfWeek` (0–6, `Date.getDay()` convention), `startTime`/`endTime` (`"HH:mm"`), `students` (enrolled roster, array of ObjectId) |
+| `GroupClassSession` | `scheduleId` ref, `date`, `students[].isPresent` (defaulted `false`) — unique on `(scheduleId, date)`. Generated synchronously (8-week initial window) when a schedule is created; attendance **marking** is Phase 5, not yet built. |
+
+Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected (409).
+
 | Collection | Purpose |
 |---|---|
-| `Location` | Address/timezone for a physical training location. |
-| `Level` | Skill-level lookup (beginner/intermediate/advanced). |
-| `GroupClass` | A class offering — name, level ref, location ref, capacity, price ref. |
-| `GroupClassSchedule` | A recurring weekly slot for a class — coach, day/time, roster. |
-| `GroupClassSession` | One dated occurrence of a schedule — embeds `students[].isPresent` for attendance. |
 | `Price` | Rate card by class/level. |
 | `TrialClass` | Free one-time trial booking — no payment. |
 | `PaymentMethod` | A parent's saved card (Stripe Customer + PaymentMethod IDs). |
