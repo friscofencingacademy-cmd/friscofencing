@@ -49,8 +49,16 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 
 `User.stripeCustomerId` (String, unique + sparse — same null-collision-safe pattern as `email`) is created lazily on first card save. Replacing a saved card detaches the old Stripe PaymentMethod first — nothing orphaned is left attached to the Stripe customer.
 
+## `Registration`, `Subscription` — implemented (Phase 7b)
+| Collection | Key fields |
+|---|---|
+| `Registration` | `studentId` ref, `scheduleId` ref, `status` (`active`/`cancelled`) — the enrollment fact |
+| `Subscription` | `studentId`, `scheduleId`, `parentId` refs; `status`; `cancelAtPeriodEnd`; `currentPeriodStart/End`; `nextBillingDate` — the billing lifecycle, kept as a separate concern from `Registration` even though 1:1 today. **No unique index on `(studentId, scheduleId)`** — a student can legitimately re-register after a past cancellation; "no currently active enrollment" is a service-layer check, not a schema constraint. |
+
+`POST /registrations` (parent-only) charges the saved card off-session via a Stripe `PaymentIntent` with a stable idempotency key (`initial-registration-{studentId}-{scheduleId}`) BEFORE creating anything — nothing is created unless the charge actually succeeds. No 3DS/`requires_action` handling (disclosed MVP limitation). On success, the student is added to the schedule's ongoing roster and backfilled into every already-generated future session (not just sessions generated from now on).
+
+The charge-amount calculation lives in its own file, `backend/src/services/billing/calculateChargeAmount.service.js` — deliberately isolated so Phase 8 (sibling discount) can edit it in place and Phase 9 (renewal job) can reuse it without extraction.
+
 | Collection | Purpose |
 |---|---|
-| `Registration` | The enrollment record — student, class/schedule ref, status. |
-| `Subscription` | Recurring billing state — status, current period, next billing date, `cancelAtPeriodEnd`, sibling-discount fields. |
 | `WebhookEvent` | Dedup log of processed Stripe webhook event IDs. |
