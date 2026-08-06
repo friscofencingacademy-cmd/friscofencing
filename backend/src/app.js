@@ -17,10 +17,25 @@ const trialClassRoutes = require('./routes/trialClass.routes');
 const paymentMethodRoutes = require('./routes/paymentMethod.routes');
 const registrationRoutes = require('./routes/registration.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
+const stripeWebhookRoutes = require('./routes/stripeWebhook.routes');
 
 configurePassport(passport);
 
 const app = express();
+
+// Mounted BEFORE the global express.json() below, with its own
+// express.raw() middleware, so this route sees the exact raw request bytes.
+// Stripe's `stripe.webhooks.constructEvent` signature check requires the
+// unparsed body — if express.json() ran first, it would already have
+// consumed/parsed the body into an object and signature verification would
+// always fail. Express matches routes in registration order, so registering
+// this specific route ahead of the global JSON parser makes it "win" for
+// this path only; every other route below still gets JSON parsing as usual.
+app.use(
+  '/api/v1/webhooks/stripe',
+  express.raw({ type: 'application/json' }),
+  stripeWebhookRoutes
+);
 
 app.use(express.json());
 app.use(cookieParser());
