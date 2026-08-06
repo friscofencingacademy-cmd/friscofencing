@@ -1,0 +1,96 @@
+process.env.JWT_SECRET = 'test-jwt-secret';
+process.env.JWT_EXPIRES_IN = '7d';
+
+const request = require('supertest');
+
+const app = require('../../src/app');
+const User = require('../../src/models/user.model');
+const Level = require('../../src/models/level.model');
+const Location = require('../../src/models/location.model');
+const GroupClass = require('../../src/models/groupClass.model');
+const { hashPassword } = require('../../src/utils/password');
+const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+
+const TEST_PASSWORD = 'correct-password';
+
+let mongod;
+
+beforeAll(async () => {
+  mongod = await connectTestDB();
+});
+
+afterAll(async () => {
+  await disconnectTestDB(mongod);
+});
+
+afterEach(async () => {
+  await clearTestDB();
+});
+
+async function seedUser(overrides = {}) {
+  const passwordHash = await hashPassword(TEST_PASSWORD);
+
+  return User.create({
+    role: 'admin',
+    firstName: 'Test',
+    lastName: 'Admin',
+    email: 'test-admin@example.com',
+    passwordHash,
+    ...overrides,
+  });
+}
+
+async function loginAgent(email) {
+  const agent = request.agent(app);
+
+  await agent.post('/api/v1/auth/login').send({ email, password: TEST_PASSWORD });
+
+  return agent;
+}
+
+describe('Level routes', () => {
+  it('creates and lists a level (admin happy path)', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const createRes = await agent.post('/api/v1/levels').send({
+      name: 'Beginner',
+      order: 1,
+    });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.level.name).toBe('Beginner');
+
+    const listRes = await agent.get('/api/v1/levels');
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.levels).toHaveLength(1);
+  });
+
+  it('returns 403 when a non-admin tries to create a level', async () => {
+    await seedUser({ role: 'coach', email: 'test-coach@example.com' });
+    const agent = await loginAgent('test-coach@example.com');
+
+    const res = await agent.post('/api/v1/levels').send({ name: 'Beginner', order: 1 });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 409 when deleting a level referenced by a GroupClass', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const level = await Level.create({ name: 'Beginner', order: 1 });
+    const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+    await GroupClass.create({
+      name: 'Beginner Foil',
+      levelId: level._id,
+      locationId: location._id,
+      capacity: 10,
+    });
+
+    const res = await agent.delete(`/api/v1/levels/${level._id}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/1 class\(es\) reference this level/);
+  });
+});

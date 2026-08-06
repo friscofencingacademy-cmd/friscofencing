@@ -1,0 +1,96 @@
+const GroupClassSchedule = require('../models/groupClassSchedule.model');
+const GroupClass = require('../models/groupClass.model');
+const GroupClassSession = require('../models/groupClassSession.model');
+const User = require('../models/user.model');
+const { generateInitialSessions } = require('./groupClassSession.service');
+
+function notFoundError(message) {
+  const error = new Error(message);
+  error.status = 404;
+  return error;
+}
+
+function badRequestError(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+async function assertClassExists(classId) {
+  const groupClass = await GroupClass.findById(classId);
+
+  if (!groupClass) {
+    throw notFoundError('Group class not found');
+  }
+}
+
+async function assertCoachValid(coachId) {
+  const coach = await User.findById(coachId);
+
+  if (!coach || coach.role !== 'coach') {
+    throw badRequestError('coachId must refer to a user with role "coach"');
+  }
+}
+
+async function create(data) {
+  await assertClassExists(data.classId);
+  await assertCoachValid(data.coachId);
+
+  const schedule = await GroupClassSchedule.create(data);
+
+  const sessions = generateInitialSessions(schedule);
+  await GroupClassSession.insertMany(sessions);
+
+  return schedule;
+}
+
+async function list() {
+  return GroupClassSchedule.find();
+}
+
+async function listByCoach(coachId) {
+  return GroupClassSchedule.find({ coachId });
+}
+
+async function getById(id) {
+  const schedule = await GroupClassSchedule.findById(id);
+
+  if (!schedule) {
+    throw notFoundError('Group class schedule not found');
+  }
+
+  return schedule;
+}
+
+async function update(id, data) {
+  if (data.classId !== undefined) {
+    await assertClassExists(data.classId);
+  }
+
+  if (data.coachId !== undefined) {
+    await assertCoachValid(data.coachId);
+  }
+
+  const schedule = await GroupClassSchedule.findByIdAndUpdate(id, data, {
+    new: true,
+    runValidators: true,
+  });
+
+  if (!schedule) {
+    throw notFoundError('Group class schedule not found');
+  }
+
+  return schedule;
+}
+
+async function remove(id) {
+  const schedule = await GroupClassSchedule.findByIdAndDelete(id);
+
+  if (!schedule) {
+    throw notFoundError('Group class schedule not found');
+  }
+
+  return schedule;
+}
+
+module.exports = { create, list, listByCoach, getById, update, remove };

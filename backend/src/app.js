@@ -5,6 +5,12 @@ const passport = require('passport');
 
 const configurePassport = require('./config/passport');
 const authRoutes = require('./routes/auth.routes');
+const locationRoutes = require('./routes/location.routes');
+const levelRoutes = require('./routes/level.routes');
+const groupClassRoutes = require('./routes/groupClass.routes');
+const groupClassScheduleRoutes = require('./routes/groupClassSchedule.routes');
+const groupClassSessionRoutes = require('./routes/groupClassSession.routes');
+const userRoutes = require('./routes/user.routes');
 
 configurePassport(passport);
 
@@ -25,5 +31,11 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/locations', locationRoutes);
+app.use('/api/v1/levels', levelRoutes);
+app.use('/api/v1/group-classes', groupClassRoutes);
+app.use('/api/v1/group-class-schedules', groupClassScheduleRoutes);
+app.use('/api/v1/group-class-sessions', groupClassSessionRoutes);
+app.use('/api/v1/users', userRoutes);
 
 module.exports = app;
