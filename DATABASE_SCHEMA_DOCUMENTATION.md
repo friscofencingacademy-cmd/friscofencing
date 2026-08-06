@@ -25,9 +25,14 @@ Login is email+password for `parent`/`coach`/`admin`/`superadmin` only — stude
 
 Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected (409).
 
+## `Price` — implemented
+| Field | Type | Notes |
+|---|---|---|
+| `levelId` | ObjectId ref `Level` | required, **unique** — one price per level (fencing is in-person only, no online/in-person split) |
+| `monthlyFee` | Number | required, min 0 |
+
 | Collection | Purpose |
 |---|---|
-| `Price` | Rate card by class/level. |
 | `TrialClass` | Free one-time trial booking — no payment. |
 | `PaymentMethod` | A parent's saved card (Stripe Customer + PaymentMethod IDs). |
 | `Registration` | The enrollment record — student, class/schedule ref, status. |
