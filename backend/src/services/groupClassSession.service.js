@@ -1,4 +1,5 @@
 const GroupClassSession = require('../models/groupClassSession.model');
+const GroupClassSchedule = require('../models/groupClassSchedule.model');
 
 const SESSION_COUNT = 8;
 const DAYS_PER_WEEK = 7;
@@ -6,6 +7,18 @@ const DAYS_PER_WEEK = 7;
 function notFoundError(message) {
   const error = new Error(message);
   error.status = 404;
+  return error;
+}
+
+function forbiddenError(message) {
+  const error = new Error(message);
+  error.status = 403;
+  return error;
+}
+
+function badRequestError(message) {
+  const error = new Error(message);
+  error.status = 400;
   return error;
 }
 
@@ -57,7 +70,10 @@ async function listBySchedule(scheduleId) {
 }
 
 async function getById(id) {
-  const session = await GroupClassSession.findById(id);
+  const session = await GroupClassSession.findById(id).populate(
+    'students.studentId',
+    'firstName lastName'
+  );
 
   if (!session) {
     throw notFoundError('Group class session not found');
@@ -66,4 +82,55 @@ async function getById(id) {
   return session;
 }
 
-module.exports = { generateInitialSessions, listBySchedule, getById };
+// Coach-marks-their-own-session-attendance mutation. Admins/superadmins may
+// mark any session; a coach may only mark a session belonging to a schedule
+// they are assigned to. This can only flip `isPresent` on students already
+// on the session's roster snapshot — it can never add/remove roster entries.
+async function markAttendance(sessionId, studentUpdates, requestingUser) {
+  const session = await GroupClassSession.findById(sessionId);
+
+  if (!session) {
+    throw notFoundError('Group class session not found');
+  }
+
+  const schedule = await GroupClassSchedule.findById(session.scheduleId);
+
+  if (!schedule) {
+    throw notFoundError('Group class schedule not found');
+  }
+
+  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAssignedCoach =
+    requestingUser.role === 'coach' && String(schedule.coachId) === String(requestingUser._id);
+
+  if (!isAdmin && !isAssignedCoach) {
+    throw forbiddenError('You are not the assigned coach for this session');
+  }
+
+  const updates = studentUpdates || [];
+  const rosterIds = new Set(session.students.map((entry) => String(entry.studentId)));
+
+  updates.forEach((update) => {
+    if (!rosterIds.has(String(update.studentId))) {
+      throw badRequestError(
+        "Unknown studentId: cannot attendance-mark a student not on this session's roster"
+      );
+    }
+  });
+
+  updates.forEach((update) => {
+    const entry = session.students.find(
+      (s) => String(s.studentId) === String(update.studentId)
+    );
+
+    if (entry) {
+      entry.isPresent = update.isPresent;
+    }
+  });
+
+  await session.save();
+
+  return getById(sessionId);
+}
+
+module.exports = { generateInitialSessions, listBySchedule, getById, markAttendance };

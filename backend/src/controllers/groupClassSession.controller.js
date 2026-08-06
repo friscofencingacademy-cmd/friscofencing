@@ -20,4 +20,18 @@ async function getById(req, res) {
   }
 }
 
-module.exports = { byScheduleId, getById };
+async function markAttendance(req, res) {
+  try {
+    const session = await groupClassSessionService.markAttendance(
+      req.params.id,
+      req.body.students,
+      req.user
+    );
+    return res.status(200).json({ session });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to mark attendance' });
+  }
+}
+
+module.exports = { byScheduleId, getById, markAttendance };

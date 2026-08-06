@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-
 import Link from 'next/link';
 
 import api from '../../../../../lib/api';
@@ -14,7 +13,7 @@ interface SessionItem {
   students: { studentId: string; isPresent: boolean }[];
 }
 
-function SessionsPageContent() {
+function CoachSessionsPageContent() {
   const params = useParams<{ id: string }>();
   const scheduleId = params.id;
 
@@ -86,10 +85,10 @@ function SessionsPageContent() {
   );
 }
 
-export default function SessionsPage() {
+export default function CoachSessionsPage() {
   return (
-    <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <SessionsPageContent />
+    <ProtectedRoute allowedRoles={['coach']}>
+      <CoachSessionsPageContent />
     </ProtectedRoute>
   );
 }
