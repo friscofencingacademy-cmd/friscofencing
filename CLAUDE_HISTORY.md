@@ -4,6 +4,7 @@ One row per shipped feature/PR, most recent first.
 
 | Date | Change |
 |---|---|
+| 2026-08-07 | Design system applied across all 17+ pages (auth, admin, parent, coach, shared attendance). Two real bugs found during the Phase 12 live E2E pass fixed along the way: same-day trial sessions were always excluded from booking (date-vs-now comparison bug in book-trial), and cancelling a subscription showed "undefined undefined-undefined" until reload (unpopulated cancel response merged into state instead of refetching). Both have regression tests. |
 | 2026-08-07 | Design system foundation: tokens (near-black primary, gold accent-only), Saira/Saira Condensed fonts, Button/Alert/Card, AppShell (role-aware nav). Brand inspired by FencerIQ, rebalanced for a dense CRM. See `docs/design-system.md`. |
 | 2026-08-06 | Phase 11: Stripe webhook (scoped: record + dedup payment_intent.succeeded/failed, no reconciliation). Raw-body middleware ordering verified correct. |
 | 2026-08-06 | Phase 10: confirmation/receipt emails (trial, registration, renewal) via mail.service.js -- never throws, zero-setup local dev via Ethereal auto-fallback when SMTP_HOST is unset. |
