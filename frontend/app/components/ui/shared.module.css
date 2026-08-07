@@ -1,0 +1,71 @@
+/* Page header */
+.pageHeader {
+  margin-bottom: var(--space-5);
+}
+
+.pageTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  margin: 0 0 var(--space-1);
+}
+
+.pageSubtitle {
+  font-family: var(--font-body), sans-serif;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.table th {
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+.emptyState {
+  text-align: center;
+  color: var(--color-muted);
+  padding: var(--space-6) var(--space-4);
+}
+
+/* Forms */
+.formField {
+  margin-bottom: var(--space-4);
+}
+
+.formLabel {
+  display: block;
+  font-family: var(--font-body), sans-serif;
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.formInput,
+.formSelect {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body), sans-serif;
+  font-size: 14px;
+  color: var(--color-ink);
+  background: var(--color-white);
+}
+
+.formInput:focus,
+.formSelect:focus {
+  outline: none;
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 1px var(--color-ink);
+}

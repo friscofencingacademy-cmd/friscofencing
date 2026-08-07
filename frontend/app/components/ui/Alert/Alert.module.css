@@ -1,0 +1,17 @@
+.alert {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body), sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
