@@ -35,7 +35,7 @@ Class-management platform for Frisco Fencing Academy. Single repo, local-only fo
 | Layer | Stack |
 |---|---|
 | Backend | Node.js, Express, MongoDB, Mongoose |
-| Frontend | Next.js 14, React 18, TypeScript, CSS Modules |
+| Frontend | Next.js 14, React 18, TypeScript, CSS Modules (see `docs/design-system.md`) |
 | Auth | JWT + Passport (backend), React context (frontend) |
 | Payments | Stripe — `PaymentIntent`s against a saved `PaymentMethod`, in-house subscription/billing model (NOT Stripe's native Subscriptions object). See `docs/decisions/001-in-house-subscription-billing.md`. |
 | Email | Nodemailer — real SMTP via `SMTP_HOST` env vars, or a zero-setup Ethereal test account auto-created for local dev when unset |
@@ -55,6 +55,7 @@ Users/auth · group classes/schedules/sessions · pricing · attendance · trial
 ## Documentation Map
 | Topic | Path |
 |---|---|
+| Design system | `docs/design-system.md` |
 | Testing strategy | `docs/TESTING_STRATEGY.md` |
 | Database schema | `DATABASE_SCHEMA_DOCUMENTATION.md` |
 | Completed work log | `CLAUDE_HISTORY.md` |
