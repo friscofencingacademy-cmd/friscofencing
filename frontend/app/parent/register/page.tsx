@@ -6,6 +6,11 @@ import Link from 'next/link';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface StudentOption {
   _id: string;
@@ -164,87 +169,114 @@ function RegisterPageContent() {
 
   return (
     <main>
-      <h1>Register for a Class</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Register for a Class</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
-      {successMessage ? <p>{successMessage}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
+      {successMessage ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="success">{successMessage}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : !paymentMethod ? (
-        <p>
-          You&apos;ll need to add a payment method before registering — do that{' '}
-          <Link href="/parent/payment-method">here</Link>.
-        </p>
+        <Card>
+          <p>
+            You&apos;ll need to add a payment method before registering — do that{' '}
+            <Link href="/parent/payment-method">here</Link>.
+          </p>
+        </Card>
       ) : (
-        <form onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="studentId">Child</label>
-            <select
-              id="studentId"
-              value={studentId}
-              onChange={(event) => setStudentId(event.target.value)}
-              required
-            >
-              <option value="">Select a child</option>
-              {students.map((student) => (
-                <option key={student._id} value={student._id}>
-                  {student.firstName} {student.lastName}
-                </option>
-              ))}
-            </select>
-          </div>
+        <Card>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="studentId" className={styles.formLabel}>
+                Child
+              </label>
+              <select
+                id="studentId"
+                className={styles.formSelect}
+                value={studentId}
+                onChange={(event) => setStudentId(event.target.value)}
+                required
+              >
+                <option value="">Select a child</option>
+                {students.map((student) => (
+                  <option key={student._id} value={student._id}>
+                    {student.firstName} {student.lastName}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label htmlFor="classId">Class</label>
-            <select
-              id="classId"
-              value={classId}
-              onChange={(event) => handleClassChange(event.target.value)}
-              required
-            >
-              <option value="">Select a class</option>
-              {groupClasses.map((groupClass) => (
-                <option key={groupClass._id} value={groupClass._id}>
-                  {groupClass.name}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className={styles.formField}>
+              <label htmlFor="classId" className={styles.formLabel}>
+                Class
+              </label>
+              <select
+                id="classId"
+                className={styles.formSelect}
+                value={classId}
+                onChange={(event) => handleClassChange(event.target.value)}
+                required
+              >
+                <option value="">Select a class</option>
+                {groupClasses.map((groupClass) => (
+                  <option key={groupClass._id} value={groupClass._id}>
+                    {groupClass.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label htmlFor="scheduleId">Schedule</label>
-            <select
-              id="scheduleId"
-              value={scheduleId}
-              onChange={(event) => setScheduleId(event.target.value)}
-              required
-              disabled={!classId}
-            >
-              <option value="">Select a schedule</option>
-              {filteredSchedules.map((schedule) => (
-                <option key={schedule._id} value={schedule._id}>
-                  {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className={styles.formField}>
+              <label htmlFor="scheduleId" className={styles.formLabel}>
+                Schedule
+              </label>
+              <select
+                id="scheduleId"
+                className={styles.formSelect}
+                value={scheduleId}
+                onChange={(event) => setScheduleId(event.target.value)}
+                required
+                disabled={!classId}
+              >
+                <option value="">Select a schedule</option>
+                {filteredSchedules.map((schedule) => (
+                  <option key={schedule._id} value={schedule._id}>
+                    {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {selectedGroupClass ? (
-            selectedPrice ? (
-              <p>
-                Level: {levelName(levels, selectedGroupClass.levelId)} — $
-                {selectedPrice.monthlyFee}/month
-              </p>
-            ) : (
-              <p role="alert">Pricing is not configured for this class yet.</p>
-            )
-          ) : null}
+            {selectedGroupClass ? (
+              selectedPrice ? (
+                <div className={styles.formField}>
+                  <p>
+                    Level: {levelName(levels, selectedGroupClass.levelId)} — $
+                    {selectedPrice.monthlyFee}/month
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.formField}>
+                  <Alert variant="error">Pricing is not configured for this class yet.</Alert>
+                </div>
+              )
+            ) : null}
 
-          <button type="submit" disabled={submitting || !scheduleId}>
-            {submitting ? 'Registering...' : 'Register'}
-          </button>
-        </form>
+            <Button type="submit" disabled={submitting || !scheduleId}>
+              {submitting ? 'Registering...' : 'Register'}
+            </Button>
+          </form>
+        </Card>
       )}
     </main>
   );
@@ -253,7 +285,9 @@ function RegisterPageContent() {
 export default function RegisterPage() {
   return (
     <ProtectedRoute allowedRoles={['parent']}>
-      <RegisterPageContent />
+      <AppShell>
+        <RegisterPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

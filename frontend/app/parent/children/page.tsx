@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
 
@@ -66,70 +71,91 @@ function ChildrenPageContent() {
 
   return (
     <main>
-      <h1>My Children</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>My Children</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>First Name</th>
-              <th>Last Name</th>
-              <th>Skill Level</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((student) => (
-              <tr key={student._id}>
-                <td>{student.firstName}</td>
-                <td>{student.lastName}</td>
-                <td>{student.skillLevel}</td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>First Name</th>
+                <th>Last Name</th>
+                <th>Skill Level</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {students.map((student) => (
+                <tr key={student._id}>
+                  <td>{student.firstName}</td>
+                  <td>{student.lastName}</td>
+                  <td>{student.skillLevel}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
-      <h2>Add Child</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="firstName">First Name</label>
-          <input
-            id="firstName"
-            value={firstName}
-            onChange={(event) => setFirstName(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="lastName">Last Name</label>
-          <input
-            id="lastName"
-            value={lastName}
-            onChange={(event) => setLastName(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="skillLevel">Skill Level</label>
-          <select
-            id="skillLevel"
-            value={skillLevel}
-            onChange={(event) => setSkillLevel(event.target.value as SkillLevel)}
-            required
-          >
-            <option value="beginner">Beginner</option>
-            <option value="intermediate">Intermediate</option>
-            <option value="advanced">Advanced</option>
-          </select>
-        </div>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Child'}
-        </button>
-      </form>
+      <div style={{ marginTop: 'var(--space-5)' }}>
+        <Card>
+          <h2>Add Child</h2>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="firstName" className={styles.formLabel}>
+                First Name
+              </label>
+              <input
+                id="firstName"
+                className={styles.formInput}
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="lastName" className={styles.formLabel}>
+                Last Name
+              </label>
+              <input
+                id="lastName"
+                className={styles.formInput}
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="skillLevel" className={styles.formLabel}>
+                Skill Level
+              </label>
+              <select
+                id="skillLevel"
+                className={styles.formSelect}
+                value={skillLevel}
+                onChange={(event) => setSkillLevel(event.target.value as SkillLevel)}
+                required
+              >
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding...' : 'Add Child'}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
@@ -137,7 +163,9 @@ function ChildrenPageContent() {
 export default function ChildrenPage() {
   return (
     <ProtectedRoute allowedRoles={['parent']}>
-      <ChildrenPageContent />
+      <AppShell>
+        <ChildrenPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

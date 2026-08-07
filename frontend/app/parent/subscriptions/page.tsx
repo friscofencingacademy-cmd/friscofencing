@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface StudentRef {
   _id: string;
@@ -74,17 +79,14 @@ function SubscriptionsPageContent() {
     setCancellingId(subscriptionId);
 
     try {
-      const res = await api.post<{ subscription: SubscriptionItem }>(
-        `/subscriptions/${subscriptionId}/cancel`
-      );
+      await api.post(`/subscriptions/${subscriptionId}/cancel`);
 
-      setSubscriptions((current) =>
-        current.map((subscription) =>
-          subscription._id === subscriptionId
-            ? { ...subscription, ...res.data.subscription }
-            : subscription
-        )
-      );
+      // The bare cancel response returns the unpopulated Subscription
+      // document (studentId/scheduleId as raw ObjectId strings, not the
+      // populated objects the table renders) — merging it into local state
+      // would blank out the student name / schedule display until the next
+      // reload. Refetch the fully-populated list instead.
+      await fetchSubscriptions();
     } catch (err) {
       const message = axios.isAxiosError(err) && err.response?.data?.message
         ? err.response.data.message
@@ -97,59 +99,71 @@ function SubscriptionsPageContent() {
 
   return (
     <main>
-      <h1>My Registrations</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>My Registrations</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : subscriptions.length === 0 ? (
-        <p>You don&apos;t have any registrations yet.</p>
+        <Card>
+          <p>You don&apos;t have any registrations yet.</p>
+        </Card>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Schedule</th>
-              <th>Status</th>
-              <th>Current Period End</th>
-              <th>Next Billing Date</th>
-              <th>Last Charge</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {subscriptions.map((subscription) => (
-              <tr key={subscription._id}>
-                <td>
-                  {subscription.studentId.firstName} {subscription.studentId.lastName}
-                </td>
-                <td>{formatSchedule(subscription.scheduleId)}</td>
-                <td>{subscription.status}</td>
-                <td>{formatDate(subscription.currentPeriodEnd)}</td>
-                <td>{formatDate(subscription.nextBillingDate)}</td>
-                <td>
-                  {subscription.lastChargeAmount !== null
-                    ? `$${subscription.lastChargeAmount.toFixed(2)}`
-                    : '—'}
-                </td>
-                <td>
-                  {subscription.status === 'cancelled' ? null : subscription.cancelAtPeriodEnd ? (
-                    <span>Cancels at end of current period</span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleCancel(subscription._id)}
-                      disabled={cancellingId === subscription._id}
-                    >
-                      {cancellingId === subscription._id ? 'Cancelling...' : 'Cancel'}
-                    </button>
-                  )}
-                </td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Schedule</th>
+                <th>Status</th>
+                <th>Current Period End</th>
+                <th>Next Billing Date</th>
+                <th>Last Charge</th>
+                <th>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {subscriptions.map((subscription) => (
+                <tr key={subscription._id}>
+                  <td>
+                    {subscription.studentId.firstName} {subscription.studentId.lastName}
+                  </td>
+                  <td>{formatSchedule(subscription.scheduleId)}</td>
+                  <td>{subscription.status}</td>
+                  <td>{formatDate(subscription.currentPeriodEnd)}</td>
+                  <td>{formatDate(subscription.nextBillingDate)}</td>
+                  <td>
+                    {subscription.lastChargeAmount !== null
+                      ? `$${subscription.lastChargeAmount.toFixed(2)}`
+                      : '—'}
+                  </td>
+                  <td>
+                    {subscription.status === 'cancelled' ? null : subscription.cancelAtPeriodEnd ? (
+                      <span>Cancels at end of current period</span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleCancel(subscription._id)}
+                        disabled={cancellingId === subscription._id}
+                      >
+                        {cancellingId === subscription._id ? 'Cancelling...' : 'Cancel'}
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
     </main>
   );
@@ -158,7 +172,9 @@ function SubscriptionsPageContent() {
 export default function SubscriptionsPage() {
   return (
     <ProtectedRoute allowedRoles={['parent']}>
-      <SubscriptionsPageContent />
+      <AppShell>
+        <SubscriptionsPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

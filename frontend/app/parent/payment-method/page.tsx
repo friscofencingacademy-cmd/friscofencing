@@ -7,6 +7,11 @@ import { CardElement, Elements, useElements, useStripe } from '@stripe/react-str
 import api from '../../../lib/api';
 import stripePromise from '../../../lib/stripe';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface SavedPaymentMethod {
   _id: string;
@@ -70,13 +75,35 @@ function CardForm({ onSaved }: CardFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <CardElement />
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={!stripe || submitting}>
-        {submitting ? 'Saving...' : 'Save Card'}
-      </button>
-    </form>
+    <Card>
+      <form onSubmit={handleSubmit}>
+        <div className={styles.formField}>
+          <label className={styles.formLabel}>Card Details</label>
+          <div
+            style={{
+              padding: 'var(--space-3)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--color-white)',
+            }}
+          >
+            <CardElement
+              options={{
+                style: { base: { fontFamily: 'inherit', fontSize: '16px', color: '#1B1A17' } },
+              }}
+            />
+          </div>
+        </div>
+        {error ? (
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <Alert variant="error">{error}</Alert>
+          </div>
+        ) : null}
+        <Button type="submit" disabled={!stripe || submitting}>
+          {submitting ? 'Saving...' : 'Save Card'}
+        </Button>
+      </form>
+    </Card>
   );
 }
 
@@ -125,7 +152,9 @@ function PaymentMethodPageContent() {
   if (loading) {
     return (
       <main>
-        <h1>Payment Method</h1>
+        <div className={styles.pageHeader}>
+          <h1 className={styles.pageTitle}>Payment Method</h1>
+        </div>
         <p>Loading...</p>
       </main>
     );
@@ -133,20 +162,26 @@ function PaymentMethodPageContent() {
 
   return (
     <main>
-      <h1>Payment Method</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Payment Method</h1>
+      </div>
 
-      {loadError ? <p role="alert">{loadError}</p> : null}
+      {loadError ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{loadError}</Alert>
+        </div>
+      ) : null}
 
       {paymentMethod && !isEditing ? (
-        <div>
+        <Card>
           <p>
             Card on file: {paymentMethod.cardBrand} ending in {paymentMethod.cardLast4}, expires{' '}
             {paymentMethod.cardExpMonth}/{paymentMethod.cardExpYear}
           </p>
-          <button type="button" onClick={() => setIsEditing(true)}>
+          <Button type="button" onClick={() => setIsEditing(true)}>
             Update card
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : (
         <Elements stripe={stripePromise}>
           <CardForm onSaved={handleSaved} />
@@ -159,7 +194,9 @@ function PaymentMethodPageContent() {
 export default function PaymentMethodPage() {
   return (
     <ProtectedRoute allowedRoles={['parent']}>
-      <PaymentMethodPageContent />
+      <AppShell>
+        <PaymentMethodPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

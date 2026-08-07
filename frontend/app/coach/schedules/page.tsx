@@ -5,6 +5,10 @@ import Link from 'next/link';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -54,39 +58,47 @@ function CoachSchedulesPageContent() {
 
   return (
     <main>
-      <h1>My Schedules</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>My Schedules</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Day</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Roster</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {schedules.map((schedule) => (
-              <tr key={schedule._id}>
-                <td>{classNameFor(groupClasses, schedule.classId)}</td>
-                <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                <td>{schedule.startTime}</td>
-                <td>{schedule.endTime}</td>
-                <td>{schedule.students.length}</td>
-                <td>
-                  <Link href={`/coach/schedules/${schedule._id}/sessions`}>View Sessions</Link>
-                </td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th>Day</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Roster</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {schedules.map((schedule) => (
+                <tr key={schedule._id}>
+                  <td>{classNameFor(groupClasses, schedule.classId)}</td>
+                  <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
+                  <td>{schedule.startTime}</td>
+                  <td>{schedule.endTime}</td>
+                  <td>{schedule.students.length}</td>
+                  <td>
+                    <Link href={`/coach/schedules/${schedule._id}/sessions`}>View Sessions</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
     </main>
   );
@@ -95,7 +107,9 @@ function CoachSchedulesPageContent() {
 export default function CoachSchedulesPage() {
   return (
     <ProtectedRoute allowedRoles={['coach']}>
-      <CoachSchedulesPageContent />
+      <AppShell>
+        <CoachSchedulesPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

@@ -145,3 +145,76 @@ describe('BookTrialPage', () => {
     });
   });
 });
+
+describe('BookTrialPage — same-day session regression (bug fix)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('includes a session dated at today\'s midnight in the session dropdown', async () => {
+    // Freeze "now" to 3pm on today's calendar date. A session stored at
+    // today's midnight is always earlier than the current instant, so the
+    // old `new Date(session.date).getTime() > now` comparison excluded it —
+    // making same-day trial booking impossible even though the class hadn't
+    // started yet. The fix compares against the start of today instead.
+    //
+    // Only Date is faked here (via `doNotFake`), not timers — testing-library's
+    // `waitFor` polling relies on real setTimeout and would hang otherwise.
+    const fixedNow = new Date();
+    fixedNow.setHours(15, 0, 0, 0);
+
+    jest.useFakeTimers({
+      now: fixedNow,
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'requestIdleCallback',
+        'setImmediate',
+        'setInterval',
+        'setTimeout',
+        'cancelAnimationFrame',
+        'cancelIdleCallback',
+        'clearImmediate',
+        'clearInterval',
+        'clearTimeout',
+      ],
+    });
+
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    const TODAY_SESSION = { _id: 'session-today', date: todayMidnight.toISOString() };
+
+    server.use(
+      http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>
+        HttpResponse.json({ sessions: [TODAY_SESSION, PAST_SESSION] })
+      )
+    );
+
+    renderBookTrialPage();
+
+    await screen.findByLabelText('Child');
+
+    fireEvent.change(screen.getByLabelText('Child'), { target: { value: STUDENT._id } });
+    fireEvent.change(screen.getByLabelText('Class'), { target: { value: CLASS_A._id } });
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Wednesday 16:00-17:00/ })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Schedule'), { target: { value: SCHEDULE_A._id } });
+
+    // Today's midnight-dated session must be selectable; the genuinely past
+    // session must still be filtered out.
+    await waitFor(() => {
+      expect(
+        screen.getByRole('option', { name: new Date(TODAY_SESSION.date).toLocaleDateString() })
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole('option', { name: new Date(PAST_SESSION.date).toLocaleDateString() })
+    ).not.toBeInTheDocument();
+  });
+});

@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
 
 import api from '../../../../../lib/api';
 import ProtectedRoute from '../../../../components/ProtectedRoute';
+import AppShell from '../../../../components/layout/AppShell';
+import Button from '../../../../components/ui/Button/Button';
+import Card from '../../../../components/ui/Card/Card';
+import Alert from '../../../../components/ui/Alert/Alert';
+import styles from '../../../../components/ui/shared.module.css';
 
 interface SessionItem {
   _id: string;
@@ -53,33 +57,48 @@ function CoachSessionsPageContent() {
 
   return (
     <main>
-      <h1>Sessions</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Sessions</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Students</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((session) => (
-              <tr key={session._id}>
-                <td>{new Date(session.date).toLocaleDateString()}</td>
-                <td>{session.students.length}</td>
-                <td>
-                  <Link href={`/sessions/${session._id}/attendance`}>Mark Attendance</Link>
-                </td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Students</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sessions.map((session) => (
+                <tr key={session._id}>
+                  <td>{new Date(session.date).toLocaleDateString()}</td>
+                  <td>{session.students.length}</td>
+                  <td>
+                    <Button
+                      as="a"
+                      href={`/sessions/${session._id}/attendance`}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Mark Attendance
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
     </main>
   );
@@ -88,7 +107,9 @@ function CoachSessionsPageContent() {
 export default function CoachSessionsPage() {
   return (
     <ProtectedRoute allowedRoles={['coach']}>
-      <CoachSessionsPageContent />
+      <AppShell>
+        <CoachSessionsPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

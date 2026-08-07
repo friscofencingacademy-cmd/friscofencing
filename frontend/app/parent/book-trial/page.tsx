@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface StudentOption {
   _id: string;
@@ -100,8 +105,13 @@ function BookTrialPageContent() {
         );
 
         if (isMounted) {
-          const now = Date.now();
-          setSessions(res.data.sessions.filter((session) => new Date(session.date).getTime() > now));
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          setSessions(
+            res.data.sessions.filter(
+              (session) => new Date(session.date).getTime() >= todayStart.getTime()
+            )
+          );
         }
       } catch (err) {
         if (isMounted) {
@@ -161,89 +171,113 @@ function BookTrialPageContent() {
 
   return (
     <main>
-      <h1>Book a Trial Class</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Book a Trial Class</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
-      {successMessage ? <p>{successMessage}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
+      {successMessage ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="success">{successMessage}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <form onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="studentId">Child</label>
-            <select
-              id="studentId"
-              value={studentId}
-              onChange={(event) => setStudentId(event.target.value)}
-              required
-            >
-              <option value="">Select a child</option>
-              {students.map((student) => (
-                <option key={student._id} value={student._id}>
-                  {student.firstName} {student.lastName}
-                </option>
-              ))}
-            </select>
-          </div>
+        <Card>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="studentId" className={styles.formLabel}>
+                Child
+              </label>
+              <select
+                id="studentId"
+                className={styles.formSelect}
+                value={studentId}
+                onChange={(event) => setStudentId(event.target.value)}
+                required
+              >
+                <option value="">Select a child</option>
+                {students.map((student) => (
+                  <option key={student._id} value={student._id}>
+                    {student.firstName} {student.lastName}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label htmlFor="classId">Class</label>
-            <select
-              id="classId"
-              value={classId}
-              onChange={(event) => handleClassChange(event.target.value)}
-              required
-            >
-              <option value="">Select a class</option>
-              {groupClasses.map((groupClass) => (
-                <option key={groupClass._id} value={groupClass._id}>
-                  {groupClass.name}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className={styles.formField}>
+              <label htmlFor="classId" className={styles.formLabel}>
+                Class
+              </label>
+              <select
+                id="classId"
+                className={styles.formSelect}
+                value={classId}
+                onChange={(event) => handleClassChange(event.target.value)}
+                required
+              >
+                <option value="">Select a class</option>
+                {groupClasses.map((groupClass) => (
+                  <option key={groupClass._id} value={groupClass._id}>
+                    {groupClass.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label htmlFor="scheduleId">Schedule</label>
-            <select
-              id="scheduleId"
-              value={scheduleId}
-              onChange={(event) => handleScheduleChange(event.target.value)}
-              required
-              disabled={!classId}
-            >
-              <option value="">Select a schedule</option>
-              {filteredSchedules.map((schedule) => (
-                <option key={schedule._id} value={schedule._id}>
-                  {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className={styles.formField}>
+              <label htmlFor="scheduleId" className={styles.formLabel}>
+                Schedule
+              </label>
+              <select
+                id="scheduleId"
+                className={styles.formSelect}
+                value={scheduleId}
+                onChange={(event) => handleScheduleChange(event.target.value)}
+                required
+                disabled={!classId}
+              >
+                <option value="">Select a schedule</option>
+                {filteredSchedules.map((schedule) => (
+                  <option key={schedule._id} value={schedule._id}>
+                    {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label htmlFor="sessionId">Session</label>
-            <select
-              id="sessionId"
-              value={sessionId}
-              onChange={(event) => setSessionId(event.target.value)}
-              required
-              disabled={!scheduleId || sessionsLoading}
-            >
-              <option value="">Select a session</option>
-              {sessions.map((session) => (
-                <option key={session._id} value={session._id}>
-                  {new Date(session.date).toLocaleDateString()}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className={styles.formField}>
+              <label htmlFor="sessionId" className={styles.formLabel}>
+                Session
+              </label>
+              <select
+                id="sessionId"
+                className={styles.formSelect}
+                value={sessionId}
+                onChange={(event) => setSessionId(event.target.value)}
+                required
+                disabled={!scheduleId || sessionsLoading}
+              >
+                <option value="">Select a session</option>
+                {sessions.map((session) => (
+                  <option key={session._id} value={session._id}>
+                    {new Date(session.date).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <button type="submit" disabled={submitting}>
-            {submitting ? 'Booking...' : 'Book Trial Class'}
-          </button>
-        </form>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Booking...' : 'Book Trial Class'}
+            </Button>
+          </form>
+        </Card>
       )}
     </main>
   );
@@ -252,7 +286,9 @@ function BookTrialPageContent() {
 export default function BookTrialPage() {
   return (
     <ProtectedRoute allowedRoles={['parent']}>
-      <BookTrialPageContent />
+      <AppShell>
+        <BookTrialPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

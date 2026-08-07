@@ -98,6 +98,22 @@ describe('SubscriptionsPage', () => {
   it('cancelling an active subscription posts to /subscriptions/:id/cancel and swaps the button for "Cancels at end of current period"', async () => {
     renderSubscriptionsPage();
 
+    await screen.findByText('Kid One');
+
+    // The page refetches the full list after a successful cancel (rather than
+    // merging the bare cancel response into state) — swap in a handler that
+    // reflects the cancellation so the refetch shows the updated row.
+    server.use(
+      http.get('*/registrations/mine', () =>
+        HttpResponse.json({
+          subscriptions: [
+            { ...ACTIVE_SUBSCRIPTION, cancelAtPeriodEnd: true },
+            CANCELLED_SUBSCRIPTION,
+          ],
+        })
+      )
+    );
+
     const cancelButton = await screen.findByRole('button', { name: /^cancel$/i });
     fireEvent.click(cancelButton);
 
@@ -107,6 +123,63 @@ describe('SubscriptionsPage', () => {
 
     expect(await screen.findByText(/cancels at end of current period/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the correct student name and schedule (not "undefined") after a successful cancel — regression for the unpopulated-merge bug', async () => {
+    // The real backend's POST /subscriptions/:id/cancel returns the bare,
+    // unpopulated Subscription document — studentId/scheduleId as raw
+    // ObjectId strings, not the populated { firstName, lastName } / { dayOfWeek,
+    // startTime, endTime } objects the table renders. The old code spread that
+    // bare response into local state, which overwrote the populated fields and
+    // rendered "undefined undefined-undefined" until the next full reload.
+    // The fix refetches the full populated list instead of merging.
+    server.use(
+      http.post('*/subscriptions/:id/cancel', ({ params }) => {
+        cancelledSubscriptionId = params.id as string;
+        return HttpResponse.json({
+          subscription: {
+            _id: ACTIVE_SUBSCRIPTION._id,
+            studentId: STUDENT._id,
+            scheduleId: SCHEDULE._id,
+            status: 'active',
+            cancelAtPeriodEnd: true,
+            currentPeriodEnd: ACTIVE_SUBSCRIPTION.currentPeriodEnd,
+            nextBillingDate: ACTIVE_SUBSCRIPTION.nextBillingDate,
+            lastChargeAmount: ACTIVE_SUBSCRIPTION.lastChargeAmount,
+          },
+        });
+      })
+    );
+
+    renderSubscriptionsPage();
+
+    // Wait for the initial, correctly-populated render before triggering the
+    // cancel — only then swap the GET handler to reflect the post-cancel
+    // state, so the refetch (not the initial load) picks it up.
+    const cancelButton = await screen.findByRole('button', { name: /^cancel$/i });
+
+    server.use(
+      http.get('*/registrations/mine', () =>
+        HttpResponse.json({
+          subscriptions: [
+            { ...ACTIVE_SUBSCRIPTION, cancelAtPeriodEnd: true },
+            CANCELLED_SUBSCRIPTION,
+          ],
+        })
+      )
+    );
+
+    fireEvent.click(cancelButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/cancels at end of current period/i)).toBeInTheDocument();
+    });
+
+    // The row must still show the real, populated display values — never the
+    // "undefined undefined-undefined" the bare merge produced.
+    expect(screen.getByText('Kid One')).toBeInTheDocument();
+    expect(screen.getByText('Wednesday 16:00-17:00')).toBeInTheDocument();
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
   });
 
   it('shows an inline error and keeps the Cancel button when the cancel request fails, without crashing', async () => {

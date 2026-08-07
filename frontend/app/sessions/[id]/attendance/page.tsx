@@ -6,6 +6,11 @@ import axios from 'axios';
 
 import api from '../../../../lib/api';
 import ProtectedRoute from '../../../components/ProtectedRoute';
+import AppShell from '../../../components/layout/AppShell';
+import Button from '../../../components/ui/Button/Button';
+import Card from '../../../components/ui/Card/Card';
+import Alert from '../../../components/ui/Alert/Alert';
+import styles from '../../../components/ui/shared.module.css';
 
 interface PopulatedStudent {
   _id: string;
@@ -101,33 +106,49 @@ function AttendancePageContent() {
 
   return (
     <main>
-      <h1>Mark Attendance</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Mark Attendance</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
-      {message ? <p>{message}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
+      {message ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="success">{message}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : session ? (
-        <>
-          <ul>
-            {session.students.map((entry) => (
-              <li key={entry.studentId._id}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={attendance[entry.studentId._id] ?? false}
-                    onChange={() => toggleStudent(entry.studentId._id)}
-                  />
-                  {entry.studentId.firstName} {entry.studentId.lastName}
-                </label>
-              </li>
-            ))}
-          </ul>
-          <button type="button" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Attendance'}
-          </button>
-        </>
+        <Card>
+          <table className={styles.table}>
+            <tbody>
+              {session.students.map((entry) => (
+                <tr key={entry.studentId._id}>
+                  <td>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={attendance[entry.studentId._id] ?? false}
+                        onChange={() => toggleStudent(entry.studentId._id)}
+                      />{' '}
+                      {entry.studentId.firstName} {entry.studentId.lastName}
+                    </label>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <Button type="button" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Attendance'}
+            </Button>
+          </div>
+        </Card>
       ) : null}
     </main>
   );
@@ -136,7 +157,9 @@ function AttendancePageContent() {
 export default function AttendancePage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin', 'coach']}>
-      <AttendancePageContent />
+      <AppShell>
+        <AttendancePageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }
