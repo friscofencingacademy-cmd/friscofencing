@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface LocationItem {
   _id: string;
@@ -62,65 +67,86 @@ function LocationsPageContent() {
 
   return (
     <main>
-      <h1>Locations</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Locations</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Address</th>
-              <th>Timezone</th>
-            </tr>
-          </thead>
-          <tbody>
-            {locations.map((location) => (
-              <tr key={location._id}>
-                <td>{location.name}</td>
-                <td>{location.address}</td>
-                <td>{location.timezone}</td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Timezone</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {locations.map((location) => (
+                <tr key={location._id}>
+                  <td>{location.name}</td>
+                  <td>{location.address}</td>
+                  <td>{location.timezone}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
-      <h2>Add Location</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="name">Name</label>
-          <input
-            id="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="address">Address</label>
-          <input
-            id="address"
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="timezone">Timezone</label>
-          <input
-            id="timezone"
-            value={timezone}
-            onChange={(event) => setTimezone(event.target.value)}
-          />
-        </div>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Location'}
-        </button>
-      </form>
+      <div style={{ marginTop: 'var(--space-5)' }}>
+        <Card>
+          <h2>Add Location</h2>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="name" className={styles.formLabel}>
+                Name
+              </label>
+              <input
+                id="name"
+                className={styles.formInput}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="address" className={styles.formLabel}>
+                Address
+              </label>
+              <input
+                id="address"
+                className={styles.formInput}
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="timezone" className={styles.formLabel}>
+                Timezone
+              </label>
+              <input
+                id="timezone"
+                className={styles.formInput}
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+              />
+            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding...' : 'Add Location'}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
@@ -128,7 +154,9 @@ function LocationsPageContent() {
 export default function LocationsPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <LocationsPageContent />
+      <AppShell>
+        <LocationsPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

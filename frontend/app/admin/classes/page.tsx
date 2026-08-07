@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface LevelOption {
   _id: string;
@@ -96,93 +101,117 @@ function ClassesPageContent() {
 
   return (
     <main>
-      <h1>Group Classes</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Group Classes</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Level</th>
-              <th>Location</th>
-              <th>Capacity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groupClasses.map((groupClass) => (
-              <tr key={groupClass._id}>
-                <td>{groupClass.name}</td>
-                <td>{levelName(levels, groupClass.levelId)}</td>
-                <td>{locationName(locations, groupClass.locationId)}</td>
-                <td>{groupClass.capacity}</td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Level</th>
+                <th>Location</th>
+                <th>Capacity</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {groupClasses.map((groupClass) => (
+                <tr key={groupClass._id}>
+                  <td>{groupClass.name}</td>
+                  <td>{levelName(levels, groupClass.levelId)}</td>
+                  <td>{locationName(locations, groupClass.locationId)}</td>
+                  <td>{groupClass.capacity}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
-      <h2>Add Class</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="name">Name</label>
-          <input
-            id="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="levelId">Level</label>
-          <select
-            id="levelId"
-            value={levelId}
-            onChange={(event) => setLevelId(event.target.value)}
-            required
-          >
-            <option value="">Select a level</option>
-            {levels.map((level) => (
-              <option key={level._id} value={level._id}>
-                {level.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="locationId">Location</label>
-          <select
-            id="locationId"
-            value={locationId}
-            onChange={(event) => setLocationId(event.target.value)}
-            required
-          >
-            <option value="">Select a location</option>
-            {locations.map((location) => (
-              <option key={location._id} value={location._id}>
-                {location.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="capacity">Capacity</label>
-          <input
-            id="capacity"
-            type="number"
-            min={1}
-            value={capacity}
-            onChange={(event) => setCapacity(event.target.value)}
-            required
-          />
-        </div>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Class'}
-        </button>
-      </form>
+      <div style={{ marginTop: 'var(--space-5)' }}>
+        <Card>
+          <h2>Add Class</h2>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="name" className={styles.formLabel}>
+                Name
+              </label>
+              <input
+                id="name"
+                className={styles.formInput}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="levelId" className={styles.formLabel}>
+                Level
+              </label>
+              <select
+                id="levelId"
+                className={styles.formSelect}
+                value={levelId}
+                onChange={(event) => setLevelId(event.target.value)}
+                required
+              >
+                <option value="">Select a level</option>
+                {levels.map((level) => (
+                  <option key={level._id} value={level._id}>
+                    {level.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="locationId" className={styles.formLabel}>
+                Location
+              </label>
+              <select
+                id="locationId"
+                className={styles.formSelect}
+                value={locationId}
+                onChange={(event) => setLocationId(event.target.value)}
+                required
+              >
+                <option value="">Select a location</option>
+                {locations.map((location) => (
+                  <option key={location._id} value={location._id}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="capacity" className={styles.formLabel}>
+                Capacity
+              </label>
+              <input
+                id="capacity"
+                type="number"
+                min={1}
+                className={styles.formInput}
+                value={capacity}
+                onChange={(event) => setCapacity(event.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding...' : 'Add Class'}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
@@ -190,7 +219,9 @@ function ClassesPageContent() {
 export default function ClassesPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <ClassesPageContent />
+      <AppShell>
+        <ClassesPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

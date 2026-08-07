@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface LevelItem {
   _id: string;
@@ -59,56 +64,74 @@ function LevelsPageContent() {
 
   return (
     <main>
-      <h1>Levels</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Levels</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {levels.map((level) => (
-              <tr key={level._id}>
-                <td>{level.name}</td>
-                <td>{level.order}</td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Order</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {levels.map((level) => (
+                <tr key={level._id}>
+                  <td>{level.name}</td>
+                  <td>{level.order}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
-      <h2>Add Level</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="name">Name</label>
-          <input
-            id="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="order">Order</label>
-          <input
-            id="order"
-            type="number"
-            value={order}
-            onChange={(event) => setOrder(event.target.value)}
-            required
-          />
-        </div>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Level'}
-        </button>
-      </form>
+      <div style={{ marginTop: 'var(--space-5)' }}>
+        <Card>
+          <h2>Add Level</h2>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="name" className={styles.formLabel}>
+                Name
+              </label>
+              <input
+                id="name"
+                className={styles.formInput}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="order" className={styles.formLabel}>
+                Order
+              </label>
+              <input
+                id="order"
+                type="number"
+                className={styles.formInput}
+                value={order}
+                onChange={(event) => setOrder(event.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding...' : 'Add Level'}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
@@ -116,7 +139,9 @@ function LevelsPageContent() {
 export default function LevelsPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <LevelsPageContent />
+      <AppShell>
+        <LevelsPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

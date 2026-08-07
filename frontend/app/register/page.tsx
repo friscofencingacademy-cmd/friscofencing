@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation';
 import axios from 'axios';
 
 import { useAuth } from '../context/AuthContext';
+import AppShell from '../components/layout/AppShell';
+import Button from '../components/ui/Button/Button';
+import Card from '../components/ui/Card/Card';
+import Alert from '../components/ui/Alert/Alert';
+import styles from '../components/ui/shared.module.css';
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -36,52 +41,70 @@ export default function RegisterPage() {
   }
 
   return (
-    <main>
-      <h1>Sign Up</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="firstName">First Name</label>
-          <input
-            id="firstName"
-            value={firstName}
-            onChange={(event) => setFirstName(event.target.value)}
-            required
-          />
+    <AppShell>
+      <main>
+        <div style={{ maxWidth: 400, margin: 'var(--space-6) auto' }}>
+          <Card>
+            <h1>Sign Up</h1>
+            <form onSubmit={handleSubmit}>
+              <div className={styles.formField}>
+                <label htmlFor="firstName" className={styles.formLabel}>
+                  First Name
+                </label>
+                <input
+                  id="firstName"
+                  className={styles.formInput}
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.formField}>
+                <label htmlFor="lastName" className={styles.formLabel}>
+                  Last Name
+                </label>
+                <input
+                  id="lastName"
+                  className={styles.formInput}
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.formField}>
+                <label htmlFor="email" className={styles.formLabel}>
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  className={styles.formInput}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.formField}>
+                <label htmlFor="password" className={styles.formLabel}>
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  className={styles.formInput}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+              </div>
+              {error ? <Alert variant="error">{error}</Alert> : null}
+              <Button type="submit" fullWidth disabled={submitting}>
+                {submitting ? 'Signing up...' : 'Sign Up'}
+              </Button>
+            </form>
+          </Card>
         </div>
-        <div>
-          <label htmlFor="lastName">Last Name</label>
-          <input
-            id="lastName"
-            value={lastName}
-            onChange={(event) => setLastName(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="email">Email</label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-        </div>
-        {error ? <p role="alert">{error}</p> : null}
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Signing up...' : 'Sign Up'}
-        </button>
-      </form>
-    </main>
+      </main>
+    </AppShell>
   );
 }

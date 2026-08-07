@@ -6,6 +6,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -106,115 +111,142 @@ function SchedulesPageContent() {
 
   return (
     <main>
-      <h1>Group Class Schedules</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Group Class Schedules</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Coach</th>
-              <th>Day</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Roster</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {schedules.map((schedule) => (
-              <tr key={schedule._id}>
-                <td>{classNameFor(groupClasses, schedule.classId)}</td>
-                <td>{coachNameFor(coaches, schedule.coachId)}</td>
-                <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                <td>{schedule.startTime}</td>
-                <td>{schedule.endTime}</td>
-                <td>{schedule.students.length}</td>
-                <td>
-                  <Link href={`/admin/schedules/${schedule._id}/sessions`}>View Sessions</Link>
-                </td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th>Coach</th>
+                <th>Day</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Roster</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {schedules.map((schedule) => (
+                <tr key={schedule._id}>
+                  <td>{classNameFor(groupClasses, schedule.classId)}</td>
+                  <td>{coachNameFor(coaches, schedule.coachId)}</td>
+                  <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
+                  <td>{schedule.startTime}</td>
+                  <td>{schedule.endTime}</td>
+                  <td>{schedule.students.length}</td>
+                  <td>
+                    <Link href={`/admin/schedules/${schedule._id}/sessions`}>View Sessions</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
-      <h2>Add Schedule</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="classId">Class</label>
-          <select
-            id="classId"
-            value={classId}
-            onChange={(event) => setClassId(event.target.value)}
-            required
-          >
-            <option value="">Select a class</option>
-            {groupClasses.map((groupClass) => (
-              <option key={groupClass._id} value={groupClass._id}>
-                {groupClass.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="coachId">Coach</label>
-          <select
-            id="coachId"
-            value={coachId}
-            onChange={(event) => setCoachId(event.target.value)}
-            required
-          >
-            <option value="">Select a coach</option>
-            {coaches.map((coach) => (
-              <option key={coach._id} value={coach._id}>
-                {coach.firstName} {coach.lastName}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="dayOfWeek">Day of Week</label>
-          <select
-            id="dayOfWeek"
-            value={dayOfWeek}
-            onChange={(event) => setDayOfWeek(event.target.value)}
-          >
-            {DAY_LABELS.map((label, index) => (
-              <option key={label} value={index}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="startTime">Start Time</label>
-          <input
-            id="startTime"
-            type="time"
-            value={startTime}
-            onChange={(event) => setStartTime(event.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="endTime">End Time</label>
-          <input
-            id="endTime"
-            type="time"
-            value={endTime}
-            onChange={(event) => setEndTime(event.target.value)}
-            required
-          />
-        </div>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Schedule'}
-        </button>
-      </form>
+      <div style={{ marginTop: 'var(--space-5)' }}>
+        <Card>
+          <h2>Add Schedule</h2>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="classId" className={styles.formLabel}>
+                Class
+              </label>
+              <select
+                id="classId"
+                className={styles.formSelect}
+                value={classId}
+                onChange={(event) => setClassId(event.target.value)}
+                required
+              >
+                <option value="">Select a class</option>
+                {groupClasses.map((groupClass) => (
+                  <option key={groupClass._id} value={groupClass._id}>
+                    {groupClass.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="coachId" className={styles.formLabel}>
+                Coach
+              </label>
+              <select
+                id="coachId"
+                className={styles.formSelect}
+                value={coachId}
+                onChange={(event) => setCoachId(event.target.value)}
+                required
+              >
+                <option value="">Select a coach</option>
+                {coaches.map((coach) => (
+                  <option key={coach._id} value={coach._id}>
+                    {coach.firstName} {coach.lastName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="dayOfWeek" className={styles.formLabel}>
+                Day of Week
+              </label>
+              <select
+                id="dayOfWeek"
+                className={styles.formSelect}
+                value={dayOfWeek}
+                onChange={(event) => setDayOfWeek(event.target.value)}
+              >
+                {DAY_LABELS.map((label, index) => (
+                  <option key={label} value={index}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="startTime" className={styles.formLabel}>
+                Start Time
+              </label>
+              <input
+                id="startTime"
+                type="time"
+                className={styles.formInput}
+                value={startTime}
+                onChange={(event) => setStartTime(event.target.value)}
+                required
+              />
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="endTime" className={styles.formLabel}>
+                End Time
+              </label>
+              <input
+                id="endTime"
+                type="time"
+                className={styles.formInput}
+                value={endTime}
+                onChange={(event) => setEndTime(event.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding...' : 'Add Schedule'}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
@@ -222,7 +254,9 @@ function SchedulesPageContent() {
 export default function SchedulesPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <SchedulesPageContent />
+      <AppShell>
+        <SchedulesPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

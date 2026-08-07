@@ -5,6 +5,11 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import AppShell from '../../components/layout/AppShell';
+import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import Alert from '../../components/ui/Alert/Alert';
+import styles from '../../components/ui/shared.module.css';
 
 interface LevelOption {
   _id: string;
@@ -76,64 +81,82 @@ function PricesPageContent() {
 
   return (
     <main>
-      <h1>Prices</h1>
+      <div className={styles.pageHeader}>
+        <h1 className={styles.pageTitle}>Prices</h1>
+      </div>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
 
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Level</th>
-              <th>Monthly Fee</th>
-            </tr>
-          </thead>
-          <tbody>
-            {prices.map((price) => (
-              <tr key={price._id}>
-                <td>{levelName(levels, price.levelId)}</td>
-                <td>{price.monthlyFee}</td>
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Level</th>
+                <th>Monthly Fee</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {prices.map((price) => (
+                <tr key={price._id}>
+                  <td>{levelName(levels, price.levelId)}</td>
+                  <td>{price.monthlyFee}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
 
-      <h2>Add Price</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="levelId">Level</label>
-          <select
-            id="levelId"
-            value={levelId}
-            onChange={(event) => setLevelId(event.target.value)}
-            required
-          >
-            <option value="">Select a level</option>
-            {levels.map((level) => (
-              <option key={level._id} value={level._id}>
-                {level.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="monthlyFee">Monthly Fee</label>
-          <input
-            id="monthlyFee"
-            type="number"
-            min={0}
-            value={monthlyFee}
-            onChange={(event) => setMonthlyFee(event.target.value)}
-            required
-          />
-        </div>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Price'}
-        </button>
-      </form>
+      <div style={{ marginTop: 'var(--space-5)' }}>
+        <Card>
+          <h2>Add Price</h2>
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formField}>
+              <label htmlFor="levelId" className={styles.formLabel}>
+                Level
+              </label>
+              <select
+                id="levelId"
+                className={styles.formSelect}
+                value={levelId}
+                onChange={(event) => setLevelId(event.target.value)}
+                required
+              >
+                <option value="">Select a level</option>
+                {levels.map((level) => (
+                  <option key={level._id} value={level._id}>
+                    {level.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label htmlFor="monthlyFee" className={styles.formLabel}>
+                Monthly Fee
+              </label>
+              <input
+                id="monthlyFee"
+                type="number"
+                min={0}
+                className={styles.formInput}
+                value={monthlyFee}
+                onChange={(event) => setMonthlyFee(event.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding...' : 'Add Price'}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
@@ -141,7 +164,9 @@ function PricesPageContent() {
 export default function PricesPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <PricesPageContent />
+      <AppShell>
+        <PricesPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }
