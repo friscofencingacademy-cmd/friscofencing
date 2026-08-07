@@ -9,6 +9,7 @@
     "start": "node src/server.js",
     "test": "jest",
     "seed:superadmin": "node scripts/seed-superadmin.js",
+    "seed:coach": "node scripts/seed-coach.js",
     "renewals": "node scripts/run-renewals.js"
   },
   "dependencies": {
