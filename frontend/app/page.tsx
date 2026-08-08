@@ -35,6 +35,26 @@ const HOME_CARDS_BY_ROLE: Record<Role, HomeCard[]> = {
   student: [],
 };
 
+interface OfferItem {
+  title: string;
+  description: string;
+}
+
+const WHAT_WE_OFFER: OfferItem[] = [
+  {
+    title: 'Beginner to Advanced',
+    description: 'Classes for every skill level, from first touch to competitive fencing.',
+  },
+  {
+    title: 'Expert Coaching',
+    description: 'Experienced coaches focused on fundamentals and long-term growth.',
+  },
+  {
+    title: 'Flexible Scheduling',
+    description: "Weekly classes that fit your family's schedule.",
+  },
+];
+
 export default function HomePage() {
   const { user, loading } = useAuth();
 
@@ -48,20 +68,51 @@ export default function HomePage() {
 
   if (!user) {
     return (
-      <main style={{ padding: 'var(--space-6) var(--space-5)' }}>
-        <h1>Frisco Fencing Academy</h1>
-        <p className={styles.pageSubtitle}>
-          Manage classes, schedules, and registrations for Frisco Fencing Academy.
-        </p>
-        <div style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-          <Button as="a" href="/login">
-            Log In
-          </Button>
-          <Button as="a" href="/register" variant="secondary">
-            Sign Up
-          </Button>
-        </div>
-      </main>
+      <AppShell>
+        <section style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>
+          <h1 className={styles.pageTitle}>Frisco Fencing Academy</h1>
+          <p style={{ fontSize: '18px', color: 'var(--color-muted)', margin: '0 auto var(--space-5)', maxWidth: 560 }}>
+            Expert fencing instruction for all ages and skill levels.
+          </p>
+          <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center' }}>
+            <Button as="a" href="/register" size="lg">
+              Book a Free Trial
+            </Button>
+            <Button as="a" href="/login" variant="secondary" size="lg">
+              Log In
+            </Button>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 'var(--space-4)',
+            marginTop: 'var(--space-6)',
+          }}
+        >
+          {WHAT_WE_OFFER.map((item) => (
+            <Card key={item.title}>
+              <h3>{item.title}</h3>
+              <p className={styles.pageSubtitle}>{item.description}</p>
+            </Card>
+          ))}
+        </section>
+
+        <section style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>
+          <h2 className={styles.pageTitle}>Ready to get started?</h2>
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <Button as="a" href="/register" size="lg">
+              Book a Free Trial
+            </Button>
+          </div>
+        </section>
+
+        <footer style={{ textAlign: 'center', padding: 'var(--space-5) 0', color: 'var(--color-muted)', fontSize: '14px' }}>
+          &copy; 2026 Frisco Fencing Academy
+        </footer>
+      </AppShell>
     );
   }
 

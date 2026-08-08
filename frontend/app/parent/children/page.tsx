@@ -75,6 +75,25 @@ function ChildrenPageContent() {
         <h1 className={styles.pageTitle}>My Children</h1>
       </div>
 
+      <div style={{ marginBottom: 'var(--space-4)' }}>
+        <Card>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 'var(--space-3)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <p style={{ margin: 0 }}>Ready to try a class? Book a free trial for your child.</p>
+            <Button as="a" href="/parent/book-trial" size="sm">
+              Book a Free Trial
+            </Button>
+          </div>
+        </Card>
+      </div>
+
       {error ? (
         <div style={{ marginBottom: 'var(--space-4)' }}>
           <Alert variant="error">{error}</Alert>

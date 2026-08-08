@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import axios from 'axios';
 
 import { useAuth } from '../context/AuthContext';
@@ -102,6 +103,9 @@ export default function RegisterPage() {
                 {submitting ? 'Signing up...' : 'Sign Up'}
               </Button>
             </form>
+            <p style={{ marginTop: 'var(--space-4)', textAlign: 'center' }}>
+              Already have an account? <Link href="/login">Log in</Link>
+            </p>
           </Card>
         </div>
       </main>
