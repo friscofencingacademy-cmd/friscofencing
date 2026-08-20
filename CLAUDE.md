@@ -68,7 +68,8 @@ Users/auth · group classes/schedules/sessions · pricing · attendance · trial
 ## Documentation Map
 | Topic | Path |
 |---|---|
-| **Active plan** — deployment & launch (GitHub ✅, Atlas ✅, Vercel/Brevo pending) | `docs/plans/deployment-launch-plan.md` |
+| **Active plan** — deployment & launch (Steps 1–5 ✅ LIVE IN PRODUCTION 2026-08-20; Step 6 Brevo pending) | `docs/plans/deployment-launch-plan.md` |
+| **Active plan** — CKQ UI adoption: admin sidebar shell, parent portal shell, CRUD edit/delete, testing+docs org (7 phases, APPROVED for autonomous Sonnet execution) | `docs/plans/ckq-ui-adoption-plan.md` |
 | Design system | `docs/design-system.md` |
 | Testing strategy | `docs/TESTING_STRATEGY.md` |
 | Database schema | `DATABASE_SCHEMA_DOCUMENTATION.md` |
