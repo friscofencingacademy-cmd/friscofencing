@@ -14,11 +14,16 @@ local `.env` / `.env.local` files (gitignored) and the Vercel dashboard.
 |---|---|---|
 | 1 | GitHub repo + branches | ✅ DONE 2026-08-20 — `friscofencingacademy-cmd/friscofencing`, `main` + `develop` |
 | 2 | MongoDB Atlas | ✅ DONE 2026-08-20 — free M0 cluster, `friscofencing` (prod) + `friscofencing-staging` DBs, superadmin seeded in both |
-| 3 | Deploy-readiness code changes | 🔄 IN PROGRESS — `feature/vercel-deploy-readiness` |
-| 4 | Vercel projects + env vars | ⬜ |
-| 5 | Verify public home page live | ⬜ |
+| 3 | Deploy-readiness code changes | ✅ DONE 2026-08-20 — PR #1 merged to develop |
+| 4 | Vercel projects + env vars | ✅ DONE 2026-08-20 — `friscofencing` (frontend) + `friscofencing-backend`, both projects, all env vars set via API |
+| 5 | Verify public home page live | ✅ DONE 2026-08-20 — staging + production both verified: home page, superadmin login, cookie flags (Secure/HttpOnly/SameSite=Lax), Atlas connectivity |
 | 6 | Brevo email + parent signup verification | ⬜ |
 | 7+ | Deferred follow-ups | ⬜ (see bottom) |
+
+**Production URLs:** frontend `https://friscofencing.vercel.app` · backend `https://friscofencing-backend.vercel.app`
+**Staging URLs:** frontend `https://friscofencing-git-develop-frisco-fencing.vercel.app` · backend `https://friscofencing-backend-git-develop-frisco-fencing.vercel.app`
+
+**Known gotcha (hit twice during this launch):** a fresh serverless cold start's `connectDB()` call is fire-and-forget — if the very first request lands before the MongoDB connection finishes (or right after an Atlas network-access change), mongoose's command buffering times out ("Operation `users.findOne()` buffering timed out") and that broken connection state persists for the container's lifetime. Fix: trigger one fresh redeploy (a new cold start reconnects cleanly). Also: Vercel's "Deployment is building" placeholder page returns HTTP 200 — don't treat a 200 on `/health` as proof the build finished; check the actual JSON body.
 
 ---
 
