@@ -29,7 +29,20 @@ no shared codebase, database, or deployment with CKQ.
 ---
 
 ## Project Overview
-Class-management platform for Frisco Fencing Academy. Single repo, local-only for now — no deployment, no hosting, no production database yet.
+Class-management platform for Frisco Fencing Academy. Single repo: `friscofencingacademy-cmd/friscofencing` on GitHub.
+
+## Deployment & Environments
+Full setup steps + env-var tables: `docs/plans/deployment-launch-plan.md`.
+
+| Git branch | Role | Vercel | MongoDB (Atlas cluster0) |
+|---|---|---|---|
+| `main` | production | Production deploys (2 projects: root `backend/`, root `frontend/`) | `friscofencing` |
+| `develop` | staging | Preview deploys (stable branch aliases) | `friscofencing-staging` |
+
+- Work on `feature/*` branches → PR to `develop`; `develop` → `main` only with explicit owner approval.
+- Frontend proxies `/api/v1/*` to the backend via a Next.js rewrite (`BACKEND_URL`) so the httpOnly auth cookie stays first-party — never call the backend origin directly from the browser.
+- Atlas URI + account details live in Claude memory (`frisco-credentials.md`) — **never commit credentials**.
+- Email: Nodemailer over Brevo SMTP in deployed envs (`SMTP_*` env vars); Ethereal auto-fallback locally.
 
 ## Tech Stack
 | Layer | Stack |
@@ -50,11 +63,12 @@ Class-management platform for Frisco Fencing Academy. Single repo, local-only fo
 ## Platform Scope (MVP)
 Users/auth · group classes/schedules/sessions · pricing · attendance · trial + regular registration · in-house recurring subscription billing with a 10% sibling discount (dynamic lower-payer rule, re-verified every renewal, 2-child case only).
 
-**Explicitly deferred:** weapon specialization, membership/credit-ledger discounts beyond sibling, scholarships, camps, private classes, weekly reports, student portal, hosting/deployment.
+**Explicitly deferred:** weapon specialization, membership/credit-ledger discounts beyond sibling, scholarships, camps, private classes, weekly reports, student portal.
 
 ## Documentation Map
 | Topic | Path |
 |---|---|
+| **Active plan** — deployment & launch (GitHub ✅, Atlas ✅, Vercel/Brevo pending) | `docs/plans/deployment-launch-plan.md` |
 | Design system | `docs/design-system.md` |
 | Testing strategy | `docs/TESTING_STRATEGY.md` |
 | Database schema | `DATABASE_SCHEMA_DOCUMENTATION.md` |

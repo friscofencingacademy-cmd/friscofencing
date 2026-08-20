@@ -1,0 +1,165 @@
+# Deployment & Launch Plan — Frisco Fencing Academy
+
+Executable, step-by-step plan to take the locally-complete MVP live on Vercel.
+Owner actions are marked **[YOU]**; Claude/code actions are marked **[CLAUDE]**.
+
+**Never put real secrets in this file or anywhere in the repo.** Secrets live only in
+local `.env` / `.env.local` files (gitignored) and the Vercel dashboard.
+
+---
+
+## Status
+
+| Step | What | Status |
+|---|---|---|
+| 1 | GitHub repo + branches | ✅ DONE 2026-08-20 — `friscofencingacademy-cmd/friscofencing`, `main` + `develop` |
+| 2 | MongoDB Atlas | ✅ DONE 2026-08-20 — free M0 cluster, `friscofencing` (prod) + `friscofencing-staging` DBs, superadmin seeded in both |
+| 3 | Deploy-readiness code changes | 🔄 IN PROGRESS — `feature/vercel-deploy-readiness` |
+| 4 | Vercel projects + env vars | ⬜ |
+| 5 | Verify public home page live | ⬜ |
+| 6 | Brevo email + parent signup verification | ⬜ |
+| 7+ | Deferred follow-ups | ⬜ (see bottom) |
+
+---
+
+## Architecture on Vercel (agreed design)
+
+- **Two Vercel projects from the one GitHub repo**, distinguished by Root Directory:
+  - `friscofencing-backend` → root `backend/` (Express app exported as a serverless function via `backend/api/index.js` + `backend/vercel.json`)
+  - `friscofencing-frontend` → root `frontend/` (Next.js, auto-detected)
+- **Branch ↔ environment ↔ database mapping:**
+
+| Git branch | Vercel environment | MongoDB database |
+|---|---|---|
+| `main` | Production | `friscofencing` |
+| `develop` | Preview (stable branch alias) | `friscofencing-staging` |
+
+- **Cookie/auth design:** the browser only ever talks to the frontend's own domain.
+  `frontend/next.config.js` rewrites `/api/v1/:path*` → `${BACKEND_URL}/api/v1/:path*`
+  server-side, so the backend's httpOnly `accessToken` cookie is always first-party.
+  No cross-site cookies, no CORS dependence in production.
+- Every Vercel deployment is HTTPS, so the auth cookie is `secure: true` there
+  (`NODE_ENV === 'production'`, which Vercel sets for both Production and Preview).
+
+---
+
+## Step 3 — Deploy-readiness code changes [CLAUDE]
+
+Branch `feature/vercel-deploy-readiness` → PR to `develop`. Contents:
+
+1. `backend/api/index.js` — serverless entry (exports the Express app, calls `connectDB()`; no `app.listen`)
+2. `backend/vercel.json` — rewrite all paths to the function, preserving URLs
+3. `auth.controller.js` — `secure: NODE_ENV === 'production'` cookie flag (was hardcoded `false`)
+4. `backend/.env.example` + `frontend/.env.local.example` — documented env vars (`.gitignore` fixed to allow them)
+5. `frontend/next.config.js` — the `/api/v1` proxy rewrite
+6. `frontend/lib/api.ts` — baseURL `'/api/v1'` (relative; `NEXT_PUBLIC_API_URL` kept as override)
+7. Email-send await audit (serverless must not freeze before SMTP completes)
+8. Tests for all of the above
+
+**After this merges, local dev changes once [YOU]:** in `frontend/.env.local`, replace
+`NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1` with `BACKEND_URL=http://localhost:4000`.
+
+---
+
+## Step 4 — Vercel setup [YOU, with these exact steps]
+
+Prereq: Vercel account connected to the `friscofencingacademy-cmd` GitHub account
+(Vercel dashboard → Settings → Git → connect GitHub, grant access to the `friscofencing` repo).
+
+### 4a. Backend project
+1. Vercel dashboard → **Add New → Project** → import `friscofencing` repo
+2. Project name: `friscofencing-backend`
+3. **Root Directory: `backend`** (click Edit next to Root Directory)
+4. Framework Preset: **Other** (no build command, no output directory — leave defaults)
+5. Add Environment Variables (before first deploy; table below)
+6. Deploy
+
+**Backend env vars** (Settings → Environment Variables). Scope column says which
+Vercel environments to tick when adding:
+
+| Var | Value | Scope |
+|---|---|---|
+| `MONGO_URI` | Atlas URI ending in `/friscofencing` | Production only |
+| `MONGO_URI` | Atlas URI ending in `/friscofencing-staging` | Preview only |
+| `JWT_SECRET` | long random string — generate with `openssl rand -base64 48` (ask Claude) | Production + Preview (can differ per env) |
+| `JWT_EXPIRES_IN` | `7d` | All |
+| `FRONTEND_URL` | frontend prod URL (e.g. `https://friscofencing-frontend.vercel.app`) | Production |
+| `FRONTEND_URL` | frontend develop alias (see 4c) | Preview |
+| `STRIPE_SECRET_KEY` | `sk_test_...` (test mode until go-live decision) | All |
+| `STRIPE_WEBHOOK_SECRET` | leave unset until Step 7 webhook registration | — |
+| `NODEJS_HELPERS` | `0` | All — **required**: disables Vercel's body pre-parsing, which would break Stripe webhook raw-body signature verification |
+| `SMTP_HOST` | `smtp-relay.brevo.com` | All (Step 6) |
+| `SMTP_PORT` | `587` | All (Step 6) |
+| `SMTP_USER` | Brevo SMTP login (shown on Brevo's SMTP page) | All (Step 6) |
+| `SMTP_PASS` | Brevo SMTP key | All (Step 6) |
+| `MAIL_FROM_ADDRESS` | verified Brevo sender (e.g. `friscofencingacademy@gmail.com`) | All (Step 6) |
+
+Do NOT set `NODE_ENV` (Vercel manages it) or `PORT` (serverless). `SUPERADMIN_*` /
+`COACH_*` are not needed on Vercel — seed scripts run from your machine.
+
+### 4b. Frontend project
+1. **Add New → Project** → import the same `friscofencing` repo again
+2. Project name: `friscofencing-frontend` (or reuse/rename the project you already created)
+3. **Root Directory: `frontend`** — Framework Preset auto-detects Next.js
+4. Env vars (table below), then Deploy
+
+| Var | Value | Scope |
+|---|---|---|
+| `BACKEND_URL` | backend prod URL (e.g. `https://friscofencing-backend.vercel.app`) | Production |
+| `BACKEND_URL` | backend develop alias (see 4c) | Preview |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_test_...` | All |
+
+### 4c. Stable develop URLs
+Vercel gives every branch a stable alias:
+`<project-name>-git-<branch>-<team-slug>.vercel.app`.
+After the first develop deploy of each project, copy the exact alias from the
+deployment page and use it for the Preview-scoped `BACKEND_URL` / `FRONTEND_URL`
+values above (then redeploy once so they take effect).
+
+### 4d. Production branch
+Both projects: Settings → Git → Production Branch = `main` (Vercel default). `develop`
+pushes create Preview deployments automatically — that is our staging.
+
+---
+
+## Step 5 — Verify live [CLAUDE + YOU]
+
+1. Merge the Step 3 PR to `develop` → both projects auto-deploy previews
+2. Smoke-check on the develop alias: home page renders, `/login` works against
+   `friscofencing-staging` (superadmin `friscofencingacademy@gmail.com` / staging password),
+   parent signup → add child → book trial
+3. When satisfied: PR `develop` → `main`, verify the same on production URLs
+
+---
+
+## Step 6 — Brevo email [YOU then CLAUDE]
+
+1. **[YOU]** Brevo → Settings → **SMTP & API → SMTP tab** → copy the SMTP **login** and
+   generate/copy an SMTP **key**
+2. **[YOU]** Brevo → **Senders & Domains → Senders** → add `friscofencingacademy@gmail.com`
+   → click the confirmation link Brevo emails you
+3. **[YOU]** Paste the SMTP login + key to Claude (or add the 5 SMTP env vars from the
+   4a table yourself in Vercel) → redeploy backend
+4. **[CLAUDE + YOU]** End-to-end verify on staging: create a parent account, add a child,
+   book a trial → confirm the real email arrives (check spam folder — gmail-address
+   senders often land there until a custom domain is authenticated)
+
+---
+
+## Step 7+ — Deferred follow-ups (in rough order)
+
+- **Stripe webhook registration**: Stripe dashboard → Webhooks → add endpoint
+  `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,
+  `payment_intent.failed`) → put the signing secret in `STRIPE_WEBHOOK_SECRET`. Repeat
+  with a second endpoint for staging if desired.
+- **Renewals scheduling**: `npm run renewals` is currently manual. Options: Vercel Cron
+  (needs an HTTP endpoint wrapper + auth guard) or run monthly from this machine. Decide
+  when first real subscription exists.
+- **Custom domain**: buy via Vercel or any registrar → add to frontend project. Then
+  authenticate the domain in Brevo (DKIM/SPF) and switch `MAIL_FROM_ADDRESS` to
+  `noreply@<domain>` for deliverability.
+- **Stripe live keys**: swap test → live keys when real payments should start.
+- **CI**: GitHub Actions (build + tests on PRs), mirroring the CKQ model, once change
+  volume justifies it.
+- **Atlas hygiene**: delete the `sample_mflix` demo database; consider IP allowlist
+  tightening + a read-only DB user later.
