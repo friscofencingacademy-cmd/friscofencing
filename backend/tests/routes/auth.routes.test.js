@@ -106,6 +106,64 @@ describe('POST /api/v1/auth/register', () => {
   });
 });
 
+describe('accessToken cookie flags', () => {
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  });
+
+  function getAccessTokenCookie(res) {
+    const cookies = res.headers['set-cookie'];
+    expect(cookies).toBeDefined();
+
+    const accessTokenCookie = cookies.find((cookie) => cookie.startsWith('accessToken='));
+    expect(accessTokenCookie).toBeDefined();
+
+    return accessTokenCookie;
+  }
+
+  describe.each([
+    ['login', () => request(app).post('/api/v1/auth/login').send({ email: 'test-parent@example.com', password: TEST_PASSWORD })],
+    [
+      'register',
+      () =>
+        request(app).post('/api/v1/auth/register').send({
+          firstName: 'Cookie',
+          lastName: 'Test',
+          email: 'cookie-test@example.com',
+          password: 'a-strong-password',
+        }),
+    ],
+  ])('%s', (name, makeRequest) => {
+    beforeEach(async () => {
+      if (name === 'login') {
+        await seedTestUser();
+      }
+    });
+
+    it('has HttpOnly and no Secure flag when NODE_ENV is not production', async () => {
+      process.env.NODE_ENV = 'development';
+
+      const res = await makeRequest();
+      const accessTokenCookie = getAccessTokenCookie(res);
+
+      expect(accessTokenCookie).toMatch(/HttpOnly/i);
+      expect(accessTokenCookie).not.toMatch(/Secure/i);
+    });
+
+    it('has both HttpOnly and Secure flags when NODE_ENV is production', async () => {
+      process.env.NODE_ENV = 'production';
+
+      const res = await makeRequest();
+      const accessTokenCookie = getAccessTokenCookie(res);
+
+      expect(accessTokenCookie).toMatch(/HttpOnly/i);
+      expect(accessTokenCookie).toMatch(/Secure/i);
+    });
+  });
+});
+
 describe('GET /api/v1/auth/me', () => {
   it('returns the user when the accessToken cookie from a successful login is sent', async () => {
     await seedTestUser();
