@@ -1,6 +1,6 @@
 # CKQ UI Adoption Plan — Admin Sidebar Shell, Parent Portal, Testing & Docs Organization
 
-**Status: APPROVED FOR AUTONOMOUS EXECUTION** (owner approval 2026-08-20).
+**Status: SHIPPED TO PRODUCTION 2026-08-21** (all 7 phases, PRs #4–10 to develop, promoted to main in PR #13). Nothing remaining from this plan.
 **Executor:** a Claude Code session running the **Sonnet** model, working in `C:\Users\mages\friscofencing`.
 **Planner:** Fable (this doc). The executing session implements; it does not re-litigate the design.
 

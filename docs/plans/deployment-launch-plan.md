@@ -18,12 +18,14 @@ local `.env` / `.env.local` files (gitignored) and the Vercel dashboard.
 | 4 | Vercel projects + env vars | ✅ DONE 2026-08-20 — `friscofencing` (frontend) + `friscofencing-backend`, both projects, all env vars set via API |
 | 5 | Verify public home page live | ✅ DONE 2026-08-20 — staging + production both verified: home page, superadmin login, cookie flags (Secure/HttpOnly/SameSite=Lax), Atlas connectivity |
 | 6 | Brevo email + parent signup verification | ⬜ |
-| 7+ | Deferred follow-ups | ⬜ (see bottom) |
+| 7 | CKQ UI adoption (admin sidebar, parent portal, flows) | ✅ DONE 2026-08-21 — see `ckq-ui-adoption-plan.md` |
+| 8 | Admin user management | ✅ DONE 2026-08-21 — see `admin-user-management-plan.md` |
+| 9+ | Other deferred follow-ups | ⬜ (see bottom) |
 
 **Production URLs:** frontend `https://friscofencing.vercel.app` · backend `https://friscofencing-backend.vercel.app`
 **Staging URLs:** frontend `https://friscofencing-git-develop-frisco-fencing.vercel.app` · backend `https://friscofencing-backend-git-develop-frisco-fencing.vercel.app`
 
-**Known gotcha (hit twice during this launch):** a fresh serverless cold start's `connectDB()` call is fire-and-forget — if the very first request lands before the MongoDB connection finishes (or right after an Atlas network-access change), mongoose's command buffering times out ("Operation `users.findOne()` buffering timed out") and that broken connection state persists for the container's lifetime. Fix: trigger one fresh redeploy (a new cold start reconnects cleanly). Also: Vercel's "Deployment is building" placeholder page returns HTTP 200 — don't treat a 200 on `/health` as proof the build finished; check the actual JSON body.
+**Known gotcha (recurred 4 times across this launch — needs a real fix, not just repeated workarounds):** a fresh serverless cold start's `connectDB()` call is fire-and-forget and never retries — if the very first request lands before the MongoDB connection finishes (or right after an Atlas network-access change, or after a container has been idle long enough for Vercel to recycle it), mongoose's command buffering times out ("Operation `users.findOne()` buffering timed out") and that broken connection state persists for the container's whole lifetime, so every subsequent request on that container fails too. Workaround so far: trigger one fresh redeploy (a new cold start reconnects cleanly) — done 4 times, most recently right after the PR #13 production promotion. **Real fix, not yet done** (added to deferred follow-ups below): make `backend/api/index.js` await the connection (or add a connection-health check + reconnect-on-disconnect middleware) instead of firing `connectDB()` and immediately serving requests. Also: Vercel's "Deployment is building" placeholder page returns HTTP 200 — don't treat a 200 on `/health` as proof the build finished; check the actual JSON body.
 
 ---
 
@@ -151,8 +153,9 @@ pushes create Preview deployments automatically — that is our staging.
 
 ---
 
-## Step 7+ — Deferred follow-ups (in rough order)
+## Step 9+ — Deferred follow-ups (in rough order)
 
+- **Fix the recurring cold-start MongoDB bug properly** (see the gotcha note above — recurred 4 times): `backend/api/index.js`'s `connectDB()` is fire-and-forget with no retry. Make the serverless entry await the connection (or add a disconnect-detecting reconnect) instead of relying on a manual redeploy every time a container goes cold. Highest-priority item on this list — it's a real production reliability bug, not just a launch-week hiccup.
 - **Stripe webhook registration**: Stripe dashboard → Webhooks → add endpoint
   `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,
   `payment_intent.failed`) → put the signing secret in `STRIPE_WEBHOOK_SECRET`. Repeat
@@ -168,3 +171,11 @@ pushes create Preview deployments automatically — that is our staging.
   volume justifies it.
 - **Atlas hygiene**: delete the `sample_mflix` demo database; consider IP allowlist
   tightening + a read-only DB user later.
+- **Minor cleanup**: `frontend/app/admin/dashboard/page.tsx` fetches `fetchPrices()` but
+  never displays it (harmless leftover from the CKQ UI adoption plan, flagged in its
+  final report — one extra parallel network call, no incorrect data shown).
+- **Test coverage gaps** (logged honestly in `docs/TEST_COVERAGE.md`, not hidden): new
+  tests from the UI adoption plan use `fireEvent` instead of the `userEvent`-only rule
+  documented in `TESTING_STRATEGY.md` — not retrofitted; a few files lack dedicated unit
+  tests (`user.routes.js` route file itself, `billingDates.js`); `AppShell.tsx` still has
+  zero direct test coverage (pre-existing, coach pages only use it now).
