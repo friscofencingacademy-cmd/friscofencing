@@ -41,7 +41,17 @@ Never write a raw hex code in a component's `.module.css` — reference a token.
 
 ## Layout (`frontend/app/components/layout/AppShell.tsx`)
 
-One top nav bar + centered content wrapper (`min(1100px, 100%)`), used by every authenticated page. Role-aware nav links (admin/superadmin, coach, parent each see a different link set — see `AppShell.tsx`'s `NAV_LINKS_BY_ROLE`), a `Welcome, {firstName}` + logout button on the right. No public marketing site means no need for CKQ's multi-tier container/Section system — one content-width constant is enough.
+One top nav bar + centered content wrapper (`min(1100px, 100%)`). As of the CKQ UI adoption plan (Phase 1), AppShell serves **coach + logged-out visitors only** — admin/superadmin now get the dedicated dark sidebar shell below (their `NAV_LINKS_BY_ROLE` entries are empty arrays), and parent gets the portal shell (Phase 3). A `Welcome, {firstName}` + logout button still renders on the right for the roles that use it.
+
+## Admin shell (`frontend/app/admin/layout.tsx` + `layout.module.css`)
+
+Dark sidebar shell for `admin`/`superadmin` only (role-gated in the layout itself — a non-admin visitor is redirected to `/` and sees no flash of admin chrome). Structure:
+
+- **Sidebar** (`--sidebar-w` 220px desktop): brand block (wordmark + gold dot, role label) → nav list → sidebar footer (`Welcome, {firstName}` + logout). Dashboard renders standalone above the collapsible sections; sections are **Programs** (Classes, Levels, Prices), **Schedule** (Schedules), **Places** (Locations) — hardcoded in `NAV_SECTIONS` inside `layout.tsx`, not data-driven (5 items across 3 sections doesn't earn a config layer). A section auto-opens when it contains the active route (`useEffect` on `pathname`) and collapses the others.
+- **Active state**: exact match for `/admin/dashboard`, prefix match (`pathname.startsWith(href)`) for everything else — so `/admin/schedules/abc/sessions` still highlights "Schedules". Active links carry `aria-current="page"`.
+- **Breakpoints**: ≥1024px full sidebar with labels; 768–1023px icon-only sidebar (`--sidebar-icon-w` 64px, labels/section-labels hidden via CSS, not React); ≤767px sidebar becomes a fixed off-canvas drawer (`left: -100%` → `left: 0`) behind a semi-transparent overlay, opened by a sticky top bar (`--topbar-h` 52px) hamburger button.
+- **`admin.module.css`** is the admin design system — buttons, table, dialog/modal, form, chips, stat cards, quick-link cards (Phase 1/2). Use it for every admin page. Use the portal-facing `shared.module.css` only for non-admin authenticated pages (parent/coach) — never mix the two in one page. `AdminPageHeader` (`{title, count?, subtitle?}`) and `AdminTableRows` (`AdminLoadingRow`, `AdminEmptyRow`) are the shared primitives every admin page composes.
+- Admin pages no longer wrap themselves in `<ProtectedRoute>`/`<AppShell>` — the layout provides both the role gate and the chrome.
 
 ## Shell tokens (`frontend/app/globals.css`, added for the CKQ UI adoption plan)
 

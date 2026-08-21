@@ -15,14 +15,10 @@ interface HomeCard {
 
 const HOME_CARDS_BY_ROLE: Record<Role, HomeCard[]> = {
   admin: [
-    { href: '/admin/classes', title: 'Manage Classes', description: 'Create and edit class offerings.' },
-    { href: '/admin/schedules', title: 'Manage Schedules', description: 'View and adjust class schedules.' },
-    { href: '/admin/prices', title: 'Pricing', description: 'Set pricing for classes and packages.' },
+    { href: '/admin/dashboard', title: 'Admin Dashboard', description: 'Manage classes, schedules, pricing, and locations.' },
   ],
   superadmin: [
-    { href: '/admin/classes', title: 'Manage Classes', description: 'Create and edit class offerings.' },
-    { href: '/admin/schedules', title: 'Manage Schedules', description: 'View and adjust class schedules.' },
-    { href: '/admin/prices', title: 'Pricing', description: 'Set pricing for classes and packages.' },
+    { href: '/admin/dashboard', title: 'Admin Dashboard', description: 'Manage classes, schedules, pricing, and locations.' },
   ],
   coach: [
     { href: '/coach/schedules', title: 'My Schedules', description: 'View your upcoming classes.' },

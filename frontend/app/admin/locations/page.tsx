@@ -4,8 +4,6 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import axios from 'axios';
 
 import api from '../../../lib/api';
-import ProtectedRoute from '../../components/ProtectedRoute';
-import AppShell from '../../components/layout/AppShell';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
@@ -152,11 +150,5 @@ function LocationsPageContent() {
 }
 
 export default function LocationsPage() {
-  return (
-    <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <AppShell>
-        <LocationsPageContent />
-      </AppShell>
-    </ProtectedRoute>
-  );
+  return <LocationsPageContent />;
 }
