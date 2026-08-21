@@ -25,6 +25,7 @@ const GroupClassSession = require('../../src/models/groupClassSession.model');
 const Price = require('../../src/models/price.model');
 const Registration = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
+const PaymentMethod = require('../../src/models/paymentMethod.model');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
@@ -268,6 +269,43 @@ describe('Registration routes', () => {
         ).toBe(false);
       },
       20000
+    );
+
+    it(
+      'returns 402 and creates nothing on a real Stripe TEST-mode card decline',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-decline@example.com');
+        const parentAgent = await loginAgent('reg-decline@example.com');
+
+        await savePaymentMethodFor(parentAgent);
+
+        // Same technique as renewal.service.test.js's decline case: overwrite
+        // the just-saved real PaymentMethod's id with Stripe's documented
+        // shared test id for a guaranteed decline (`pm_card_chargeDeclined`),
+        // which throws a StripeCardError when charged.
+        const parent = await User.findOne({ email: 'reg-decline@example.com' });
+        await PaymentMethod.updateOne(
+          { parentId: parent._id },
+          { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+        );
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(402);
+
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
+        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+
+        const schedule = await GroupClassSchedule.findById(scheduleId);
+        expect(
+          schedule.students.some((id) => String(id) === String(student._id))
+        ).toBe(false);
+      },
+      30000
     );
 
     it(

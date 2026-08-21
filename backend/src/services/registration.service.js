@@ -98,17 +98,32 @@ async function create({ studentId, scheduleId }, requestingUser) {
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount } =
     await calculateChargeAmount(student, price.monthlyFee);
 
-  const paymentIntent = await stripe.paymentIntents.create(
-    {
-      amount: Math.round(chargeAmount * 100),
-      currency: 'usd',
-      customer: stripeCustomerId,
-      payment_method: paymentMethod.stripePaymentMethodId,
-      off_session: true,
-      confirm: true,
-    },
-    { idempotencyKey: `initial-registration-${studentId}-${scheduleId}` }
-  );
+  let paymentIntent;
+
+  try {
+    paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: Math.round(chargeAmount * 100),
+        currency: 'usd',
+        customer: stripeCustomerId,
+        payment_method: paymentMethod.stripePaymentMethodId,
+        off_session: true,
+        confirm: true,
+      },
+      { idempotencyKey: `initial-registration-${studentId}-${scheduleId}` }
+    );
+  } catch (error) {
+    // A hard decline (e.g. card_declined) is a synchronous throw from the
+    // Stripe SDK, not a resolved PaymentIntent with a non-'succeeded'
+    // status — same distinction renewal.service.js's renewOne makes. Without
+    // this catch, a declined card here would surface as a 500 instead of the
+    // 402 used for every other payment-failure case in this function.
+    if (error.type === 'StripeCardError') {
+      throw paymentFailedError(error.message);
+    }
+
+    throw error;
+  }
 
   if (paymentIntent.status !== 'succeeded') {
     throw paymentFailedError('Payment failed');
