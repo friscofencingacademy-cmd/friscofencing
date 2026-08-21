@@ -70,7 +70,18 @@ Added alongside the original palette above — used by the admin sidebar shell (
 | `--sidebar-active` | `#C8A000` (`--color-gold`) | Active nav item accent (text + left border) |
 | `--sidebar-active-bg` | `rgba(200,160,0,.12)` | Active nav item background wash |
 
-The parent portal sidebar itself renders on a **light** surface (`--color-white` background, `--color-border` divider) — only the admin sidebar uses the dark `--sidebar-bg` treatment. See "Shells" below (added as each phase ships).
+The parent portal sidebar itself renders on a **light** surface (`--color-white` background, `--color-border` divider) — only the admin sidebar uses the dark `--sidebar-bg` treatment.
+
+## Portal shell (`frontend/app/components/portal/PortalLayout/` + `ParentPortalShell/`, Phase 3)
+
+Light sidebar shell for the parent portal — deliberately the visual opposite of the admin shell's dark treatment (see the brand direction note above about gold-as-accent-only; a light sidebar with a gold active-left-border reads as "member area", a dark one as "back office"). Two layers:
+
+- **`PortalLayout`** is the generic, role-agnostic primitive: `{ navGroups: {label?, items?, content?}[], header?, bottomNavItems, children }`. `navGroups` items render as standard sidebar links; a group's `content` (e.g. per-child rows) renders instead of `items` when present. Active state = **longest-href-prefix match of the current pathname**, computed independently for the sidebar's item set and the `bottomNavItems` set (they're often different lists, e.g. bottom nav has no per-child rows).
+- **`ParentPortalShell`** wraps `PortalLayout` with the parent's specific groups/header/bottom-nav (see `docs/features/parent-portal.md` for the exact nav structure) and reads from `ParentPortalContext`.
+
+Breakpoints mirror the admin shell's geometry but with the light surface: ≥1025px full 220px sidebar; 769–1024px icon-only 64px; ≤768px sidebar hidden entirely, replaced by a fixed bottom tab bar (`--bottomnav-h` 60px).
+
+Per-child avatars use a **deterministic index-based palette** (`lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs) — the same child always gets the same color across sessions, never a random/hash-based assignment that could flicker between renders.
 
 ## Explicitly not adopted from CKQ (scope, not oversight)
 

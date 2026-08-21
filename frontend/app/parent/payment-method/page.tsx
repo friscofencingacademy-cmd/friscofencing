@@ -6,8 +6,6 @@ import { CardElement, Elements, useElements, useStripe } from '@stripe/react-str
 
 import api from '../../../lib/api';
 import stripePromise from '../../../lib/stripe';
-import ProtectedRoute from '../../components/ProtectedRoute';
-import AppShell from '../../components/layout/AppShell';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
@@ -192,11 +190,5 @@ function PaymentMethodPageContent() {
 }
 
 export default function PaymentMethodPage() {
-  return (
-    <ProtectedRoute allowedRoles={['parent']}>
-      <AppShell>
-        <PaymentMethodPageContent />
-      </AppShell>
-    </ProtectedRoute>
-  );
+  return <PaymentMethodPageContent />;
 }

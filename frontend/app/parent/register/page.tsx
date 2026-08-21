@@ -5,8 +5,6 @@ import axios from 'axios';
 import Link from 'next/link';
 
 import api from '../../../lib/api';
-import ProtectedRoute from '../../components/ProtectedRoute';
-import AppShell from '../../components/layout/AppShell';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
@@ -283,11 +281,5 @@ function RegisterPageContent() {
 }
 
 export default function RegisterPage() {
-  return (
-    <ProtectedRoute allowedRoles={['parent']}>
-      <AppShell>
-        <RegisterPageContent />
-      </AppShell>
-    </ProtectedRoute>
-  );
+  return <RegisterPageContent />;
 }

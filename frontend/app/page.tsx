@@ -24,9 +24,7 @@ const HOME_CARDS_BY_ROLE: Record<Role, HomeCard[]> = {
     { href: '/coach/schedules', title: 'My Schedules', description: 'View your upcoming classes.' },
   ],
   parent: [
-    { href: '/parent/book-trial', title: 'Book a Trial', description: 'Schedule a trial class for your child.' },
-    { href: '/parent/register', title: 'Register for a Class', description: 'Enroll your child in a class.' },
-    { href: '/parent/subscriptions', title: 'My Subscriptions', description: 'View and manage billing.' },
+    { href: '/parent/dashboard', title: 'Parent Dashboard', description: 'Manage your children, trials, registrations, and billing.' },
   ],
   student: [],
 };

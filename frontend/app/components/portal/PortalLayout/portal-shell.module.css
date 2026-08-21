@@ -1,0 +1,199 @@
+/* =============================================================
+   PortalLayout — light sidebar shell for the parent portal.
+   NEVER the dark admin treatment — parent gets a light surface with
+   a gold active-left-border accent (see docs/design-system.md "Portal shell").
+   Desktop:  left sidebar (220px) + main content
+   Tablet:   icon-only sidebar (64px) + main content
+   Mobile:   full-width content + fixed bottom tab bar
+   ============================================================= */
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+/* ── Sidebar (light) ─────────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--color-white);
+  border-right: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) 0 var(--space-4);
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.navGroupLabel {
+  display: block;
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+  padding: var(--space-4) var(--space-5) var(--space-1);
+}
+
+.navGroup:first-child .navGroupLabel {
+  padding-top: 0;
+}
+
+.sidebarLink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  color: var(--color-ink);
+  text-decoration: none;
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sidebarLink:hover {
+  background: var(--color-bg);
+}
+
+.sidebarLinkActive {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+  border-left-color: var(--sidebar-active);
+  font-weight: 700;
+}
+
+.sidebarIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+/* ── Right area ──────────────────────────────────────────────── */
+.rightArea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mainHeader {
+  flex-shrink: 0;
+}
+
+.main {
+  flex: 1;
+  padding: var(--space-5);
+}
+
+/* ── Bottom nav (hidden on desktop/tablet) ──────────────────── */
+.bottomNav {
+  display: none;
+}
+
+/* =============================================================
+   TABLET: 769-1024px — icon-only sidebar
+   ============================================================= */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .sidebar {
+    width: var(--sidebar-icon-w);
+    align-items: center;
+  }
+
+  .navGroupLabel {
+    display: none;
+  }
+
+  .sidebarLink {
+    padding: var(--space-3) 0;
+    width: 100%;
+    justify-content: center;
+    border-left: none;
+    border-right: 3px solid transparent;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0;
+  }
+
+  .sidebarLinkActive {
+    border-left: none;
+    border-right-color: var(--sidebar-active);
+  }
+
+  .main {
+    padding: var(--space-4);
+  }
+}
+
+/* =============================================================
+   MOBILE: <=768px — sidebar hidden, bottom tab bar shown
+   ============================================================= */
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+    padding-bottom: var(--bottomnav-h);
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .main {
+    padding: var(--space-4) var(--space-3);
+    width: 100%;
+  }
+
+  .bottomNav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: var(--bottomnav-h);
+    background: var(--color-white);
+    border-top: 1px solid var(--color-border);
+    z-index: 500;
+    align-items: stretch;
+  }
+
+  .bottomNavItem {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: var(--color-muted);
+    text-decoration: none;
+    font-family: var(--font-body), sans-serif;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: var(--space-1);
+    border-top: 2px solid transparent;
+    min-height: 44px;
+  }
+
+  .bottomNavItemActive {
+    color: var(--sidebar-active);
+    border-top-color: var(--sidebar-active);
+  }
+
+  .bottomNavIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+  }
+}

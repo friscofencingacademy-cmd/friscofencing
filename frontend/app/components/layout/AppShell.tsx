@@ -19,13 +19,10 @@ const NAV_LINKS_BY_ROLE: Record<Role, NavLink[]> = {
   admin: [],
   superadmin: [],
   coach: [{ href: '/coach/schedules', label: 'My Schedules' }],
-  parent: [
-    { href: '/parent/children', label: 'My Children' },
-    { href: '/parent/book-trial', label: 'Book Trial' },
-    { href: '/parent/register', label: 'Register' },
-    { href: '/parent/subscriptions', label: 'My Subscriptions' },
-    { href: '/parent/payment-method', label: 'Payment Method' },
-  ],
+  // Parents now use the dedicated portal shell (app/parent/layout.tsx) —
+  // AppShell now serves coach + logged-out visitors only. See
+  // docs/plans/ckq-ui-adoption-plan.md Phase 3.
+  parent: [],
   student: [],
 };
 
