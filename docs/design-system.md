@@ -43,6 +43,25 @@ Never write a raw hex code in a component's `.module.css` — reference a token.
 
 One top nav bar + centered content wrapper (`min(1100px, 100%)`), used by every authenticated page. Role-aware nav links (admin/superadmin, coach, parent each see a different link set — see `AppShell.tsx`'s `NAV_LINKS_BY_ROLE`), a `Welcome, {firstName}` + logout button on the right. No public marketing site means no need for CKQ's multi-tier container/Section system — one content-width constant is enough.
 
+## Shell tokens (`frontend/app/globals.css`, added for the CKQ UI adoption plan)
+
+Added alongside the original palette above — used by the admin sidebar shell (Phase 1) and the parent portal shell (Phase 3). Adapted from CKQ's own shell tokens per `docs/plans/ckq-ui-adoption-plan.md` §1's brand-adaptation table: same geometry/structure, Frisco's ink/gold colors instead of CKQ's navy/sky.
+
+| Token | Value | Usage |
+|---|---|---|
+| `--sidebar-w` | `220px` | Desktop sidebar width (admin + portal) |
+| `--sidebar-icon-w` | `64px` | Tablet icon-only sidebar width |
+| `--topbar-h` | `52px` | Mobile top bar height (admin shell) |
+| `--bottomnav-h` | `60px` | Mobile bottom tab bar height (portal shell) |
+| `--sidebar-bg` | `#1B1A17` (`--color-ink`) | Admin sidebar background (dark) |
+| `--sidebar-text` | `rgba(250,249,246,.72)` | Sidebar nav link text |
+| `--sidebar-muted` | `rgba(250,249,246,.45)` | Sidebar section labels / secondary text |
+| `--sidebar-border` | `rgba(255,255,255,.08)` | Sidebar dividers |
+| `--sidebar-active` | `#C8A000` (`--color-gold`) | Active nav item accent (text + left border) |
+| `--sidebar-active-bg` | `rgba(200,160,0,.12)` | Active nav item background wash |
+
+The parent portal sidebar itself renders on a **light** surface (`--color-white` background, `--color-border` divider) — only the admin sidebar uses the dark `--sidebar-bg` treatment. See "Shells" below (added as each phase ships).
+
 ## Explicitly not adopted from CKQ (scope, not oversight)
 
 Bootstrap, Playfair-style display serif, the discovery/calendar page patterns, the four-surface notification hierarchy, animated stat bars, stylelint CI enforcement of these rules. All exist to serve a public marketing site and portal-scale feature set this MVP doesn't have. Revisit if/when this project grows a public site.

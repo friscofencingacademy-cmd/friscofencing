@@ -1,0 +1,15 @@
+.loadError {
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-muted);
+}
+
+.loadError.compact {
+  padding: var(--space-4) var(--space-3);
+}
+
+.message {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-body), sans-serif;
+  color: var(--color-error);
+}
