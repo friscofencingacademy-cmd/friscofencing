@@ -1,0 +1,461 @@
+/* =============================================================
+   Admin Design System — Shared CSS Module
+   Used by AdminPageHeader, AdminTableRows, and every admin page.
+   All colors reference globals.css tokens — never a raw hex here.
+   ============================================================= */
+
+/* ── Page header row (title block + primary action side-by-side) ── */
+.pageHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.pageHeader {
+  margin: 0;
+}
+
+.pageTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  font-size: 1.5rem;
+  margin: 0 0 var(--space-1);
+  color: var(--color-ink);
+}
+
+.pageSubtitle {
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 0.875rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  composes: btn;
+  background: var(--color-ink);
+  color: var(--color-white);
+  border-color: var(--color-ink);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #000000;
+}
+
+.btnSecondary {
+  composes: btn;
+  background: var(--color-white);
+  color: var(--color-ink);
+  border-color: var(--color-border);
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: var(--color-bg);
+}
+
+.btnDanger {
+  composes: btn;
+  background: var(--color-white);
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: var(--color-error-bg);
+}
+
+.btnDangerFilled {
+  composes: btn;
+  background: var(--color-error);
+  color: var(--color-white);
+  border-color: var(--color-error);
+}
+
+.btnDangerFilled:hover:not(:disabled) {
+  background: #8f1e18;
+  border-color: #8f1e18;
+}
+
+.btnSm {
+  padding: var(--space-1) var(--space-3);
+  font-size: 0.8rem;
+}
+
+/* Icon-only action buttons (edit / delete in table rows) */
+.btnIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.btnIcon:hover:not(:disabled) {
+  background: var(--color-bg);
+}
+
+.btnIcon:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btnIconEdit:hover:not(:disabled) {
+  color: var(--color-ink);
+  border-color: var(--color-ink);
+}
+
+.btnIconDelete:hover:not(:disabled) {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.actionBtns {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* ── Table ───────────────────────────────────────────────────── */
+.tableWrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  background: var(--color-white);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.tHead {
+  background: var(--color-bg);
+}
+
+.th {
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--color-ink);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.td {
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-ink);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.trHover:hover {
+  background: var(--color-bg);
+}
+
+.tdRight {
+  text-align: right;
+}
+
+.cellMuted {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* ── Loading / empty states ──────────────────────────────────── */
+.loadingCell,
+.emptyCell {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--color-border);
+  border-top-color: var(--color-ink);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinnerSm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Dialog / modal ──────────────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 26, 23, 0.45);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.dialog {
+  background: var(--color-white);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(27, 26, 23, 0.25);
+}
+
+.dialogSm {
+  max-width: 380px;
+}
+
+.dialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.dialogTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.dialogClose {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+
+.dialogClose:hover {
+  color: var(--color-ink);
+  background: var(--color-bg);
+}
+
+.dialogBody {
+  padding: var(--space-5);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* ── Form elements (inside dialogs) ─────────────────────────── */
+.formGroup {
+  margin-bottom: var(--space-4);
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.label {
+  display: block;
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  margin-bottom: var(--space-1);
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.input:focus,
+.select:focus {
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 1px var(--color-ink);
+}
+
+.errorText {
+  font-size: 0.78rem;
+  color: var(--color-error);
+  margin-top: var(--space-1);
+}
+
+.formHint {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: var(--space-1);
+}
+
+/* ── Chips ───────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.4;
+  background: var(--color-bg);
+  color: var(--color-muted);
+}
+
+.chipActive {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.chipMuted {
+  background: var(--color-bg);
+  color: var(--color-muted);
+}
+
+/* ── Dashboard stat cards ────────────────────────────────────── */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.statCard {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  box-shadow: var(--shadow-card);
+}
+
+.statCardValue {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--color-ink);
+}
+
+.statCardLabel {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  margin-top: var(--space-2);
+}
+
+/* ── Quick links grid (dashboard) ────────────────────────────── */
+.quickLinksGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.quickLinkCard {
+  display: block;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.quickLinkCard:hover {
+  border-color: var(--color-ink);
+  box-shadow: var(--shadow-card);
+}
+
+.quickLinkTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-ink);
+  margin: 0 0 var(--space-1);
+}
+
+.quickLinkMeta {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* ── Table footer note (e.g. schedules "can't be edited") ────── */
+.tableFooterNote {
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg);
+}

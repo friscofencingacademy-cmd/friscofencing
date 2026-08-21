@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 import api from '../../../../../lib/api';
-import ProtectedRoute from '../../../../components/ProtectedRoute';
-import AppShell from '../../../../components/layout/AppShell';
 import Button from '../../../../components/ui/Button/Button';
 import Card from '../../../../components/ui/Card/Card';
 import Alert from '../../../../components/ui/Alert/Alert';
@@ -105,11 +103,5 @@ function SessionsPageContent() {
 }
 
 export default function SessionsPage() {
-  return (
-    <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
-      <AppShell>
-        <SessionsPageContent />
-      </AppShell>
-    </ProtectedRoute>
-  );
+  return <SessionsPageContent />;
 }
