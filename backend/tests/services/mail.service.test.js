@@ -24,6 +24,7 @@ describe('mail.service', () => {
     delete process.env.SMTP_PORT;
     delete process.env.SMTP_USER;
     delete process.env.SMTP_PASS;
+    delete process.env.APP_ENV;
 
     // eslint-disable-next-line global-require
     nodemailer = require('nodemailer');
@@ -178,6 +179,88 @@ describe('mail.service', () => {
       ).resolves.toBe(false);
 
       expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('staging email gate', () => {
+    it('blocks the send and returns { blocked: true } when SMTP_HOST is set and APP_ENV is unset', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      delete process.env.APP_ENV;
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).toEqual({ blocked: true });
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it("blocks the send when SMTP_HOST is set and APP_ENV is 'staging'", async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      process.env.APP_ENV = 'staging';
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).toEqual({ blocked: true });
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it("does NOT block, and calls sendMail, when SMTP_HOST is set and APP_ENV is 'production'", async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      process.env.APP_ENV = 'production';
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).not.toEqual({ blocked: true });
+      expect(sendMail).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT block Ethereal (no SMTP_HOST) even when APP_ENV is unset — local dev is unaffected', async () => {
+      delete process.env.SMTP_HOST;
+      delete process.env.APP_ENV;
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).not.toEqual({ blocked: true });
+      expect(sendMail).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks AFTER the message is rendered — the warn log carries the real subject', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      delete process.env.APP_ENV;
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mailService = loadMailService();
+
+      await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Sam'));
     });
   });
 

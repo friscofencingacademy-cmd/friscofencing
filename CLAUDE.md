@@ -69,6 +69,7 @@ Users/auth · group classes/schedules/sessions · pricing · attendance · trial
 | Topic | Path |
 |---|---|
 | **Active plan** — deployment & launch (Steps 1–5, 7, 8 ✅ LIVE IN PRODUCTION; Step 6 Brevo + other follow-ups pending) | `docs/plans/deployment-launch-plan.md` |
+| **Active plan** — CKQ parity: staging email block (`APP_ENV` gate), block-based email design system (10 templates), admin Group Class Subscriptions page (list/change-schedule/cancel/reactivate), full private-class flow (coach contracts → published slots → public self-registration → attendance-triggered per-session Stripe charge). One autonomous 4-phase build. | `docs/plans/ckq-parity-plan.md` |
 | **SHIPPED plan** — CKQ UI adoption: admin sidebar shell, admin CRUD edit/delete, parent portal shell, registration flow wizards, child detail page, testing+docs org (LIVE IN PRODUCTION 2026-08-21) | `docs/plans/ckq-ui-adoption-plan.md` |
 | **SHIPPED plan** — admin user management: create/edit/change-password/delete with role-hierarchy security (LIVE IN PRODUCTION 2026-08-21) | `docs/plans/admin-user-management-plan.md` |
 | Design system — principles, tokens, shells, page patterns, components inventory, anti-patterns, pre-merge checklist | `docs/design-system.md` |

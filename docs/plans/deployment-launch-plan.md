@@ -100,6 +100,9 @@ Vercel environments to tick when adding:
 | `SMTP_USER` | Brevo SMTP login (shown on Brevo's SMTP page) | All (Step 6) |
 | `SMTP_PASS` | Brevo SMTP key | All (Step 6) |
 | `MAIL_FROM_ADDRESS` | verified Brevo sender (e.g. `friscofencingacademy@gmail.com`) | All (Step 6) |
+| `APP_ENV` | `production` | **Production only** — leave unset (or `staging`) on Preview. Fail-closed staging email gate (`ckq-parity-plan.md` Phase 1) — anything other than `production` blocks real SMTP sends from `mail.service.js` so staging never emails a real parent. |
+| `ADMIN_EMAIL` | `friscofencingacademy@gmail.com` | All |
+| `LOGO_URL` | absolute logo image URL (optional) | All — omit to use the text-wordmark email header fallback |
 
 Do NOT set `NODE_ENV` (Vercel manages it) or `PORT` (serverless). `SUPERADMIN_*` /
 `COACH_*` are not needed on Vercel — seed scripts run from your machine.
@@ -155,6 +158,13 @@ pushes create Preview deployments automatically — that is our staging.
 
 ## Step 9+ — Deferred follow-ups (in rough order)
 
+- **[YOU]** Set `APP_ENV=production` (Production scope only), `ADMIN_EMAIL`, and `LOGO_URL`
+  (optional) in the backend Vercel project per the 4a table above — added by the CKQ parity
+  plan (`docs/plans/ckq-parity-plan.md`). Leaving `APP_ENV` unset on Preview is intentional:
+  it is what keeps staging from emailing real parents.
+- **[YOU]** Run `npm run extend-private-sessions` on a schedule once real private-class
+  enrollments exist (manual for now, same model as `run-renewals.js` — see
+  `docs/features/private-class.md`).
 - **Fix the recurring cold-start MongoDB bug properly** (see the gotcha note above — recurred 4 times): `backend/api/index.js`'s `connectDB()` is fire-and-forget with no retry. Make the serverless entry await the connection (or add a disconnect-detecting reconnect) instead of relying on a manual redeploy every time a container goes cold. Highest-priority item on this list — it's a real production reliability bug, not just a launch-week hiccup.
 - **Stripe webhook registration**: Stripe dashboard → Webhooks → add endpoint
   `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,

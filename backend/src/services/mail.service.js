@@ -53,6 +53,18 @@ function getTransporter() {
 
 const FROM_ADDRESS = () => process.env.MAIL_FROM_ADDRESS || 'noreply@friscofencing.local';
 
+// Staging email gate (fail-closed): anything other than APP_ENV=production
+// blocks real SMTP sends. Ethereal (no SMTP_HOST) is exempt — it never
+// delivers to a real inbox and is the local-dev preview loop; blocking it
+// too would break the zero-setup local dev path for no safety benefit.
+// Mirrors CKQ's Brevo X-Sib-Sandbox design applied to a Nodemailer
+// transport: render everything (so staging still exercises the full
+// message-building path), then skip only the final transport.sendMail call.
+// Read at call time, never captured at module load — the test suite uses
+// jest.resetModules() and toggles process.env.APP_ENV between cases.
+const isEmailBlocked = () =>
+  Boolean(process.env.SMTP_HOST) && process.env.APP_ENV !== 'production';
+
 // Hard contract: every send* function below catches its own errors,
 // logs them, and returns false — it must NEVER throw. Email is a
 // fire-and-forget side effect of an operation that has already
@@ -61,6 +73,20 @@ const FROM_ADDRESS = () => process.env.MAIL_FROM_ADDRESS || 'noreply@friscofenci
 // otherwise-successful operation look like it failed to its caller.
 async function sendMailSafely({ to, subject, text, html }) {
   try {
+    // Gate checked AFTER the caller has already built the full message (the
+    // subject/text/html arguments above are already assembled) so staging
+    // still exercises every bit of render logic — only the real network send
+    // is skipped. A deliberate block is not a failure: { blocked: true } is
+    // truthy, matching every call site's "truthy == sent" contract.
+    if (isEmailBlocked()) {
+      // eslint-disable-next-line no-console -- operational logging: the
+      // only visibility into a blocked staging send.
+      console.warn(
+        `[mail] blocked (APP_ENV=${process.env.APP_ENV || 'unset'}): to=${to}, subject="${subject}"`
+      );
+      return { blocked: true };
+    }
+
     const transporter = await getTransporter();
 
     const result = await transporter.sendMail({
