@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -98,5 +98,22 @@ describe('ParentPortalShell', () => {
     renderShell();
 
     expect(await screen.findByText('Dashboard body')).toBeInTheDocument();
+  });
+
+  it('logs out and clears the session when "Log out" is clicked', async () => {
+    let logoutCalled = false;
+    server.use(
+      http.post('*/auth/logout', () => {
+        logoutCalled = true;
+        return HttpResponse.json({ success: true });
+      })
+    );
+
+    renderShell();
+    await screen.findByText('Enrolled Kid');
+
+    fireEvent.click(screen.getByRole('button', { name: /log out/i }));
+
+    await waitFor(() => expect(logoutCalled).toBe(true));
   });
 });

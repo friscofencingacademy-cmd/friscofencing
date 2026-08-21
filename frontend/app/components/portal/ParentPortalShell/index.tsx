@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarPlus, ClipboardList, CreditCard, Home, Wallet } from 'lucide-react';
+import { CalendarPlus, ClipboardList, CreditCard, Home, LogOut, Wallet } from 'lucide-react';
 
 import { useAuth } from '../../../context/AuthContext';
 import { useParentPortal } from '../../../context/ParentPortalContext';
@@ -74,7 +74,7 @@ interface ParentPortalShellProps {
 }
 
 export default function ParentPortalShell({ children }: ParentPortalShellProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { students, subscriptions, trialClasses, reload } = useParentPortal();
   const [addChildOpen, setAddChildOpen] = useState(false);
 
@@ -96,9 +96,15 @@ export default function ParentPortalShell({ children }: ParentPortalShellProps) 
         <p className={styles.headerGreeting}>Welcome back, {user?.firstName}</p>
         <p className={styles.headerDate}>{dateLabel}</p>
       </div>
-      <span className={styles.headerChip}>
-        {students.length} {students.length === 1 ? 'child' : 'children'}
-      </span>
+      <div className={styles.headerActions}>
+        <span className={styles.headerChip}>
+          {students.length} {students.length === 1 ? 'child' : 'children'}
+        </span>
+        <button type="button" className={styles.logoutButton} onClick={() => logout()}>
+          <LogOut size={14} />
+          Log out
+        </button>
+      </div>
     </div>
   );
 
