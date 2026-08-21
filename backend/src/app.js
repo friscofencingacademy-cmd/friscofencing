@@ -18,6 +18,10 @@ const paymentMethodRoutes = require('./routes/paymentMethod.routes');
 const registrationRoutes = require('./routes/registration.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
 const stripeWebhookRoutes = require('./routes/stripeWebhook.routes');
+const coachContractRoutes = require('./routes/coachContract.routes');
+const privateClassScheduleRoutes = require('./routes/privateClassSchedule.routes');
+const privateClassEnrollmentRoutes = require('./routes/privateClassEnrollment.routes');
+const privateClassSessionRoutes = require('./routes/privateClassSession.routes');
 
 configurePassport(passport);
 
@@ -64,5 +68,9 @@ app.use('/api/v1/trial-classes', trialClassRoutes);
 app.use('/api/v1/payment-methods', paymentMethodRoutes);
 app.use('/api/v1/registrations', registrationRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);
+app.use('/api/v1/coach-contracts', coachContractRoutes);
+app.use('/api/v1/private-class-schedules', privateClassScheduleRoutes);
+app.use('/api/v1/private-class-enrollments', privateClassEnrollmentRoutes);
+app.use('/api/v1/private-class-sessions', privateClassSessionRoutes);
 
 module.exports = app;

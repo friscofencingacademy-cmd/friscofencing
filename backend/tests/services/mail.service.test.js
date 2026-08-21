@@ -24,6 +24,7 @@ describe('mail.service', () => {
     delete process.env.SMTP_PORT;
     delete process.env.SMTP_USER;
     delete process.env.SMTP_PASS;
+    delete process.env.APP_ENV;
 
     // eslint-disable-next-line global-require
     nodemailer = require('nodemailer');
@@ -53,14 +54,26 @@ describe('mail.service', () => {
     return require('../../src/services/mail.service');
   }
 
+  // NOTE: these three send-function tests were rewired for the Phase 2
+  // signature change (docs/plans/ckq-parity-plan.md §3.2 — block-based
+  // rendering via renderEmail, richer data, cc support). This is one of the
+  // plan's explicitly-allowed pre-existing test updates, not a weakening —
+  // the behavior itself deliberately changed.
   describe('sendTrialConfirmationEmail', () => {
-    it('sends to the parent email with a subject/body naming the student', async () => {
+    const coach = { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' };
+
+    it('sends to the parent, cc ADMIN_EMAIL + coach, with a subject/body naming the student', async () => {
       const mailService = loadMailService();
 
       const result = await mailService.sendTrialConfirmationEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
-        student: { firstName: 'Sam' },
+        student: { firstName: 'Sam', lastName: 'Rivera' },
         session: { date: new Date('2030-01-01T00:00:00.000Z') },
+        schedule: { dayOfWeek: 1, startTime: '16:00', endTime: '17:00' },
+        groupClass: { name: 'Beginner Foil' },
+        level: { name: 'Beginner' },
+        location: { name: 'Frisco HQ' },
+        coach,
       });
 
       expect(result).not.toBe(false);
@@ -68,8 +81,22 @@ describe('mail.service', () => {
 
       const call = sendMail.mock.calls[0][0];
       expect(call.to).toBe('pat@example.com');
-      expect(call.subject).toContain('Sam');
-      expect(call.text).toContain('Sam');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com', 'coach@example.com']);
+      expect(call.subject).toContain('Sam Rivera');
+      expect(call.text).toContain('Sam Rivera');
+    });
+
+    it('filters a coach with no email out of cc without crashing', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
     });
 
     it('catches a sendMail rejection, logs it, and returns false without throwing', async () => {
@@ -89,15 +116,20 @@ describe('mail.service', () => {
   });
 
   describe('sendRegistrationConfirmationEmail', () => {
-    it('sends to the parent email with a subject/body naming the student', async () => {
+    it('sends to the parent, cc ADMIN_EMAIL + coach, with a subject/body naming the student and charge', async () => {
       const mailService = loadMailService();
 
       const result = await mailService.sendRegistrationConfirmationEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
         student: { firstName: 'Robin' },
-        schedule: {},
+        schedule: { dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
+        groupClass: { name: 'Beginner Foil' },
+        level: { name: 'Beginner' },
+        location: { name: 'Frisco HQ' },
+        coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
         chargeAmount: 150,
-        siblingDiscountApplied: false,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
       });
 
       expect(result).not.toBe(false);
@@ -105,23 +137,43 @@ describe('mail.service', () => {
 
       const call = sendMail.mock.calls[0][0];
       expect(call.to).toBe('pat@example.com');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com', 'coach@example.com']);
       expect(call.subject).toContain('Robin');
       expect(call.text).toContain('150');
     });
 
-    it('mentions the sibling discount when siblingDiscountApplied is true', async () => {
+    it('mentions the sibling discount when siblingDiscountAmount is > 0', async () => {
       const mailService = loadMailService();
 
       await mailService.sendRegistrationConfirmationEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
         student: { firstName: 'Robin' },
         schedule: {},
+        groupClass: {},
         chargeAmount: 135,
-        siblingDiscountApplied: true,
+        monthlyFee: 150,
+        siblingDiscountAmount: 15,
       });
 
       const call = sendMail.mock.calls[0][0];
       expect(call.text.toLowerCase()).toContain('sibling discount');
+    });
+
+    it('omits the sibling discount line when siblingDiscountAmount is 0', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendRegistrationConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Robin' },
+        schedule: {},
+        groupClass: {},
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.text.toLowerCase()).not.toContain('sibling discount');
     });
 
     it('catches a sendMail rejection, logs it, and returns false without throwing', async () => {
@@ -133,8 +185,10 @@ describe('mail.service', () => {
           parent: { firstName: 'Pat', email: 'pat@example.com' },
           student: { firstName: 'Robin' },
           schedule: {},
+          groupClass: {},
           chargeAmount: 150,
-          siblingDiscountApplied: false,
+          monthlyFee: 150,
+          siblingDiscountAmount: 0,
         })
       ).resolves.toBe(false);
 
@@ -143,15 +197,18 @@ describe('mail.service', () => {
   });
 
   describe('sendRenewalReceiptEmail', () => {
-    it('sends to the parent email with a subject/body naming the student', async () => {
+    it('sends to the parent (no cc) with a subject/body naming the student and charge', async () => {
       const mailService = loadMailService();
 
       const result = await mailService.sendRenewalReceiptEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
         student: { firstName: 'Jamie' },
         schedule: {},
+        groupClass: {},
+        monthLabel: 'September 2026',
         chargeAmount: 150,
-        siblingDiscountApplied: false,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
       });
 
       expect(result).not.toBe(false);
@@ -159,6 +216,7 @@ describe('mail.service', () => {
 
       const call = sendMail.mock.calls[0][0];
       expect(call.to).toBe('pat@example.com');
+      expect(call.cc).toBeUndefined();
       expect(call.subject).toContain('Jamie');
       expect(call.text).toContain('150');
     });
@@ -172,12 +230,231 @@ describe('mail.service', () => {
           parent: { firstName: 'Pat', email: 'pat@example.com' },
           student: { firstName: 'Jamie' },
           schedule: {},
+          groupClass: {},
+          monthLabel: 'September 2026',
           chargeAmount: 150,
-          siblingDiscountApplied: false,
+          monthlyFee: 150,
+          siblingDiscountAmount: 0,
         })
       ).resolves.toBe(false);
 
       expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('new Phase 2 send functions never throw even when renderEmail-building data is missing', () => {
+    it('sendCancellationConfirmationEmail cc lists only the coach (no admin) and never throws', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendCancellationConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        groupClass: { name: 'Beginner Foil' },
+        schedule: { dayOfWeek: 1, startTime: '16:00', endTime: '17:00' },
+        coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
+        endDate: new Date('2026-10-01T12:00:00.000Z'),
+      });
+
+      expect(result).not.toBe(false);
+      const call = sendMail.mock.calls[0][0];
+      expect(call.cc).toEqual(['coach@example.com']);
+    });
+
+    it('sendReactivationConfirmationEmail never throws and sends no cc', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendReactivationConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        groupClass: {},
+        schedule: {},
+        nextBillingDate: new Date('2026-10-01T12:00:00.000Z'),
+      });
+
+      expect(result).not.toBe(false);
+      expect(sendMail.mock.calls[0][0].cc).toBeUndefined();
+    });
+
+    it('sendScheduleChangeConfirmationEmail cc lists the new coach', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendScheduleChangeConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        old: { groupClass: { name: 'A' }, schedule: {} },
+        next: {
+          groupClass: { name: 'B' },
+          schedule: {},
+          coach: { firstName: 'New', lastName: 'Coach', email: 'newcoach@example.com' },
+        },
+      });
+
+      expect(result).not.toBe(false);
+      expect(sendMail.mock.calls[0][0].cc).toEqual(['newcoach@example.com']);
+    });
+
+    it('sendPrivateClassConfirmationEmail cc lists ADMIN_EMAIL + coach', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendPrivateClassConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
+        slotLabel: 'Tuesday · 4:00 PM · 60 min',
+        rateLabel: '$65/hr — $65 per session',
+        firstSessionDate: new Date('2026-08-26T12:00:00.000Z'),
+        sessionPriceLabel: '$65',
+      });
+
+      expect(result).not.toBe(false);
+      expect(sendMail.mock.calls[0][0].cc).toEqual([
+        'friscofencingacademy@gmail.com',
+        'coach@example.com',
+      ]);
+    });
+
+    it('sendPrivateClassSessionReceiptEmail cc lists ADMIN_EMAIL only', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendPrivateClassSessionReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        coach: { firstName: 'Dana', lastName: 'Coach' },
+        sessionDate: new Date('2026-08-26T12:00:00.000Z'),
+        durationMinutes: 60,
+        amount: 65,
+      });
+
+      expect(result).not.toBe(false);
+      expect(sendMail.mock.calls[0][0].cc).toEqual(['friscofencingacademy@gmail.com']);
+      expect(sendMail.mock.calls[0][0].text).toContain('65.00');
+    });
+
+    it('sendPrivateClassPaymentFailedEmail cc lists ADMIN_EMAIL only and never throws', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendPrivateClassPaymentFailedEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        sessionDate: new Date('2026-08-26T12:00:00.000Z'),
+        amount: 65,
+        paymentMethodUrl: 'http://localhost:3000/parent/payment-method',
+      });
+
+      expect(result).not.toBe(false);
+      expect(sendMail.mock.calls[0][0].cc).toEqual(['friscofencingacademy@gmail.com']);
+    });
+
+    it('sendPrivateClassCancellationEmail cc lists ADMIN_EMAIL + coach', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendPrivateClassCancellationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
+        slotLabel: 'Tuesday · 4:00 PM · 60 min',
+      });
+
+      expect(result).not.toBe(false);
+      expect(sendMail.mock.calls[0][0].cc).toEqual([
+        'friscofencingacademy@gmail.com',
+        'coach@example.com',
+      ]);
+    });
+
+    it('every new send function resolves false (never throws) when passed nothing at all', async () => {
+      sendMail.mockRejectedValue(new Error('SMTP exploded'));
+      const mailService = loadMailService();
+
+      await expect(mailService.sendCancellationConfirmationEmail({})).resolves.toBe(false);
+      await expect(mailService.sendReactivationConfirmationEmail({})).resolves.toBe(false);
+      await expect(mailService.sendScheduleChangeConfirmationEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassConfirmationEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassSessionReceiptEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassPaymentFailedEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassCancellationEmail({})).resolves.toBe(false);
+    });
+  });
+
+  describe('staging email gate', () => {
+    it('blocks the send and returns { blocked: true } when SMTP_HOST is set and APP_ENV is unset', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      delete process.env.APP_ENV;
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).toEqual({ blocked: true });
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it("blocks the send when SMTP_HOST is set and APP_ENV is 'staging'", async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      process.env.APP_ENV = 'staging';
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).toEqual({ blocked: true });
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it("does NOT block, and calls sendMail, when SMTP_HOST is set and APP_ENV is 'production'", async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      process.env.APP_ENV = 'production';
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).not.toEqual({ blocked: true });
+      expect(sendMail).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT block Ethereal (no SMTP_HOST) even when APP_ENV is unset — local dev is unaffected', async () => {
+      delete process.env.SMTP_HOST;
+      delete process.env.APP_ENV;
+
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(result).not.toEqual({ blocked: true });
+      expect(sendMail).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks AFTER the message is rendered — the warn log carries the real subject', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      delete process.env.APP_ENV;
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mailService = loadMailService();
+
+      await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+      });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Sam'));
     });
   });
 

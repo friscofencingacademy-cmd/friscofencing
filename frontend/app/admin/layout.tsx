@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   CalendarDays,
+  CreditCard,
   DollarSign,
+  FileSignature,
   GraduationCap,
   LayoutDashboard,
   Menu,
@@ -51,6 +53,19 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Places',
     items: [{ href: '/admin/locations', label: 'Locations', icon: <MapPin size={15} /> }],
+  },
+  {
+    label: 'Billing',
+    items: [
+      { href: '/admin/subscriptions', label: 'Subscriptions', icon: <CreditCard size={15} /> },
+    ],
+  },
+  {
+    label: 'Private',
+    items: [
+      { href: '/admin/private-classes', label: 'Private Classes', icon: <Swords size={15} /> },
+      { href: '/admin/coach-contracts', label: 'Coach Contracts', icon: <FileSignature size={15} /> },
+    ],
   },
   {
     label: 'People',

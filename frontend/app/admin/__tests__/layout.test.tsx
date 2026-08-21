@@ -102,7 +102,9 @@ describe('AdminLayout', () => {
 
     renderAdminLayout();
 
-    const classesLink = await screen.findByRole('link', { name: /classes/i });
+    // Exact match — "Private Classes" (added by the ckq-parity plan's
+    // Phase 4 nav) also matches a loose /classes/i pattern.
+    const classesLink = await screen.findByRole('link', { name: /^classes$/i });
     expect(classesLink).toHaveAttribute('aria-current', 'page');
 
     const locationsLink = screen.getByRole('link', { name: /locations/i });

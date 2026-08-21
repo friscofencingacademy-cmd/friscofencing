@@ -39,7 +39,8 @@ const server = setupServer(
     HttpResponse.json({ students: [STUDENT_ENROLLED, STUDENT_TRIAL, STUDENT_NONE] })
   ),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [SUBSCRIPTION] })),
-  http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
+  http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] })),
+  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] }))
 );
 
 beforeAll(() => server.listen());

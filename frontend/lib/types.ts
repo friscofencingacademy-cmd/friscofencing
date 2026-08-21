@@ -147,3 +147,174 @@ export interface RegistrationCreateResponse {
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
 }
+
+// ── Admin Group Class Subscriptions (ckq-parity plan, Phase 3) ────────────
+// Typed against subscription.service.js's populate chain
+// (populateSubscriptionQuery): studentId/parentId -> firstName/lastName/
+// email; scheduleId -> classId -> levelId/locationId, and coachId.
+
+export interface AdminSubscriptionPersonRef {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+}
+
+export interface AdminSubscriptionClassRef {
+  _id: string;
+  name: string;
+  levelId: Level;
+  locationId: Location;
+  capacity: number;
+}
+
+export interface AdminSubscriptionScheduleRef {
+  _id: string;
+  classId: AdminSubscriptionClassRef;
+  coachId: AdminSubscriptionPersonRef;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  students: string[];
+}
+
+export interface AdminSubscriptionRow {
+  _id: string;
+  studentId: AdminSubscriptionPersonRef;
+  parentId: AdminSubscriptionPersonRef;
+  scheduleId: AdminSubscriptionScheduleRef;
+  status: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodStart?: string;
+  currentPeriodEnd: string;
+  nextBillingDate: string;
+  lastChargeAmount: number | null;
+  lastSiblingDiscountApplied?: boolean;
+}
+
+export interface AdminSubscriptionListResponse {
+  subscriptions: AdminSubscriptionRow[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+}
+
+// ── Private class flow (ckq-parity plan, Phase 4) ─────────────────────────
+
+export type PrivateEnrollmentStatus = 'active' | 'cancelled';
+export type PrivateAttendanceStatus = 'scheduled' | 'attended' | 'missed';
+export type PrivateChargeStatus = 'pending' | 'completed' | 'failed';
+
+// GET /coach-contracts populates coachId -> {firstName,lastName,email}.
+export interface CoachContract {
+  _id: string;
+  coachId: AdminSubscriptionPersonRef;
+  studentBillingRate: number;
+  coachCompensationRate: number;
+  sessionDurationMinutes: number;
+  effectiveFrom: string;
+  isActive: boolean;
+  notes?: string;
+}
+
+// GET /private-class-schedules (admin) / /mine (coach) populate coachId and
+// studentId with {firstName,lastName[,email]}. The raw (unauthenticated
+// create) shape uses plain id strings instead — PrivateClassScheduleRow
+// covers both by making the populated fields a union of ref-or-id.
+export interface PrivateClassScheduleRow {
+  _id: string;
+  coachId: AdminSubscriptionPersonRef | string;
+  dayOfWeek: number;
+  startTime: string;
+  durationMinutes: number;
+  studentId: { _id: string; firstName: string; lastName: string } | string | null;
+  enrollmentId: string | null;
+  isActive: boolean;
+}
+
+// GET /private-class-schedules/public — no auth, no student/parent data.
+export interface PublicPrivateClassSlot {
+  scheduleId: string;
+  dayOfWeek: number;
+  dayName: string;
+  startTime: string;
+  displayTime: string;
+  durationMinutes: number;
+  sessionPrice: number;
+  hourlyRate: number;
+  firstSessionDate: string;
+}
+
+export interface PublicPrivateClassCoach {
+  coachId: string;
+  coachName: string;
+  slots: PublicPrivateClassSlot[];
+}
+
+export interface PrivateClassEnrollmentRow {
+  _id: string;
+  studentId: { _id: string; firstName: string; lastName: string };
+  parentId: AdminSubscriptionPersonRef;
+  coachId: AdminSubscriptionPersonRef;
+  coachContractId: string;
+  agreedHourlyRate: number;
+  status: PrivateEnrollmentStatus;
+  endDate: string | null;
+}
+
+export interface PrivateClassChargeRow {
+  _id: string;
+  sessionId: string;
+  enrollmentId: string;
+  parentId: string;
+  studentId: string;
+  amount: number;
+  status: PrivateChargeStatus;
+  stripePaymentIntentId: string | null;
+  attempt: number;
+  failureMessage: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+// POST /private-class-enrollments response.
+export interface PrivateEnrollmentCreateResponse {
+  enrollment: PrivateClassEnrollmentRow;
+  schedule: PrivateClassScheduleRow;
+  sessionPrice: number;
+  firstSessionDate: string;
+}
+
+// GET /private-class-enrollments/mine response entry.
+export interface MyPrivateEnrollmentEntry {
+  enrollment: PrivateClassEnrollmentRow;
+  slot: PrivateClassScheduleRow | null;
+  charges: PrivateClassChargeRow[];
+}
+
+// GET /private-class-sessions/mine populates studentId + parentId, and adds
+// a backend-computed sessionPrice (null if it can't be resolved) — see
+// privateClassSession.service.js's listMine.
+export interface PrivateClassSessionRow {
+  _id: string;
+  scheduleId: string;
+  enrollmentId: string;
+  coachId: string;
+  studentId: { _id: string; firstName: string; lastName: string };
+  parentId: { _id: string; firstName: string; lastName: string };
+  startDate: string;
+  endDate: string;
+  attendance: PrivateAttendanceStatus;
+  markedBy: string | null;
+  markedAt: string | null;
+  sessionPrice: number | null;
+}
+
+// PATCH .../attendance and POST .../retry-charge share this response shape.
+export interface PrivateAttendanceResult {
+  session: PrivateClassSessionRow;
+  charged: boolean;
+  chargeStatus?: PrivateChargeStatus;
+  reason?: string;
+  charge: PrivateClassChargeRow | null;
+}

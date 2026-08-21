@@ -1,6 +1,10 @@
 const TrialClass = require('../models/trialClass.model');
 const User = require('../models/user.model');
 const GroupClassSession = require('../models/groupClassSession.model');
+const GroupClassSchedule = require('../models/groupClassSchedule.model');
+const GroupClass = require('../models/groupClass.model');
+const Level = require('../models/level.model');
+const Location = require('../models/location.model');
 const mailService = require('./mail.service');
 
 function notFoundError(message) {
@@ -66,8 +70,32 @@ async function create({ studentId, sessionId }, requestingUser) {
   const trialClass = await TrialClass.create({ studentId, sessionId });
 
   // Fire-and-forget confirmation email — never throws, never affects this
-  // response (see mail.service.js's send-function contract).
-  await mailService.sendTrialConfirmationEmail({ parent: requestingUser, student, session });
+  // response (see mail.service.js's send-function contract). The extra
+  // schedule/class/level/location/coach lookups for the richer email are
+  // deliberately kept inside this try/catch, alongside the send itself, so
+  // a populate failure here can never fail an otherwise-successful booking.
+  try {
+    const schedule = await GroupClassSchedule.findById(session.scheduleId);
+    const groupClass = schedule ? await GroupClass.findById(schedule.classId) : null;
+    const level = groupClass ? await Level.findById(groupClass.levelId) : null;
+    const location = groupClass ? await Location.findById(groupClass.locationId) : null;
+    const coach = schedule ? await User.findById(schedule.coachId) : null;
+
+    await mailService.sendTrialConfirmationEmail({
+      parent: requestingUser,
+      student,
+      session,
+      schedule,
+      groupClass,
+      level,
+      location,
+      coach,
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console -- operational logging for a
+    // fire-and-forget email side effect, not debug output.
+    console.error('trialClass.service: failed to assemble confirmation email:', error.message);
+  }
 
   return populateTrialClass(trialClass._id);
 }

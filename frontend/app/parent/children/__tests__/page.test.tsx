@@ -13,6 +13,7 @@ const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
+  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })),
   http.post('*/students', async ({ request }) => {
     createdPayload = await request.json();
     return HttpResponse.json(

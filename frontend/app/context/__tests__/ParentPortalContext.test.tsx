@@ -7,7 +7,8 @@ import { ParentPortalProvider, useParentPortal } from '../ParentPortalContext';
 const STUDENT = { _id: 'student-1', firstName: 'Kid', lastName: 'One' };
 
 function Consumer() {
-  const { students, subscriptions, trialClasses, loading, error, reload } = useParentPortal();
+  const { students, subscriptions, trialClasses, privateEnrollments, loading, error, reload } =
+    useParentPortal();
 
   if (loading) return <p>Loading...</p>;
 
@@ -16,6 +17,7 @@ function Consumer() {
       <p>students: {students.length}</p>
       <p>subscriptions: {subscriptions.length}</p>
       <p>trialClasses: {trialClasses.length}</p>
+      <p>privateEnrollments: {privateEnrollments.length}</p>
       {error ? <p role="alert">error</p> : null}
       <button onClick={reload}>Reload</button>
     </div>
@@ -25,7 +27,8 @@ function Consumer() {
 const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
-  http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] }))
+  http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
+  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] }))
 );
 
 beforeAll(() => server.listen());
@@ -43,6 +46,25 @@ describe('ParentPortalContext', () => {
     expect(await screen.findByText('students: 1')).toBeInTheDocument();
     expect(screen.getByText('subscriptions: 0')).toBeInTheDocument();
     expect(screen.getByText('trialClasses: 0')).toBeInTheDocument();
+    expect(screen.getByText('privateEnrollments: 0')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does NOT set error when the private-enrollments fetch fails — students still render, privateEnrollments degrades to []', async () => {
+    server.use(
+      http.get('*/private-class-enrollments/mine', () =>
+        HttpResponse.json({ message: 'boom' }, { status: 500 })
+      )
+    );
+
+    render(
+      <ParentPortalProvider>
+        <Consumer />
+      </ParentPortalProvider>
+    );
+
+    expect(await screen.findByText('students: 1')).toBeInTheDocument();
+    expect(screen.getByText('privateEnrollments: 0')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 

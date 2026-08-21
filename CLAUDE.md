@@ -63,24 +63,29 @@ Full setup steps + env-var tables: `docs/plans/deployment-launch-plan.md`.
 ## Platform Scope (MVP)
 Users/auth · group classes/schedules/sessions · pricing · attendance · trial + regular registration · in-house recurring subscription billing with a 10% sibling discount (dynamic lower-payer rule, re-verified every renewal, 2-child case only).
 
-**Explicitly deferred:** weapon specialization, membership/credit-ledger discounts beyond sibling, scholarships, camps, private classes, weekly reports, student portal.
+**Explicitly deferred:** weapon specialization, membership/credit-ledger discounts beyond sibling, scholarships, camps, weekly reports, student portal.
+
+Private classes shipped (CKQ parity Phase 4, 2026-08-21) — coach contracts, published slots, public self-registration, attendance-triggered per-session Stripe charge. See `docs/features/private-class.md`.
 
 ## Documentation Map
 | Topic | Path |
 |---|---|
 | **Active plan** — deployment & launch (Steps 1–5, 7, 8 ✅ LIVE IN PRODUCTION; Step 6 Brevo + other follow-ups pending) | `docs/plans/deployment-launch-plan.md` |
+| **SHIPPED plan (pending owner review)** — CKQ parity, all 4 phases complete on `feature/ckq-parity` 2026-08-21: staging email block (`APP_ENV` gate), block-based email design system (10 templates), admin Group Class Subscriptions page (list/change-schedule/cancel/reactivate), full private-class flow (coach contracts → published slots → public self-registration → attendance-triggered per-session Stripe charge). One autonomous 4-phase build. Not yet merged to `develop` — see `CLAUDE_HISTORY.md` for the exact local-test commands. | `docs/plans/ckq-parity-plan.md` |
 | **SHIPPED plan** — CKQ UI adoption: admin sidebar shell, admin CRUD edit/delete, parent portal shell, registration flow wizards, child detail page, testing+docs org (LIVE IN PRODUCTION 2026-08-21) | `docs/plans/ckq-ui-adoption-plan.md` |
 | **SHIPPED plan** — admin user management: create/edit/change-password/delete with role-hierarchy security (LIVE IN PRODUCTION 2026-08-21) | `docs/plans/admin-user-management-plan.md` |
 | Design system — principles, tokens, shells, page patterns, components inventory, anti-patterns, pre-merge checklist | `docs/design-system.md` |
 | Testing strategy — layers, mocking rules, interaction/date rules, typed fixtures, naming conventions, error-handling contract | `docs/TESTING_STRATEGY.md` |
 | Test coverage — current suite counts (real, re-run per update), per-layer table, honest gaps, improvement plan | `docs/TEST_COVERAGE.md` |
-| Admin panel — per-page behavior spec (Pattern A CRUD, delete guards, deferred schedule-edit note) | `docs/features/admin.md` |
-| Parent portal — shell/context contract, flow kit, child detail page, AddChildModal, page inventory | `docs/features/parent-portal.md` |
+| Email system — block-based design system architecture, tokens, template registry, CC table, the `APP_ENV` staging gate, preview-script usage | `docs/modules/email.md` |
+| Admin panel — per-page behavior spec (Pattern A CRUD, delete guards, Subscriptions/Coach Contracts/Private Classes pages, amended schedule-edit deferral note) | `docs/features/admin.md` |
+| Parent portal — shell/context contract, flow kit, child detail page, AddChildModal, private-lessons wizard, page inventory | `docs/features/parent-portal.md` |
+| Private classes — lifecycle, model map, charge pipeline + idempotency layers, the four CKQ-BUG-FIXes, route table, page inventory | `docs/features/private-class.md` |
 | Database schema | `DATABASE_SCHEMA_DOCUMENTATION.md` |
 | Completed work log | `CLAUDE_HISTORY.md` |
 | Architecture decisions — index + status definitions | `docs/decisions/README.md` |
-| Module docs | `docs/modules/` (created as modules are built) |
-| Feature docs | `docs/features/` (admin, parent-portal; more created as features are built) |
+| Module docs | `docs/modules/` (email; more created as modules are built) |
+| Feature docs | `docs/features/` (admin, parent-portal, private-class; more created as features are built) |
 
 ## Pre-read requirements (check before acting)
 
@@ -93,4 +98,6 @@ Before touching any of the following areas, **read the linked doc first** — it
 | Write or modify any test | `docs/TESTING_STRATEGY.md` |
 | Touch CSS / styling / add a shell or page pattern | `docs/design-system.md` |
 | Touch payment / billing / subscription / cron | `docs/decisions/001-in-house-subscription-billing.md` |
+| Touch email templates, the block-based design system, or the staging send gate | `docs/modules/email.md` |
+| Touch coach contracts, private-class schedules/enrollments/sessions, or the per-session Stripe charge | `docs/features/private-class.md` |
 | Add or modify a DB collection or field | `DATABASE_SCHEMA_DOCUMENTATION.md` |
