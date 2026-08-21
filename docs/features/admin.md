@@ -30,9 +30,33 @@ Columns: Level (resolved via a levels lookup), Monthly Fee. Fields: levelId (sel
 
 Columns: Name, Level, Location, Capacity (level/location resolved via lookups). Fields: name, levelId (select), locationId (select), capacity (number). Backend delete guard: 409 if any `GroupClassSchedule` references the class (added in this phase — previously `remove()` had no guard at all).
 
-## Schedules (`/admin/schedules`) — deferred edit/delete
+## Schedules (`/admin/schedules`) — deferred edit/delete (moving a student is now supported elsewhere)
 
 Restyled onto the shell + `admin.module.css` table classes + `AdminPageHeader`, but **intentionally stays create + list only**. The create form was moved into a modal for visual consistency with Pattern A, but there is no edit or delete UI, and the backend has no corresponding guard work here — deleting/editing a schedule has ripple effects on already-generated `GroupClassSession` docs and student rosters that are out of scope for this plan. A muted table-footer note communicates this: "Schedules can't be edited once created — create a new one instead." Each row links to `/admin/schedules/:id/sessions`.
+
+**Amended by the CKQ parity plan (Phase 3):** the narrow case of *moving a single student between two same-level schedules* is no longer deferred — see Subscriptions → Change Schedule below. What stays deferred is editing a schedule's own fields (day/time/coach/capacity) once created; that still has the ripple effects described above and remains out of scope.
+
+## Subscriptions (`/admin/subscriptions`)
+
+Not a Pattern A CRUD page — a list + action-dialogs page over `Subscription` (the group-class billing lifecycle). Backend: `subscription.service.js`'s `listAll`/`cancel`/`reactivate`/`changeSchedule`, routed at `GET/PATCH /api/v1/subscriptions*`.
+
+- **Toolbar**: search input (client debounce 400ms → `q`, matches student/parent name or parent email, filtered in Node after populate — academy scale, not worth a search index), status select (All / Active / Pending cancel / Cancelled). Any filter change resets to page 1.
+- **Columns**: Student | Parent (email sub-line) | Class (name + level sub-line) | Schedule (day/time + coach sub-line) | Next billing | Last charge (`$X`, plus a `10% sibling` chip when `lastSiblingDiscountApplied`) | Status chip (`Active` / gold `Cancels <date>` / muted `Cancelled`) | Actions.
+- **Actions**: **Change Schedule** (active or pending-cancel), **Cancel** (active only), **Reactivate** (pending-cancel only).
+- **Change Schedule dialog** — two steps: *pick* (read-only "Current schedule" box + a "New schedule" select client-filtered to schedules at the same level, excluding the current one — hint text when none match) → *confirm* (before/after class+schedule+coach, plus "Monthly fee unchanged — same level."). A 409 (same-level violation, capacity, duplicate-subscription) renders inline and keeps the dialog open.
+- **Cancel dialog** — "Cancel {student}'s subscription? Classes continue through {date}; nothing is refunded and the subscription will not renew." (D8 — no refunds/proration, ever.)
+- **Reactivate dialog** — "Remove the pending cancellation? Renewals continue as normal; nothing is charged now."
+- **Pagination**: simple Prev/Next on `totalPages`.
+
+Backend `changeSchedule(subscriptionId, newScheduleId)` validation order: subscription active (409 otherwise — a pending-cancel sub CAN still move), target schedule exists and differs, **same level** (resolves both schedules' `classId → levelId`, 409 on mismatch — always price-neutral per D6, no delta charge/proration/sibling-discount recompute), target capacity, no duplicate active subscription on the target. Writes, in order: `Subscription.scheduleId`, the student's active `Registration.scheduleId`, `$pull` the old schedule's roster + its future sessions, `$addToSet`/push the new schedule's roster + its future sessions (the add/remove roster logic is shared via `backend/src/services/roster.service.js`, reused by `registration.service.js` and `renewal.service.js` too — previously duplicated in both). `cancel()` and `reactivate()` now also send confirmation emails (log-only try/catch, never blocks the write) — see `docs/modules/email.md`.
+
+## Coach Contracts (`/admin/coach-contracts`)
+
+Pattern A minus edit. List: coach, `$/hr` billed to parent, `$/hr` coach compensation, default session duration, Active/Inactive status, effective-since date. Add dialog: coach select (from `?role=coach`), both rates, default duration — hint text: "Creating a contract replaces the coach's current active contract" (one active contract per coach, enforced service-side). Deactivate action: confirm dialog, no delete (a contract is an immutable audit record — see `docs/features/private-class.md`).
+
+## Private Classes (`/admin/private-classes`)
+
+`?tab=` (default `enrollments`), synced to the URL. **Enrollments** tab: student/parent/coach/slot/`$X/hr`/status, Cancel action on active rows (same confirm copy as the parent-side cancel: "All upcoming sessions will be removed and the weekly slot released. Completed sessions already charged are unaffected."). **Schedules** tab: every coach's slots (coach/day/time/duration, Available or the enrolled student's name as a chip), Add Slot dialog (coach/day/time/duration — admin creating on a coach's behalf), Delete on free slots only (409 verbatim on an occupied slot, Pattern A "Cannot Delete" state). Full model/pipeline detail: `docs/features/private-class.md`.
 
 ## Sessions (`/admin/schedules/:id/sessions`)
 
