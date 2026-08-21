@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -51,16 +51,18 @@ describe('ParentDashboardPage', () => {
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
-  it('shows the onboarding stepper when the household has zero children', async () => {
+  it('shows the onboarding stepper when the household has zero children, and its CTA opens the AddChildModal', async () => {
     renderDashboard();
 
     expect(await screen.findByText(/welcome to frisco fencing academy/i)).toBeInTheDocument();
     expect(screen.getByText('Account Created')).toBeInTheDocument();
     expect(screen.getByText('Add Your Child')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /add child/i })).toHaveAttribute('href', '/parent/children');
+
+    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    expect(await screen.findByRole('dialog', { name: /add child/i })).toBeInTheDocument();
   });
 
-  it('shows one at-a-glance card per child with the correct status and CTA', async () => {
+  it('shows one at-a-glance card per child with the correct status and CTA, linking to the child detail page', async () => {
     server.use(
       http.get('*/students/mine', () =>
         HttpResponse.json({ students: [STUDENT_ENROLLED, STUDENT_TRIAL, STUDENT_NONE] })
@@ -80,6 +82,12 @@ describe('ParentDashboardPage', () => {
 
     // Only the not-enrolled child gets the "Book a free trial" CTA.
     expect(screen.getAllByRole('link', { name: /book a free trial/i })).toHaveLength(1);
+
+    // Each child's name links to their detail page.
+    expect(screen.getByRole('link', { name: /enrolled kid/i })).toHaveAttribute(
+      'href',
+      `/parent/child/${STUDENT_ENROLLED._id}`
+    );
   });
 
   it('renders the Quick Actions rail', async () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { CalendarPlus, ClipboardList, CreditCard, Home, Wallet } from 'lucide-react';
 
@@ -9,6 +9,7 @@ import { useParentPortal } from '../../../context/ParentPortalContext';
 import { getChildPalette } from '../../../../lib/childPalette';
 import type { Student } from '../../../../lib/types';
 import PortalLayout, { type PortalNavGroup, type PortalNavItem } from '../PortalLayout';
+import AddChildModal from '../AddChildModal';
 import styles from './ParentPortalShell.module.css';
 
 const HOME_ITEMS: PortalNavItem[] = [{ key: 'home', label: 'Home', icon: <Home size={18} />, href: '/parent/dashboard' }];
@@ -27,11 +28,7 @@ const BOTTOM_NAV_ITEMS: PortalNavItem[] = [
   { key: 'billing', label: 'Billing', icon: <CreditCard size={20} />, href: '/parent/subscriptions' },
 ];
 
-function childStatusLine(
-  student: Student,
-  hasActiveSubscription: boolean,
-  hasTrial: boolean
-): string {
+function childStatusLine(hasActiveSubscription: boolean, hasTrial: boolean): string {
   if (hasActiveSubscription) return 'Enrolled';
   if (hasTrial) return 'Trial booked';
   return 'Not enrolled';
@@ -41,15 +38,16 @@ interface ChildNavRowsProps {
   students: Student[];
   hasActiveSubscription: (studentId: string) => boolean;
   hasTrial: (studentId: string) => boolean;
+  onAddChild: () => void;
 }
 
-function ChildNavRows({ students, hasActiveSubscription, hasTrial }: ChildNavRowsProps) {
+function ChildNavRows({ students, hasActiveSubscription, hasTrial, onAddChild }: ChildNavRowsProps) {
   return (
     <>
       {students.map((student, index) => {
         const palette = getChildPalette(index);
         return (
-          <Link key={student._id} href="/parent/children" className={styles.childRow}>
+          <Link key={student._id} href={`/parent/child/${student._id}`} className={styles.childRow}>
             <span className={styles.childAvatar} style={{ background: palette.gradient }} aria-hidden="true">
               {student.firstName[0]?.toUpperCase() ?? '?'}
             </span>
@@ -58,15 +56,15 @@ function ChildNavRows({ students, hasActiveSubscription, hasTrial }: ChildNavRow
                 {student.firstName} {student.lastName}
               </span>
               <span className={styles.childMeta}>
-                {childStatusLine(student, hasActiveSubscription(student._id), hasTrial(student._id))}
+                {childStatusLine(hasActiveSubscription(student._id), hasTrial(student._id))}
               </span>
             </span>
           </Link>
         );
       })}
-      <Link href="/parent/children" className={styles.addChildRow}>
+      <button type="button" className={styles.addChildRow} onClick={onAddChild}>
         + Add child
-      </Link>
+      </button>
     </>
   );
 }
@@ -77,7 +75,8 @@ interface ParentPortalShellProps {
 
 export default function ParentPortalShell({ children }: ParentPortalShellProps) {
   const { user } = useAuth();
-  const { students, subscriptions, trialClasses } = useParentPortal();
+  const { students, subscriptions, trialClasses, reload } = useParentPortal();
+  const [addChildOpen, setAddChildOpen] = useState(false);
 
   const hasActiveSubscription = (studentId: string) =>
     subscriptions.some((sub) => sub.studentId._id === studentId && sub.status === 'active');
@@ -108,15 +107,32 @@ export default function ParentPortalShell({ children }: ParentPortalShellProps) 
     {
       label: 'CHILDREN',
       content: (
-        <ChildNavRows students={students} hasActiveSubscription={hasActiveSubscription} hasTrial={hasTrial} />
+        <ChildNavRows
+          students={students}
+          hasActiveSubscription={hasActiveSubscription}
+          hasTrial={hasTrial}
+          onAddChild={() => setAddChildOpen(true)}
+        />
       ),
     },
     { label: 'ACADEMY', items: ACADEMY_ITEMS },
   ];
 
   return (
-    <PortalLayout navGroups={navGroups} header={header} bottomNavItems={BOTTOM_NAV_ITEMS}>
-      {children}
-    </PortalLayout>
+    <>
+      <PortalLayout navGroups={navGroups} header={header} bottomNavItems={BOTTOM_NAV_ITEMS}>
+        {children}
+      </PortalLayout>
+
+      {addChildOpen ? (
+        <AddChildModal
+          onClose={() => setAddChildOpen(false)}
+          onSuccess={() => {
+            setAddChildOpen(false);
+            reload();
+          }}
+        />
+      ) : null}
+    </>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { CalendarPlus, ClipboardList, Wallet } from 'lucide-react';
 
@@ -8,6 +9,7 @@ import { getChildPalette } from '../../../lib/childPalette';
 import type { Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
+import AddChildModal from '../../components/portal/AddChildModal';
 import styles from './dashboard.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -26,7 +28,8 @@ function statusLine(activeSubscription: Subscription | undefined, hasTrial: bool
 }
 
 export default function ParentDashboardPage() {
-  const { students, subscriptions, trialClasses, loading } = useParentPortal();
+  const { students, subscriptions, trialClasses, loading, reload } = useParentPortal();
+  const [addChildOpen, setAddChildOpen] = useState(false);
 
   if (loading) {
     return (
@@ -51,7 +54,7 @@ export default function ParentDashboardPage() {
             <div className={`${styles.step} ${styles.stepCurrent}`}>
               <span className={styles.stepCircle}>2</span>
               <span className={styles.stepLabel}>Add Your Child</span>
-              <Button as="a" href="/parent/children" size="sm">
+              <Button type="button" size="sm" onClick={() => setAddChildOpen(true)}>
                 Add Child
               </Button>
             </div>
@@ -61,6 +64,16 @@ export default function ParentDashboardPage() {
             </div>
           </div>
         </div>
+
+        {addChildOpen ? (
+          <AddChildModal
+            onClose={() => setAddChildOpen(false)}
+            onSuccess={() => {
+              setAddChildOpen(false);
+              reload();
+            }}
+          />
+        ) : null}
       </main>
     );
   }
@@ -80,15 +93,17 @@ export default function ParentDashboardPage() {
             return (
               <Card key={student._id}>
                 <div className={styles.childCard}>
-                  <span className={styles.childCardAvatar} style={{ background: palette.gradient }} aria-hidden="true">
-                    {student.firstName[0]?.toUpperCase() ?? '?'}
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <p className={styles.childCardName}>
-                      {student.firstName} {student.lastName}
-                    </p>
-                    <p className={styles.childCardStatus}>{statusLine(activeSubscription, hasTrial)}</p>
-                  </div>
+                  <Link href={`/parent/child/${student._id}`} className={styles.childCardLink}>
+                    <span className={styles.childCardAvatar} style={{ background: palette.gradient }} aria-hidden="true">
+                      {student.firstName[0]?.toUpperCase() ?? '?'}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <p className={styles.childCardName}>
+                        {student.firstName} {student.lastName}
+                      </p>
+                      <p className={styles.childCardStatus}>{statusLine(activeSubscription, hasTrial)}</p>
+                    </div>
+                  </Link>
                   {notEnrolled ? (
                     <Button as="a" href="/parent/book-trial" variant="secondary" size="sm">
                       Book a free trial →

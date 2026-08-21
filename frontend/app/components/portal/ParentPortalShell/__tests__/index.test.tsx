@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -59,7 +59,7 @@ function renderShell() {
 }
 
 describe('ParentPortalShell', () => {
-  it('renders a row per child with the correct status meta line', async () => {
+  it('renders a row per child with the correct status meta line, linking to the child detail page', async () => {
     renderShell();
 
     expect(await screen.findByText('Enrolled Kid')).toBeInTheDocument();
@@ -69,13 +69,22 @@ describe('ParentPortalShell', () => {
     expect(screen.getByText('Enrolled')).toBeInTheDocument();
     expect(screen.getByText('Trial booked')).toBeInTheDocument();
     expect(screen.getByText('Not enrolled')).toBeInTheDocument();
+
+    expect(screen.getByRole('link', { name: /enrolled kid/i })).toHaveAttribute(
+      'href',
+      `/parent/child/${STUDENT_ENROLLED._id}`
+    );
   });
 
-  it('renders an "+ Add child" row linking to /parent/children', async () => {
+  it('renders a "+ Add child" button that opens the AddChildModal', async () => {
     renderShell();
     await screen.findByText('Enrolled Kid');
 
-    expect(screen.getByRole('link', { name: /add child/i })).toHaveAttribute('href', '/parent/children');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+
+    expect(await screen.findByRole('dialog', { name: /add child/i })).toBeInTheDocument();
   });
 
   it('renders the header greeting and children-count chip', async () => {
