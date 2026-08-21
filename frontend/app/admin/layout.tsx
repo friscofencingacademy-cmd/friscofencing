@@ -11,6 +11,7 @@ import {
   Menu,
   MapPin,
   Swords,
+  Users,
   X,
 } from 'lucide-react';
 
@@ -50,6 +51,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Places',
     items: [{ href: '/admin/locations', label: 'Locations', icon: <MapPin size={15} /> }],
+  },
+  {
+    label: 'People',
+    items: [{ href: '/admin/users', label: 'Users', icon: <Users size={15} /> }],
   },
 ];
 
