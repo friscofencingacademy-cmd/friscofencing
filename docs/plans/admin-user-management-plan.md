@@ -1,6 +1,6 @@
 # Admin User Management — Create, Edit, Change Password
 
-**Status: PLAN — awaiting owner `write`.**
+**Status: SHIPPED TO PRODUCTION 2026-08-21** (PR #12 to develop, promoted to main in PR #13). Nothing remaining from this plan.
 **Executor:** a Claude Code session running the **Sonnet** model.
 **Planner:** Fable (this doc).
 

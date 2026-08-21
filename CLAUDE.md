@@ -68,8 +68,9 @@ Users/auth · group classes/schedules/sessions · pricing · attendance · trial
 ## Documentation Map
 | Topic | Path |
 |---|---|
-| **Active plan** — deployment & launch (Steps 1–5 ✅ LIVE IN PRODUCTION 2026-08-20; Step 6 Brevo pending) | `docs/plans/deployment-launch-plan.md` |
-| **SHIPPED plan** — CKQ UI adoption: admin sidebar shell, admin CRUD edit/delete, parent portal shell, registration flow wizards, child detail page, testing+docs org (all 7 phases merged to `develop` 2026-08-20; production promotion is a separate pending owner decision) | `docs/plans/ckq-ui-adoption-plan.md` |
+| **Active plan** — deployment & launch (Steps 1–5, 7, 8 ✅ LIVE IN PRODUCTION; Step 6 Brevo + other follow-ups pending) | `docs/plans/deployment-launch-plan.md` |
+| **SHIPPED plan** — CKQ UI adoption: admin sidebar shell, admin CRUD edit/delete, parent portal shell, registration flow wizards, child detail page, testing+docs org (LIVE IN PRODUCTION 2026-08-21) | `docs/plans/ckq-ui-adoption-plan.md` |
+| **SHIPPED plan** — admin user management: create/edit/change-password/delete with role-hierarchy security (LIVE IN PRODUCTION 2026-08-21) | `docs/plans/admin-user-management-plan.md` |
 | Design system — principles, tokens, shells, page patterns, components inventory, anti-patterns, pre-merge checklist | `docs/design-system.md` |
 | Testing strategy — layers, mocking rules, interaction/date rules, typed fixtures, naming conventions, error-handling contract | `docs/TESTING_STRATEGY.md` |
 | Test coverage — current suite counts (real, re-run per update), per-layer table, honest gaps, improvement plan | `docs/TEST_COVERAGE.md` |
