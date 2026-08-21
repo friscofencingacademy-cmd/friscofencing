@@ -1,91 +1,71 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import axios from 'axios';
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
-import api from '../../../lib/api';
-import Button from '../../components/ui/Button/Button';
-import Card from '../../components/ui/Card/Card';
+import { useParentPortal } from '../../context/ParentPortalContext';
+import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import { fetchGroupClasses } from '../../../lib/services/catalog';
+import { fetchSchedules, fetchSessionsBySchedule } from '../../../lib/services/scheduling';
+import { bookTrialClass } from '../../../lib/services/parent';
+import type { GroupClass, GroupClassSchedule, GroupClassSession } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
-import styles from '../../components/ui/shared.module.css';
+import Button from '../../components/ui/Button/Button';
+import LoadError from '../../components/ui/LoadError/LoadError';
+import {
+  ChildPickerCards,
+  FlowConfirmation,
+  FlowMain,
+  FlowSection,
+  OrderSummary,
+} from '../../components/portal/flow';
 
-interface StudentOption {
-  _id: string;
-  firstName: string;
-  lastName: string;
-}
-
-interface GroupClassOption {
-  _id: string;
-  name: string;
-}
-
-interface ScheduleOption {
-  _id: string;
-  classId: string;
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
-}
-
-interface SessionOption {
-  _id: string;
-  date: string;
-}
-
+const STEPS = ['Who', 'Pick a Class', 'Confirmation'];
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function BookTrialPageContent() {
-  const [students, setStudents] = useState<StudentOption[]>([]);
-  const [groupClasses, setGroupClasses] = useState<GroupClassOption[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
-  const [sessions, setSessions] = useState<SessionOption[]>([]);
+async function fetchBookingOptions() {
+  const [groupClasses, schedules] = await Promise.all([fetchGroupClasses(), fetchSchedules()]);
+  return { groupClasses, schedules };
+}
 
+interface BookedInfo {
+  childName: string;
+  sessionDate: string;
+}
+
+export default function BookTrialPage() {
+  const { students, reload } = useParentPortal();
+  const searchParams = useSearchParams();
+
+  const { data, error, isLoading, retry } = useLoadState(fetchBookingOptions, []);
+  const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
+  const [schedules, setSchedules] = useState<GroupClassSchedule[]>([]);
+
+  useEffect(() => {
+    if (data) {
+      setGroupClasses(data.groupClasses);
+      setSchedules(data.schedules);
+    }
+  }, [data]);
+
+  const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
   const [classId, setClassId] = useState('');
   const [scheduleId, setScheduleId] = useState('');
   const [sessionId, setSessionId] = useState('');
-
-  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState<GroupClassSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [booked, setBooked] = useState<BookedInfo | null>(null);
 
+  // Deep-link preselect: /parent/book-trial?child=<studentId>
   useEffect(() => {
-    let isMounted = true;
-
-    async function fetchOptions() {
-      setLoading(true);
-      try {
-        const [studentsRes, classesRes, schedulesRes] = await Promise.all([
-          api.get<{ students: StudentOption[] }>('/students/mine'),
-          api.get<{ groupClasses: GroupClassOption[] }>('/group-classes'),
-          api.get<{ schedules: ScheduleOption[] }>('/group-class-schedules'),
-        ]);
-
-        if (isMounted) {
-          setStudents(studentsRes.data.students);
-          setGroupClasses(classesRes.data.groupClasses);
-          setSchedules(schedulesRes.data.schedules);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError('Failed to load booking options.');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
+    const preselect = searchParams.get('child');
+    if (preselect) {
+      setStudentId(preselect);
     }
-
-    fetchOptions();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!scheduleId) {
@@ -93,45 +73,36 @@ function BookTrialPageContent() {
       return;
     }
 
-    let isMounted = true;
+    let cancelled = false;
 
-    async function fetchSessions() {
+    async function loadSessions() {
       setSessionsLoading(true);
       try {
-        const res = await api.get<{ sessions: SessionOption[] }>(
-          `/group-class-sessions/by-schedule/${scheduleId}`
-        );
+        const result = await fetchSessionsBySchedule(scheduleId);
+        if (cancelled) return;
 
-        if (isMounted) {
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          setSessions(
-            res.data.sessions.filter(
-              (session) => new Date(session.date).getTime() >= todayStart.getTime()
-            )
-          );
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError('Failed to load sessions.');
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        setSessions(result.filter((session) => new Date(session.date).getTime() >= todayStart.getTime()));
+      } catch {
+        if (!cancelled) {
+          setStepError('Failed to load sessions.');
         }
       } finally {
-        if (isMounted) {
+        if (!cancelled) {
           setSessionsLoading(false);
         }
       }
     }
 
-    fetchSessions();
+    loadSessions();
 
     return () => {
-      isMounted = false;
+      cancelled = true;
     };
   }, [scheduleId]);
 
-  const filteredSchedules = classId
-    ? schedules.filter((schedule) => schedule.classId === classId)
-    : [];
+  const filteredSchedules = classId ? schedules.filter((schedule) => schedule.classId === classId) : [];
 
   const handleClassChange = useCallback((value: string) => {
     setClassId(value);
@@ -144,80 +115,110 @@ function BookTrialPageContent() {
     setSessionId('');
   }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSuccessMessage(null);
+  const selectedStudent = students.find((student) => student._id === studentId);
+  const selectedSession = sessions.find((session) => session._id === sessionId);
+
+  async function handleSubmit() {
+    setStepError(null);
     setSubmitting(true);
 
-    try {
-      await api.post('/trial-classes', { studentId, sessionId });
-      setSuccessMessage('Trial class booked! We look forward to seeing you.');
-      setStudentId('');
-      setClassId('');
-      setScheduleId('');
-      setSessionId('');
-    } catch (err) {
-      const message = axios.isAxiosError(err) && err.response?.data?.message
-        ? err.response.data.message
-        : 'Failed to book trial class. Please try again.';
-      setError(message);
-    } finally {
-      setSubmitting(false);
+    const result = await bookTrialClass({ studentId, sessionId });
+
+    setSubmitting(false);
+
+    if (result.status === 'success') {
+      setBooked({
+        childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
+        sessionDate: selectedSession ? new Date(selectedSession.date).toLocaleDateString() : '',
+      });
+      setStep(2);
+      reload();
+    } else {
+      setStepError(result.message);
     }
   }
 
+  if (error) {
+    return (
+      <main>
+        <LoadError message={getErrorMessage(error)} onRetry={retry} />
+      </main>
+    );
+  }
+
+  if (step === 2) {
+    return (
+      <main>
+        <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }]} title="Book a Trial" steps={STEPS} current={2} singleColumn>
+          <FlowConfirmation
+            title="Trial class booked!"
+            subtitle="We look forward to seeing you."
+            lines={[
+              { label: 'Child', value: booked?.childName },
+              { label: 'Session', value: booked?.sessionDate },
+            ]}
+            links={
+              <>
+                <Button as="a" href="/parent/dashboard">
+                  Back to Dashboard
+                </Button>
+                <Button as="a" href="/parent/register" variant="secondary">
+                  Register for a Class
+                </Button>
+              </>
+            }
+          />
+        </FlowMain>
+      </main>
+    );
+  }
+
+  const summary = (
+    <OrderSummary
+      lines={[
+        { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
+        {
+          label: 'Schedule',
+          value: scheduleId
+            ? (() => {
+                const schedule = schedules.find((s) => s._id === scheduleId);
+                return schedule ? `${DAY_LABELS[schedule.dayOfWeek]} ${schedule.startTime}-${schedule.endTime}` : '—';
+              })()
+            : '—',
+        },
+        { label: 'Session', value: selectedSession ? new Date(selectedSession.date).toLocaleDateString() : '—' },
+      ]}
+      cta={step === 0 ? 'Continue' : 'Book Trial Class'}
+      ctaDisabled={step === 0 ? !studentId : !sessionId}
+      ctaLoading={submitting}
+      onCta={step === 0 ? () => setStep(1) : handleSubmit}
+    />
+  );
+
   return (
     <main>
-      <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Book a Trial Class</h1>
-      </div>
+      <FlowMain
+        crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }]}
+        title="Book a Trial"
+        steps={STEPS}
+        current={step}
+        summary={summary}
+      >
+        {stepError ? <Alert variant="error">{stepError}</Alert> : null}
 
-      {error ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="error">{error}</Alert>
-        </div>
-      ) : null}
-      {successMessage ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="success">{successMessage}</Alert>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <p>Loading...</p>
-      ) : (
-        <Card>
-          <form onSubmit={handleSubmit}>
-            <div className={styles.formField}>
-              <label htmlFor="studentId" className={styles.formLabel}>
-                Child
-              </label>
+        {isLoading ? (
+          <p>Loading...</p>
+        ) : step === 0 ? (
+          <FlowSection title="Who is this trial for?">
+            <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
+          </FlowSection>
+        ) : (
+          <>
+            <FlowSection title="Choose a class">
               <select
-                id="studentId"
-                className={styles.formSelect}
-                value={studentId}
-                onChange={(event) => setStudentId(event.target.value)}
-                required
-              >
-                <option value="">Select a child</option>
-                {students.map((student) => (
-                  <option key={student._id} value={student._id}>
-                    {student.firstName} {student.lastName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className={styles.formField}>
-              <label htmlFor="classId" className={styles.formLabel}>
-                Class
-              </label>
-              <select
-                id="classId"
-                className={styles.formSelect}
+                aria-label="Class"
                 value={classId}
-                onChange={(event) => handleClassChange(event.target.value)}
+                onChange={(e) => handleClassChange(e.target.value)}
                 required
               >
                 <option value="">Select a class</option>
@@ -227,17 +228,13 @@ function BookTrialPageContent() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FlowSection>
 
-            <div className={styles.formField}>
-              <label htmlFor="scheduleId" className={styles.formLabel}>
-                Schedule
-              </label>
+            <FlowSection title="Choose a schedule">
               <select
-                id="scheduleId"
-                className={styles.formSelect}
+                aria-label="Schedule"
                 value={scheduleId}
-                onChange={(event) => handleScheduleChange(event.target.value)}
+                onChange={(e) => handleScheduleChange(e.target.value)}
                 required
                 disabled={!classId}
               >
@@ -248,17 +245,13 @@ function BookTrialPageContent() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FlowSection>
 
-            <div className={styles.formField}>
-              <label htmlFor="sessionId" className={styles.formLabel}>
-                Session
-              </label>
+            <FlowSection title="Choose a session">
               <select
-                id="sessionId"
-                className={styles.formSelect}
+                aria-label="Session"
                 value={sessionId}
-                onChange={(event) => setSessionId(event.target.value)}
+                onChange={(e) => setSessionId(e.target.value)}
                 required
                 disabled={!scheduleId || sessionsLoading}
               >
@@ -269,18 +262,14 @@ function BookTrialPageContent() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FlowSection>
 
-            <Button type="submit" disabled={submitting}>
-              {submitting ? 'Booking...' : 'Book Trial Class'}
+            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
+              Back
             </Button>
-          </form>
-        </Card>
-      )}
+          </>
+        )}
+      </FlowMain>
     </main>
   );
-}
-
-export default function BookTrialPage() {
-  return <BookTrialPageContent />;
 }
