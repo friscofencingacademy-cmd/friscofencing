@@ -10,7 +10,9 @@
     "test": "jest",
     "seed:superadmin": "node scripts/seed-superadmin.js",
     "seed:coach": "node scripts/seed-coach.js",
-    "renewals": "node scripts/run-renewals.js"
+    "renewals": "node scripts/run-renewals.js",
+    "preview-emails": "node scripts/preview-emails.js",
+    "extend-private-sessions": "node scripts/extend-private-sessions.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

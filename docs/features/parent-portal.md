@@ -8,13 +8,13 @@ Role-gated (parent only — mirrors the admin layout's gate: redirects to `/` fo
 
 ## `ParentPortalContext` (`app/context/ParentPortalContext.tsx`)
 
-Fetches the household's `students`, `subscriptions` (`/registrations/mine`), and `trialClasses` (`/trial-classes/mine`) via `Promise.allSettled` — **not** `Promise.all` — so a temporary billing/trial outage never blocks the children list from rendering, and a students-only household isn't held hostage by a flaky secondary endpoint.
+Fetches the household's `students`, `subscriptions` (`/registrations/mine`), `trialClasses` (`/trial-classes/mine`), and (CKQ parity Phase 4) `privateEnrollments` (`/private-class-enrollments/mine`) via `Promise.allSettled` — **not** `Promise.all` — so a temporary billing/trial/private-class outage never blocks the children list from rendering, and a students-only household isn't held hostage by a flaky secondary endpoint.
 
-Contract: `{ students, subscriptions, trialClasses, loading, error, reload }`.
+Contract: `{ students, subscriptions, trialClasses, privateEnrollments, loading, error, reload }`.
 
 - `error` is set **only** when the PRIMARY fetch (`students`) fails. An empty household (zero children, no fetch failure) is explicitly NOT an error.
-- A failed secondary fetch (subscriptions or trial classes) silently degrades to `[]` — the rest of the portal still renders with whatever data did load.
-- `reload()` re-runs all three fetches (used after a mutation like adding a child).
+- A failed secondary fetch (subscriptions, trial classes, or private enrollments) silently degrades to `[]` — the rest of the portal still renders with whatever data did load.
+- `reload()` re-runs all four fetches (used after a mutation like adding a child).
 
 Every `/parent/*` page that needs household data consumes this context — **no page-level fetching** for students/subscriptions/trials any more (the book-trial/register/payment-method pages still do their own local fetches for page-specific option lists like classes/schedules/prices, which are out of this context's scope).
 
@@ -24,7 +24,7 @@ Wraps the generic `PortalLayout` with parent-specific nav groups:
 
 - **HOME** — Dashboard (`/parent/dashboard`).
 - **CHILDREN** — custom content: one row per student (initial-letter avatar with a deterministic per-child palette from `lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs assigned by index) showing a status line — `Enrolled` / `Trial booked` / `Not enrolled` — plus a "+ Add child" row. Each child row links to `/parent/child/[id]` (Phase 5); "+ Add child" is a button that opens `AddChildModal` in place (Phase 5) rather than navigating.
-- **ACADEMY** — Book Trial, Register, Billing (`/parent/subscriptions`), Payment Method.
+- **ACADEMY** — Book Trial, Register, Private Lessons (`/private-classes`, CKQ parity Phase 4), Billing (`/parent/subscriptions`), Payment Method.
 
 Header: "Welcome back, {firstName}" + today's date, plus a children-count chip. Mobile bottom nav (≤768px, 4 items): Home, Children, Register, Billing.
 
@@ -61,6 +61,10 @@ Both wizards keep local step state (`useState(0)`) — no URL-driven step routin
 
 Left as-is beyond Phase 3's unwrap — it already used `Card` + the shared design-system classes (portal card patterns), and further restyling risked touching the Stripe `CardElement` integration for no material benefit. Logic (including the `CardElement` iframe handling) is untouched.
 
+### Register for Private Lessons (`/parent/register-private`, CKQ parity Phase 4) — 3 steps
+
+`Who` (`ChildPickerCards`, honors `?child=`) → `Review & Pay` (slot summary — coach, day/time/duration, `$X per session`, first session date, all server values from the public availability payload; `?slot=` preselects; the same saved-card guard as the group wizard; consent line "You'll be charged **$X after each completed session** to your saved card") → `Done` (`FlowConfirmation`). Submits `createPrivateEnrollment({ studentId, scheduleId })`; a 409 slot-taken (another parent won the race) renders the backend message with a "Refresh available slots" action that refetches and returns to step 0. No upfront charge is ever made here — private lessons are billed per completed session, triggered by the coach marking attendance (see `docs/features/private-class.md`).
+
 ## `AddChildModal` (`app/components/portal/AddChildModal/`, Phase 5)
 
 Extracted from the children page's former inline form into a reusable dialog: `{ onClose, onSuccess }`. `onClose` fires on Cancel/backdrop-click with no side effect; `onSuccess` fires only after a successful `createStudent` mutation, and every caller's `onSuccess` handler closes the modal and calls `ParentPortalContext.reload()`. Client-side validates that both names are non-blank before submitting; a mutation failure shows the backend message inline and keeps the dialog open. Used by three call sites: the children page's "Add Child" button, `ParentPortalShell`'s sidebar "+ Add child" row, and the dashboard's empty-state "Add Child" CTA — all three previously navigated to `/parent/children`'s inline form and now open the modal in place instead.
@@ -85,5 +89,7 @@ Sidebar child rows and dashboard child cards both now link here instead of to `/
 | `/parent/children` | Consumes `students` from context (no own fetch); each row's name links to `/parent/child/[id]`; "Add Child" opens `AddChildModal` (Phase 5) instead of an inline form. |
 | `/parent/book-trial` | Rebuilt as a 3-step wizard (Phase 4) — see "Wizards" above. Payload byte-identical to the pre-wizard form. |
 | `/parent/register` | Rebuilt as a 4-step wizard (Phase 4) — see "Wizards" above. Payment-critical: payload/sequencing byte-identical to the pre-wizard form. |
-| `/parent/subscriptions` | Unchanged logic. Only unwrapped from `ProtectedRoute`/`AppShell` (Phase 3). |
+| `/parent/subscriptions` | Group-subscription logic unchanged (unwrapped from `ProtectedRoute`/`AppShell` in Phase 3). CKQ parity Phase 4 adds a **Private Lessons** section below the group table: per enrollment — coach, slot line, `$X/hr`, status, a recent-charges list (date · amount · Paid/Failed chip), and a Cancel button (confirm dialog: "All upcoming sessions will be removed and the weekly slot released. Completed sessions already charged are unaffected."). Fetches `privateEnrollments` independently of `ParentPortalContext` (its own `fetchMyPrivateEnrollments`/loading state) so a cancel can reload just this section. |
 | `/parent/payment-method` | Unchanged logic (Stripe CardElement flow). Only unwrapped from `ProtectedRoute`/`AppShell` (Phase 3). |
+| `/private-classes` | New (CKQ parity Phase 4) — public (no auth) browse page; see `docs/features/private-class.md`. |
+| `/parent/register-private` | New (CKQ parity Phase 4) — 3-step wizard; see "Register for Private Lessons" above. |

@@ -10,12 +10,14 @@ import {
 } from 'react';
 
 import { fetchMyStudents, fetchMySubscriptions, fetchMyTrialClasses } from '../../lib/services/parent';
-import type { Student, Subscription, TrialClass } from '../../lib/types';
+import { fetchMyPrivateEnrollments } from '../../lib/services/privateClass';
+import type { MyPrivateEnrollmentEntry, Student, Subscription, TrialClass } from '../../lib/types';
 
 interface ParentPortalContextValue {
   students: Student[];
   subscriptions: Subscription[];
   trialClasses: TrialClass[];
+  privateEnrollments: MyPrivateEnrollmentEntry[];
   loading: boolean;
   error: unknown;
   reload: () => void;
@@ -27,6 +29,7 @@ export function ParentPortalProvider({ children }: { children: ReactNode }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [trialClasses, setTrialClasses] = useState<TrialClass[]>([]);
+  const [privateEnrollments, setPrivateEnrollments] = useState<MyPrivateEnrollmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -39,14 +42,16 @@ export function ParentPortalProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       // Promise.allSettled, not Promise.all: the household's children
-      // (the PRIMARY fetch) must render even if billing/trial data is
-      // temporarily unavailable, and vice versa — an empty household is
-      // NOT an error, only a failed students fetch is.
-      const [studentsResult, subscriptionsResult, trialClassesResult] = await Promise.allSettled([
-        fetchMyStudents(),
-        fetchMySubscriptions(),
-        fetchMyTrialClasses(),
-      ]);
+      // (the PRIMARY fetch) must render even if billing/trial/private-class
+      // data is temporarily unavailable, and vice versa — an empty
+      // household is NOT an error, only a failed students fetch is.
+      const [studentsResult, subscriptionsResult, trialClassesResult, privateEnrollmentsResult] =
+        await Promise.allSettled([
+          fetchMyStudents(),
+          fetchMySubscriptions(),
+          fetchMyTrialClasses(),
+          fetchMyPrivateEnrollments(),
+        ]);
 
       if (cancelled) return;
 
@@ -59,6 +64,9 @@ export function ParentPortalProvider({ children }: { children: ReactNode }) {
 
       setSubscriptions(subscriptionsResult.status === 'fulfilled' ? subscriptionsResult.value : []);
       setTrialClasses(trialClassesResult.status === 'fulfilled' ? trialClassesResult.value : []);
+      setPrivateEnrollments(
+        privateEnrollmentsResult.status === 'fulfilled' ? privateEnrollmentsResult.value : []
+      );
 
       setLoading(false);
     }
@@ -76,7 +84,7 @@ export function ParentPortalProvider({ children }: { children: ReactNode }) {
 
   return (
     <ParentPortalContext.Provider
-      value={{ students, subscriptions, trialClasses, loading, error, reload }}
+      value={{ students, subscriptions, trialClasses, privateEnrollments, loading, error, reload }}
     >
       {children}
     </ParentPortalContext.Provider>

@@ -1,7 +1,8 @@
 const User = require('../models/user.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
-const GroupClassSession = require('../models/groupClassSession.model');
 const GroupClass = require('../models/groupClass.model');
+const Level = require('../models/level.model');
+const Location = require('../models/location.model');
 const Price = require('../models/price.model');
 const Registration = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
@@ -10,6 +11,7 @@ const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const { addStudentToRoster } = require('./roster.service');
 const mailService = require('./mail.service');
 
 function notFoundError(message) {
@@ -151,44 +153,36 @@ async function create({ studentId, scheduleId }, requestingUser) {
     lastSiblingDiscountApplied: siblingDiscountApplied,
   });
 
-  const alreadyOnRoster = schedule.students.some(
-    (id) => String(id) === String(studentId)
-  );
-
-  if (!alreadyOnRoster) {
-    schedule.students.push(studentId);
-    await schedule.save();
-  }
-
-  const futureSessions = await GroupClassSession.find({
-    scheduleId,
-    date: { $gte: todayAtMidnight() },
-  });
-
-  await Promise.all(
-    futureSessions.map((session) => {
-      const onSessionRoster = session.students.some(
-        (entry) => String(entry.studentId) === String(studentId)
-      );
-
-      if (onSessionRoster) {
-        return null;
-      }
-
-      session.students.push({ studentId, isPresent: false });
-      return session.save();
-    })
-  );
+  await addStudentToRoster(schedule, studentId, todayAtMidnight());
 
   // Fire-and-forget confirmation email — never throws, never affects this
-  // response (see mail.service.js's send-function contract).
-  await mailService.sendRegistrationConfirmationEmail({
-    parent: requestingUser,
-    student,
-    schedule,
-    chargeAmount,
-    siblingDiscountApplied,
-  });
+  // response (see mail.service.js's send-function contract). The extra
+  // level/location/coach lookups for the richer email are deliberately kept
+  // inside this try/catch, alongside the send itself, so a populate failure
+  // here can never fail an otherwise-successful (and already-charged!)
+  // registration.
+  try {
+    const level = await Level.findById(groupClass.levelId);
+    const location = await Location.findById(groupClass.locationId);
+    const coach = await User.findById(schedule.coachId);
+
+    await mailService.sendRegistrationConfirmationEmail({
+      parent: requestingUser,
+      student,
+      schedule,
+      groupClass,
+      level,
+      location,
+      coach,
+      chargeAmount,
+      monthlyFee: price.monthlyFee,
+      siblingDiscountAmount,
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console -- operational logging for a
+    // fire-and-forget email side effect, not debug output.
+    console.error('registration.service: failed to assemble confirmation email:', error.message);
+  }
 
   return {
     registration,

@@ -18,7 +18,10 @@ const NAV_LINKS_BY_ROLE: Record<Role, NavLink[]> = {
   // authenticated experience. See docs/plans/ckq-ui-adoption-plan.md Phase 1.
   admin: [],
   superadmin: [],
-  coach: [{ href: '/coach/schedules', label: 'My Schedules' }],
+  coach: [
+    { href: '/coach/schedules', label: 'My Schedules' },
+    { href: '/coach/private-students', label: 'Private Students' },
+  ],
   // Parents now use the dedicated portal shell (app/parent/layout.tsx) —
   // AppShell now serves coach + logged-out visitors only. See
   // docs/plans/ckq-ui-adoption-plan.md Phase 3.

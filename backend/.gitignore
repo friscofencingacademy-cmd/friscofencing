@@ -3,3 +3,7 @@ node_modules/
 coverage/
 
 .vercel
+
+# Local-only output of scripts/preview-emails.js — regenerated on demand,
+# never committed.
+email-preview/

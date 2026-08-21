@@ -71,3 +71,64 @@ The charge-amount calculation lives in its own file, `backend/src/services/billi
 | `paymentIntentId`, `status` | String | not required — only meaningful for `payment_intent.*` events |
 
 `POST /api/v1/webhooks/stripe` verifies Stripe's signature (registered with its own `express.raw()` middleware BEFORE the global `express.json()` — the raw body is required for signature verification and would otherwise be destroyed). Only records `payment_intent.succeeded`/`payment_intent.payment_failed`; other event types are acknowledged but not stored. Deliberately scoped down from full reconciliation — every charge in this project is synchronous (`off_session`/`confirm: true`, no 3DS), so this is a safety net for a narrow crash-recovery window, not something the core flow depends on.
+
+## `CoachContract` — implemented (CKQ parity Phase 4, `backend/src/models/coachContract.model.js`)
+| Field | Type | Notes |
+|---|---|---|
+| `coachId` | ObjectId ref `User` | required |
+| `studentBillingRate` | Number | required, min 0 — $/HOUR billed to the parent |
+| `coachCompensationRate` | Number | required, min 0 — $/hour paid to the coach; stored for audit/future payroll only, **no payout UI** (D11) |
+| `sessionDurationMinutes` | Number | default 60, min 15 — the default slot length new schedules inherit |
+| `effectiveFrom` | Date | default now |
+| `isActive` | Boolean | default true |
+| `notes` | String | optional |
+
+Index: `{ coachId: 1, isActive: 1 }`. Creating a new contract for a coach deactivates their previous active one (service layer, not a schema constraint) — one active contract per coach. A contract is never edited or deleted once created — only deactivated — it's an immutable rate-audit record.
+
+## `PrivateClassSchedule` — implemented (CKQ parity Phase 4)
+| Field | Type | Notes |
+|---|---|---|
+| `coachId` | ObjectId ref `User` | required |
+| `dayOfWeek` | Number 0–6 | required — `Date.getDay()` convention, matches `GroupClassSchedule` |
+| `startTime` | String `"HH:mm"` | required |
+| `durationMinutes` | Number | default 60, min 15 |
+| `studentId` | ObjectId ref `User` | default null — **null = the slot is available** for self-registration |
+| `enrollmentId` | ObjectId ref `PrivateClassEnrollment` | default null |
+| `isActive` | Boolean | default true |
+
+Indexes: `{ coachId: 1, isActive: 1 }`, `{ studentId: 1 }`. Duplicate rule (same `coachId` + `dayOfWeek` + `startTime`) is a service-level 409, not a unique index — a duplicate slot at the exact same coach/day/time is what the rule blocks, not a schema shape.
+
+## `PrivateClassEnrollment` — implemented (CKQ parity Phase 4)
+| Field | Type | Notes |
+|---|---|---|
+| `studentId`, `parentId`, `coachId` | ObjectId ref `User` | all required |
+| `coachContractId` | ObjectId ref `CoachContract` | required — audit trail: which contract set the rate below |
+| `agreedHourlyRate` | Number | required, min 0 — **pinned at self-registration time from the coach's contract, immutable afterward** (D7); a later contract-rate change affects only future enrollments |
+| `status` | String enum | `active`, `cancelled` — default `active` (born active — D4, no admin-created-then-parent-accepts step) |
+| `endDate` | Date | default null — set at cancellation; also the cutoff for the delivered-before-cancellation charge check |
+
+## `PrivateClassSession` — implemented (CKQ parity Phase 4)
+| Field | Type | Notes |
+|---|---|---|
+| `scheduleId` | ObjectId ref `PrivateClassSchedule` | required |
+| `enrollmentId` | ObjectId ref `PrivateClassEnrollment` | required |
+| `coachId`, `studentId`, `parentId` | ObjectId ref `User` | required — denormalized from the schedule/enrollment at generation time, since this is the money-relevant fact record and must stay correct even if the schedule/enrollment is later reassigned |
+| `startDate`, `endDate` | Date | required — `endDate = startDate + the slot's durationMinutes` at generation time |
+| `attendance` | String enum | `scheduled`, `attended`, `missed` — default `scheduled` |
+| `markedBy`, `markedAt` | ObjectId ref `User` / Date | default null |
+
+**Unique index `{ scheduleId: 1, startDate: 1 }`** — generator idempotency: one session per schedule per start instant, so re-running `generateSessions`/`extend-private-sessions.js` can never create a duplicate.
+
+## `PrivateClassCharge` — implemented (CKQ parity Phase 4)
+| Field | Type | Notes |
+|---|---|---|
+| `sessionId` | ObjectId ref `PrivateClassSession` | required |
+| `enrollmentId`, `parentId`, `studentId` | ObjectId | required |
+| `amount` | Number | required — dollars, what was actually charged (or attempted) |
+| `status` | String enum | `pending`, `completed`, `failed` — required |
+| `stripePaymentIntentId` | String | default null |
+| `attempt` | Number | default 1 — bumped on each retry; feeds the Stripe idempotency key `pcs_${sessionId}_${attempt}` |
+| `failureMessage` | String | default null |
+| `paidAt` | Date | default null |
+
+**Unique PARTIAL index** on `sessionId`, restricted to `status: { $in: ['pending', 'completed'] }` — a session may have at most one non-failed charge at a time, so a double-save of the same attendance can never double-charge. `failed` is deliberately excluded from the partial filter — a failed charge must never block a retry from creating a new charge doc. Full charge-pipeline walkthrough (three idempotency layers, the cancel-then-charge race guard, the four CKQ-BUG-FIXes): `docs/features/private-class.md`.
