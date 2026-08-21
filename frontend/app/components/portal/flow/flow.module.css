@@ -1,0 +1,315 @@
+/* =============================================================
+   Flow kit — registration/trial wizards (Phase 4)
+   ============================================================= */
+
+.wrap {
+  max-width: 1000px;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-bottom: var(--space-4);
+}
+
+.breadcrumb a {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
+.breadcrumbCurrent {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.titleBlock {
+  margin-bottom: var(--space-5);
+}
+
+.eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-gold);
+  margin: 0 0 var(--space-1);
+}
+
+.title {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  margin: 0 0 var(--space-1);
+}
+
+.subtitle {
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* ── Stepper ─────────────────────────────────────────────────── */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.stepItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepCircle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: var(--color-bg);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+
+.stepCircleActive {
+  background: var(--color-gold);
+  color: var(--color-white);
+  border-color: var(--color-gold);
+}
+
+.stepCircleDone {
+  background: var(--color-success);
+  color: var(--color-white);
+  border-color: var(--color-success);
+}
+
+.stepLabel {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.stepLabelActive {
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.stepConnector {
+  width: 24px;
+  height: 2px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.stepConnectorDone {
+  background: var(--color-success);
+}
+
+/* ── Layout: two-column with sticky summary ─────────────────── */
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mainCol {
+  min-width: 0;
+}
+
+.sideCol {
+  position: sticky;
+  top: var(--space-5);
+}
+
+.singleCol {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* ── FlowSection ─────────────────────────────────────────────── */
+.section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.sectionTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  margin: 0 0 var(--space-3);
+}
+
+/* ── OrderSummary ────────────────────────────────────────────── */
+.summary {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  padding: var(--space-4) var(--space-5);
+}
+
+.summaryHeading {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  margin: 0 0 var(--space-3);
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.875rem;
+}
+
+.summaryRow:last-child {
+  border-bottom: none;
+}
+
+.summaryLabel {
+  color: var(--color-muted);
+}
+
+.summaryValue {
+  font-weight: 600;
+  text-align: right;
+}
+
+.summaryNote {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  margin-top: var(--space-3);
+}
+
+.summaryCtaWrap {
+  margin-top: var(--space-4);
+}
+
+/* ── ChildPickerCards ────────────────────────────────────────── */
+.childGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.childCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  cursor: pointer;
+  text-align: left;
+}
+
+.childCardSelected {
+  border-color: var(--color-gold);
+  background: var(--sidebar-active-bg);
+}
+
+.childAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-white);
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.childName {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.childMeta {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+
+/* ── FlowConfirmation ────────────────────────────────────────── */
+.confirmCard {
+  text-align: center;
+  padding: var(--space-6) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+}
+
+.confirmCheck {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-4);
+}
+
+.confirmTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  margin: 0 0 var(--space-2);
+}
+
+.confirmSubtitle {
+  color: var(--color-muted);
+  margin: 0 0 var(--space-4);
+}
+
+.confirmGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+  text-align: left;
+  margin: 0 auto var(--space-5);
+  max-width: 480px;
+}
+
+.confirmGridLabel {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.confirmGridValue {
+  font-weight: 700;
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  flex-wrap: wrap;
+}

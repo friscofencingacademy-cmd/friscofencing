@@ -83,6 +83,10 @@ Breakpoints mirror the admin shell's geometry but with the light surface: ≥102
 
 Per-child avatars use a **deterministic index-based palette** (`lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs) — the same child always gets the same color across sessions, never a random/hash-based assignment that could flicker between renders.
 
+## Flow wizard pattern (`frontend/app/components/portal/flow/`, Phase 4)
+
+The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMain` provides the shell — breadcrumb, title, optional numbered stepper, and a two-column layout (step content + a **sticky summary rail that owns the single advance/submit CTA for that step** — never render a second submit button inside the step content itself). The final step collapses to `singleColumn` and swaps the step content for `FlowConfirmation`. Step state is local (`useState`, never URL/query-driven except for an optional `?child=` deep-link preselect), so back-navigation is free — nothing needs to be persisted or refetched across steps. See `docs/features/parent-portal.md`'s "Flow kit" section for the full component contracts.
+
 ## Explicitly not adopted from CKQ (scope, not oversight)
 
 Bootstrap, Playfair-style display serif, the discovery/calendar page patterns, the four-surface notification hierarchy, animated stat bars, stylelint CI enforcement of these rules. All exist to serve a public marketing site and portal-scale feature set this MVP doesn't have. Revisit if/when this project grows a public site.
