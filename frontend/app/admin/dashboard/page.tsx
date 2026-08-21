@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarDays, DollarSign, GraduationCap, MapPin, Swords } from 'lucide-react';
+import { CalendarDays, DollarSign, GraduationCap, MapPin, Swords, Users } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses, fetchLevels, fetchLocations, fetchPrices } from '../../../lib/services/catalog';
@@ -42,6 +42,7 @@ const QUICK_LINKS = [
   { href: '/admin/prices', title: 'Prices', description: 'Set pricing per level', icon: <DollarSign size={18} /> },
   { href: '/admin/schedules', title: 'Schedules', description: 'View and add class schedules', icon: <CalendarDays size={18} /> },
   { href: '/admin/locations', title: 'Locations', description: 'Manage academy locations', icon: <MapPin size={18} /> },
+  { href: '/admin/users', title: 'Users', description: 'Manage parents, coaches, admins, and students', icon: <Users size={18} /> },
 ];
 
 export default function AdminDashboardPage() {
