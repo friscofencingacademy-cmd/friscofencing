@@ -24,6 +24,12 @@
   margin: 2px 0 0;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .headerChip {
   display: inline-flex;
   align-items: center;
@@ -33,6 +39,27 @@
   color: var(--sidebar-active);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.logoutButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white);
+  color: var(--color-muted);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.logoutButton:hover {
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
 
 /* ── Per-child sidebar rows ──────────────────────────────────── */
