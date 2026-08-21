@@ -69,11 +69,27 @@ Users/auth · group classes/schedules/sessions · pricing · attendance · trial
 | Topic | Path |
 |---|---|
 | **Active plan** — deployment & launch (Steps 1–5 ✅ LIVE IN PRODUCTION 2026-08-20; Step 6 Brevo pending) | `docs/plans/deployment-launch-plan.md` |
-| **Active plan** — CKQ UI adoption: admin sidebar shell, parent portal shell, CRUD edit/delete, testing+docs org (7 phases, APPROVED for autonomous Sonnet execution) | `docs/plans/ckq-ui-adoption-plan.md` |
-| Design system | `docs/design-system.md` |
-| Testing strategy | `docs/TESTING_STRATEGY.md` |
+| **SHIPPED plan** — CKQ UI adoption: admin sidebar shell, admin CRUD edit/delete, parent portal shell, registration flow wizards, child detail page, testing+docs org (all 7 phases merged to `develop` 2026-08-20; production promotion is a separate pending owner decision) | `docs/plans/ckq-ui-adoption-plan.md` |
+| Design system — principles, tokens, shells, page patterns, components inventory, anti-patterns, pre-merge checklist | `docs/design-system.md` |
+| Testing strategy — layers, mocking rules, interaction/date rules, typed fixtures, naming conventions, error-handling contract | `docs/TESTING_STRATEGY.md` |
+| Test coverage — current suite counts (real, re-run per update), per-layer table, honest gaps, improvement plan | `docs/TEST_COVERAGE.md` |
+| Admin panel — per-page behavior spec (Pattern A CRUD, delete guards, deferred schedule-edit note) | `docs/features/admin.md` |
+| Parent portal — shell/context contract, flow kit, child detail page, AddChildModal, page inventory | `docs/features/parent-portal.md` |
 | Database schema | `DATABASE_SCHEMA_DOCUMENTATION.md` |
 | Completed work log | `CLAUDE_HISTORY.md` |
-| Architecture decisions | `docs/decisions/` |
+| Architecture decisions — index + status definitions | `docs/decisions/README.md` |
 | Module docs | `docs/modules/` (created as modules are built) |
-| Feature docs | `docs/features/` (created as features are built) |
+| Feature docs | `docs/features/` (admin, parent-portal; more created as features are built) |
+
+## Pre-read requirements (check before acting)
+
+Before touching any of the following areas, **read the linked doc first** — it contains rules and constraints not obvious from the code alone.
+
+| If you're about to... | Read first |
+|---|---|
+| Touch admin pages, the admin shell, or admin CRUD | `docs/features/admin.md` |
+| Touch parent portal pages, the portal shell, or `ParentPortalContext` | `docs/features/parent-portal.md` |
+| Write or modify any test | `docs/TESTING_STRATEGY.md` |
+| Touch CSS / styling / add a shell or page pattern | `docs/design-system.md` |
+| Touch payment / billing / subscription / cron | `docs/decisions/001-in-house-subscription-billing.md` |
+| Add or modify a DB collection or field | `DATABASE_SCHEMA_DOCUMENTATION.md` |
