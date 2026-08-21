@@ -1,254 +1,270 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import axios from 'axios';
+import { Plus, X } from 'lucide-react';
 
-import api from '../../../lib/api';
-import Button from '../../components/ui/Button/Button';
-import Card from '../../components/ui/Card/Card';
+import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import { createSchedule, fetchCoaches, fetchSchedules } from '../../../lib/services/scheduling';
+import { fetchGroupClasses } from '../../../lib/services/catalog';
+import type { Coach, GroupClass, GroupClassSchedule } from '../../../lib/types';
+import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
-import styles from '../../components/ui/shared.module.css';
+import LoadError from '../../components/ui/LoadError/LoadError';
+import styles from '../../components/admin/admin.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-interface GroupClassOption {
-  _id: string;
-  name: string;
-}
-
-interface CoachOption {
-  _id: string;
-  firstName: string;
-  lastName: string;
-}
-
-interface ScheduleItem {
-  _id: string;
+interface ScheduleForm {
   classId: string;
   coachId: string;
-  dayOfWeek: number;
+  dayOfWeek: string;
   startTime: string;
   endTime: string;
-  students: string[];
 }
 
-function classNameFor(groupClasses: GroupClassOption[], id: string): string {
+const EMPTY_FORM: ScheduleForm = { classId: '', coachId: '', dayOfWeek: '1', startTime: '', endTime: '' };
+
+async function fetchSchedulesPageData() {
+  const [schedules, groupClasses, coaches] = await Promise.all([
+    fetchSchedules(),
+    fetchGroupClasses(),
+    fetchCoaches(),
+  ]);
+  return { schedules, groupClasses, coaches };
+}
+
+function classNameFor(groupClasses: GroupClass[], id: string): string {
   return groupClasses.find((groupClass) => groupClass._id === id)?.name ?? id;
 }
 
-function coachNameFor(coaches: CoachOption[], id: string): string {
+function coachNameFor(coaches: Coach[], id: string): string {
   const coach = coaches.find((c) => c._id === id);
   return coach ? `${coach.firstName} ${coach.lastName}` : id;
 }
 
-function SchedulesPageContent() {
-  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [groupClasses, setGroupClasses] = useState<GroupClassOption[]>([]);
-  const [coaches, setCoaches] = useState<CoachOption[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [classId, setClassId] = useState('');
-  const [coachId, setCoachId] = useState('');
-  const [dayOfWeek, setDayOfWeek] = useState('1');
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [schedulesRes, classesRes, coachesRes] = await Promise.all([
-        api.get<{ schedules: ScheduleItem[] }>('/group-class-schedules'),
-        api.get<{ groupClasses: GroupClassOption[] }>('/group-classes'),
-        api.get<{ users: CoachOption[] }>('/users', { params: { role: 'coach' } }),
-      ]);
-      setSchedules(schedulesRes.data.schedules);
-      setGroupClasses(classesRes.data.groupClasses);
-      setCoaches(coachesRes.data.users);
-    } catch (err) {
-      setError('Failed to load schedules.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export default function SchedulesPage() {
+  const { data, error, isLoading, retry } = useLoadState(fetchSchedulesPageData, []);
+  const [items, setItems] = useState<GroupClassSchedule[]>([]);
+  const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
 
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    if (data) {
+      setItems(data.schedules);
+      setGroupClasses(data.groupClasses);
+      setCoaches(data.coaches);
+    }
+  }, [data]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState<ScheduleForm>(EMPTY_FORM);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-    try {
-      await api.post('/group-class-schedules', {
-        classId,
-        coachId,
-        dayOfWeek: Number(dayOfWeek),
-        startTime,
-        endTime,
-      });
-      setClassId('');
-      setCoachId('');
-      setDayOfWeek('1');
-      setStartTime('');
-      setEndTime('');
-      await fetchAll();
-    } catch (err) {
-      const message = axios.isAxiosError(err) && err.response?.data?.message
-        ? err.response.data.message
-        : 'Failed to create schedule.';
-      setError(message);
-    } finally {
-      setSubmitting(false);
+  function openCreate() {
+    setForm(EMPTY_FORM);
+    setDialogError(null);
+    setDialogOpen(true);
+  }
+
+  function closeDialog() {
+    if (saving) return;
+    setDialogOpen(false);
+    setDialogError(null);
+  }
+
+  function setField(key: keyof ScheduleForm, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSave() {
+    setDialogError(null);
+
+    if (!form.classId || !form.coachId || !form.startTime || !form.endTime) {
+      setDialogError('Class, coach, start time, and end time are required.');
+      return;
+    }
+
+    setSaving(true);
+
+    const result = await createSchedule({
+      classId: form.classId,
+      coachId: form.coachId,
+      dayOfWeek: Number(form.dayOfWeek),
+      startTime: form.startTime,
+      endTime: form.endTime,
+    });
+
+    setSaving(false);
+
+    if (result.status === 'success') {
+      setDialogOpen(false);
+      retry();
+    } else {
+      setDialogError(result.message);
     }
   }
 
   return (
     <main>
-      <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Group Class Schedules</h1>
+      <div className={styles.pageHeaderRow}>
+        <AdminPageHeader title="Schedules" count={isLoading ? undefined : items.length} />
+        <button type="button" className={styles.btnPrimary} onClick={openCreate}>
+          <Plus size={14} /> Add Schedule
+        </button>
       </div>
 
       {error ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="error">{error}</Alert>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <p>Loading...</p>
+        <LoadError message={getErrorMessage(error)} onRetry={retry} />
       ) : (
-        <Card>
+        <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead>
+            <thead className={styles.tHead}>
               <tr>
-                <th>Class</th>
-                <th>Coach</th>
-                <th>Day</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Roster</th>
-                <th></th>
+                <th className={styles.th}>Class</th>
+                <th className={styles.th}>Coach</th>
+                <th className={styles.th}>Day</th>
+                <th className={styles.th}>Start</th>
+                <th className={styles.th}>End</th>
+                <th className={styles.th}>Roster</th>
+                <th className={styles.th} />
               </tr>
             </thead>
             <tbody>
-              {schedules.map((schedule) => (
-                <tr key={schedule._id}>
-                  <td>{classNameFor(groupClasses, schedule.classId)}</td>
-                  <td>{coachNameFor(coaches, schedule.coachId)}</td>
-                  <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                  <td>{schedule.startTime}</td>
-                  <td>{schedule.endTime}</td>
-                  <td>{schedule.students.length}</td>
-                  <td>
-                    <Link href={`/admin/schedules/${schedule._id}/sessions`}>View Sessions</Link>
-                  </td>
-                </tr>
-              ))}
+              {isLoading ? (
+                <AdminLoadingRow colSpan={7} />
+              ) : items.length === 0 ? (
+                <AdminEmptyRow colSpan={7} message="No schedules found" />
+              ) : (
+                items.map((schedule) => (
+                  <tr key={schedule._id} className={styles.trHover}>
+                    <td className={styles.td}>{classNameFor(groupClasses, schedule.classId)}</td>
+                    <td className={styles.td}>{coachNameFor(coaches, schedule.coachId)}</td>
+                    <td className={styles.td}>{DAY_LABELS[schedule.dayOfWeek]}</td>
+                    <td className={styles.td}>{schedule.startTime}</td>
+                    <td className={styles.td}>{schedule.endTime}</td>
+                    <td className={styles.td}>{schedule.students.length}</td>
+                    <td className={styles.td}>
+                      <Link href={`/admin/schedules/${schedule._id}/sessions`}>View Sessions</Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        </Card>
+          <div className={styles.tableFooterNote}>
+            Schedules can&apos;t be edited once created — create a new one instead.
+          </div>
+        </div>
       )}
 
-      <div style={{ marginTop: 'var(--space-5)' }}>
-        <Card>
-          <h2>Add Schedule</h2>
-          <form onSubmit={handleSubmit}>
-            <div className={styles.formField}>
-              <label htmlFor="classId" className={styles.formLabel}>
-                Class
-              </label>
-              <select
-                id="classId"
-                className={styles.formSelect}
-                value={classId}
-                onChange={(event) => setClassId(event.target.value)}
-                required
-              >
-                <option value="">Select a class</option>
-                {groupClasses.map((groupClass) => (
-                  <option key={groupClass._id} value={groupClass._id}>
-                    {groupClass.name}
-                  </option>
-                ))}
-              </select>
+      {dialogOpen ? (
+        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
+          <div className={styles.dialog} role="dialog" aria-label="Add Schedule">
+            <div className={styles.dialogHeader}>
+              <h2 className={styles.dialogTitle}>Add Schedule</h2>
+              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
+                <X size={16} />
+              </button>
             </div>
-            <div className={styles.formField}>
-              <label htmlFor="coachId" className={styles.formLabel}>
-                Coach
-              </label>
-              <select
-                id="coachId"
-                className={styles.formSelect}
-                value={coachId}
-                onChange={(event) => setCoachId(event.target.value)}
-                required
-              >
-                <option value="">Select a coach</option>
-                {coaches.map((coach) => (
-                  <option key={coach._id} value={coach._id}>
-                    {coach.firstName} {coach.lastName}
-                  </option>
-                ))}
-              </select>
+            <div className={styles.dialogBody}>
+              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="schedule-classId">
+                  Class
+                </label>
+                <select
+                  id="schedule-classId"
+                  className={styles.select}
+                  value={form.classId}
+                  onChange={(e) => setField('classId', e.target.value)}
+                  required
+                >
+                  <option value="">Select a class</option>
+                  {groupClasses.map((groupClass) => (
+                    <option key={groupClass._id} value={groupClass._id}>
+                      {groupClass.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="schedule-coachId">
+                  Coach
+                </label>
+                <select
+                  id="schedule-coachId"
+                  className={styles.select}
+                  value={form.coachId}
+                  onChange={(e) => setField('coachId', e.target.value)}
+                  required
+                >
+                  <option value="">Select a coach</option>
+                  {coaches.map((coach) => (
+                    <option key={coach._id} value={coach._id}>
+                      {coach.firstName} {coach.lastName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="schedule-dayOfWeek">
+                  Day of Week
+                </label>
+                <select
+                  id="schedule-dayOfWeek"
+                  className={styles.select}
+                  value={form.dayOfWeek}
+                  onChange={(e) => setField('dayOfWeek', e.target.value)}
+                >
+                  {DAY_LABELS.map((label, index) => (
+                    <option key={label} value={index}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="schedule-startTime">
+                  Start Time
+                </label>
+                <input
+                  id="schedule-startTime"
+                  type="time"
+                  className={styles.input}
+                  value={form.startTime}
+                  onChange={(e) => setField('startTime', e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="schedule-endTime">
+                  End Time
+                </label>
+                <input
+                  id="schedule-endTime"
+                  type="time"
+                  className={styles.input}
+                  value={form.endTime}
+                  onChange={(e) => setField('endTime', e.target.value)}
+                  required
+                />
+              </div>
             </div>
-            <div className={styles.formField}>
-              <label htmlFor="dayOfWeek" className={styles.formLabel}>
-                Day of Week
-              </label>
-              <select
-                id="dayOfWeek"
-                className={styles.formSelect}
-                value={dayOfWeek}
-                onChange={(event) => setDayOfWeek(event.target.value)}
-              >
-                {DAY_LABELS.map((label, index) => (
-                  <option key={label} value={index}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+            <div className={styles.dialogFooter}>
+              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+                Cancel
+              </button>
+              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving…' : 'Create'}
+              </button>
             </div>
-            <div className={styles.formField}>
-              <label htmlFor="startTime" className={styles.formLabel}>
-                Start Time
-              </label>
-              <input
-                id="startTime"
-                type="time"
-                className={styles.formInput}
-                value={startTime}
-                onChange={(event) => setStartTime(event.target.value)}
-                required
-              />
-            </div>
-            <div className={styles.formField}>
-              <label htmlFor="endTime" className={styles.formLabel}>
-                End Time
-              </label>
-              <input
-                id="endTime"
-                type="time"
-                className={styles.formInput}
-                value={endTime}
-                onChange={(event) => setEndTime(event.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" disabled={submitting}>
-              {submitting ? 'Adding...' : 'Add Schedule'}
-            </Button>
-          </form>
-        </Card>
-      </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
-}
-
-export default function SchedulesPage() {
-  return <SchedulesPageContent />;
 }

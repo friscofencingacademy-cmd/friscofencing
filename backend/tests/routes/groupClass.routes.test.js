@@ -8,6 +8,8 @@ const app = require('../../src/app');
 const User = require('../../src/models/user.model');
 const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
+const GroupClass = require('../../src/models/groupClass.model');
+const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
@@ -100,5 +102,58 @@ describe('GroupClass routes', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.message).toMatch(/Location not found/);
+  });
+
+  it('deletes a group class with no referencing schedules (happy path)', async () => {
+    await seedAdmin();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const level = await Level.create({ name: 'Beginner', order: 1 });
+    const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+    const groupClass = await GroupClass.create({
+      name: 'Beginner Foil',
+      levelId: level._id,
+      locationId: location._id,
+      capacity: 10,
+    });
+
+    const res = await agent.delete(`/api/v1/group-classes/${groupClass._id}`);
+    expect(res.status).toBe(200);
+
+    const listRes = await agent.get('/api/v1/group-classes');
+    expect(listRes.body.groupClasses).toHaveLength(0);
+  });
+
+  it('returns 409 when deleting a group class referenced by a GroupClassSchedule', async () => {
+    await seedAdmin();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const level = await Level.create({ name: 'Beginner', order: 1 });
+    const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+    const groupClass = await GroupClass.create({
+      name: 'Beginner Foil',
+      levelId: level._id,
+      locationId: location._id,
+      capacity: 10,
+    });
+    const coach = await User.create({
+      role: 'coach',
+      firstName: 'Coach',
+      lastName: 'One',
+      email: 'coach-one@example.com',
+      passwordHash: await hashPassword(TEST_PASSWORD),
+    });
+    await GroupClassSchedule.create({
+      classId: groupClass._id,
+      coachId: coach._id,
+      dayOfWeek: 1,
+      startTime: '16:00',
+      endTime: '17:00',
+    });
+
+    const res = await agent.delete(`/api/v1/group-classes/${groupClass._id}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/1 schedule\(s\) reference this class/);
   });
 });
