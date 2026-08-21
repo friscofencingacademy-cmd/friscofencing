@@ -147,3 +147,54 @@ export interface RegistrationCreateResponse {
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
 }
+
+// ── Admin Group Class Subscriptions (ckq-parity plan, Phase 3) ────────────
+// Typed against subscription.service.js's populate chain
+// (populateSubscriptionQuery): studentId/parentId -> firstName/lastName/
+// email; scheduleId -> classId -> levelId/locationId, and coachId.
+
+export interface AdminSubscriptionPersonRef {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+}
+
+export interface AdminSubscriptionClassRef {
+  _id: string;
+  name: string;
+  levelId: Level;
+  locationId: Location;
+  capacity: number;
+}
+
+export interface AdminSubscriptionScheduleRef {
+  _id: string;
+  classId: AdminSubscriptionClassRef;
+  coachId: AdminSubscriptionPersonRef;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  students: string[];
+}
+
+export interface AdminSubscriptionRow {
+  _id: string;
+  studentId: AdminSubscriptionPersonRef;
+  parentId: AdminSubscriptionPersonRef;
+  scheduleId: AdminSubscriptionScheduleRef;
+  status: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodStart?: string;
+  currentPeriodEnd: string;
+  nextBillingDate: string;
+  lastChargeAmount: number | null;
+  lastSiblingDiscountApplied?: boolean;
+}
+
+export interface AdminSubscriptionListResponse {
+  subscriptions: AdminSubscriptionRow[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+}

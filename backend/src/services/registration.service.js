@@ -1,6 +1,5 @@
 const User = require('../models/user.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
-const GroupClassSession = require('../models/groupClassSession.model');
 const GroupClass = require('../models/groupClass.model');
 const Level = require('../models/level.model');
 const Location = require('../models/location.model');
@@ -12,6 +11,7 @@ const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const { addStudentToRoster } = require('./roster.service');
 const mailService = require('./mail.service');
 
 function notFoundError(message) {
@@ -153,34 +153,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
     lastSiblingDiscountApplied: siblingDiscountApplied,
   });
 
-  const alreadyOnRoster = schedule.students.some(
-    (id) => String(id) === String(studentId)
-  );
-
-  if (!alreadyOnRoster) {
-    schedule.students.push(studentId);
-    await schedule.save();
-  }
-
-  const futureSessions = await GroupClassSession.find({
-    scheduleId,
-    date: { $gte: todayAtMidnight() },
-  });
-
-  await Promise.all(
-    futureSessions.map((session) => {
-      const onSessionRoster = session.students.some(
-        (entry) => String(entry.studentId) === String(studentId)
-      );
-
-      if (onSessionRoster) {
-        return null;
-      }
-
-      session.students.push({ studentId, isPresent: false });
-      return session.save();
-    })
-  );
+  await addStudentToRoster(schedule, studentId, todayAtMidnight());
 
   // Fire-and-forget confirmation email — never throws, never affects this
   // response (see mail.service.js's send-function contract). The extra

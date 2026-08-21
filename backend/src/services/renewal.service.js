@@ -1,7 +1,6 @@
 const Subscription = require('../models/subscription.model');
 const User = require('../models/user.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
-const GroupClassSession = require('../models/groupClassSession.model');
 const GroupClass = require('../models/groupClass.model');
 const Price = require('../models/price.model');
 const { monthLabel: formatMonthLabel } = require('../email/dates');
@@ -10,6 +9,7 @@ const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const { removeStudentFromRoster } = require('./roster.service');
 const mailService = require('./mail.service');
 
 // Resolves a subscription's schedule -> class -> level -> Price chain, the
@@ -37,41 +37,6 @@ async function resolveMonthlyFee(subscription) {
   }
 
   return price.monthlyFee;
-}
-
-// Removes `studentId` from `schedule.students` (if present) and from every
-// GroupClassSession of that schedule dated on/after `today` where they're
-// currently on the roster — the exact mirror, in the opposite direction, of
-// what registration.service.js does when enrolling a student.
-async function removeStudentFromRoster(schedule, studentId, today) {
-  const onSchedule = schedule.students.some((id) => String(id) === String(studentId));
-
-  if (onSchedule) {
-    schedule.students = schedule.students.filter((id) => String(id) !== String(studentId));
-    await schedule.save();
-  }
-
-  const futureSessions = await GroupClassSession.find({
-    scheduleId: schedule._id,
-    date: { $gte: today },
-  });
-
-  await Promise.all(
-    futureSessions.map((session) => {
-      const onRoster = session.students.some(
-        (entry) => String(entry.studentId) === String(studentId)
-      );
-
-      if (!onRoster) {
-        return null;
-      }
-
-      session.students = session.students.filter(
-        (entry) => String(entry.studentId) !== String(studentId)
-      );
-      return session.save();
-    })
-  );
 }
 
 // Processes exactly ONE subscription, by id, with its OWN fresh fetch —
