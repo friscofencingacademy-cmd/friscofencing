@@ -1,0 +1,105 @@
+/* ── Header ──────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headerGreeting {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  font-size: 1.15rem;
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.headerDate {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  margin: 2px 0 0;
+}
+
+.headerChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px var(--space-3);
+  border-radius: 20px;
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* ── Per-child sidebar rows ──────────────────────────────────── */
+.childRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  color: var(--color-ink);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  transition: background 0.12s;
+}
+
+.childRow:hover {
+  background: var(--color-bg);
+}
+
+.childAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-white);
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.childInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.childName {
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.childMeta {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+}
+
+.addChildRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.875rem;
+  text-align: left;
+  width: 100%;
+}
+
+.addChildRow:hover {
+  color: var(--color-ink);
+  background: var(--color-bg);
+}
