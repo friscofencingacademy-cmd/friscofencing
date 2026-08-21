@@ -1,107 +1,62 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
-import api from '../../../../../lib/api';
+import { useLoadState, getErrorMessage } from '../../../../../lib/hooks/useLoadState';
+import { fetchSessionsBySchedule } from '../../../../../lib/services/scheduling';
 import Button from '../../../../components/ui/Button/Button';
-import Card from '../../../../components/ui/Card/Card';
-import Alert from '../../../../components/ui/Alert/Alert';
-import styles from '../../../../components/ui/shared.module.css';
+import LoadError from '../../../../components/ui/LoadError/LoadError';
+import AdminPageHeader from '../../../../components/admin/AdminPageHeader';
+import { AdminEmptyRow, AdminLoadingRow } from '../../../../components/admin/AdminTableRows';
+import styles from '../../../../components/admin/admin.module.css';
 
-interface SessionItem {
-  _id: string;
-  date: string;
-  students: { studentId: string; isPresent: boolean }[];
-}
-
-function SessionsPageContent() {
+export default function SessionsPage() {
   const params = useParams<{ id: string }>();
   const scheduleId = params.id;
 
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function fetchSessions() {
-      setLoading(true);
-      try {
-        const res = await api.get<{ sessions: SessionItem[] }>(
-          `/group-class-sessions/by-schedule/${scheduleId}`
-        );
-        if (isMounted) {
-          setSessions(res.data.sessions);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError('Failed to load sessions.');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchSessions();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [scheduleId]);
+  const { data: sessions, error, isLoading, retry } = useLoadState(
+    () => fetchSessionsBySchedule(scheduleId),
+    [scheduleId]
+  );
 
   return (
     <main>
-      <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Sessions</h1>
-      </div>
+      <AdminPageHeader title="Sessions" count={isLoading ? undefined : sessions?.length ?? 0} />
 
       {error ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="error">{error}</Alert>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <p>Loading...</p>
+        <LoadError message={getErrorMessage(error)} onRetry={retry} />
       ) : (
-        <Card>
+        <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead>
+            <thead className={styles.tHead}>
               <tr>
-                <th>Date</th>
-                <th>Students</th>
-                <th></th>
+                <th className={styles.th}>Date</th>
+                <th className={styles.th}>Students</th>
+                <th className={styles.th} />
               </tr>
             </thead>
             <tbody>
-              {sessions.map((session) => (
-                <tr key={session._id}>
-                  <td>{new Date(session.date).toLocaleDateString()}</td>
-                  <td>{session.students.length}</td>
-                  <td>
-                    <Button
-                      as="a"
-                      href={`/sessions/${session._id}/attendance`}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      Mark Attendance
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {isLoading ? (
+                <AdminLoadingRow colSpan={3} />
+              ) : !sessions || sessions.length === 0 ? (
+                <AdminEmptyRow colSpan={3} message="No sessions found" />
+              ) : (
+                sessions.map((session) => (
+                  <tr key={session._id} className={styles.trHover}>
+                    <td className={styles.td}>{new Date(session.date).toLocaleDateString()}</td>
+                    <td className={styles.td}>{session.students.length}</td>
+                    <td className={`${styles.td} ${styles.tdRight}`}>
+                      <Button as="a" href={`/sessions/${session._id}/attendance`} size="sm" variant="secondary">
+                        Mark Attendance
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        </Card>
+        </div>
       )}
     </main>
   );
-}
-
-export default function SessionsPage() {
-  return <SessionsPageContent />;
 }
