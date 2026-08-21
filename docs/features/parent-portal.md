@@ -23,7 +23,7 @@ Every `/parent/*` page that needs household data consumes this context — **no 
 Wraps the generic `PortalLayout` with parent-specific nav groups:
 
 - **HOME** — Dashboard (`/parent/dashboard`).
-- **CHILDREN** — custom content: one row per student (initial-letter avatar with a deterministic per-child palette from `lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs assigned by index) showing a status line — `Enrolled` / `Trial booked` / `Not enrolled` — plus a "+ Add child" row. All rows link to `/parent/children` in this phase; Phase 5 repoints per-child rows to `/parent/child/[id]`.
+- **CHILDREN** — custom content: one row per student (initial-letter avatar with a deterministic per-child palette from `lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs assigned by index) showing a status line — `Enrolled` / `Trial booked` / `Not enrolled` — plus a "+ Add child" row. Each child row links to `/parent/child/[id]` (Phase 5); "+ Add child" is a button that opens `AddChildModal` in place (Phase 5) rather than navigating.
 - **ACADEMY** — Book Trial, Register, Billing (`/parent/subscriptions`), Payment Method.
 
 Header: "Welcome back, {firstName}" + today's date, plus a children-count chip. Mobile bottom nav (≤768px, 4 items): Home, Children, Register, Billing.
@@ -61,12 +61,28 @@ Both wizards keep local step state (`useState(0)`) — no URL-driven step routin
 
 Left as-is beyond Phase 3's unwrap — it already used `Card` + the shared design-system classes (portal card patterns), and further restyling risked touching the Stripe `CardElement` integration for no material benefit. Logic (including the `CardElement` iframe handling) is untouched.
 
+## `AddChildModal` (`app/components/portal/AddChildModal/`, Phase 5)
+
+Extracted from the children page's former inline form into a reusable dialog: `{ onClose, onSuccess }`. `onClose` fires on Cancel/backdrop-click with no side effect; `onSuccess` fires only after a successful `createStudent` mutation, and every caller's `onSuccess` handler closes the modal and calls `ParentPortalContext.reload()`. Client-side validates that both names are non-blank before submitting; a mutation failure shows the backend message inline and keeps the dialog open. Used by three call sites: the children page's "Add Child" button, `ParentPortalShell`'s sidebar "+ Add child" row, and the dashboard's empty-state "Add Child" CTA — all three previously navigated to `/parent/children`'s inline form and now open the modal in place instead.
+
+## Child detail page (`app/parent/child/[id]/page.tsx`, Phase 5)
+
+Reads the child straight out of `ParentPortalContext` (`students.find(s => s._id === id)`) — **no new fetch**. If the id doesn't match any of the household's children (once loading has finished), shows an inline "Child not found." message with a link back to `/parent/children`. Header: palette avatar (same index-based palette as the sidebar), name, skill level (if set), and a status pill (`Enrolled` / `Trial booked` / `Not enrolled`).
+
+Two tabs, driven by a `?tab=` URL param (real `<Link>`s with `role="tab"`/`aria-selected`, not client-only state) validated against a fixed `Set(['overview', 'schedule'])` — any other or missing value falls back to `overview`:
+
+- **Overview** — a trial-status card (if a trial is booked and there's no active subscription yet), an active-registration card (schedule days/times, next billing date, and a "Manage / Cancel in Billing" link into `/parent/subscriptions` as the cancel entry point — cancellation itself still only happens on the Billing page), or a "Not Enrolled" card with a Book-a-Trial CTA when neither applies.
+- **Schedule** — display-only. The household context only carries the subscription's `scheduleId` (day-of-week + start/end time), not a list of individual future session dates, so this tab shows the **recurring day/time pattern** ("Every Wednesday, 16:00 - 17:00") rather than an enumerated session list — deliberately not adding a new session-list endpoint just for this tab, per the plan's explicit instruction.
+
+Sidebar child rows and dashboard child cards both now link here instead of to `/parent/children`.
+
 ## Page inventory
 
 | Page | Behavior |
 |---|---|
-| `/parent/dashboard` | Three states, all driven by `ParentPortalContext` (no page-level fetching): loading spinner; `students.length === 0` → onboarding stepper (Account Created ✓ → Add Your Child, current, CTA → `/parent/children` → Book a Trial, upcoming); else a 2-column grid — left: one at-a-glance card per child (palette avatar, name, status line, and a "Book a free trial →" CTA only on not-yet-enrolled children), right: a Quick Actions card (Book Trial / Register / Payment Method). |
-| `/parent/children` | Consumes `students` from context (no own fetch); the inline "Add Child" form calls the `createStudent` mutation service and `reload()`s the context on success — no local student-list state any more. A dedicated `AddChildModal` extraction is Phase 5; the form stays inline for now. |
+| `/parent/dashboard` | Three states, all driven by `ParentPortalContext` (no page-level fetching): loading spinner; `students.length === 0` → onboarding stepper (Account Created ✓ → Add Your Child, current, CTA opens `AddChildModal` → Book a Trial, upcoming); else a 2-column grid — left: one at-a-glance card per child (palette avatar + name linking to `/parent/child/[id]`, status line, and a "Book a free trial →" CTA only on not-yet-enrolled children), right: a Quick Actions card (Book Trial / Register / Payment Method). |
+| `/parent/child/[id]` | New in Phase 5 — see "Child detail page" above. |
+| `/parent/children` | Consumes `students` from context (no own fetch); each row's name links to `/parent/child/[id]`; "Add Child" opens `AddChildModal` (Phase 5) instead of an inline form. |
 | `/parent/book-trial` | Rebuilt as a 3-step wizard (Phase 4) — see "Wizards" above. Payload byte-identical to the pre-wizard form. |
 | `/parent/register` | Rebuilt as a 4-step wizard (Phase 4) — see "Wizards" above. Payment-critical: payload/sequencing byte-identical to the pre-wizard form. |
 | `/parent/subscriptions` | Unchanged logic. Only unwrapped from `ProtectedRoute`/`AppShell` (Phase 3). |
