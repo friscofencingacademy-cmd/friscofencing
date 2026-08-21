@@ -1,232 +1,214 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import axios from 'axios';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
-import api from '../../../lib/api';
-import ProtectedRoute from '../../components/ProtectedRoute';
-import AppShell from '../../components/layout/AppShell';
-import Button from '../../components/ui/Button/Button';
-import Card from '../../components/ui/Card/Card';
+import { useParentPortal } from '../../context/ParentPortalContext';
+import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import { fetchGroupClasses, fetchLevels, fetchPrices } from '../../../lib/services/catalog';
+import { fetchSchedules } from '../../../lib/services/scheduling';
+import { createRegistration, fetchMyPaymentMethod } from '../../../lib/services/parent';
+import type { GroupClass, GroupClassSchedule, Level, PaymentMethodInfo, Price } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
-import styles from '../../components/ui/shared.module.css';
+import Button from '../../components/ui/Button/Button';
+import LoadError from '../../components/ui/LoadError/LoadError';
+import {
+  ChildPickerCards,
+  FlowConfirmation,
+  FlowMain,
+  FlowSection,
+  OrderSummary,
+} from '../../components/portal/flow';
 
-interface StudentOption {
-  _id: string;
-  firstName: string;
-  lastName: string;
-}
-
-interface GroupClassOption {
-  _id: string;
-  name: string;
-  levelId: string;
-}
-
-interface ScheduleOption {
-  _id: string;
-  classId: string;
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
-}
-
-interface LevelOption {
-  _id: string;
-  name: string;
-}
-
-interface PriceOption {
-  _id: string;
-  levelId: string;
-  monthlyFee: number;
-}
-
-interface SavedPaymentMethod {
-  _id: string;
-  cardBrand: string;
-  cardLast4: string;
-  cardExpMonth: number;
-  cardExpYear: number;
-}
-
-interface RegistrationResponse {
-  chargeAmount: number;
-}
-
+const STEPS = ['Who', 'Class', 'Review & Pay', 'Done'];
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function levelName(levels: LevelOption[], id: string): string {
+async function fetchRegisterOptions() {
+  const [groupClasses, schedules, prices, levels, paymentMethod] = await Promise.all([
+    fetchGroupClasses(),
+    fetchSchedules(),
+    fetchPrices(),
+    fetchLevels(),
+    fetchMyPaymentMethod(),
+  ]);
+  return { groupClasses, schedules, prices, levels, paymentMethod };
+}
+
+function levelName(levels: Level[], id: string): string {
   return levels.find((level) => level._id === id)?.name ?? id;
 }
 
-function RegisterPageContent() {
-  const [students, setStudents] = useState<StudentOption[]>([]);
-  const [groupClasses, setGroupClasses] = useState<GroupClassOption[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
-  const [levels, setLevels] = useState<LevelOption[]>([]);
-  const [prices, setPrices] = useState<PriceOption[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<SavedPaymentMethod | null>(null);
+interface RegisteredInfo {
+  childName: string;
+  chargeAmount: number;
+}
 
+export default function RegisterPage() {
+  const { students, reload } = useParentPortal();
+  const searchParams = useSearchParams();
+
+  const { data, error, isLoading, retry } = useLoadState(fetchRegisterOptions, []);
+  const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
+  const [schedules, setSchedules] = useState<GroupClassSchedule[]>([]);
+  const [prices, setPrices] = useState<Price[]>([]);
+  const [levels, setLevels] = useState<Level[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodInfo | null>(null);
+
+  useEffect(() => {
+    if (data) {
+      setGroupClasses(data.groupClasses);
+      setSchedules(data.schedules);
+      setPrices(data.prices);
+      setLevels(data.levels);
+      setPaymentMethod(data.paymentMethod);
+    }
+  }, [data]);
+
+  const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
   const [classId, setClassId] = useState('');
   const [scheduleId, setScheduleId] = useState('');
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [registered, setRegistered] = useState<RegisteredInfo | null>(null);
 
+  // Deep-link preselect: /parent/register?child=<studentId>
   useEffect(() => {
-    let isMounted = true;
-
-    async function fetchOptions() {
-      setLoading(true);
-      try {
-        const [
-          studentsRes,
-          classesRes,
-          schedulesRes,
-          pricesRes,
-          levelsRes,
-          paymentMethodRes,
-        ] = await Promise.all([
-          api.get<{ students: StudentOption[] }>('/students/mine'),
-          api.get<{ groupClasses: GroupClassOption[] }>('/group-classes'),
-          api.get<{ schedules: ScheduleOption[] }>('/group-class-schedules'),
-          api.get<{ prices: PriceOption[] }>('/prices'),
-          api.get<{ levels: LevelOption[] }>('/levels'),
-          api.get<{ paymentMethod: SavedPaymentMethod | null }>('/payment-methods/mine'),
-        ]);
-
-        if (isMounted) {
-          setStudents(studentsRes.data.students);
-          setGroupClasses(classesRes.data.groupClasses);
-          setSchedules(schedulesRes.data.schedules);
-          setPrices(pricesRes.data.prices);
-          setLevels(levelsRes.data.levels);
-          setPaymentMethod(paymentMethodRes.data.paymentMethod);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError('Failed to load registration options.');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
+    const preselect = searchParams.get('child');
+    if (preselect) {
+      setStudentId(preselect);
     }
+  }, [searchParams]);
 
-    fetchOptions();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const filteredSchedules = classId
-    ? schedules.filter((schedule) => schedule.classId === classId)
-    : [];
-
-  const selectedGroupClass = classId
-    ? groupClasses.find((groupClass) => groupClass._id === classId) ?? null
-    : null;
-
-  const selectedPrice = selectedGroupClass
-    ? prices.find((price) => price.levelId === selectedGroupClass.levelId) ?? null
-    : null;
+  const filteredSchedules = classId ? schedules.filter((schedule) => schedule.classId === classId) : [];
 
   const handleClassChange = useCallback((value: string) => {
     setClassId(value);
     setScheduleId('');
   }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSuccessMessage(null);
+  const selectedStudent = students.find((student) => student._id === studentId);
+  const selectedGroupClass = classId ? groupClasses.find((groupClass) => groupClass._id === classId) ?? null : null;
+  const selectedPrice = selectedGroupClass ? prices.find((price) => price.levelId === selectedGroupClass.levelId) ?? null : null;
+  const selectedSchedule = scheduleId ? schedules.find((schedule) => schedule._id === scheduleId) ?? null : null;
+
+  async function handleSubmit() {
+    setStepError(null);
     setSubmitting(true);
 
-    try {
-      const res = await api.post<RegistrationResponse>('/registrations', { studentId, scheduleId });
-      setSuccessMessage(
-        `Registration complete! Your card was charged $${res.data.chargeAmount.toFixed(2)}.`
-      );
-      setStudentId('');
-      setClassId('');
-      setScheduleId('');
-    } catch (err) {
-      const message = axios.isAxiosError(err) && err.response?.data?.message
-        ? err.response.data.message
-        : 'Failed to register. Please try again.';
-      setError(message);
-    } finally {
-      setSubmitting(false);
+    // Payment-critical: request payload/sequencing stays byte-identical to
+    // the pre-wizard implementation — this is the exact same
+    // createRegistration({ studentId, scheduleId }) mutation call.
+    const result = await createRegistration({ studentId, scheduleId });
+
+    setSubmitting(false);
+
+    if (result.status === 'success') {
+      setRegistered({
+        childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
+        chargeAmount: result.data.chargeAmount,
+      });
+      setStep(3);
+      reload();
+    } else {
+      setStepError(result.message);
     }
   }
 
+  if (error) {
+    return (
+      <main>
+        <LoadError message={getErrorMessage(error)} onRetry={retry} />
+      </main>
+    );
+  }
+
+  if (step === 3) {
+    return (
+      <main>
+        <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]} title="Register" steps={STEPS} current={3} singleColumn>
+          <FlowConfirmation
+            title="Registration complete!"
+            subtitle={`Your card was charged $${registered?.chargeAmount.toFixed(2)}.`}
+            lines={[{ label: 'Child', value: registered?.childName }]}
+            links={
+              <>
+                <Button as="a" href="/parent/dashboard">
+                  Back to Dashboard
+                </Button>
+                <Button as="a" href="/parent/subscriptions" variant="secondary">
+                  View Billing
+                </Button>
+              </>
+            }
+          />
+        </FlowMain>
+      </main>
+    );
+  }
+
+  const summaryLines = [
+    { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
+    { label: 'Class', value: selectedGroupClass?.name ?? '—' },
+    {
+      label: 'Schedule',
+      value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${selectedSchedule.startTime}-${selectedSchedule.endTime}` : '—',
+    },
+    { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
+  ];
+
+  const noPaymentMethod = step === 2 && !paymentMethod;
+
+  let cta: string;
+  let ctaDisabled: boolean;
+  let onCta: () => void;
+
+  if (step === 0) {
+    cta = 'Continue';
+    ctaDisabled = !studentId;
+    onCta = () => setStep(1);
+  } else if (step === 1) {
+    cta = 'Continue';
+    ctaDisabled = !scheduleId || !selectedPrice;
+    onCta = () => setStep(2);
+  } else {
+    cta = 'Register & Pay';
+    ctaDisabled = noPaymentMethod;
+    onCta = handleSubmit;
+  }
+
+  const summary = (
+    <OrderSummary
+      lines={summaryLines}
+      cta={cta}
+      ctaDisabled={ctaDisabled}
+      ctaLoading={submitting}
+      onCta={onCta}
+    />
+  );
+
   return (
     <main>
-      <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Register for a Class</h1>
-      </div>
+      <FlowMain
+        crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]}
+        title="Register for a Class"
+        steps={STEPS}
+        current={step}
+        summary={summary}
+      >
+        {stepError ? <Alert variant="error">{stepError}</Alert> : null}
 
-      {error ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="error">{error}</Alert>
-        </div>
-      ) : null}
-      {successMessage ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="success">{successMessage}</Alert>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <p>Loading...</p>
-      ) : !paymentMethod ? (
-        <Card>
-          <p>
-            You&apos;ll need to add a payment method before registering — do that{' '}
-            <Link href="/parent/payment-method">here</Link>.
-          </p>
-        </Card>
-      ) : (
-        <Card>
-          <form onSubmit={handleSubmit}>
-            <div className={styles.formField}>
-              <label htmlFor="studentId" className={styles.formLabel}>
-                Child
-              </label>
-              <select
-                id="studentId"
-                className={styles.formSelect}
-                value={studentId}
-                onChange={(event) => setStudentId(event.target.value)}
-                required
-              >
-                <option value="">Select a child</option>
-                {students.map((student) => (
-                  <option key={student._id} value={student._id}>
-                    {student.firstName} {student.lastName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className={styles.formField}>
-              <label htmlFor="classId" className={styles.formLabel}>
-                Class
-              </label>
-              <select
-                id="classId"
-                className={styles.formSelect}
-                value={classId}
-                onChange={(event) => handleClassChange(event.target.value)}
-                required
-              >
+        {isLoading ? (
+          <p>Loading...</p>
+        ) : step === 0 ? (
+          <FlowSection title="Who is registering?">
+            <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
+          </FlowSection>
+        ) : step === 1 ? (
+          <>
+            <FlowSection title="Choose a class">
+              <select aria-label="Class" value={classId} onChange={(e) => handleClassChange(e.target.value)} required>
                 <option value="">Select a class</option>
                 {groupClasses.map((groupClass) => (
                   <option key={groupClass._id} value={groupClass._id}>
@@ -234,17 +216,13 @@ function RegisterPageContent() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FlowSection>
 
-            <div className={styles.formField}>
-              <label htmlFor="scheduleId" className={styles.formLabel}>
-                Schedule
-              </label>
+            <FlowSection title="Choose a schedule">
               <select
-                id="scheduleId"
-                className={styles.formSelect}
+                aria-label="Schedule"
                 value={scheduleId}
-                onChange={(event) => setScheduleId(event.target.value)}
+                onChange={(e) => setScheduleId(e.target.value)}
                 required
                 disabled={!classId}
               >
@@ -255,39 +233,42 @@ function RegisterPageContent() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            {selectedGroupClass ? (
-              selectedPrice ? (
-                <div className={styles.formField}>
+              {selectedGroupClass ? (
+                selectedPrice ? (
                   <p>
-                    Level: {levelName(levels, selectedGroupClass.levelId)} — $
-                    {selectedPrice.monthlyFee}/month
+                    Level: {levelName(levels, selectedGroupClass.levelId)} — ${selectedPrice.monthlyFee}/month
                   </p>
-                </div>
-              ) : (
-                <div className={styles.formField}>
+                ) : (
                   <Alert variant="error">Pricing is not configured for this class yet.</Alert>
-                </div>
-              )
-            ) : null}
+                )
+              ) : null}
+            </FlowSection>
 
-            <Button type="submit" disabled={submitting || !scheduleId}>
-              {submitting ? 'Registering...' : 'Register'}
+            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
+              Back
             </Button>
-          </form>
-        </Card>
-      )}
-    </main>
-  );
-}
+          </>
+        ) : (
+          <>
+            <FlowSection title="Review">
+              {noPaymentMethod ? (
+                <Alert variant="error">
+                  You&apos;ll need to add a payment method before registering — do that{' '}
+                  <Link href="/parent/payment-method">here</Link>.
+                </Alert>
+              ) : (
+                <p>
+                  Card on file: {paymentMethod?.cardBrand} ending in {paymentMethod?.cardLast4}
+                </p>
+              )}
+            </FlowSection>
 
-export default function RegisterPage() {
-  return (
-    <ProtectedRoute allowedRoles={['parent']}>
-      <AppShell>
-        <RegisterPageContent />
-      </AppShell>
-    </ProtectedRoute>
+            <Button type="button" variant="secondary" onClick={() => setStep(1)}>
+              Back
+            </Button>
+          </>
+        )}
+      </FlowMain>
+    </main>
   );
 }

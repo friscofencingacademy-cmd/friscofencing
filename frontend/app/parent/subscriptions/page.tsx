@@ -4,8 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 
 import api from '../../../lib/api';
-import ProtectedRoute from '../../components/ProtectedRoute';
-import AppShell from '../../components/layout/AppShell';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
@@ -170,11 +168,5 @@ function SubscriptionsPageContent() {
 }
 
 export default function SubscriptionsPage() {
-  return (
-    <ProtectedRoute allowedRoles={['parent']}>
-      <AppShell>
-        <SubscriptionsPageContent />
-      </AppShell>
-    </ProtectedRoute>
-  );
+  return <SubscriptionsPageContent />;
 }

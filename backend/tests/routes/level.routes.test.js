@@ -93,4 +93,31 @@ describe('Level routes', () => {
     expect(res.status).toBe(409);
     expect(res.body.message).toMatch(/1 class\(es\) reference this level/);
   });
+
+  it('returns 409 when deleting a level that has a configured Price', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const level = await Level.create({ name: 'Beginner', order: 1 });
+    const Price = require('../../src/models/price.model');
+    await Price.create({ levelId: level._id, monthlyFee: 150 });
+
+    const res = await agent.delete(`/api/v1/levels/${level._id}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/a price is configured for this level/);
+  });
+
+  it('deletes a level with no references (happy path)', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const level = await Level.create({ name: 'Beginner', order: 1 });
+
+    const res = await agent.delete(`/api/v1/levels/${level._id}`);
+    expect(res.status).toBe(200);
+
+    const listRes = await agent.get('/api/v1/levels');
+    expect(listRes.body.levels).toHaveLength(0);
+  });
 });

@@ -1,5 +1,6 @@
 const Level = require('../models/level.model');
 const GroupClass = require('../models/groupClass.model');
+const Price = require('../models/price.model');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -51,6 +52,14 @@ async function remove(id) {
     const error = new Error(
       `Cannot delete: ${referencingCount} class(es) reference this level.`
     );
+    error.status = 409;
+    throw error;
+  }
+
+  const referencingPrice = await Price.findOne({ levelId: id });
+
+  if (referencingPrice) {
+    const error = new Error('Cannot delete: a price is configured for this level.');
     error.status = 409;
     throw error;
   }

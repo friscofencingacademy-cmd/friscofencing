@@ -15,22 +15,16 @@ interface HomeCard {
 
 const HOME_CARDS_BY_ROLE: Record<Role, HomeCard[]> = {
   admin: [
-    { href: '/admin/classes', title: 'Manage Classes', description: 'Create and edit class offerings.' },
-    { href: '/admin/schedules', title: 'Manage Schedules', description: 'View and adjust class schedules.' },
-    { href: '/admin/prices', title: 'Pricing', description: 'Set pricing for classes and packages.' },
+    { href: '/admin/dashboard', title: 'Admin Dashboard', description: 'Manage classes, schedules, pricing, and locations.' },
   ],
   superadmin: [
-    { href: '/admin/classes', title: 'Manage Classes', description: 'Create and edit class offerings.' },
-    { href: '/admin/schedules', title: 'Manage Schedules', description: 'View and adjust class schedules.' },
-    { href: '/admin/prices', title: 'Pricing', description: 'Set pricing for classes and packages.' },
+    { href: '/admin/dashboard', title: 'Admin Dashboard', description: 'Manage classes, schedules, pricing, and locations.' },
   ],
   coach: [
     { href: '/coach/schedules', title: 'My Schedules', description: 'View your upcoming classes.' },
   ],
   parent: [
-    { href: '/parent/book-trial', title: 'Book a Trial', description: 'Schedule a trial class for your child.' },
-    { href: '/parent/register', title: 'Register for a Class', description: 'Enroll your child in a class.' },
-    { href: '/parent/subscriptions', title: 'My Subscriptions', description: 'View and manage billing.' },
+    { href: '/parent/dashboard', title: 'Parent Dashboard', description: 'Manage your children, trials, registrations, and billing.' },
   ],
   student: [],
 };

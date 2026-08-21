@@ -13,28 +13,16 @@ interface NavLink {
 }
 
 const NAV_LINKS_BY_ROLE: Record<Role, NavLink[]> = {
-  admin: [
-    { href: '/admin/locations', label: 'Locations' },
-    { href: '/admin/levels', label: 'Levels' },
-    { href: '/admin/classes', label: 'Classes' },
-    { href: '/admin/schedules', label: 'Schedules' },
-    { href: '/admin/prices', label: 'Prices' },
-  ],
-  superadmin: [
-    { href: '/admin/locations', label: 'Locations' },
-    { href: '/admin/levels', label: 'Levels' },
-    { href: '/admin/classes', label: 'Classes' },
-    { href: '/admin/schedules', label: 'Schedules' },
-    { href: '/admin/prices', label: 'Prices' },
-  ],
+  // Admins/superadmins now use the dedicated dark sidebar shell
+  // (app/admin/layout.tsx) — AppShell's top bar is no longer part of their
+  // authenticated experience. See docs/plans/ckq-ui-adoption-plan.md Phase 1.
+  admin: [],
+  superadmin: [],
   coach: [{ href: '/coach/schedules', label: 'My Schedules' }],
-  parent: [
-    { href: '/parent/children', label: 'My Children' },
-    { href: '/parent/book-trial', label: 'Book Trial' },
-    { href: '/parent/register', label: 'Register' },
-    { href: '/parent/subscriptions', label: 'My Subscriptions' },
-    { href: '/parent/payment-method', label: 'Payment Method' },
-  ],
+  // Parents now use the dedicated portal shell (app/parent/layout.tsx) —
+  // AppShell now serves coach + logged-out visitors only. See
+  // docs/plans/ckq-ui-adoption-plan.md Phase 3.
+  parent: [],
   student: [],
 };
 
