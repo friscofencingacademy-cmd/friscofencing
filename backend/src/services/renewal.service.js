@@ -4,6 +4,7 @@ const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClassSession = require('../models/groupClassSession.model');
 const GroupClass = require('../models/groupClass.model');
 const Price = require('../models/price.model');
+const { monthLabel: formatMonthLabel } = require('../email/dates');
 const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
@@ -212,14 +213,28 @@ async function renewOne(subscriptionId) {
   const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
 
   // Fire-and-forget receipt email — never throws, never affects this
-  // outcome (see mail.service.js's send-function contract).
-  await mailService.sendRenewalReceiptEmail({
-    parent,
-    student,
-    schedule,
-    chargeAmount: amount,
-    siblingDiscountApplied,
-  });
+  // outcome (see mail.service.js's send-function contract). The extra
+  // groupClass lookup + monthLabel formatting are deliberately kept inside
+  // this try/catch, alongside the send itself, so a populate failure here
+  // can never undo an already-successful (and already-charged!) renewal.
+  try {
+    const groupClass = schedule ? await GroupClass.findById(schedule.classId) : null;
+
+    await mailService.sendRenewalReceiptEmail({
+      parent,
+      student,
+      schedule,
+      groupClass,
+      monthLabel: formatMonthLabel(newPeriodStart),
+      chargeAmount: amount,
+      monthlyFee,
+      siblingDiscountAmount: siblingDiscountApplied ? monthlyFee * 0.1 : 0,
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console -- operational logging for a
+    // fire-and-forget email side effect, not debug output.
+    console.error('renewal.service: failed to assemble receipt email:', error.message);
+  }
 
   return {
     subscriptionId,
