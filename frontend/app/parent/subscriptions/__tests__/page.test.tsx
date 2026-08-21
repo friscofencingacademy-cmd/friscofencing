@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -44,7 +44,47 @@ const CANCELLED_SUBSCRIPTION = {
   lastChargeAmount: null,
 };
 
+const PRIVATE_ENTRY = {
+  enrollment: {
+    _id: 'penroll-1',
+    studentId: { _id: 'student-3', firstName: 'Priv', lastName: 'Lessons' },
+    parentId: { _id: 'parent-1', firstName: 'Par', lastName: 'Ent', email: 'parent@example.com' },
+    coachId: { _id: 'coach-1', firstName: 'Dana', lastName: 'Cole', email: 'dana@example.com' },
+    coachContractId: 'contract-1',
+    agreedHourlyRate: 65,
+    status: 'active',
+    endDate: null,
+  },
+  slot: {
+    _id: 'pschedule-1',
+    coachId: 'coach-1',
+    dayOfWeek: 2,
+    startTime: '16:00',
+    durationMinutes: 60,
+    studentId: 'student-1',
+    enrollmentId: 'penroll-1',
+    isActive: true,
+  },
+  charges: [
+    {
+      _id: 'charge-1',
+      sessionId: 'session-1',
+      enrollmentId: 'penroll-1',
+      parentId: 'parent-1',
+      studentId: 'student-1',
+      amount: 65,
+      status: 'completed',
+      stripePaymentIntentId: 'pi_1',
+      attempt: 1,
+      failureMessage: null,
+      paidAt: '2026-08-26T16:00:00.000Z',
+      createdAt: '2026-08-26T16:00:00.000Z',
+    },
+  ],
+};
+
 let cancelledSubscriptionId: string | null = null;
+let cancelledPrivateEnrollmentId: string | null = null;
 
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ user: PARENT_USER })),
@@ -56,6 +96,11 @@ const server = setupServer(
     return HttpResponse.json({
       subscription: { ...ACTIVE_SUBSCRIPTION, cancelAtPeriodEnd: true },
     });
+  }),
+  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [PRIVATE_ENTRY] })),
+  http.post('*/private-class-enrollments/:id/cancel', ({ params }) => {
+    cancelledPrivateEnrollmentId = params.id as string;
+    return HttpResponse.json({ enrollment: { ...PRIVATE_ENTRY.enrollment, status: 'cancelled' } });
   })
 );
 
@@ -64,6 +109,7 @@ afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
   cancelledSubscriptionId = null;
+  cancelledPrivateEnrollmentId = null;
 });
 afterAll(() => server.close());
 
@@ -81,7 +127,11 @@ describe('SubscriptionsPage', () => {
 
     expect(await screen.findByText('Kid One')).toBeInTheDocument();
     expect(screen.getByText('Wednesday 16:00-17:00')).toBeInTheDocument();
-    expect(screen.getByText('active')).toBeInTheDocument();
+    // Scoped to the group-registration row itself — the new Private Lessons
+    // section below can also render an "active" status cell for its own,
+    // unrelated row.
+    const groupRow = screen.getByText('Kid One').closest('tr') as HTMLElement;
+    expect(within(groupRow).getByText('active')).toBeInTheDocument();
     expect(screen.getAllByText('2026-02-01')).toHaveLength(2);
     expect(screen.getByText('$150.00')).toBeInTheDocument();
 
@@ -211,5 +261,42 @@ describe('SubscriptionsPage', () => {
     expect(
       await screen.findByText(/you don't have any registrations yet/i)
     ).toBeInTheDocument();
+  });
+
+  describe('Private Lessons section', () => {
+    it('renders a row per private enrollment with coach, slot, rate, and recent charges', async () => {
+      renderSubscriptionsPage();
+
+      expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
+      expect(screen.getByText('Tuesday 16:00')).toBeInTheDocument();
+      expect(screen.getByText('$65.00/hr')).toBeInTheDocument();
+      expect(screen.getByText(/\$65\.00 \(Paid\)/)).toBeInTheDocument();
+    });
+
+    it('shows the confirm-copy dialog and cancels on confirm', async () => {
+      renderSubscriptionsPage();
+      await screen.findByText('Dana Cole');
+
+      const privateRow = screen.getByText('Dana Cole').closest('tr');
+      expect(privateRow).not.toBeNull();
+
+      fireEvent.click(within(privateRow as HTMLElement).getByRole('button', { name: /^cancel lessons$/i }));
+
+      expect(
+        await screen.findByText(/all upcoming sessions will be removed/i)
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /^confirm cancellation$/i }));
+
+      await waitFor(() => expect(cancelledPrivateEnrollmentId).toBe('penroll-1'));
+    });
+
+    it('shows a message when the parent has no private lessons yet', async () => {
+      server.use(http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })));
+
+      renderSubscriptionsPage();
+
+      expect(await screen.findByText(/you don't have any private lessons yet/i)).toBeInTheDocument();
+    });
   });
 });

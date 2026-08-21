@@ -92,6 +92,15 @@ export default function HomePage() {
               <p className={styles.pageSubtitle}>{item.description}</p>
             </Card>
           ))}
+          <Card>
+            <h3>Private Lessons</h3>
+            <p className={styles.pageSubtitle}>
+              One-on-one coaching billed per session, no monthly commitment.
+            </p>
+            <Button as="a" href="/private-classes" variant="secondary" size="sm">
+              See available slots
+            </Button>
+          </Card>
         </section>
 
         <section style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>

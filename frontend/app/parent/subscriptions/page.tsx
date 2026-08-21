@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 
 import api from '../../../lib/api';
+import { fetchMyPrivateEnrollments, cancelPrivateEnrollment } from '../../../lib/services/privateClass';
+import type { MyPrivateEnrollmentEntry } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
@@ -48,11 +50,168 @@ function formatDate(isoDate: string): string {
   return isoDate.slice(0, 10);
 }
 
+function chargeLabel(status: MyPrivateEnrollmentEntry['charges'][number]['status']): string {
+  if (status === 'completed') return 'Paid';
+  if (status === 'failed') return 'Failed';
+  return 'Pending';
+}
+
+interface PrivateLessonsSectionProps {
+  entries: MyPrivateEnrollmentEntry[];
+  loading: boolean;
+  onCancelled: () => void;
+}
+
+function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessonsSectionProps) {
+  const [cancelTarget, setCancelTarget] = useState<MyPrivateEnrollmentEntry | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  async function confirmCancel() {
+    if (!cancelTarget) return;
+
+    setCancelling(true);
+    setCancelError(null);
+
+    const result = await cancelPrivateEnrollment(cancelTarget.enrollment._id);
+
+    setCancelling(false);
+
+    if (result.status === 'success') {
+      setCancelTarget(null);
+      onCancelled();
+    } else {
+      setCancelError(result.message);
+    }
+  }
+
+  return (
+    <>
+      <div className={styles.pageHeader} style={{ marginTop: 'var(--space-6)' }}>
+        <h2 className={styles.pageTitle}>Private Lessons</h2>
+      </div>
+
+      {loading ? (
+        <p>Loading...</p>
+      ) : entries.length === 0 ? (
+        <Card>
+          <p>You don&apos;t have any private lessons yet.</p>
+        </Card>
+      ) : (
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Coach</th>
+                <th>Slot</th>
+                <th>Per Session</th>
+                <th>Status</th>
+                <th>Recent Charges</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(({ enrollment, slot, charges }) => (
+                <tr key={enrollment._id}>
+                  <td>
+                    {enrollment.studentId.firstName} {enrollment.studentId.lastName}
+                  </td>
+                  <td>
+                    {enrollment.coachId.firstName} {enrollment.coachId.lastName}
+                  </td>
+                  <td>{slot ? `${DAY_LABELS[slot.dayOfWeek]} ${slot.startTime}` : '—'}</td>
+                  <td>${enrollment.agreedHourlyRate.toFixed(2)}/hr</td>
+                  <td>{enrollment.status}</td>
+                  <td>
+                    {charges.length === 0
+                      ? '—'
+                      : charges
+                          .map((charge) => `${new Date(charge.createdAt).toLocaleDateString()} · $${charge.amount.toFixed(2)} (${chargeLabel(charge.status)})`)
+                          .join(', ')}
+                  </td>
+                  <td>
+                    {enrollment.status === 'active' ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setCancelError(null);
+                          setCancelTarget({ enrollment, slot, charges });
+                        }}
+                      >
+                        Cancel Lessons
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {cancelTarget ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(27,26,23,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 400,
+          }}
+        >
+          <div style={{ maxWidth: 420 }}>
+            <Card>
+              <h3 style={{ marginTop: 0 }}>Cancel Private Lessons</h3>
+              {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
+              <p>
+                All upcoming sessions will be removed and the weekly slot released. Completed sessions
+                already charged are unaffected.
+              </p>
+              <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
+                <Button type="button" variant="secondary" onClick={() => setCancelTarget(null)} disabled={cancelling}>
+                  Keep Lessons
+                </Button>
+                <Button type="button" variant="danger" onClick={confirmCancel} disabled={cancelling}>
+                  {cancelling ? 'Cancelling…' : 'Confirm Cancellation'}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function SubscriptionsPageContent() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const [privateEntries, setPrivateEntries] = useState<MyPrivateEnrollmentEntry[]>([]);
+  const [privateLoading, setPrivateLoading] = useState(true);
+
+  const fetchPrivateEntries = useCallback(async () => {
+    setPrivateLoading(true);
+    try {
+      const entries = await fetchMyPrivateEnrollments();
+      setPrivateEntries(entries);
+    } catch (err) {
+      setPrivateEntries([]);
+    } finally {
+      setPrivateLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPrivateEntries();
+  }, [fetchPrivateEntries]);
 
   const fetchSubscriptions = useCallback(async () => {
     setLoading(true);
@@ -163,6 +322,12 @@ function SubscriptionsPageContent() {
           </table>
         </Card>
       )}
+
+      <PrivateLessonsSection
+        entries={privateEntries}
+        loading={privateLoading}
+        onCancelled={fetchPrivateEntries}
+      />
     </main>
   );
 }

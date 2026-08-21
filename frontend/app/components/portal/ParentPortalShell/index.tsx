@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarPlus, ClipboardList, CreditCard, Home, LogOut, Wallet } from 'lucide-react';
+import { CalendarPlus, ClipboardList, CreditCard, Home, LogOut, Swords, Wallet } from 'lucide-react';
 
 import { useAuth } from '../../../context/AuthContext';
 import { useParentPortal } from '../../../context/ParentPortalContext';
@@ -17,6 +17,12 @@ const HOME_ITEMS: PortalNavItem[] = [{ key: 'home', label: 'Home', icon: <Home s
 const ACADEMY_ITEMS: PortalNavItem[] = [
   { key: 'book-trial', label: 'Book Trial', icon: <CalendarPlus size={18} />, href: '/parent/book-trial' },
   { key: 'register', label: 'Register', icon: <ClipboardList size={18} />, href: '/parent/register' },
+  {
+    key: 'private-lessons',
+    label: 'Private Lessons',
+    icon: <Swords size={18} />,
+    href: '/private-classes',
+  },
   { key: 'billing', label: 'Billing', icon: <CreditCard size={18} />, href: '/parent/subscriptions' },
   { key: 'payment-method', label: 'Payment Method', icon: <Wallet size={18} />, href: '/parent/payment-method' },
 ];
