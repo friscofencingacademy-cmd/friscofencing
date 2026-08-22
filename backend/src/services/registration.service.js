@@ -12,6 +12,7 @@ const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
+const { computeAvailability } = require('./groupClassSchedule.service');
 const mailService = require('./mail.service');
 
 function notFoundError(message) {
@@ -81,6 +82,13 @@ async function create({ studentId, scheduleId }, requestingUser) {
 
   if (!groupClass) {
     throw notFoundError('Group class not found');
+  }
+
+  // Enforced here, not just displayed publicly (`GET
+  // /group-class-schedules/public`'s `availability` field) — without this,
+  // a schedule shown as "full" could still be charged into.
+  if (computeAvailability(schedule, groupClass) === 'full') {
+    throw conflictError('This class is full');
   }
 
   const price = await Price.findOne({ levelId: groupClass.levelId });

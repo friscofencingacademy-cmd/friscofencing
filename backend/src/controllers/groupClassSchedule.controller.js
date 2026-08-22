@@ -60,4 +60,14 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { create, list, mine, getById, update, remove };
+async function listPublic(req, res) {
+  try {
+    const schedules = await groupClassScheduleService.listPublic();
+    return res.status(200).json({ schedules });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to list schedules' });
+  }
+}
+
+module.exports = { create, list, mine, getById, update, remove, listPublic };
