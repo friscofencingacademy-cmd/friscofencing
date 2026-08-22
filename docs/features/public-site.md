@@ -23,12 +23,14 @@ Each existing resource router gets a `/public` sub-route (registered before its 
 
 Editorial content, admin-authored, deliberately **not** linked to `User` by ObjectId — coupling it to an account row would mean either polluting `User` with marketing fields or auto-publishing a minor's record. Fields: `type` (`coach`|`student`), `name`, `title`, `body`, `bullets` (max 3, validated), `imageUrl`, `isPublished` (default `false`), `order`. Admin CRUD at `/admin/spotlights` (Pattern A, sidebar under a new **Content** section) — see `docs/features/admin.md`.
 
+`imageUrl` can be filled in two ways: pasted directly, or via `POST /spotlights/upload-image` (admin/superadmin, multipart, 5MB cap), which uploads to **Vercel Blob** (`BLOB_READ_WRITE_TOKEN`, provisioned via `vercel blob create-store`) and returns the file's public URL. The stored blob pathname is a random UUID, never the uploader's original filename. `@vercel/blob`'s `put()` has no test-mode equivalent (unlike Stripe) — it's mocked at the module boundary in `spotlight.routes.test.js`, a named exception in `docs/TESTING_STRATEGY.md`.
+
 ## Frontend
 
 - **Public nav** (`AppShell`'s logged-out branch): Classes, Coaches, Private Lessons, Log In, Book a Free Trial. Every public CTA points at `/register` — there is no guest booking (`POST /trial-classes` is parent-only).
 - **`/classes`**: modeled directly on the pre-existing `/private-classes` page (same `useLoadState` + `LoadError` + grouped-rows shape). Client-side level filter over an already-fetched list (presentation, not invention). Rows grouped by `dayOfWeek` via the shared `DAY_LABELS` constant (`lib/constants.ts` — also now used by `/admin/schedules` and `/coach/schedules`, which each previously declared their own copy).
 - **`app/components/marketing/`**: `Hero`, `SpotlightCard` (`align="left"|"right"`, optional `eyebrow`), `StepsRow`, `LevelGrid`, `ScheduleTable`, `CtaBand`, one `marketing.module.css`. `ScheduleTable` and `SpotlightCard` are shared between `/classes`/`/`/`/coaches` respectively.
-- **`/register`, `/login`**: both accept `?next=` (register defaults to `/parent/dashboard`, login to `/`) so a Book-a-Trial click from a public page survives the auth round-trip. Both wrap their form in a `<Suspense>` boundary — `useSearchParams()` requires one for `next build`'s static prerendering to succeed.
+- **`/register`, `/login`**: both accept `?next=`, which wins over the role-based default landing page (`ROLE_LANDING_PATH` in `lib/constants.ts` — admin/superadmin to `/admin/dashboard`, coach to `/coach/schedules`, parent to `/parent/dashboard`) added so a signed-in visitor never sees an interim "Welcome" screen. So does visiting `/` while already signed in. Both `/register` and `/login` wrap their form in a `<Suspense>` boundary — `useSearchParams()` requires one for `next build`'s static prerendering to succeed.
 - **`/coaches`**: every published `type: 'coach'` spotlight, alternating `SpotlightCard` alignment.
 
 ## Corrections from the handoff doc

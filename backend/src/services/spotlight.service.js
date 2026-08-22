@@ -1,8 +1,18 @@
+const crypto = require('crypto');
+const path = require('path');
+const { put } = require('@vercel/blob');
+
 const Spotlight = require('../models/spotlight.model');
 
 function notFoundError(message) {
   const error = new Error(message);
   error.status = 404;
+  return error;
+}
+
+function badRequestError(message) {
+  const error = new Error(message);
+  error.status = 400;
   return error;
 }
 
@@ -63,4 +73,24 @@ async function listPublic(type) {
   }));
 }
 
-module.exports = { create, list, getById, update, remove, listPublic };
+// Uploads an admin-supplied spotlight photo to Vercel Blob and returns its
+// public URL. The stored filename is a random UUID, never the uploader's
+// original filename — avoids leaking local filesystem info and guarantees
+// no collision between uploads.
+async function uploadImage(file) {
+  if (!file) {
+    throw badRequestError('An image file is required');
+  }
+
+  const extension = path.extname(file.originalname) || '';
+  const pathname = `spotlights/${crypto.randomUUID()}${extension}`;
+
+  const blob = await put(pathname, file.buffer, {
+    access: 'public',
+    contentType: file.mimetype,
+  });
+
+  return blob.url;
+}
+
+module.exports = { create, list, getById, update, remove, listPublic, uploadImage };

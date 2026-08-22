@@ -141,7 +141,7 @@ Indexes: `{ coachId: 1, isActive: 1 }`, `{ studentId: 1 }`. Duplicate rule (same
 | `title` | String | optional, e.g. "Head Coach" |
 | `body` | String | optional, one paragraph |
 | `bullets` | [String] | default `[]`, schema-validated max 3 |
-| `imageUrl` | String | optional — owner-hosted URL; no upload mechanism exists in this app |
+| `imageUrl` | String | optional — either a manually-pasted URL, or one returned by `POST /spotlights/upload-image` (uploads to Vercel Blob, admin/superadmin only) |
 | `isPublished` | Boolean | default `false` |
 | `order` | Number | default `0` — display order within a type |
 

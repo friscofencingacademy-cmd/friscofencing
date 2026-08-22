@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -49,7 +50,10 @@ const server = setupServer(
   http.delete('*/spotlights/:id', ({ params }) => {
     deletedId = params.id as string;
     return HttpResponse.json({ success: true });
-  })
+  }),
+  http.post('*/spotlights/upload-image', () =>
+    HttpResponse.json({ imageUrl: 'https://blob.example.com/spotlights/uploaded.jpg' }, { status: 201 })
+  )
 );
 
 beforeAll(() => server.listen());
@@ -147,6 +151,43 @@ describe('SpotlightsPage', () => {
 
     await waitFor(() => expect(deletedId).toBe('spot-1'));
     await waitFor(() => expect(screen.queryByText('Jane Smith')).not.toBeInTheDocument());
+  });
+
+  it('uploads a selected image file and fills the Image URL field with the returned url', async () => {
+    const user = userEvent.setup();
+    render(<SpotlightsPage />);
+    await screen.findByText('Jane Smith');
+
+    fireEvent.click(screen.getByRole('button', { name: /add spotlight/i }));
+
+    const file = new File(['fake-bytes'], 'jane.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Or upload a file:'), file);
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('Image URL') as HTMLInputElement).value).toBe(
+        'https://blob.example.com/spotlights/uploaded.jpg'
+      );
+    });
+  });
+
+  it('shows an inline error when the image upload fails, without crashing', async () => {
+    server.use(
+      http.post('*/spotlights/upload-image', () =>
+        HttpResponse.json({ message: 'Image must be 5MB or smaller' }, { status: 400 })
+      )
+    );
+
+    const user = userEvent.setup();
+    render(<SpotlightsPage />);
+    await screen.findByText('Jane Smith');
+
+    fireEvent.click(screen.getByRole('button', { name: /add spotlight/i }));
+
+    const file = new File(['fake-bytes'], 'huge.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Or upload a file:'), file);
+
+    expect(await screen.findByText('Image must be 5MB or smaller')).toBeInTheDocument();
+    expect((screen.getByLabelText('Image URL') as HTMLInputElement).value).toBe('');
   });
 
   it('shows a dialog error and keeps the dialog open when create fails', async () => {

@@ -1,7 +1,13 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
+// No test mode exists for Vercel Blob (unlike Stripe) — calling put() for
+// real here would actually upload a file to the live store. See
+// docs/TESTING_STRATEGY.md's named exceptions.
+jest.mock('@vercel/blob');
+
 const request = require('supertest');
+const { put } = require('@vercel/blob');
 
 const app = require('../../src/app');
 const User = require('../../src/models/user.model');
@@ -23,6 +29,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   await clearTestDB();
+  put.mockReset();
 });
 
 async function seedUser(overrides = {}) {
@@ -108,6 +115,65 @@ describe('Spotlight routes', () => {
 
       expect(res.status).toBe(500);
       expect(await Spotlight.countDocuments()).toBe(0);
+    });
+  });
+
+  describe('POST /api/v1/spotlights/upload-image', () => {
+    it("uploads the file to Blob storage and returns its public url (admin happy path)", async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      put.mockResolvedValue({ url: 'https://blob.example.com/spotlights/generated-name.jpg' });
+
+      const res = await agent
+        .post('/api/v1/spotlights/upload-image')
+        .attach('image', Buffer.from('fake-image-bytes'), 'jane.jpg');
+
+      expect(res.status).toBe(201);
+      expect(res.body.imageUrl).toBe('https://blob.example.com/spotlights/generated-name.jpg');
+
+      expect(put).toHaveBeenCalledTimes(1);
+      const [pathname, buffer, options] = put.mock.calls[0];
+      expect(pathname).toMatch(/^spotlights\/.+\.jpg$/);
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(options).toMatchObject({ access: 'public' });
+    });
+
+    it('returns 403 for a non-admin', async () => {
+      await seedUser({ role: 'coach', email: 'test-coach@example.com' });
+      const agent = await loginAgent('test-coach@example.com');
+
+      const res = await agent
+        .post('/api/v1/spotlights/upload-image')
+        .attach('image', Buffer.from('fake-image-bytes'), 'jane.jpg');
+
+      expect(res.status).toBe(403);
+      expect(put).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when no file is attached', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const res = await agent.post('/api/v1/spotlights/upload-image');
+
+      expect(res.status).toBe(400);
+      expect(put).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when the file exceeds the 5MB limit, without ever calling Blob', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const oversized = Buffer.alloc(5 * 1024 * 1024 + 1);
+
+      const res = await agent
+        .post('/api/v1/spotlights/upload-image')
+        .attach('image', oversized, 'huge.jpg');
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Image must be 5MB or smaller');
+      expect(put).not.toHaveBeenCalled();
     });
   });
 

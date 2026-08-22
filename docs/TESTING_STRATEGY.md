@@ -30,6 +30,7 @@ Backend tests mirror `backend/src/`: `src/services/subscription.service.js` → 
 - A context provider, when the test's whole point is isolating one consumer component from the rest of that context's tree (rare — prefer rendering with the real provider + MSW, as every test in this repo does today).
 - `@stripe/react-stripe-js`'s `CardElement`/`Elements`/`useStripe`/`useElements` — `CardElement` renders into a cross-origin iframe that jsdom cannot simulate at all; there is no way to "type a card number" into it in a test environment. This is an external-SDK exception, not our own service boundary — the real `POST /payment-methods` call the page makes afterward still goes through MSW like any other endpoint.
 - Real Stripe TEST-mode API calls on the backend (`registration.routes.test.js`, `paymentMethod.routes.test.js`) are **not** mocked at all — Stripe explicitly designs test mode to be hit for real, and mocking it risks drifting from Stripe's actual API contract.
+- `@vercel/blob`'s `put()` on the backend (`spotlight.routes.test.js`) — unlike Stripe, Blob has no separate test mode; calling it for real from a test would actually upload a file to the live store. `jest.mock('@vercel/blob')` is the exception here, not the Stripe-style "hit it for real" rule.
 
 ## Interaction rule
 

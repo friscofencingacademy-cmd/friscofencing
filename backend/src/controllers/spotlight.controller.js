@@ -66,4 +66,14 @@ async function listPublic(req, res) {
   }
 }
 
-module.exports = { create, list, getById, update, remove, listPublic };
+async function uploadImage(req, res) {
+  try {
+    const imageUrl = await spotlightService.uploadImage(req.file);
+    return res.status(201).json({ imageUrl });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to upload image' });
+  }
+}
+
+module.exports = { create, list, getById, update, remove, listPublic, uploadImage };

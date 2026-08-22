@@ -54,3 +54,18 @@ export async function deleteSpotlight(id: string): Promise<MutationResult<undefi
     return { status: 'error', message: extractErrorMessage(err, 'Failed to delete spotlight.') };
   }
 }
+
+// Uploads an image file to Vercel Blob (via POST /spotlights/upload-image)
+// and resolves to its public URL — the caller stores that URL into the
+// spotlight's own `imageUrl` field like any manually-entered one.
+export async function uploadSpotlightImage(file: File): Promise<MutationResult<string>> {
+  try {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res = await api.post<{ imageUrl: string }>('/spotlights/upload-image', formData);
+    return { status: 'success', data: res.data.imageUrl };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to upload image.') };
+  }
+}

@@ -9,6 +9,7 @@ import {
   deleteSpotlight,
   fetchSpotlights,
   updateSpotlight,
+  uploadSpotlightImage,
 } from '../../../lib/services/spotlights';
 import type { Spotlight, SpotlightType } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
@@ -99,6 +100,7 @@ export default function SpotlightsPage() {
   const [dialog, setDialog] = useState<DialogState>({ open: false, id: null, form: EMPTY_FORM });
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export default function SpotlightsPage() {
   }
 
   function closeDialog() {
-    if (saving) return;
+    if (saving || uploadingImage) return;
     setDialog({ open: false, id: null, form: EMPTY_FORM });
     setDialogError(null);
   }
@@ -144,6 +146,23 @@ export default function SpotlightsPage() {
     if (result.status === 'success') {
       setDialog({ open: false, id: null, form: EMPTY_FORM });
       retry();
+    } else {
+      setDialogError(result.message);
+    }
+  }
+
+  async function handleImageFileSelected(file: File | undefined) {
+    if (!file) return;
+
+    setDialogError(null);
+    setUploadingImage(true);
+
+    const result = await uploadSpotlightImage(file);
+
+    setUploadingImage(false);
+
+    if (result.status === 'success') {
+      setField('imageUrl', result.data);
     } else {
       setDialogError(result.message);
     }
@@ -346,6 +365,39 @@ export default function SpotlightsPage() {
                   onChange={(e) => setField('imageUrl', e.target.value)}
                   placeholder="https://…"
                 />
+                <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                  <label className={styles.label} htmlFor="spotlight-imageFile" style={{ margin: 0 }}>
+                    Or upload a file:
+                  </label>
+                  <input
+                    id="spotlight-imageFile"
+                    type="file"
+                    accept="image/*"
+                    disabled={uploadingImage}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      handleImageFileSelected(file);
+                      e.target.value = '';
+                    }}
+                  />
+                  {uploadingImage ? <span>Uploading…</span> : null}
+                </div>
+                {dialog.form.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- an
+                  // owner-hosted/Blob-hosted URL, not a local/optimizable asset.
+                  <img
+                    src={dialog.form.imageUrl}
+                    alt=""
+                    style={{
+                      marginTop: 'var(--space-2)',
+                      width: 80,
+                      height: 100,
+                      objectFit: 'cover',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--color-border)',
+                    }}
+                  />
+                ) : null}
               </div>
               <div className={styles.formGroup}>
                 <label className={styles.label} htmlFor="spotlight-order">
@@ -376,7 +428,12 @@ export default function SpotlightsPage() {
               <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
                 Cancel
               </button>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleSave}
+                disabled={saving || uploadingImage}
+              >
                 {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
               </button>
             </div>
