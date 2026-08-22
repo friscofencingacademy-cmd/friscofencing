@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, type FormEvent } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import axios from 'axios';
 
@@ -12,9 +12,22 @@ import Card from '../components/ui/Card/Card';
 import Alert from '../components/ui/Alert/Alert';
 import styles from '../components/ui/shared.module.css';
 
+// useSearchParams() requires a Suspense boundary above it during static
+// generation (https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout)
+// — without this, `next build` fails to prerender this page.
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const { login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get('next') || '/';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,7 +41,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.push('/');
+      router.push(next);
     } catch (err) {
       const message = axios.isAxiosError(err) && err.response?.data?.message
         ? err.response.data.message

@@ -6,9 +6,11 @@ import RegisterPage from '../page';
 import { AuthProvider } from '../../context/AuthContext';
 
 const pushMock = jest.fn();
+let mockSearchParams = new URLSearchParams();
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 // Wildcard host pattern, matching the network-boundary MSW convention
@@ -21,6 +23,7 @@ beforeAll(() => server.listen());
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
+  mockSearchParams = new URLSearchParams();
 });
 afterAll(() => server.close());
 
@@ -46,7 +49,7 @@ async function fillAndSubmit(
 }
 
 describe('RegisterPage', () => {
-  it('signs up successfully and redirects to /parent/children', async () => {
+  it('signs up successfully and redirects to /parent/dashboard by default', async () => {
     server.use(
       http.post('*/auth/register', () =>
         HttpResponse.json(
@@ -66,10 +69,43 @@ describe('RegisterPage', () => {
 
     renderRegisterPage();
 
+    expect(
+      screen.getByText(/free to create\. you'll add your child and pick a trial class next/i)
+    ).toBeInTheDocument();
+
     await fillAndSubmit('New', 'Parent', 'new-parent@example.com', 'a-strong-password');
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith('/parent/children');
+      expect(pushMock).toHaveBeenCalledWith('/parent/dashboard');
+    });
+  });
+
+  it('honors ?next= and redirects there instead of the default on success', async () => {
+    mockSearchParams = new URLSearchParams({ next: '/parent/book-trial' });
+
+    server.use(
+      http.post('*/auth/register', () =>
+        HttpResponse.json(
+          {
+            user: {
+              _id: 'user-2',
+              role: 'parent',
+              firstName: 'Next',
+              lastName: 'Parent',
+              email: 'next-parent@example.com',
+            },
+          },
+          { status: 201 }
+        )
+      )
+    );
+
+    renderRegisterPage();
+
+    await fillAndSubmit('Next', 'Parent', 'next-parent@example.com', 'a-strong-password');
+
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith('/parent/book-trial');
     });
   });
 

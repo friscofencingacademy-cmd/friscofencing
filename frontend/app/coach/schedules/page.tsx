@@ -4,13 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import api from '../../../lib/api';
+import { DAY_LABELS } from '../../../lib/constants';
 import ProtectedRoute from '../../components/ProtectedRoute';
 import AppShell from '../../components/layout/AppShell';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
 import styles from '../../components/ui/shared.module.css';
-
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 interface GroupClassOption {
   _id: string;

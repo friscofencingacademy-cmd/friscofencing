@@ -7,14 +7,13 @@ import { Plus, X } from 'lucide-react';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { createSchedule, fetchCoaches, fetchSchedules } from '../../../lib/services/scheduling';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
+import { DAY_LABELS } from '../../../lib/constants';
 import type { Coach, GroupClass, GroupClassSchedule } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
 import styles from '../../components/admin/admin.module.css';
-
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 interface ScheduleForm {
   classId: string;

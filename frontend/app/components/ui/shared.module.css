@@ -69,3 +69,27 @@
   border-color: var(--color-ink);
   box-shadow: 0 0 0 1px var(--color-ink);
 }
+
+/* Availability pill — reused wherever a schedule's server-derived
+   open/full state is shown (currently /classes). Same gold-accent pair
+   as .statusPillTrial (child-detail.module.css) for "open" so an
+   available slot reads consistently across the app. */
+.availabilityPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-3);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.availabilityOpen {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+}
+
+.availabilityFull {
+  background: var(--color-border);
+  color: var(--color-muted);
+}
