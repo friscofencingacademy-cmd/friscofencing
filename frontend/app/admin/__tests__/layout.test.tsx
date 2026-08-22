@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -109,6 +110,41 @@ describe('AdminLayout', () => {
 
     const locationsLink = screen.getByRole('link', { name: /locations/i });
     expect(locationsLink).not.toHaveAttribute('aria-current');
+  });
+
+  it('promotes Users to a standalone top-level item, and reorganizes Billing/Programs', async () => {
+    const user = userEvent.setup();
+    server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
+
+    renderAdminLayout();
+    await screen.findByText('Dashboard');
+
+    // Users is a standalone top-level link now — no "People" section to
+    // open first.
+    expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'People' })).not.toBeInTheDocument();
+
+    // The sections these items moved out of no longer exist.
+    expect(screen.queryByRole('button', { name: 'Schedule' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Private' })).not.toBeInTheDocument();
+
+    // Section contents are always in the DOM (only a CSS class toggles
+    // open/closed), so membership is asserted by scoping to each section's
+    // own <li>, not by presence/absence in the whole document.
+    await user.click(screen.getByRole('button', { name: 'Billing' }));
+    const billingSection = screen.getByRole('button', { name: 'Billing' }).closest('li') as HTMLElement;
+    expect(within(billingSection).getByRole('link', { name: 'Prices' })).toBeInTheDocument();
+    expect(within(billingSection).queryByRole('link', { name: 'Subscriptions' })).not.toBeInTheDocument();
+
+    // Programs absorbed Schedules, Subscriptions, Private Classes, and
+    // Coach Contracts, but not Prices.
+    await user.click(screen.getByRole('button', { name: 'Programs' }));
+    const programsSection = screen.getByRole('button', { name: 'Programs' }).closest('li') as HTMLElement;
+    expect(within(programsSection).getByRole('link', { name: 'Schedules' })).toBeInTheDocument();
+    expect(within(programsSection).getByRole('link', { name: 'Subscriptions' })).toBeInTheDocument();
+    expect(within(programsSection).getByRole('link', { name: 'Private Classes' })).toBeInTheDocument();
+    expect(within(programsSection).getByRole('link', { name: 'Coach Contracts' })).toBeInTheDocument();
+    expect(within(programsSection).queryByRole('link', { name: 'Prices' })).not.toBeInTheDocument();
   });
 
   it('opens and closes the mobile drawer', async () => {

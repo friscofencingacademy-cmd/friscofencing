@@ -32,11 +32,13 @@ interface NavSection {
   items: NavItem[];
 }
 
-const DASHBOARD_ITEM: NavItem = {
-  href: '/admin/dashboard',
-  label: 'Dashboard',
-  icon: <LayoutDashboard size={16} />,
-};
+// Standalone, ungrouped items rendered above the collapsible sections
+// below — the most-reached-for pages, one click away with no section to
+// open first.
+const TOP_LEVEL_ITEMS: NavItem[] = [
+  { href: '/admin/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
+  { href: '/admin/users', label: 'Users', icon: <Users size={16} /> },
+];
 
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -44,33 +46,19 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/admin/classes', label: 'Classes', icon: <Swords size={15} /> },
       { href: '/admin/levels', label: 'Levels', icon: <GraduationCap size={15} /> },
-      { href: '/admin/prices', label: 'Prices', icon: <DollarSign size={15} /> },
-    ],
-  },
-  {
-    label: 'Schedule',
-    items: [{ href: '/admin/schedules', label: 'Schedules', icon: <CalendarDays size={15} /> }],
-  },
-  {
-    label: 'Places',
-    items: [{ href: '/admin/locations', label: 'Locations', icon: <MapPin size={15} /> }],
-  },
-  {
-    label: 'Billing',
-    items: [
+      { href: '/admin/schedules', label: 'Schedules', icon: <CalendarDays size={15} /> },
       { href: '/admin/subscriptions', label: 'Subscriptions', icon: <CreditCard size={15} /> },
-    ],
-  },
-  {
-    label: 'Private',
-    items: [
       { href: '/admin/private-classes', label: 'Private Classes', icon: <Swords size={15} /> },
       { href: '/admin/coach-contracts', label: 'Coach Contracts', icon: <FileSignature size={15} /> },
     ],
   },
   {
-    label: 'People',
-    items: [{ href: '/admin/users', label: 'Users', icon: <Users size={15} /> }],
+    label: 'Billing',
+    items: [{ href: '/admin/prices', label: 'Prices', icon: <DollarSign size={15} /> }],
+  },
+  {
+    label: 'Places',
+    items: [{ href: '/admin/locations', label: 'Locations', icon: <MapPin size={15} /> }],
   },
   {
     label: 'Content',
@@ -131,8 +119,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     ? `${styles.sidebar} ${styles.sidebarMobileOpen}`
     : styles.sidebar;
 
-  const dashboardActive = isNavActive(DASHBOARD_ITEM.href, pathname);
-
   return (
     <div className={styles.layout}>
       {/* Mobile top bar */}
@@ -174,17 +160,22 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         <div className={styles.brandRole}>{user.role}</div>
 
         <ul className={styles.navList}>
-          <li>
-            <Link
-              href={DASHBOARD_ITEM.href}
-              className={`${styles.navItem} ${dashboardActive ? styles.navItemActive : ''}`}
-              onClick={closeMobile}
-              aria-current={dashboardActive ? 'page' : undefined}
-            >
-              {DASHBOARD_ITEM.icon}
-              <span className={styles.navLabel}>{DASHBOARD_ITEM.label}</span>
-            </Link>
-          </li>
+          {TOP_LEVEL_ITEMS.map((item) => {
+            const active = isNavActive(item.href, pathname);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
+                  onClick={closeMobile}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {item.icon}
+                  <span className={styles.navLabel}>{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
 
           {NAV_SECTIONS.map((section) => {
             const isOpen = !!openSections[section.label];

@@ -1,9 +1,15 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
 import HomePage from '../page';
 import { AuthProvider } from '../context/AuthContext';
+
+const replaceMock = jest.fn();
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: replaceMock }),
+}));
 
 const BEGINNER = { name: 'Beginner', order: 1, monthlyFee: 120 };
 const ADVANCED = { name: 'Advanced', order: 2, monthlyFee: 180 };
@@ -45,7 +51,10 @@ const server = setupServer(
 );
 
 beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  replaceMock.mockClear();
+});
 afterAll(() => server.close());
 
 function renderPage() {
@@ -118,5 +127,46 @@ describe('HomePage (logged out)', () => {
 
     expect(screen.queryByRole('link', { name: /view all coaches/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Student Spotlight')).not.toBeInTheDocument();
+  });
+});
+
+describe('HomePage (logged in)', () => {
+  it.each([
+    ['parent', '/parent/dashboard'],
+    ['coach', '/coach/schedules'],
+    ['admin', '/admin/dashboard'],
+    ['superadmin', '/admin/dashboard'],
+  ])(
+    'redirects a %s straight to %s instead of rendering the marketing page',
+    async (role, expectedPath) => {
+      server.use(
+        http.get('*/auth/me', () =>
+          HttpResponse.json({
+            user: { _id: 'user-1', role, firstName: 'Test', lastName: 'User' },
+          })
+        )
+      );
+
+      renderPage();
+
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith(expectedPath));
+
+      expect(screen.queryByText('Where Frisco learns to fence.')).not.toBeInTheDocument();
+    }
+  );
+
+  it('renders the public marketing page for a logged-in student (no dedicated dashboard), without redirecting', async () => {
+    server.use(
+      http.get('*/auth/me', () =>
+        HttpResponse.json({
+          user: { _id: 'student-1', role: 'student', firstName: 'Kid', lastName: 'One' },
+        })
+      )
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Where Frisco learns to fence.')).toBeInTheDocument();
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });
