@@ -8,8 +8,7 @@ const server = setupServer(
   http.get('*/group-classes', () => HttpResponse.json({ groupClasses: [{}, {}] })),
   http.get('*/group-class-schedules', () => HttpResponse.json({ schedules: [{}] })),
   http.get('*/locations', () => HttpResponse.json({ locations: [{}, {}, {}] })),
-  http.get('*/levels', () => HttpResponse.json({ levels: [{}] })),
-  http.get('*/prices', () => HttpResponse.json({ prices: [{}] }))
+  http.get('*/levels', () => HttpResponse.json({ levels: [{}] }))
 );
 
 beforeAll(() => server.listen());
@@ -25,16 +24,12 @@ describe('AdminDashboardPage', () => {
     expect(screen.getByText('3')).toBeInTheDocument(); // locations
   });
 
-  it('renders the quick links to every admin section', async () => {
+  it('renders no quick-links grid — the sidebar already covers every admin section', async () => {
     render(<AdminDashboardPage />);
 
     await screen.findByText('Dashboard');
 
-    expect(screen.getByRole('link', { name: /classes/i })).toHaveAttribute('href', '/admin/classes');
-    expect(screen.getByRole('link', { name: /levels/i })).toHaveAttribute('href', '/admin/levels');
-    expect(screen.getByRole('link', { name: /prices/i })).toHaveAttribute('href', '/admin/prices');
-    expect(screen.getByRole('link', { name: /schedules/i })).toHaveAttribute('href', '/admin/schedules');
-    expect(screen.getByRole('link', { name: /locations/i })).toHaveAttribute('href', '/admin/locations');
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('shows LoadError with a working retry when a count fetch fails', async () => {
@@ -48,8 +43,7 @@ describe('AdminDashboardPage', () => {
       http.get('*/group-classes', () => HttpResponse.json({ groupClasses: [{}, {}] })),
       http.get('*/group-class-schedules', () => HttpResponse.json({ schedules: [{}] })),
       http.get('*/locations', () => HttpResponse.json({ locations: [{}, {}, {}] })),
-      http.get('*/levels', () => HttpResponse.json({ levels: [{}] })),
-      http.get('*/prices', () => HttpResponse.json({ prices: [{}] }))
+      http.get('*/levels', () => HttpResponse.json({ levels: [{}] }))
     );
 
     fireEvent.click(screen.getByRole('button', { name: /try again/i }));

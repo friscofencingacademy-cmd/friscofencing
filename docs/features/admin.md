@@ -83,7 +83,7 @@ Pattern A. Columns: Name, Type, Title, Order, Published (Yes/No). Fields: type (
 
 ## Dashboard (`/admin/dashboard`)
 
-Raw list counts only (classes, schedules, locations, levels) fetched in parallel via the Phase-0 catalog/scheduling query services — no derived business metrics, per the backend-source-of-truth-style rule against inventing frontend math. `LoadError` with retry on failure. A quick-links card grid below links to all admin sections (Classes, Levels, Prices, Schedules, Locations, Users).
+Raw list counts only (classes, schedules, locations, levels) fetched in parallel via the Phase-0 catalog/scheduling query services — no derived business metrics, per the backend-source-of-truth-style rule against inventing frontend math. `LoadError` with retry on failure. No quick-links grid below the counts — the sidebar already reaches every admin section, so a second set of links was redundant (removed 2026-08-21).
 
 ## `/admin` (index)
 
