@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Menu,
   MapPin,
+  Star,
   Swords,
   Users,
   X,
@@ -70,6 +71,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'People',
     items: [{ href: '/admin/users', label: 'Users', icon: <Users size={15} /> }],
+  },
+  {
+    label: 'Content',
+    items: [{ href: '/admin/spotlights', label: 'Spotlights', icon: <Star size={15} /> }],
   },
 ];
 

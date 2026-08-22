@@ -112,4 +112,22 @@ describe('Location routes', () => {
     expect(res.status).toBe(409);
     expect(res.body.message).toMatch(/1 class\(es\) reference this location/);
   });
+
+  describe('GET /api/v1/locations/public', () => {
+    it('requires no auth and returns a thin {name, address, timezone} projection', async () => {
+      await Location.create({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+        timezone: 'America/Chicago',
+      });
+
+      // No Authorization/cookie at all.
+      const res = await request(app).get('/api/v1/locations/public');
+
+      expect(res.status).toBe(200);
+      expect(res.body.locations).toEqual([
+        { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' },
+      ]);
+    });
+  });
 });

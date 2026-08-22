@@ -67,6 +67,8 @@ Users/auth · group classes/schedules/sessions · pricing · attendance · trial
 
 Private classes shipped (CKQ parity Phase 4, 2026-08-21) — coach contracts, published slots, public self-registration, attendance-triggered per-session Stripe charge. See `docs/features/private-class.md`.
 
+Public site shipped (2026-08-21) — logged-out home/`/classes`/`/coaches`, `/*/public` backend endpoints, `Spotlight` admin content model, a registration capacity-guard fix. See `docs/features/public-site.md`.
+
 ## Documentation Map
 | Topic | Path |
 |---|---|
@@ -81,11 +83,12 @@ Private classes shipped (CKQ parity Phase 4, 2026-08-21) — coach contracts, pu
 | Admin panel — per-page behavior spec (Pattern A CRUD, delete guards, Subscriptions/Coach Contracts/Private Classes pages, amended schedule-edit deferral note) | `docs/features/admin.md` |
 | Parent portal — shell/context contract, flow kit, child detail page, AddChildModal, private-lessons wizard, page inventory | `docs/features/parent-portal.md` |
 | Private classes — lifecycle, model map, charge pipeline + idempotency layers, the four CKQ-BUG-FIXes, route table, page inventory | `docs/features/private-class.md` |
+| Public site — `/*/public` endpoints, `Spotlight` model, marketing components, corrections made against a design handoff doc | `docs/features/public-site.md` |
 | Database schema | `DATABASE_SCHEMA_DOCUMENTATION.md` |
 | Completed work log | `CLAUDE_HISTORY.md` |
 | Architecture decisions — index + status definitions | `docs/decisions/README.md` |
 | Module docs | `docs/modules/` (email; more created as modules are built) |
-| Feature docs | `docs/features/` (admin, parent-portal, private-class; more created as features are built) |
+| Feature docs | `docs/features/` (admin, parent-portal, private-class, public-site; more created as features are built) |
 
 ## Pre-read requirements (check before acting)
 
@@ -100,4 +103,5 @@ Before touching any of the following areas, **read the linked doc first** — it
 | Touch payment / billing / subscription / cron | `docs/decisions/001-in-house-subscription-billing.md` |
 | Touch email templates, the block-based design system, or the staging send gate | `docs/modules/email.md` |
 | Touch coach contracts, private-class schedules/enrollments/sessions, or the per-session Stripe charge | `docs/features/private-class.md` |
+| Touch the public home page, `/classes`, `/coaches`, any `/*/public` endpoint, or the `Spotlight` model | `docs/features/public-site.md` |
 | Add or modify a DB collection or field | `DATABASE_SCHEMA_DOCUMENTATION.md` |

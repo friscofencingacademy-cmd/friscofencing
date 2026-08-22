@@ -120,4 +120,28 @@ describe('Level routes', () => {
     const listRes = await agent.get('/api/v1/levels');
     expect(listRes.body.levels).toHaveLength(0);
   });
+
+  describe('GET /api/v1/levels/public', () => {
+    it('requires no auth and returns only levels with a configured Price, ordered by "order"', async () => {
+      const Price = require('../../src/models/price.model');
+
+      const advanced = await Level.create({ name: 'Advanced', order: 2 });
+      const beginner = await Level.create({ name: 'Beginner', order: 1 });
+      // No Price configured for this one — must be excluded, not shown with
+      // an invented/missing fee.
+      await Level.create({ name: 'Unpriced', order: 3 });
+
+      await Price.create({ levelId: beginner._id, monthlyFee: 120 });
+      await Price.create({ levelId: advanced._id, monthlyFee: 180 });
+
+      // No Authorization/cookie at all.
+      const res = await request(app).get('/api/v1/levels/public');
+
+      expect(res.status).toBe(200);
+      expect(res.body.levels).toEqual([
+        { name: 'Beginner', order: 1, monthlyFee: 120 },
+        { name: 'Advanced', order: 2, monthlyFee: 180 },
+      ]);
+    });
+  });
 });

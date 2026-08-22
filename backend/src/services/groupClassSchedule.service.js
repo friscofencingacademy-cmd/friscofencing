@@ -32,6 +32,14 @@ async function assertCoachValid(coachId) {
   }
 }
 
+// Single source of truth for "is this schedule full" — shared by the public
+// listing below and by subscription.service.js's changeSchedule /
+// registration.service.js's create, so a capacity rule change never has to
+// be made in more than one place.
+function computeAvailability(schedule, groupClass) {
+  return schedule.students.length >= groupClass.capacity ? 'full' : 'open';
+}
+
 async function create(data) {
   await assertClassExists(data.classId);
   await assertCoachValid(data.coachId);
@@ -93,4 +101,45 @@ async function remove(id) {
   return schedule;
 }
 
-module.exports = { create, list, listByCoach, getById, update, remove };
+// Unauthenticated public schedule listing — a thin projection (no ids, no
+// roster) over classId/coachId, excluding any schedule whose class, level,
+// location, or coach reference is missing so a broken reference never
+// surfaces as a half-populated row.
+async function listPublic() {
+  const schedules = await GroupClassSchedule.find()
+    .populate({
+      path: 'classId',
+      populate: [{ path: 'levelId' }, { path: 'locationId' }],
+    })
+    .populate('coachId', 'firstName lastName');
+
+  return schedules
+    .filter(
+      (schedule) =>
+        schedule.classId &&
+        schedule.classId.levelId &&
+        schedule.classId.locationId &&
+        schedule.coachId
+    )
+    .map((schedule) => ({
+      className: schedule.classId.name,
+      levelName: schedule.classId.levelId.name,
+      locationName: schedule.classId.locationId.name,
+      coachName: `${schedule.coachId.firstName} ${schedule.coachId.lastName}`,
+      dayOfWeek: schedule.dayOfWeek,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      availability: computeAvailability(schedule, schedule.classId),
+    }));
+}
+
+module.exports = {
+  create,
+  list,
+  listByCoach,
+  getById,
+  update,
+  remove,
+  listPublic,
+  computeAvailability,
+};

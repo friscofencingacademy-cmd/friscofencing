@@ -132,3 +132,17 @@ Indexes: `{ coachId: 1, isActive: 1 }`, `{ studentId: 1 }`. Duplicate rule (same
 | `paidAt` | Date | default null |
 
 **Unique PARTIAL index** on `sessionId`, restricted to `status: { $in: ['pending', 'completed'] }` — a session may have at most one non-failed charge at a time, so a double-save of the same attendance can never double-charge. `failed` is deliberately excluded from the partial filter — a failed charge must never block a retry from creating a new charge doc. Full charge-pipeline walkthrough (three idempotency layers, the cancel-then-charge race guard, the four CKQ-BUG-FIXes): `docs/features/private-class.md`.
+
+## `Spotlight` — implemented (public-site plan, GAP-2)
+| Field | Type | Notes |
+|---|---|---|
+| `type` | String enum | `coach`, `student` — required |
+| `name` | String | required — display name |
+| `title` | String | optional, e.g. "Head Coach" |
+| `body` | String | optional, one paragraph |
+| `bullets` | [String] | default `[]`, schema-validated max 3 |
+| `imageUrl` | String | optional — owner-hosted URL; no upload mechanism exists in this app |
+| `isPublished` | Boolean | default `false` |
+| `order` | Number | default `0` — display order within a type |
+
+Deliberately **not** linked to `User` by ObjectId — editorial content with a consent decision, kept out of the account model on purpose. See `docs/features/public-site.md`.

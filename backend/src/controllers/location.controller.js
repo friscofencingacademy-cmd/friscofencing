@@ -50,4 +50,14 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { create, list, getById, update, remove };
+async function listPublic(req, res) {
+  try {
+    const locations = await locationService.listPublic();
+    return res.status(200).json({ locations });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to list locations' });
+  }
+}
+
+module.exports = { create, list, getById, update, remove, listPublic };

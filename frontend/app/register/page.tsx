@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, type FormEvent } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import axios from 'axios';
 
@@ -12,9 +12,22 @@ import Card from '../components/ui/Card/Card';
 import Alert from '../components/ui/Alert/Alert';
 import styles from '../components/ui/shared.module.css';
 
+// useSearchParams() requires a Suspense boundary above it during static
+// generation (https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout)
+// — without this, `next build` fails to prerender this page.
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterPageContent />
+    </Suspense>
+  );
+}
+
+function RegisterPageContent() {
   const { register } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get('next') || '/parent/dashboard';
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -30,7 +43,7 @@ export default function RegisterPage() {
 
     try {
       await register(firstName, lastName, email, password);
-      router.push('/parent/children');
+      router.push(next);
     } catch (err) {
       const message = axios.isAxiosError(err) && err.response?.data?.message
         ? err.response.data.message
@@ -47,6 +60,9 @@ export default function RegisterPage() {
         <div style={{ maxWidth: 400, margin: 'var(--space-6) auto' }}>
           <Card>
             <h1>Sign Up</h1>
+            <p style={{ color: 'var(--color-muted)', marginTop: 0 }}>
+              Free to create. You&apos;ll add your child and pick a trial class next.
+            </p>
             <form onSubmit={handleSubmit}>
               <div className={styles.formField}>
                 <label htmlFor="firstName" className={styles.formLabel}>

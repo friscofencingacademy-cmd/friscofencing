@@ -201,4 +201,69 @@ describe('GroupClassSchedule routes', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  describe('GET /api/v1/group-class-schedules/public', () => {
+    it('requires no auth and returns a thin projection with a server-derived open/full availability', async () => {
+      await seedUser();
+      const adminAgent = await loginAgent('test-admin@example.com');
+
+      const groupClass = await seedClass(); // capacity: 10
+      const coach = await User.create({
+        role: 'coach',
+        firstName: 'Coach',
+        lastName: 'Public',
+        email: 'coach-public@example.com',
+        passwordHash: await hashPassword(TEST_PASSWORD),
+      });
+
+      const students = await Promise.all(
+        Array.from({ length: 10 }, (_, i) =>
+          User.create({ role: 'student', firstName: 'S', lastName: `Full${i}` })
+        )
+      );
+
+      const fullScheduleRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 3,
+        startTime: '16:00',
+        endTime: '17:00',
+        students: students.map((s) => s._id.toString()),
+      });
+      expect(fullScheduleRes.status).toBe(201);
+
+      const openScheduleRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 4,
+        startTime: '17:00',
+        endTime: '18:00',
+      });
+      expect(openScheduleRes.status).toBe(201);
+
+      // No Authorization/cookie at all.
+      const res = await request(app).get('/api/v1/group-class-schedules/public');
+
+      expect(res.status).toBe(200);
+      expect(res.body.schedules).toHaveLength(2);
+
+      const full = res.body.schedules.find((s) => s.dayOfWeek === 3);
+      const open = res.body.schedules.find((s) => s.dayOfWeek === 4);
+
+      expect(full).toEqual({
+        className: 'Beginner Foil',
+        levelName: 'Beginner',
+        locationName: 'Frisco HQ',
+        coachName: 'Coach Public',
+        dayOfWeek: 3,
+        startTime: '16:00',
+        endTime: '17:00',
+        availability: 'full',
+      });
+      expect(open.availability).toBe('open');
+      // No roster/capacity numbers leak — only the derived string.
+      expect(JSON.stringify(res.body)).not.toContain('capacity');
+      expect(JSON.stringify(res.body)).not.toContain('students');
+    });
+  });
 });
