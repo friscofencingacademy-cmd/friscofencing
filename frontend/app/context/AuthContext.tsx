@@ -27,7 +27,7 @@ export interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   register: (
     firstName: string,
     lastName: string,
@@ -80,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.post<{ user: AuthUser }>('/auth/login', { email, password });
     setUser(res.data.user);
+    return res.data.user;
   }, []);
 
   const register = useCallback(
