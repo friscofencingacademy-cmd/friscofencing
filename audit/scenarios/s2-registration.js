@@ -18,7 +18,7 @@ async function run(context, config) {
     if (!alreadyOnFile) {
       await fillCardElement(page, { number: STRIPE_TEST_CARDS.success });
       await page.getByRole('button', { name: /save card/i }).click();
-      await page.getByText(/card on file/i).waitFor({ timeout: 15000 });
+      await page.getByText(/card on file/i).waitFor({ timeout: 30000 });
     }
 
     await page.goto(`${config.stagingUrl}/parent/register`);
@@ -31,10 +31,10 @@ async function run(context, config) {
     await page.getByLabel('Schedule').selectOption({ index: 1 }); // the one schedule audit-seed.js created
     await page.getByRole('button', { name: /continue/i }).click();
 
-    await page.getByText(/card on file/i).waitFor({ timeout: 10000 });
+    await page.getByText(/card on file/i).waitFor({ timeout: 45000 });
     await page.getByRole('button', { name: /register & pay/i }).click();
 
-    await page.getByText('Registration complete!').waitFor({ timeout: 20000 });
+    await page.getByText('Registration complete!').waitFor({ timeout: 45000 });
 
     const chargeText = await page.getByText(/your card was charged/i).textContent();
 

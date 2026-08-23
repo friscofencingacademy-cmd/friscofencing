@@ -1,6 +1,6 @@
 // Resets everything the live-registration audit creates on a run (docs/plans/
-// audit-system-plan.md, D5) — trial bookings and registrations for the fixed
-// audit students seeded by audit-seed.js, and their roster entries. Targets
+// audit-system-plan.md, D5) — trial bookings, registrations, and roster
+// entries for the fixed audit students seeded by audit-seed.js. Targets
 // ONLY those known audit student ids, never anything else on staging, so it
 // can never touch real manual-QA data.
 //
@@ -8,6 +8,20 @@
 // separation CKQ's /sync-preprod keeps from its own live audits. Must run
 // before every audit re-run: a stale TrialClass blocks S1 via its
 // unique-per-student index.
+//
+// DELETES the student documents themselves, not just their activity — found
+// necessary on the first real run, not assumed up front: registration.
+// service.js's Stripe idempotency key is deliberately `initial-registration-
+// ${studentId}-${scheduleId}` (a correct, tested anti-double-charge
+// safeguard for real users, per ADR 001 — not touched here). Stripe caches
+// that key for 24h independent of our own MongoDB, so clearing the Mongo
+// Registration doc alone doesn't free it — any second attempt with the same
+// studentId+scheduleId pair collides with "Keys for idempotent requests can
+// only be used with the same parameters they were first used with," even
+// after a full DB reset. Deleting the student (audit-seed.js recreates it
+// with a fresh _id on the next seed run) is what actually gives the audit a
+// genuinely reusable identity — this is audit-only tooling, not a change to
+// how idempotency works for real registrations.
 
 require('dotenv/config');
 
@@ -19,8 +33,16 @@ const Registration = require('../src/models/registration.model');
 const Subscription = require('../src/models/subscription.model');
 const GroupClassSchedule = require('../src/models/groupClassSchedule.model');
 const GroupClassSession = require('../src/models/groupClassSession.model');
+const PaymentMethod = require('../src/models/paymentMethod.model');
+const stripe = require('../src/config/stripe');
 
 const AUDIT_STUDENT_LAST_NAMES = ['ChildOne', 'FirstSibling', 'SecondSibling', 'DeclineChild'];
+// Found necessary on the first real run, not assumed up front: S4's decline
+// scenario needs a guaranteed-unsaved card every run, and S2/S3 saving a
+// fresh one each run (rather than reusing a stale one) is itself a fine,
+// cheap thing to re-exercise. Clearing PaymentMethod for the fixed audit
+// PARENTS (not just students) closes that gap.
+const AUDIT_PARENT_EMAILS = ['audit-parent-1@example.com', 'audit-sibling-parent@example.com', 'audit-decline-parent@example.com'];
 
 function assertStagingUri(uri) {
   if (!uri || !uri.includes('friscofencing-staging')) {
@@ -76,6 +98,30 @@ async function main() {
       { $pull: { students: { studentId: { $in: studentIds } } } }
     );
 
+    const studentDeleteResult = await User.deleteMany({ _id: { $in: studentIds } });
+
+    const parents = await User.find({ role: 'parent', email: { $in: AUDIT_PARENT_EMAILS } });
+    let paymentMethodsCleared = 0;
+    for (const parent of parents) {
+      // eslint-disable-next-line no-await-in-loop -- sequential by design,
+      // 3 fixed parents, no benefit to parallelizing.
+      const paymentMethod = await PaymentMethod.findOne({ parentId: parent._id });
+      if (!paymentMethod) continue;
+
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
+      } catch (error) {
+        // Already detached / never attached — not fatal, the doc deletion
+        // below is what actually matters for a clean re-run.
+        console.warn(`  (Stripe detach for ${parent.email} skipped: ${error.message})`);
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      await paymentMethod.deleteOne();
+      paymentMethodsCleared += 1;
+    }
+
     console.log('Audit reset complete:');
     console.log(`  Students targeted: ${studentIds.length}`);
     console.log(`  TrialClass deleted: ${trialResult.deletedCount}`);
@@ -83,6 +129,9 @@ async function main() {
     console.log(`  Subscription deleted: ${subscriptionResult.deletedCount}`);
     console.log(`  Schedules cleaned: ${scheduleResult.modifiedCount}`);
     console.log(`  Sessions cleaned: ${sessionResult.modifiedCount}`);
+    console.log(`  Student docs deleted (fresh Stripe idempotency identity next seed): ${studentDeleteResult.deletedCount}`);
+    console.log(`  PaymentMethods cleared: ${paymentMethodsCleared}`);
+    console.log('  Run `npm run audit:seed` again before the next audit run.');
     process.exitCode = 0;
   } catch (error) {
     console.error('Audit reset failed:', error.message);
