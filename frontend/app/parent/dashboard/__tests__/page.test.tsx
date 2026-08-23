@@ -75,7 +75,7 @@ describe('ParentDashboardPage', () => {
     renderDashboard();
 
     expect(await screen.findByText('Enrolled Kid')).toBeInTheDocument();
-    expect(screen.getByText(/enrolled — wednesday 16:00-17:00/i)).toBeInTheDocument();
+    expect(screen.getByText(/enrolled — wednesday 4:00 pm-5:00 pm/i)).toBeInTheDocument();
     expect(screen.getByText('Trial Kid')).toBeInTheDocument();
     expect(screen.getByText('Trial class scheduled')).toBeInTheDocument();
     expect(screen.getByText('New Kid')).toBeInTheDocument();

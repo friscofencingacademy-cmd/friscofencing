@@ -6,6 +6,7 @@ import { CalendarPlus, ClipboardList, Wallet } from 'lucide-react';
 
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { getChildPalette } from '../../../lib/childPalette';
+import { formatTime } from '../../../lib/formatTime';
 import type { Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
@@ -17,7 +18,7 @@ const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 function statusLine(activeSubscription: Subscription | undefined, hasTrial: boolean): string {
   if (activeSubscription) {
     const schedule = activeSubscription.scheduleId;
-    return `Enrolled — ${DAY_LABELS[schedule.dayOfWeek]} ${schedule.startTime}-${schedule.endTime}`;
+    return `Enrolled — ${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
   }
 
   if (hasTrial) {

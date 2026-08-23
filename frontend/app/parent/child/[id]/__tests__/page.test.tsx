@@ -72,7 +72,7 @@ describe('ChildDetailPage', () => {
     renderPage();
 
     expect(await screen.findByText('Active Registration')).toBeInTheDocument();
-    expect(screen.getByText(/wednesday 16:00-17:00/i)).toBeInTheDocument();
+    expect(screen.getByText(/wednesday 4:00 pm-5:00 pm/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /manage \/ cancel in billing/i })).toHaveAttribute(
       'href',
       '/parent/subscriptions'
@@ -87,7 +87,7 @@ describe('ChildDetailPage', () => {
 
     const scheduleTab = await screen.findByRole('tab', { name: 'Schedule' });
     expect(scheduleTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText(/every wednesday, 16:00 - 17:00/i)).toBeInTheDocument();
+    expect(screen.getByText(/every wednesday, 4:00 pm - 5:00 pm/i)).toBeInTheDocument();
   });
 
   it('falls back to the Overview tab for an invalid ?tab= value', async () => {

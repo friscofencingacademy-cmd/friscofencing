@@ -126,7 +126,7 @@ describe('SubscriptionsPage', () => {
     renderSubscriptionsPage();
 
     expect(await screen.findByText('Kid One')).toBeInTheDocument();
-    expect(screen.getByText('Wednesday 16:00-17:00')).toBeInTheDocument();
+    expect(screen.getByText('Wednesday 4:00 PM-5:00 PM')).toBeInTheDocument();
     // Scoped to the group-registration row itself — the new Private Lessons
     // section below can also render an "active" status cell for its own,
     // unrelated row.
@@ -228,7 +228,7 @@ describe('SubscriptionsPage', () => {
     // The row must still show the real, populated display values — never the
     // "undefined undefined-undefined" the bare merge produced.
     expect(screen.getByText('Kid One')).toBeInTheDocument();
-    expect(screen.getByText('Wednesday 16:00-17:00')).toBeInTheDocument();
+    expect(screen.getByText('Wednesday 4:00 PM-5:00 PM')).toBeInTheDocument();
     expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
   });
 
@@ -268,7 +268,7 @@ describe('SubscriptionsPage', () => {
       renderSubscriptionsPage();
 
       expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
-      expect(screen.getByText('Tuesday 16:00')).toBeInTheDocument();
+      expect(screen.getByText('Tuesday 4:00 PM')).toBeInTheDocument();
       expect(screen.getByText('$65.00/hr')).toBeInTheDocument();
       expect(screen.getByText(/\$65\.00 \(Paid\)/)).toBeInTheDocument();
     });

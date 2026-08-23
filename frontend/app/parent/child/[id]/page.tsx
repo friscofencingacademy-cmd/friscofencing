@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 
 import { useParentPortal } from '../../../context/ParentPortalContext';
 import { getChildPalette } from '../../../../lib/childPalette';
+import { formatTime } from '../../../../lib/formatTime';
 import Button from '../../../components/ui/Button/Button';
 import styles from './child-detail.module.css';
 
@@ -104,7 +105,7 @@ export default function ChildDetailPage() {
               <h2 className={styles.cardTitle}>Active Registration</h2>
               <p>
                 {DAY_LABELS[activeSubscription.scheduleId.dayOfWeek]}{' '}
-                {activeSubscription.scheduleId.startTime}-{activeSubscription.scheduleId.endTime}
+                {formatTime(activeSubscription.scheduleId.startTime)}-{formatTime(activeSubscription.scheduleId.endTime)}
               </p>
               <p>Next billing date: {activeSubscription.nextBillingDate.slice(0, 10)}</p>
               <Button as="a" href="/parent/subscriptions" variant="secondary" size="sm">
@@ -128,9 +129,9 @@ export default function ChildDetailPage() {
           <h2 className={styles.cardTitle}>Schedule</h2>
           {activeSubscription ? (
             <p>
-              Every {DAY_LABELS[activeSubscription.scheduleId.dayOfWeek]}, {activeSubscription.scheduleId.startTime}
+              Every {DAY_LABELS[activeSubscription.scheduleId.dayOfWeek]}, {formatTime(activeSubscription.scheduleId.startTime)}
               {' - '}
-              {activeSubscription.scheduleId.endTime}.
+              {formatTime(activeSubscription.scheduleId.endTime)}.
             </p>
           ) : (
             <p>{student.firstName} isn&apos;t enrolled in a recurring class yet.</p>

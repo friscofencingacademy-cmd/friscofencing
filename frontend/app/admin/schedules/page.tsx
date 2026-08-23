@@ -8,6 +8,7 @@ import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { createSchedule, fetchCoaches, fetchSchedules } from '../../../lib/services/scheduling';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
 import { DAY_LABELS } from '../../../lib/constants';
+import { formatTime } from '../../../lib/formatTime';
 import type { Coach, GroupClass, GroupClassSchedule } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
@@ -142,8 +143,8 @@ export default function SchedulesPage() {
                     <td className={styles.td}>{classNameFor(groupClasses, schedule.classId)}</td>
                     <td className={styles.td}>{coachNameFor(coaches, schedule.coachId)}</td>
                     <td className={styles.td}>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                    <td className={styles.td}>{schedule.startTime}</td>
-                    <td className={styles.td}>{schedule.endTime}</td>
+                    <td className={styles.td}>{formatTime(schedule.startTime)}</td>
+                    <td className={styles.td}>{formatTime(schedule.endTime)}</td>
                     <td className={styles.td}>{schedule.students.length}</td>
                     <td className={styles.td}>
                       <Link href={`/admin/schedules/${schedule._id}/sessions`}>View Sessions</Link>

@@ -1,4 +1,5 @@
 import { DAY_LABELS } from '../../../lib/constants';
+import { formatTime } from '../../../lib/formatTime';
 import type { PublicGroupClassSchedule } from '../../../lib/types';
 import Button from '../ui/Button/Button';
 import Card from '../ui/Card/Card';
@@ -28,7 +29,7 @@ function ScheduleRow({ schedule }: { schedule: PublicGroupClassSchedule }) {
           {schedule.className} · {schedule.levelName}
         </div>
         <div className={styles.pageSubtitle}>
-          {schedule.startTime}–{schedule.endTime} · {schedule.locationName} · Coach{' '}
+          {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)} · {schedule.locationName} · Coach{' '}
           {schedule.coachName}
         </div>
       </div>

@@ -101,7 +101,7 @@ describe('AdminPrivateClassesPage', () => {
     await screen.findByText('Sam Kid');
     expect(screen.getByText('Pat Parent')).toBeInTheDocument();
     expect(screen.getByText('Dana Cole')).toBeInTheDocument();
-    expect(screen.getByText('Tuesday 16:00')).toBeInTheDocument();
+    expect(screen.getByText('Tuesday 4:00 PM')).toBeInTheDocument();
     expect(screen.getByText('$65.00/hr')).toBeInTheDocument();
   });
 

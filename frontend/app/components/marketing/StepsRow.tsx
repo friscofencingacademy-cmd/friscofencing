@@ -13,6 +13,8 @@ const STEPS = [
 export default function StepsRow() {
   return (
     <section>
+      <span className={styles.eyebrow}>Getting Started</span>
+      <h2 className={styles.sectionTitle}>Three steps to your first class.</h2>
       <div className={styles.stepsRow}>
         {STEPS.map((step, index) => (
           <div key={step}>

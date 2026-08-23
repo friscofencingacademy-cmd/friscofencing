@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 
 import api from '../../../lib/api';
+import { formatTime } from '../../../lib/formatTime';
 import { fetchMyPrivateEnrollments, cancelPrivateEnrollment } from '../../../lib/services/privateClass';
 import type { MyPrivateEnrollmentEntry } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
@@ -40,7 +41,7 @@ interface SubscriptionItem {
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function formatSchedule(schedule: ScheduleRef): string {
-  return `${DAY_LABELS[schedule.dayOfWeek]} ${schedule.startTime}-${schedule.endTime}`;
+  return `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
 }
 
 // Renders the ISO date's calendar-day portion only — the backend is the
@@ -120,7 +121,7 @@ function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessons
                   <td>
                     {enrollment.coachId.firstName} {enrollment.coachId.lastName}
                   </td>
-                  <td>{slot ? `${DAY_LABELS[slot.dayOfWeek]} ${slot.startTime}` : '—'}</td>
+                  <td>{slot ? `${DAY_LABELS[slot.dayOfWeek]} ${formatTime(slot.startTime)}` : '—'}</td>
                   <td>${enrollment.agreedHourlyRate.toFixed(2)}/hr</td>
                   <td>{enrollment.status}</td>
                   <td>

@@ -13,6 +13,7 @@ import {
   fetchPrivateClassEnrollmentsAdmin,
   fetchPrivateClassSchedulesAdmin,
 } from '../../../lib/services/privateClassAdmin';
+import { formatTime } from '../../../lib/formatTime';
 import type { AuthUser, PrivateClassEnrollmentRow, PrivateClassScheduleRow } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
@@ -237,7 +238,7 @@ export default function AdminPrivateClassesPage() {
                         {enrollment.coachId.firstName} {enrollment.coachId.lastName}
                       </td>
                       <td className={styles.td}>
-                        {slot ? `${DAY_LABELS[slot.dayOfWeek]} ${slot.startTime}` : '—'}
+                        {slot ? `${DAY_LABELS[slot.dayOfWeek]} ${formatTime(slot.startTime)}` : '—'}
                       </td>
                       <td className={styles.td}>${enrollment.agreedHourlyRate.toFixed(2)}/hr</td>
                       <td className={styles.td}>
@@ -293,7 +294,7 @@ export default function AdminPrivateClassesPage() {
                   <tr key={schedule._id} className={styles.trHover}>
                     <td className={styles.td}>{coachLabel(schedule.coachId)}</td>
                     <td className={styles.td}>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                    <td className={styles.td}>{schedule.startTime}</td>
+                    <td className={styles.td}>{formatTime(schedule.startTime)}</td>
                     <td className={styles.td}>{schedule.durationMinutes} min</td>
                     <td className={styles.td}>
                       {schedule.studentId ? (
@@ -311,7 +312,7 @@ export default function AdminPrivateClassesPage() {
                         type="button"
                         className={`${styles.btnIcon} ${styles.btnIconDelete}`}
                         title="Delete"
-                        aria-label={`Delete slot ${DAY_LABELS[schedule.dayOfWeek]} ${schedule.startTime}`}
+                        aria-label={`Delete slot ${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}`}
                         onClick={() => {
                           setDeleteError(null);
                           setDeleteTarget(schedule);
@@ -472,7 +473,7 @@ export default function AdminPrivateClassesPage() {
             <div className={styles.dialogBody}>
               <p style={{ margin: 0 }}>
                 {deleteError ??
-                  `Delete the ${DAY_LABELS[deleteTarget.dayOfWeek]} ${deleteTarget.startTime} slot? This cannot be undone.`}
+                  `Delete the ${DAY_LABELS[deleteTarget.dayOfWeek]} ${formatTime(deleteTarget.startTime)} slot? This cannot be undone.`}
               </p>
             </div>
             <div className={styles.dialogFooter}>

@@ -70,7 +70,7 @@ async function goToReviewStep() {
   await screen.findByLabelText('Class');
   fireEvent.change(screen.getByLabelText('Class'), { target: { value: CLASS_A._id } });
   await waitFor(() => {
-    expect(screen.getByRole('option', { name: /wednesday 16:00-17:00/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /wednesday 4:00 pm-5:00 pm/i })).toBeInTheDocument();
   });
   fireEvent.change(screen.getByLabelText('Schedule'), { target: { value: SCHEDULE_A._id } });
 

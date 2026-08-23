@@ -57,7 +57,7 @@ describe('ClassesPage', () => {
     expect(await screen.findByText(/all times shown in america\/chicago/i)).toBeInTheDocument();
     expect(screen.getByText('Wednesday')).toBeInTheDocument();
     expect(screen.getByText(/beginner foil · beginner/i)).toBeInTheDocument();
-    expect(screen.getByText(/16:00–17:00 · frisco hq · coach jane smith/i)).toBeInTheDocument();
+    expect(screen.getByText(/4:00 pm–5:00 pm · frisco hq · coach jane smith/i)).toBeInTheDocument();
     expect(screen.getByText('Open')).toBeInTheDocument();
 
     // AppShell's own public-nav CTA shares this accessible name, so this

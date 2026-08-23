@@ -8,6 +8,7 @@ import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
 import { fetchSchedules, fetchSessionsBySchedule } from '../../../lib/services/scheduling';
 import { bookTrialClass } from '../../../lib/services/parent';
+import { formatTime } from '../../../lib/formatTime';
 import type { GroupClass, GroupClassSchedule, GroupClassSession } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
@@ -182,7 +183,7 @@ export default function BookTrialPage() {
           value: scheduleId
             ? (() => {
                 const schedule = schedules.find((s) => s._id === scheduleId);
-                return schedule ? `${DAY_LABELS[schedule.dayOfWeek]} ${schedule.startTime}-${schedule.endTime}` : '—';
+                return schedule ? `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}` : '—';
               })()
             : '—',
         },
@@ -241,7 +242,7 @@ export default function BookTrialPage() {
                 <option value="">Select a schedule</option>
                 {filteredSchedules.map((schedule) => (
                   <option key={schedule._id} value={schedule._id}>
-                    {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime}
+                    {DAY_LABELS[schedule.dayOfWeek]} {formatTime(schedule.startTime)}-{formatTime(schedule.endTime)}
                   </option>
                 ))}
               </select>

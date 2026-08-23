@@ -70,17 +70,24 @@ describe('HomePage (logged out)', () => {
     renderPage();
 
     expect(await screen.findByText('Where Frisco learns to fence.')).toBeInTheDocument();
+    expect(screen.getByText('Three steps to your first class.')).toBeInTheDocument();
     expect(screen.getByText('Create your free account')).toBeInTheDocument();
     expect(screen.getByText('Add your child')).toBeInTheDocument();
     expect(screen.getByText('Pick a free trial class')).toBeInTheDocument();
 
+    expect(screen.getByText('Every level, one monthly rate.')).toBeInTheDocument();
     expect(await screen.findByText('Beginner')).toBeInTheDocument();
+    expect(screen.getByText('Level 1')).toBeInTheDocument();
     expect(screen.getByText('$120/month')).toBeInTheDocument();
     expect(screen.getByText('Advanced')).toBeInTheDocument();
+    expect(screen.getByText('Level 2')).toBeInTheDocument();
     expect(screen.getByText('$180/month')).toBeInTheDocument();
 
-    expect(screen.getByText('Ready to get started?')).toBeInTheDocument();
-    expect(screen.getByText('123 Main St')).toBeInTheDocument();
+    expect(screen.getByText('Ready to try a class?')).toBeInTheDocument();
+    expect(
+      screen.getByText('The first one is free. It takes two minutes to book.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Frisco HQ · 123 Main St')).toBeInTheDocument();
 
     const bookLinks = screen.getAllByRole('link', { name: /book a free trial/i });
     expect(bookLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
@@ -105,7 +112,10 @@ describe('HomePage (logged out)', () => {
     renderPage();
 
     expect(await screen.findByText('Jane Smith')).toBeInTheDocument();
-    expect(screen.getByText('Head Coach')).toBeInTheDocument();
+    // The fixture's own title field happens to also read "Head Coach" — so
+    // this now matches twice: the static eyebrow label (page.tsx's
+    // eyebrow="Head Coach" prop) and the spotlight's title line.
+    expect(screen.getAllByText('Head Coach')).toHaveLength(2);
     expect(screen.getByText('NCAA fencer')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /view all coaches/i })).toHaveAttribute(
       'href',

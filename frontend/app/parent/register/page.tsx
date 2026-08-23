@@ -9,6 +9,7 @@ import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses, fetchLevels, fetchPrices } from '../../../lib/services/catalog';
 import { fetchSchedules } from '../../../lib/services/scheduling';
 import { createRegistration, fetchMyPaymentMethod } from '../../../lib/services/parent';
+import { formatTime } from '../../../lib/formatTime';
 import type { GroupClass, GroupClassSchedule, Level, PaymentMethodInfo, Price } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
@@ -153,7 +154,7 @@ export default function RegisterPage() {
     { label: 'Class', value: selectedGroupClass?.name ?? '—' },
     {
       label: 'Schedule',
-      value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${selectedSchedule.startTime}-${selectedSchedule.endTime}` : '—',
+      value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${formatTime(selectedSchedule.startTime)}-${formatTime(selectedSchedule.endTime)}` : '—',
     },
     { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
   ];
@@ -229,7 +230,7 @@ export default function RegisterPage() {
                 <option value="">Select a schedule</option>
                 {filteredSchedules.map((schedule) => (
                   <option key={schedule._id} value={schedule._id}>
-                    {DAY_LABELS[schedule.dayOfWeek]} {schedule.startTime}-{schedule.endTime}
+                    {DAY_LABELS[schedule.dayOfWeek]} {formatTime(schedule.startTime)}-{formatTime(schedule.endTime)}
                   </option>
                 ))}
               </select>

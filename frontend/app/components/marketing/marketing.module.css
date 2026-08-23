@@ -64,6 +64,14 @@
   }
 }
 
+/* Plain section heading used under a gold .eyebrow label — Hero has its own
+   larger .heroTitle, but SpotlightCard/StepsRow/LevelGrid all share this
+   smaller in-page heading style rather than each inline-styling their own
+   <h2> (see docs/design-system.md's "3+ places" inline-style anti-pattern). */
+.sectionTitle {
+  margin: 0 0 var(--space-1);
+}
+
 .spotlightTitle {
   color: var(--color-gold);
   font-weight: 700;
@@ -109,6 +117,19 @@
   gap: var(--space-4);
 }
 
+/* Muted, not gold — .levelFee below already uses gold, and gold is a
+   small-dose accent only (docs/design-system.md Principles), never repeated
+   twice on the same card. */
+.levelOrder {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin: 0 0 var(--space-1);
+}
+
 .levelName {
   font-family: var(--font-heading), sans-serif;
   font-weight: 900;
@@ -133,5 +154,13 @@
 .ctaBandTitle {
   font-family: var(--font-heading), sans-serif;
   font-weight: 900;
+  margin: 0 0 var(--space-2);
+}
+
+/* Sibling to .ctaBandTitle, not a reuse of .heroSubcopy — that class's
+   color: var(--color-muted) is tuned for the light page background, and
+   would be low-contrast on this band's dark --color-ink background. */
+.ctaBandSubtitle {
+  color: rgba(255, 255, 255, 0.72);
   margin: 0 0 var(--space-4);
 }
