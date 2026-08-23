@@ -6,16 +6,38 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 84.86% | 89.46% |
-| Branches | — (informational) | 62.00% | 79.41% |
-| Functions | — (informational) | 85.00% | 89.03% |
-| Lines | — (informational) | 84.92% | 90.70% |
+| Statements | 80% | 84.95% | 89.62% |
+| Branches | — (informational) | 62.14% | 79.48% |
+| Functions | — (informational) | 85.04% | 89.03% |
+| Lines | — (informational) | 85.00% | 90.87% |
 
 Measured 2026-08-23 via `TZ=UTC npm test -- --coverage` in each repo. Both already clear the 80%-statements target.
 
+**vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
+backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
+tests), no istanbul numbers at all. Their one recorded % figure is frontend, dated 2026-05-27
+(stale — Statements 92.59% / Branches 76.48% / Functions 62.00% / Lines 92.59%) — Frisco's
+frontend branch and function coverage already beat that number. CKQ's real edge is scale/breadth
+(6,331 tests vs. this repo's much smaller surface), not tighter coverage discipline.
+
+**Branch coverage, by directory** (backend's 62.14% aggregate looks weak in isolation — it isn't):
+
+| Directory | Branches |
+|---|---|
+| `src/models`, `src/utils`, `src/middlewares` | 100% |
+| `src/services` (the real business logic) | 77.1% |
+| `src/controllers` | 24.9% ← drags the average down |
+
+Every controller's `catch { const status = error.status \|\| 500; ... error.message \|\| 'Failed
+to ...' }` fallback only fires for a malformed, unexpected error — every error this app actually
+throws already sets both fields via the per-file `notFoundError`/`badRequestError` helpers. Low-
+value branches to chase, not missing business-logic coverage — `src/services` (77.1%) is the
+number that actually matters, and it's solid. Full reasoning in `docs/TESTING_STRATEGY.md`'s
+"Branch coverage" section.
+
 ## Backend (`backend/`)
 
-**Current state: 30 test suites / 280 tests passing, run under `TZ=UTC`, 2026-08-23 (after the audit system's `AuditRun` model/API — `docs/plans/audit-system-plan.md`).**
+**Current state: 30 test suites / 281 tests passing, run under `TZ=UTC`, 2026-08-23 (after the payment-method decline status-code fix found by the live audit).**
 
 ```
 cd backend && TZ=UTC npm test
