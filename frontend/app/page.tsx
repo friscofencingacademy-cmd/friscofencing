@@ -66,7 +66,7 @@ export default function HomePage() {
 
       {headCoach ? (
         <>
-          <SpotlightCard spotlight={headCoach} align="left" />
+          <SpotlightCard spotlight={headCoach} align="left" eyebrow="Head Coach" />
           <p style={{ textAlign: 'center', marginTop: 'calc(-1 * var(--space-4))' }}>
             <Link href="/coaches">View all coaches &rarr;</Link>
           </p>
@@ -91,7 +91,9 @@ export default function HomePage() {
       >
         <p style={{ margin: 0 }}>Frisco Fencing Academy</p>
         {locations.length > 0 ? (
-          <p style={{ margin: 0 }}>{locations.map((location) => location.address).join(' · ')}</p>
+          <p style={{ margin: 0 }}>
+            {locations.map((location) => `${location.name} · ${location.address}`).join(' | ')}
+          </p>
         ) : null}
         <p style={{ margin: 0 }}>&copy; 2026 Frisco Fencing Academy</p>
       </footer>

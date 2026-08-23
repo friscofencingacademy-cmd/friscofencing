@@ -11,13 +11,21 @@ interface LevelGridProps {
 // Level has no such field; that would be invented copy.
 export default function LevelGrid({ levels }: LevelGridProps) {
   return (
-    <div className={styles.levelGrid}>
-      {levels.map((level) => (
-        <Card key={level.name}>
-          <h3 className={styles.levelName}>{level.name}</h3>
-          <p className={styles.levelFee}>${level.monthlyFee}/month</p>
-        </Card>
-      ))}
-    </div>
+    <section>
+      <span className={styles.eyebrow}>Levels &amp; Pricing</span>
+      <h2 className={styles.sectionTitle}>Every level, one monthly rate.</h2>
+      <p className={styles.heroSubcopy}>
+        Read live from the backend — whatever is set in admin is what appears here.
+      </p>
+      <div className={styles.levelGrid}>
+        {levels.map((level) => (
+          <Card key={level.name}>
+            <span className={styles.levelOrder}>Level {level.order}</span>
+            <h3 className={styles.levelName}>{level.name}</h3>
+            <p className={styles.levelFee}>${level.monthlyFee}/month</p>
+          </Card>
+        ))}
+      </div>
+    </section>
   );
 }

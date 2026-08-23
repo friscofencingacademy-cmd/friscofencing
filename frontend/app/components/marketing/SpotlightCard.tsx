@@ -36,7 +36,7 @@ export default function SpotlightCard({ spotlight, align, eyebrow }: SpotlightCa
   const text = (
     <div>
       {eyebrow ? <span className={styles.eyebrow}>{eyebrow}</span> : null}
-      <h2 style={{ margin: '0 0 var(--space-1)' }}>{spotlight.name}</h2>
+      <h2 className={styles.sectionTitle}>{spotlight.name}</h2>
       {spotlight.title ? <p className={styles.spotlightTitle}>{spotlight.title}</p> : null}
       {spotlight.body ? <p style={{ color: 'var(--color-muted)' }}>{spotlight.body}</p> : null}
       {spotlight.bullets.length > 0 ? (
