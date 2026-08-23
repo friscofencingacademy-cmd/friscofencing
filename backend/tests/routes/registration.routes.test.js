@@ -501,4 +501,158 @@ describe('Registration routes', () => {
       40000
     );
   });
+
+  describe('GET /api/v1/registrations/preview', () => {
+    it('returns the undiscounted monthly fee for an only child, and creates/charges nothing', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('reg-preview1@example.com');
+      const parentAgent = await loginAgent('reg-preview1@example.com');
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        monthlyFee: MONTHLY_FEE,
+        chargeAmount: MONTHLY_FEE,
+        siblingDiscountApplied: false,
+        siblingDiscountAmount: 0,
+      });
+
+      // The critical "this is truly read-only" regression guard: no
+      // Registration/Subscription got created. A global stripe.paymentIntents
+      // .list() assertion isn't reliable here — this is a real, SHARED
+      // Stripe TEST-mode account (other tests in this file, and other test
+      // files hitting the same account, may run before/around this one), so
+      // "the list is empty" isn't a meaningful claim. What IS meaningful:
+      // this test deliberately never calls savePaymentMethodFor(), so if
+      // previewChargeAmount() ever regressed into attempting a real charge,
+      // it would have no payment method to charge and would fail loudly
+      // (not return a clean 200) — the 200 assertion above already proves no
+      // charge attempt happened.
+      expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
+      expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+    });
+
+    it(
+      "matches the real charge exactly for the sibling discount case — preview and reality never disagree",
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'reg-preview-sibling@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'Preview',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'Preview',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('reg-preview-sibling@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'PreviewPricier',
+          levelOrder: 20,
+        });
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'PreviewCheap',
+          levelOrder: 21,
+        });
+
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+
+        // Preview the second child's registration — no POST yet.
+        const previewRes = await parentAgent.get('/api/v1/registrations/preview').query({
+          studentId: secondChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+
+        expect(previewRes.status).toBe(200);
+        expect(previewRes.body).toEqual({
+          monthlyFee: MONTHLY_FEE,
+          chargeAmount: MONTHLY_FEE * 0.9,
+          siblingDiscountApplied: true,
+          siblingDiscountAmount: MONTHLY_FEE * 0.1,
+        });
+
+        // Preview created nothing.
+        expect(await Subscription.countDocuments({ studentId: secondChild._id })).toBe(0);
+
+        // Now actually register — the real charge must match the preview.
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+
+        expect(secondRes.status).toBe(201);
+        expect(secondRes.body.chargeAmount).toBe(previewRes.body.chargeAmount);
+        expect(secondRes.body.siblingDiscountApplied).toBe(previewRes.body.siblingDiscountApplied);
+        expect(secondRes.body.siblingDiscountAmount).toBe(previewRes.body.siblingDiscountAmount);
+      },
+      40000
+    );
+
+    it('returns 403 when previewing a child belonging to a different parent', async () => {
+      const { scheduleId } = await seedSchedule();
+      await seedUser({ role: 'parent', email: 'reg-preview-other@example.com' });
+      const { student } = await seedParentAndStudent('reg-preview-owner@example.com');
+      const parentAgent = await loginAgent('reg-preview-other@example.com');
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 400 when studentId or scheduleId is missing', async () => {
+      const { student } = await seedParentAndStudent('reg-preview-missing@example.com');
+      const parentAgent = await loginAgent('reg-preview-missing@example.com');
+
+      const res = await parentAgent
+        .get('/api/v1/registrations/preview')
+        .query({ studentId: student._id.toString() });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 404 when the class's level has no Price configured", async () => {
+      const { scheduleId } = await seedSchedule({ skipPrice: true });
+      const { student } = await seedParentAndStudent('reg-preview-nopricing@example.com');
+      const parentAgent = await loginAgent('reg-preview-nopricing@example.com');
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 403 when a non-parent role attempts to preview', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('reg-preview-role@example.com');
+
+      await seedUser({ role: 'admin', email: 'reg-preview-admin@example.com' });
+      const adminAgent = await loginAgent('reg-preview-admin@example.com');
+
+      const res = await adminAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(403);
+    });
+  });
 });

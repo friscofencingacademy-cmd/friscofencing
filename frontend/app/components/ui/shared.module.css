@@ -93,3 +93,27 @@
   background: var(--color-border);
   color: var(--color-muted);
 }
+
+/* Chip — a small muted-gray pill for an inline annotation (e.g. "10%
+   sibling" next to a charge amount). Mirrors admin.module.css's own
+   .chip/.chipMuted pair (same tokens) — kept as an independent definition
+   here rather than shared across shell CSS Modules, per design-system.md's
+   "never mix admin.module.css and the portal-facing shared.module.css"
+   rule. Always compose both classes together (chip for shape, chipMuted for
+   color) — unlike admin.module.css's own call sites, which use chipMuted
+   alone and end up with no padding/radius as a result. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.chipMuted {
+  background: var(--color-bg);
+  color: var(--color-muted);
+}

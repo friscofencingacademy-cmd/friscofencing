@@ -134,6 +134,8 @@ describe('SubscriptionsPage', () => {
     expect(within(groupRow).getByText('active')).toBeInTheDocument();
     expect(screen.getAllByText('2026-02-01')).toHaveLength(2);
     expect(screen.getByText('$150.00')).toBeInTheDocument();
+    // Neither fixture sets lastSiblingDiscountApplied -> no chip.
+    expect(screen.queryByText('10% sibling')).not.toBeInTheDocument();
 
     // The cancelled row: no Cancel button, no "Cancels at end..." text —
     // hidden entirely once status is 'cancelled'.
@@ -261,6 +263,21 @@ describe('SubscriptionsPage', () => {
     expect(
       await screen.findByText(/you don't have any registrations yet/i)
     ).toBeInTheDocument();
+  });
+
+  it('shows a "10% sibling" chip next to the charge amount when lastSiblingDiscountApplied is true', async () => {
+    server.use(
+      http.get('*/registrations/mine', () =>
+        HttpResponse.json({
+          subscriptions: [{ ...ACTIVE_SUBSCRIPTION, lastChargeAmount: 135, lastSiblingDiscountApplied: true }],
+        })
+      )
+    );
+
+    renderSubscriptionsPage();
+
+    expect(await screen.findByText('$135.00')).toBeInTheDocument();
+    expect(screen.getByText('10% sibling')).toBeInTheDocument();
   });
 
   describe('Private Lessons section', () => {

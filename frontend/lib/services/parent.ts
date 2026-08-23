@@ -2,6 +2,7 @@ import api from '../api';
 import type {
   PaymentMethodInfo,
   RegistrationCreateResponse,
+  RegistrationPricePreview,
   SkillLevel,
   Student,
   Subscription,
@@ -65,6 +66,18 @@ export async function createRegistration(data: {
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to register. Please try again.') };
   }
+}
+
+// Read-only — a query (throws on failure), not a mutation. A failed
+// preview is meant to be caught locally and swallowed by the caller (it's a
+// non-critical estimate; the real charge is always correctly computed
+// server-side at submit time regardless), never surfaced as a step error.
+export async function fetchRegistrationPricePreview(data: {
+  studentId: string;
+  scheduleId: string;
+}): Promise<RegistrationPricePreview> {
+  const res = await api.get<RegistrationPricePreview>('/registrations/preview', { params: data });
+  return res.data;
 }
 
 export async function cancelSubscription(id: string): Promise<MutationResult<undefined>> {

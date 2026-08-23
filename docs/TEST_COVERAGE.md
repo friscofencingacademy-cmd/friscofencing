@@ -4,7 +4,7 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 ## Backend (`backend/`)
 
-**Current state: 29 test suites / 267 tests passing, run under `TZ=UTC`, 2026-08-23 (after the Book a Trial schedule-step removal — `GET /group-class-sessions/by-class/:classId`).**
+**Current state: 29 test suites / 273 tests passing, run under `TZ=UTC`, 2026-08-23 (after the sibling-discount pricing preview — `GET /registrations/preview`).**
 
 ```
 cd backend && TZ=UTC npm test
@@ -28,7 +28,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 43 test suites / 219 tests passing, run under `TZ=UTC`, 2026-08-23 (after the Book a Trial schedule-step removal + `PillRow` picker + the public home page copy fixes).**
+**Current state: 44 test suites / 226 tests passing, run under `TZ=UTC`, 2026-08-23 (after the sibling-discount pricing preview + the parent/subscriptions "10% sibling" chip).**
 
 ```
 cd frontend && TZ=UTC npm test

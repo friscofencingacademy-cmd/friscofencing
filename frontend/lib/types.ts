@@ -194,6 +194,18 @@ export interface RegistrationCreateResponse {
   siblingDiscountAmount?: number;
 }
 
+// GET /registrations/preview — read-only pricing/discount estimate for the
+// register wizard's summary, before the parent commits to paying. Same
+// fields calculateChargeAmount() computes for the real charge (see
+// backend/src/services/registration.service.js's previewChargeAmount), so
+// this can never structurally disagree with what actually gets charged.
+export interface RegistrationPricePreview {
+  monthlyFee: number;
+  chargeAmount: number;
+  siblingDiscountApplied: boolean;
+  siblingDiscountAmount: number;
+}
+
 // ── Admin Group Class Subscriptions (ckq-parity plan, Phase 3) ────────────
 // Typed against subscription.service.js's populate chain
 // (populateSubscriptionQuery): studentId/parentId -> firstName/lastName/
