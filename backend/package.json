@@ -12,7 +12,9 @@
     "seed:coach": "node scripts/seed-coach.js",
     "renewals": "node scripts/run-renewals.js",
     "preview-emails": "node scripts/preview-emails.js",
-    "extend-private-sessions": "node scripts/extend-private-sessions.js"
+    "extend-private-sessions": "node scripts/extend-private-sessions.js",
+    "audit:seed": "node scripts/audit-seed.js",
+    "audit:reset": "node scripts/audit-reset.js"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.0",

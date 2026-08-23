@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Menu,
   MapPin,
+  ShieldCheck,
   Star,
   Swords,
   Users,
@@ -63,6 +64,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Content',
     items: [{ href: '/admin/spotlights', label: 'Spotlights', icon: <Star size={15} /> }],
+  },
+  {
+    label: 'Reports',
+    items: [{ href: '/admin/audits', label: 'Audits', icon: <ShieldCheck size={15} /> }],
   },
 ];
 

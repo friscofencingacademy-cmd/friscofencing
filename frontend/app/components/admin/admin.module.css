@@ -382,6 +382,25 @@
   color: var(--color-muted);
 }
 
+/* Audit-run overall-result states (admin/audits) — chipActive/chipMuted
+   above already cover "active"/generic-muted; these three are the missing
+   pass/fail/partial/never-run states. Always compose with .chip. */
+.chipFailed {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.chipPending {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+}
+
+.chipNeutral {
+  background: var(--color-bg);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+
 /* ── Dashboard stat cards ────────────────────────────────────── */
 .statsGrid {
   display: grid;

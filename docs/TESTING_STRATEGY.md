@@ -75,3 +75,58 @@ Per `docs/decisions/frontend-005`-style rule (adapted for this project's scale, 
 - **Query functions** (`fetchX` in `lib/services/*.ts`) let a failed `axios` call's rejection propagate. Test: assert the returned promise **rejects** (`await expect(fetchX()).rejects.toBeTruthy()`), not that it resolves to `null`/`undefined`.
 - **`useLoadState`** callers render `<LoadError message={getErrorMessage(error)} onRetry={retry} />` in place of the failed content. Test: MSW responds with an error status, assert `screen.getByRole('alert')` (or the `LoadError`-specific text) appears, then assert `retry()`'s "Try again" button re-fetches (swap the MSW handler to a success response first, then click).
 - **Mutation functions** (`createX`/`updateX`/`deleteX`/`bookTrialClass`/`createRegistration`/...) never throw — they resolve to `{ status: 'success', data }` or `{ status: 'error', message }`. Test both branches explicitly: a success-path payload assertion, and an error-path assertion that the UI shows `result.message` (usually via an inline `<Alert variant="error">`) **without the component crashing** — this is the exact phrasing used throughout this repo's admin-CRUD and flow-wizard tests ("shows an inline error ... without crashing") because an uncaught mutation rejection reaching React is the regression this contract exists to prevent.
+
+## Live Audit Scripts
+
+Live audits complement the Jest/MSW layer above by running real browser flows against **staging**
+— exercising the real backend, real database, and real Stripe TEST-mode charges, which mocked
+Jest tests cannot do. Adapted from CKQ's own "Live Audit Skills" (`docs/plans/audit-system-plan.md`
+has the full design + the corrections made porting it, notably: no MCP browser tool is available
+in this environment, so this uses a real installed `playwright` package driving an unattended
+script, not an agent steering a browser interactively).
+
+### Two-layer strategy (CKQ has one more layer than this repo does)
+
+| Layer | Tool | Target | Data | Purpose |
+|---|---|---|---|---|
+| Jest/MSW (this doc, above) | `jest` | jsdom / `mongodb-memory-server` | Fully mocked/in-memory | Fast, deterministic, runs on every change |
+| Live audit (`audit/`) | Real `playwright` package, headless Chromium | `develop` staging | Real staging DB + real Stripe TEST-mode | Integration: catches what mocked tests structurally cannot — real auth, real Stripe behavior, real cross-service wiring |
+
+**CKQ has a third, separate layer this repo deliberately does not build**: a CI-gated
+`@playwright/test` suite against `localhost` with fully mocked API responses (`page.route()`),
+required on every PR to `main`. Out of scope for this pass by owner decision — documented here as
+a deliberate choice, not an oversight, so it doesn't read as a gap later.
+
+### Available scripts
+
+| Script | Flow | Accounts |
+|---|---|---|
+| `audit/run-registration-audit.js` (`/audit-live-registration`) | Trial booking → add-card + group registration → sibling discount (live preview vs. real charge) → decline path | Fixed, seeded via `backend/scripts/audit-seed.js`: `audit-parent-1`, `audit-sibling-parent` (2 children), `audit-decline-parent` |
+
+### Rules
+
+- **Staging only** — `https://friscofencing-git-develop-frisco-fencing.vercel.app`. Never
+  production. Hard-enforced (`audit/lib/staging-guard.js` exits non-zero), not just documented.
+- **Not CI-gated, no cron** — run manually, same "audits are on-demand events" philosophy CKQ's
+  own skills document. `docs/plans/audit-system-plan.md`'s D7 explains the tradeoff.
+- **Mutates staging** — every scenario creates a real document or completes/declines a real
+  Stripe TEST-mode charge. `backend/scripts/audit-reset.js` (`/reset-audit-data`) resets it, and
+  is never invoked automatically by the audit script itself.
+- **Reports non-fatally** to `/admin/audits` (superadmin-only) — a reporting failure never
+  changes the audit's own pass/fail verdict or gets retried.
+
+## Coverage Expectations
+
+Minimum targets (CKQ's own numbers) — not goals to game with trivial tests. Both repos already
+clear the statements target as of the last real measurement below.
+
+| Area | Target | Backend (measured 2026-08-23) | Frontend (measured 2026-08-23) |
+|---|---|---|---|
+| Statements | 80% | 84.86% | 89.46% |
+| Branches | — (informational) | 62.00% | 79.41% |
+| Functions | — (informational) | 85.00% | 89.03% |
+| Lines | — (informational) | 84.92% | 90.70% |
+
+Re-measure with `TZ=UTC npm test -- --coverage` in each repo (confirmed working, zero new tooling
+needed — pass `--` before the flag so it isn't swallowed as a test-path-pattern argument). Not
+gated on every PR, but a real regression should be flagged, same as CKQ's own policy.

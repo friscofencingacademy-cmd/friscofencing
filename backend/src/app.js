@@ -23,6 +23,7 @@ const privateClassScheduleRoutes = require('./routes/privateClassSchedule.routes
 const privateClassEnrollmentRoutes = require('./routes/privateClassEnrollment.routes');
 const privateClassSessionRoutes = require('./routes/privateClassSession.routes');
 const spotlightRoutes = require('./routes/spotlight.routes');
+const auditRunRoutes = require('./routes/auditRun.routes');
 
 configurePassport(passport);
 
@@ -74,5 +75,6 @@ app.use('/api/v1/private-class-schedules', privateClassScheduleRoutes);
 app.use('/api/v1/private-class-enrollments', privateClassEnrollmentRoutes);
 app.use('/api/v1/private-class-sessions', privateClassSessionRoutes);
 app.use('/api/v1/spotlights', spotlightRoutes);
+app.use('/api/v1/audit-runs', auditRunRoutes);
 
 module.exports = app;

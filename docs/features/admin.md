@@ -83,6 +83,23 @@ Pattern A. Columns: Name, Type, Title, Order, Published (Yes/No). Fields: type (
 
 **Image field**: a plain URL input, plus a file picker next to it ("Or upload a file:") that `POST`s to `/spotlights/upload-image` (multipart, 5MB cap) and fills the URL field with the returned Vercel Blob URL on success — either path writes the same `imageUrl` string, so the two are interchangeable. A thumbnail preview renders below once the field has a value. Save is disabled while an upload is in flight.
 
+## Audits (`/admin/audits`)
+
+**Superadmin-only** — enforced in-page (`user?.role === 'superadmin'`), on top of the shell's
+usual admin-or-superadmin gate, since this surfaces real payment/Stripe-test-run data. New
+**Reports** sidebar section (its own section, not folded into an existing one).
+
+Read-only report of live audit script results — see `docs/plans/audit-system-plan.md`. A
+hardcoded `KNOWN_AUDITS` registry (one entry so far: "Live Registration") is the source of the
+row list, not the backend — an audit with no run yet still gets a row ("Never run" chip), so the
+page reads as a checklist of what's covered, not just a log of what happened to run. Reads
+`GET /audit-runs?latest=true` (one most-recent row per `auditName`). Each row shows a pass/fail/
+partial chip and a relative "Last Run" time; clicking an expandable row reveals the per-scenario
+detail table (id, name, ✅/❌/⏭️, note) plus the run's summary line and runner.
+
+Never writes anything — the only writer is the `audit/` Playwright script's own non-fatal
+reporting step (`POST /audit-runs`), never this page.
+
 ## Dashboard (`/admin/dashboard`)
 
 Raw list counts only (classes, schedules, locations, levels) fetched in parallel via the Phase-0 catalog/scheduling query services — no derived business metrics, per the backend-source-of-truth-style rule against inventing frontend math. `LoadError` with retry on failure. No quick-links grid below the counts — the sidebar already reaches every admin section, so a second set of links was redundant (removed 2026-08-21).
