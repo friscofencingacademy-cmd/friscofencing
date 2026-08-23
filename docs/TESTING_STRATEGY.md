@@ -122,11 +122,50 @@ clear the statements target as of the last real measurement below.
 
 | Area | Target | Backend (measured 2026-08-23) | Frontend (measured 2026-08-23) |
 |---|---|---|---|
-| Statements | 80% | 84.86% | 89.46% |
-| Branches | — (informational) | 62.00% | 79.41% |
-| Functions | — (informational) | 85.00% | 89.03% |
-| Lines | — (informational) | 84.92% | 90.70% |
+| Statements | 80% | 84.95% | 89.62% |
+| Branches | — (informational) | 62.14% | 79.48% |
+| Functions | — (informational) | 85.04% | 89.03% |
+| Lines | — (informational) | 85.00% | 90.87% |
 
 Re-measure with `TZ=UTC npm test -- --coverage` in each repo (confirmed working, zero new tooling
 needed — pass `--` before the flag so it isn't swallowed as a test-path-pattern argument). Not
 gated on every PR, but a real regression should be flagged, same as CKQ's own policy.
+
+### vs. CKQ
+
+Checked directly against CKQ's own `docs/TEST_COVERAGE.md`, not assumed: **CKQ doesn't track
+backend % coverage at all** — their backend section is entirely test/route counts (264 files,
+6,331 tests), no istanbul statement/branch numbers anywhere. The only % figure in their whole
+doc is frontend, dated 2026-05-27 (stale — their codebase has grown enormously since): Statements
+92.59% / Branches 76.48% / Functions 62.00% / Lines 92.59%. Frisco's frontend branch and function
+coverage (79.48% / 89.03%) already beat that recorded number. CKQ's real edge is scale and
+breadth (6,331 tests vs. this repo's much smaller surface area), not necessarily tighter coverage
+discipline — they don't measure the metric this section tracks for their main backend at all.
+
+### Branch coverage — read the breakdown, not just the aggregate
+
+Backend's 62.14% branch aggregate looks weaker than everything else measured, but it's
+concentrated almost entirely in one place — broken down by directory (`--coverageReporters=text`
+gives the per-directory table):
+
+| Directory | Branches |
+|---|---|
+| `src/models`, `src/utils`, `src/middlewares` | 100% |
+| `src/services` (the actual business logic — billing, discounts, roster, Stripe) | 77.1% |
+| `src/controllers` | 24.9% ← drags the whole average down |
+
+Every controller in this codebase follows the identical shape:
+```js
+catch (error) {
+  const status = error.status || 500;
+  return res.status(status).json({ message: error.message || 'Failed to ...' });
+}
+```
+Every error this app ever throws already sets both `.status` and `.message` (via the
+`notFoundError`/`badRequestError`/etc. per-file helper pattern) — so the `|| 500` and
+`|| 'Failed to ...'` fallback branches only fire for a genuinely malformed, unexpected JS error.
+Testing those means deliberately injecting a broken error object, not exercising real business
+logic — low-value branches to chase, not a real gap. The number that actually reflects business
+logic (`src/services`, 77.1%) is solid and close to frontend's own branch number. Frontend's
+79.48% aggregate has no equivalent single drag — it's evenly spread across features, expected for
+a codebase this size.
