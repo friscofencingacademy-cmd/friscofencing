@@ -2,9 +2,20 @@
 
 CKQ-style coverage snapshot. Numbers below are real, captured by actually running both suites — not estimated.
 
+## Real coverage % (CKQ's "Coverage Expectations" table — see `docs/TESTING_STRATEGY.md`)
+
+| Area | Target | Backend | Frontend |
+|---|---|---|---|
+| Statements | 80% | 84.86% | 89.46% |
+| Branches | — (informational) | 62.00% | 79.41% |
+| Functions | — (informational) | 85.00% | 89.03% |
+| Lines | — (informational) | 84.92% | 90.70% |
+
+Measured 2026-08-23 via `TZ=UTC npm test -- --coverage` in each repo. Both already clear the 80%-statements target.
+
 ## Backend (`backend/`)
 
-**Current state: 29 test suites / 273 tests passing, run under `TZ=UTC`, 2026-08-23 (after the sibling-discount pricing preview — `GET /registrations/preview`).**
+**Current state: 30 test suites / 280 tests passing, run under `TZ=UTC`, 2026-08-23 (after the audit system's `AuditRun` model/API — `docs/plans/audit-system-plan.md`).**
 
 ```
 cd backend && TZ=UTC npm test
@@ -17,7 +28,7 @@ cd backend && TZ=UTC npm test
 | Unit | `tests/services/billing/calculateChargeAmount.service.test.js` | Sibling-discount math | No |
 | Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
 | Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
-| Route-integration | `tests/routes/*.routes.test.js` (18 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions, prices, students, users, trial-classes, registrations, subscriptions, payment-methods, Stripe webhook, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
+| Route-integration | `tests/routes/*.routes.test.js` (20 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing), prices, students, users, trial-classes, registrations (incl. the pricing preview), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
 | Smoke | `tests/health.test.js` | `/health` endpoint | No |
 
 ### Coverage gaps (honest, not hidden)
@@ -28,7 +39,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 44 test suites / 226 tests passing, run under `TZ=UTC`, 2026-08-23 (after the sibling-discount pricing preview + the parent/subscriptions "10% sibling" chip).**
+**Current state: 45 test suites / 231 tests passing, run under `TZ=UTC`, 2026-08-23 (after the audit system's `/admin/audits` report page — `docs/plans/audit-system-plan.md`).**
 
 ```
 cd frontend && TZ=UTC npm test
