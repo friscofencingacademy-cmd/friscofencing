@@ -65,6 +65,29 @@ async function mintTestPaymentMethodId() {
   return paymentMethod.id;
 }
 
+// Stripe's documented decline-card TOKEN (maps to card number
+// 4000000000000002) — NOT a raw card number: this Stripe account has raw
+// server-side card-data APIs disabled (confirmed live, not assumed — a
+// first attempt using the raw number here was rejected outright with
+// "Sending credit card numbers directly to the Stripe API is generally
+// unsafe... To enable testing raw card data APIs, see..."), same as any
+// standard account. The token represents the identical underlying test
+// card the live browser audit used via Stripe.js — only the creation
+// mechanism differs, not which card/decline behavior is exercised.
+// Confirmed live that this card declines at attach() itself, not only at
+// charge time — unlike registration.routes.test.js's pm_card_chargeDeclined,
+// a shared pre-built PaymentMethod that only declines when actually
+// charged. Creating the PaymentMethod object here succeeds; attaching it
+// is what fails, matching real behavior exactly.
+async function mintDeclineTestPaymentMethodId() {
+  const paymentMethod = await stripe.paymentMethods.create({
+    type: 'card',
+    card: { token: 'tok_chargeDeclined' },
+  });
+
+  return paymentMethod.id;
+}
+
 describe('PaymentMethod routes', () => {
   describe('POST /api/v1/payment-methods', () => {
     it('creates a Stripe Customer and saves the card on first save', async () => {
@@ -120,6 +143,38 @@ describe('PaymentMethod routes', () => {
       const oldOnStripe = await stripe.paymentMethods.retrieve(firstPaymentMethodId);
       expect(oldOnStripe.customer).toBeNull();
     }, 30000);
+
+    it(
+      'returns 402 and creates nothing when the card is declined at save time (attach, not charge)',
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'pm-decline1@example.com' });
+        const parentAgent = await loginAgent('pm-decline1@example.com');
+
+        const declinePaymentMethodId = await mintDeclineTestPaymentMethodId();
+
+        const res = await parentAgent
+          .post('/api/v1/payment-methods')
+          .send({ stripePaymentMethodId: declinePaymentMethodId });
+
+        expect(res.status).toBe(402);
+        expect(res.body.message).toBeTruthy();
+
+        // Pin down exactly where the failure happens: ensureStripeCustomer
+        // runs BEFORE the attach and succeeds regardless — only the attach
+        // itself fails.
+        const updatedUser = await User.findById(parent._id);
+        expect(updatedUser.stripeCustomerId).toBeTruthy();
+        expect(updatedUser.stripeCustomerId).toMatch(/^cus_/);
+
+        expect(await PaymentMethod.countDocuments({ parentId: parent._id })).toBe(0);
+
+        // Verify on Stripe's own side too, not just our DB — the attach was
+        // genuinely rejected, not silently no-opped.
+        const onStripe = await stripe.paymentMethods.retrieve(declinePaymentMethodId);
+        expect(onStripe.customer).toBeNull();
+      },
+      20000
+    );
 
     it('returns 403 when a non-parent role attempts to save a card', async () => {
       await seedUser({ role: 'admin', email: 'pm-admin1@example.com' });
