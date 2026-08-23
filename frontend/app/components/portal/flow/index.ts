@@ -2,6 +2,8 @@ export { default as FlowMain, FlowStepper } from './FlowMain';
 export type { FlowCrumb, FlowMainProps } from './FlowMain';
 export { default as FlowSection } from './FlowSection';
 export { default as ChildPickerCards } from './ChildPickerCards';
+export { default as PillRow } from './PillRow';
+export type { PillRowProps } from './PillRow';
 export { default as OrderSummary } from './OrderSummary';
 export type { OrderSummaryLine } from './OrderSummary';
 export { default as FlowConfirmation } from './FlowConfirmation';

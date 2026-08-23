@@ -69,6 +69,34 @@ async function listBySchedule(scheduleId) {
   return GroupClassSession.find({ scheduleId }).sort({ date: 1 });
 }
 
+const DEFAULT_UPCOMING_WINDOW_DAYS = 30;
+
+// Trial booking no longer makes the parent pick a schedule first — this
+// lists every upcoming session across ALL of a class's schedules (e.g. a
+// class that runs Mon and Wed both), so a session itself is the only thing
+// picked. `date` range is today-inclusive (see nextOccurrenceOnOrAfter's
+// same "on or after" convention) through `+days`, computed here — never on
+// the frontend — matching this codebase's "no client-side availability
+// math" rule. Only the display-relevant schedule fields are populated:
+// never the roster (`students`) or `coachId` — a parent browsing trial
+// dates must never see another family's child names.
+async function listUpcomingByClass(classId, days = DEFAULT_UPCOMING_WINDOW_DAYS) {
+  const scheduleIds = await GroupClassSchedule.find({ classId }).distinct('_id');
+
+  const rangeStart = new Date();
+  rangeStart.setHours(0, 0, 0, 0);
+
+  const rangeEnd = new Date(rangeStart);
+  rangeEnd.setDate(rangeEnd.getDate() + days);
+
+  return GroupClassSession.find({
+    scheduleId: { $in: scheduleIds },
+    date: { $gte: rangeStart, $lte: rangeEnd },
+  })
+    .sort({ date: 1, scheduleId: 1 })
+    .populate('scheduleId', 'dayOfWeek startTime endTime');
+}
+
 async function getById(id) {
   const session = await GroupClassSession.findById(id).populate(
     'students.studentId',
@@ -133,4 +161,10 @@ async function markAttendance(sessionId, studentUpdates, requestingUser) {
   return getById(sessionId);
 }
 
-module.exports = { generateInitialSessions, listBySchedule, getById, markAttendance };
+module.exports = {
+  generateInitialSessions,
+  listBySchedule,
+  listUpcomingByClass,
+  getById,
+  markAttendance,
+};

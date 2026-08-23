@@ -6,10 +6,10 @@ import { useSearchParams } from 'next/navigation';
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
-import { fetchSchedules, fetchSessionsBySchedule } from '../../../lib/services/scheduling';
+import { fetchSessionsByClass } from '../../../lib/services/scheduling';
 import { bookTrialClass } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
-import type { GroupClass, GroupClassSchedule, GroupClassSession } from '../../../lib/types';
+import type { GroupClass, GroupClassSessionWithSchedule } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import LoadError from '../../components/ui/LoadError/LoadError';
@@ -19,19 +19,39 @@ import {
   FlowMain,
   FlowSection,
   OrderSummary,
+  PillRow,
 } from '../../components/portal/flow';
 
 const STEPS = ['Who', 'Pick a Class', 'Confirmation'];
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 async function fetchBookingOptions() {
-  const [groupClasses, schedules] = await Promise.all([fetchGroupClasses(), fetchSchedules()]);
-  return { groupClasses, schedules };
+  const groupClasses = await fetchGroupClasses();
+  return { groupClasses };
+}
+
+// A session carries its own schedule's day/time now (no separate schedule
+// selection) — both the pill picker and the summary/confirmation derive
+// their display strings from the session itself, never a cross-referenced
+// schedule list.
+function formatSessionDate(dateIso: string): string {
+  return new Date(dateIso).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatSessionTimeRange(schedule: GroupClassSessionWithSchedule['scheduleId']): string {
+  return `${formatTime(schedule.startTime)}–${formatTime(schedule.endTime)}`;
+}
+
+function formatSessionLine(session: GroupClassSessionWithSchedule): string {
+  return `${formatSessionDate(session.date)} · ${formatSessionTimeRange(session.scheduleId)}`;
 }
 
 interface BookedInfo {
   childName: string;
-  sessionDate: string;
+  sessionLine: string;
 }
 
 export default function BookTrialPage() {
@@ -40,21 +60,18 @@ export default function BookTrialPage() {
 
   const { data, error, isLoading, retry } = useLoadState(fetchBookingOptions, []);
   const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
-  const [schedules, setSchedules] = useState<GroupClassSchedule[]>([]);
 
   useEffect(() => {
     if (data) {
       setGroupClasses(data.groupClasses);
-      setSchedules(data.schedules);
     }
   }, [data]);
 
   const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
   const [classId, setClassId] = useState('');
-  const [scheduleId, setScheduleId] = useState('');
   const [sessionId, setSessionId] = useState('');
-  const [sessions, setSessions] = useState<GroupClassSession[]>([]);
+  const [sessions, setSessions] = useState<GroupClassSessionWithSchedule[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -69,7 +86,7 @@ export default function BookTrialPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (!scheduleId) {
+    if (!classId) {
       setSessions([]);
       return;
     }
@@ -79,12 +96,14 @@ export default function BookTrialPage() {
     async function loadSessions() {
       setSessionsLoading(true);
       try {
-        const result = await fetchSessionsBySchedule(scheduleId);
+        // Next 30 days, today-inclusive, across ALL of this class's
+        // schedules — server-filtered (see backend/src/services/
+        // groupClassSession.service.js's listUpcomingByClass), not
+        // client-side date math.
+        const result = await fetchSessionsByClass(classId);
         if (cancelled) return;
 
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        setSessions(result.filter((session) => new Date(session.date).getTime() >= todayStart.getTime()));
+        setSessions(result);
       } catch {
         if (!cancelled) {
           setStepError('Failed to load sessions.');
@@ -101,18 +120,10 @@ export default function BookTrialPage() {
     return () => {
       cancelled = true;
     };
-  }, [scheduleId]);
-
-  const filteredSchedules = classId ? schedules.filter((schedule) => schedule.classId === classId) : [];
+  }, [classId]);
 
   const handleClassChange = useCallback((value: string) => {
     setClassId(value);
-    setScheduleId('');
-    setSessionId('');
-  }, []);
-
-  const handleScheduleChange = useCallback((value: string) => {
-    setScheduleId(value);
     setSessionId('');
   }, []);
 
@@ -130,7 +141,7 @@ export default function BookTrialPage() {
     if (result.status === 'success') {
       setBooked({
         childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
-        sessionDate: selectedSession ? new Date(selectedSession.date).toLocaleDateString() : '',
+        sessionLine: selectedSession ? formatSessionLine(selectedSession) : '',
       });
       setStep(2);
       reload();
@@ -156,7 +167,7 @@ export default function BookTrialPage() {
             subtitle="We look forward to seeing you."
             lines={[
               { label: 'Child', value: booked?.childName },
-              { label: 'Session', value: booked?.sessionDate },
+              { label: 'Session', value: booked?.sessionLine },
             ]}
             links={
               <>
@@ -178,16 +189,7 @@ export default function BookTrialPage() {
     <OrderSummary
       lines={[
         { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
-        {
-          label: 'Schedule',
-          value: scheduleId
-            ? (() => {
-                const schedule = schedules.find((s) => s._id === scheduleId);
-                return schedule ? `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}` : '—';
-              })()
-            : '—',
-        },
-        { label: 'Session', value: selectedSession ? new Date(selectedSession.date).toLocaleDateString() : '—' },
+        { label: 'Session', value: selectedSession ? formatSessionLine(selectedSession) : '—' },
       ]}
       cta={step === 0 ? 'Continue' : 'Book Trial Class'}
       ctaDisabled={step === 0 ? !studentId : !sessionId}
@@ -231,39 +233,27 @@ export default function BookTrialPage() {
               </select>
             </FlowSection>
 
-            <FlowSection title="Choose a schedule">
-              <select
-                aria-label="Schedule"
-                value={scheduleId}
-                onChange={(e) => handleScheduleChange(e.target.value)}
-                required
-                disabled={!classId}
-              >
-                <option value="">Select a schedule</option>
-                {filteredSchedules.map((schedule) => (
-                  <option key={schedule._id} value={schedule._id}>
-                    {DAY_LABELS[schedule.dayOfWeek]} {formatTime(schedule.startTime)}-{formatTime(schedule.endTime)}
-                  </option>
-                ))}
-              </select>
-            </FlowSection>
-
-            <FlowSection title="Choose a session">
-              <select
-                aria-label="Session"
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
-                required
-                disabled={!scheduleId || sessionsLoading}
-              >
-                <option value="">Select a session</option>
-                {sessions.map((session) => (
-                  <option key={session._id} value={session._id}>
-                    {new Date(session.date).toLocaleDateString()}
-                  </option>
-                ))}
-              </select>
-            </FlowSection>
+            {classId ? (
+              <FlowSection title="Choose a session">
+                {sessionsLoading ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>Loading sessions...</p>
+                ) : sessions.length === 0 ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
+                    No upcoming trial sessions for this class in the next 30 days.
+                  </p>
+                ) : (
+                  <PillRow
+                    items={sessions}
+                    selectedKey={sessionId || null}
+                    onSelect={setSessionId}
+                    getKey={(session) => session._id}
+                    getLabel={(session) => formatSessionDate(session.date)}
+                    getSub={(session) => formatSessionTimeRange(session.scheduleId)}
+                    ariaLabel="Select a session"
+                  />
+                )}
+              </FlowSection>
+            ) : null}
 
             <Button type="button" variant="secondary" onClick={() => setStep(0)}>
               Back

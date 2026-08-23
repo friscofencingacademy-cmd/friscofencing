@@ -10,6 +10,16 @@ async function byScheduleId(req, res) {
   }
 }
 
+async function byClassId(req, res) {
+  try {
+    const sessions = await groupClassSessionService.listUpcomingByClass(req.params.classId);
+    return res.status(200).json({ sessions });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to list sessions' });
+  }
+}
+
 async function getById(req, res) {
   try {
     const session = await groupClassSessionService.getById(req.params.id);
@@ -34,4 +44,4 @@ async function markAttendance(req, res) {
   }
 }
 
-module.exports = { byScheduleId, getById, markAttendance };
+module.exports = { byScheduleId, byClassId, getById, markAttendance };

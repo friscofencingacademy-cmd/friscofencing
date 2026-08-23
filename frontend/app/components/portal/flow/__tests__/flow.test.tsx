@@ -4,6 +4,7 @@ import FlowMain, { FlowStepper } from '../FlowMain';
 import OrderSummary from '../OrderSummary';
 import ChildPickerCards from '../ChildPickerCards';
 import FlowConfirmation from '../FlowConfirmation';
+import PillRow from '../PillRow';
 
 describe('FlowStepper', () => {
   it('marks steps before `current` as done and the current step as active', () => {
@@ -112,6 +113,67 @@ describe('ChildPickerCards', () => {
 
     expect(screen.getByRole('radio', { name: /kid two/i })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'false');
+  });
+});
+
+describe('PillRow', () => {
+  const SESSIONS = [
+    { id: 'sess-1', label: 'Wed, Sep 3', sub: '4:00 PM–5:00 PM' },
+    { id: 'sess-2', label: 'Fri, Sep 5', sub: '6:00 PM–7:00 PM' },
+  ];
+
+  it('renders one pill per item with its label and sub, and calls onSelect', () => {
+    const onSelect = jest.fn();
+
+    render(
+      <PillRow
+        items={SESSIONS}
+        selectedKey={null}
+        onSelect={onSelect}
+        getKey={(s) => s.id}
+        getLabel={(s) => s.label}
+        getSub={(s) => s.sub}
+        ariaLabel="Select a session"
+      />
+    );
+
+    expect(screen.getByText('Wed, Sep 3')).toBeInTheDocument();
+    expect(screen.getByText('4:00 PM–5:00 PM')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: /wed, sep 3/i }));
+    expect(onSelect).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('marks the selected pill as checked, and others as not checked', () => {
+    render(
+      <PillRow
+        items={SESSIONS}
+        selectedKey="sess-2"
+        onSelect={jest.fn()}
+        getKey={(s) => s.id}
+        getLabel={(s) => s.label}
+        ariaLabel="Select a session"
+      />
+    );
+
+    expect(screen.getByRole('radio', { name: /fri, sep 5/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /wed, sep 3/i })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('renders the radiogroup with the given accessible label, and omits getSub when not passed', () => {
+    render(
+      <PillRow
+        items={SESSIONS}
+        selectedKey={null}
+        onSelect={jest.fn()}
+        getKey={(s) => s.id}
+        getLabel={(s) => s.label}
+        ariaLabel="Select a session"
+      />
+    );
+
+    expect(screen.getByRole('radiogroup', { name: 'Select a session' })).toBeInTheDocument();
+    expect(screen.queryByText('4:00 PM–5:00 PM')).not.toBeInTheDocument();
   });
 });
 

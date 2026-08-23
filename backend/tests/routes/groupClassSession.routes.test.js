@@ -105,7 +105,154 @@ async function seedScheduleWithSession(adminAgent) {
   return { coach, otherCoach, student1, student2, scheduleId, sessionId: session._id.toString() };
 }
 
+async function seedParent(overrides = {}) {
+  const passwordHash = await hashPassword(TEST_PASSWORD);
+
+  return User.create({
+    role: 'parent',
+    firstName: 'Test',
+    lastName: 'Parent',
+    email: 'test-parent@example.com',
+    passwordHash,
+    ...overrides,
+  });
+}
+
 describe('GroupClassSession routes', () => {
+  describe('GET /by-class/:classId', () => {
+    it('merges sessions across every schedule on the class, sorted by date then schedule, with no roster leak', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      await seedParent();
+      const parentAgent = await loginAgent('test-parent@example.com');
+
+      const groupClass = await seedClass();
+      const coach = await User.create({
+        role: 'coach',
+        firstName: 'A',
+        lastName: 'Coach',
+        email: 'gcs-coach@example.com',
+        passwordHash: await hashPassword(TEST_PASSWORD),
+      });
+      const otherStudent = await User.create({ role: 'student', firstName: 'Not', lastName: 'Mine' });
+
+      // Two schedules on the SAME class, different days — this is exactly
+      // the case that used to force a parent to pick a schedule first.
+      const scheduleA = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 2,
+        startTime: '16:00',
+        endTime: '17:00',
+        students: [otherStudent._id.toString()],
+      });
+      const scheduleB = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 4,
+        startTime: '18:00',
+        endTime: '19:00',
+        students: [],
+      });
+
+      const res = await parentAgent.get(`/api/v1/group-class-sessions/by-class/${groupClass._id}`);
+
+      expect(res.status).toBe(200);
+      const scheduleIds = res.body.sessions.map((s) => s.scheduleId._id);
+      expect(scheduleIds).toEqual(expect.arrayContaining([scheduleA.body.schedule._id, scheduleB.body.schedule._id]));
+
+      // Sorted by date ascending — never assume insertion order.
+      const dates = res.body.sessions.map((s) => new Date(s.date).getTime());
+      expect(dates).toEqual([...dates].sort((a, b) => a - b));
+
+      // Only display fields populated — never the roster or coach.
+      res.body.sessions.forEach((session) => {
+        expect(session.scheduleId).toMatchObject({
+          dayOfWeek: expect.any(Number),
+          startTime: expect.any(String),
+          endTime: expect.any(String),
+        });
+        expect(session.scheduleId.students).toBeUndefined();
+        expect(session.scheduleId.coachId).toBeUndefined();
+      });
+      expect(JSON.stringify(res.body)).not.toContain('Not');
+      expect(JSON.stringify(res.body)).not.toContain('Mine');
+    });
+
+    it('returns an empty list for a class with no schedules', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+
+      const groupClass = await seedClass();
+
+      const res = await adminAgent.get(`/api/v1/group-class-sessions/by-class/${groupClass._id}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.sessions).toEqual([]);
+    });
+
+    it('includes only sessions within the next 30 days (today-inclusive), excluding later weekly occurrences', async () => {
+      // Fakes ONLY Date (via `now`) and explicitly leaves every timer
+      // function real — faking setTimeout/setImmediate/nextTick here would
+      // hang the real Mongo driver + supertest's HTTP round trip this test
+      // still needs to make.
+      jest.useFakeTimers({
+        now: new Date('2026-08-25T12:00:00.000Z'), // a Tuesday, UTC midday
+        doNotFake: [
+          'setTimeout',
+          'clearTimeout',
+          'setInterval',
+          'clearInterval',
+          'setImmediate',
+          'clearImmediate',
+          'nextTick',
+        ],
+      });
+
+      try {
+        await seedAdmin();
+        const adminAgent = await loginAgent('test-admin@example.com');
+
+        const groupClass = await seedClass();
+        const coach = await User.create({
+          role: 'coach',
+          firstName: 'B',
+          lastName: 'Coach',
+          email: 'gcs-coach2@example.com',
+          passwordHash: await hashPassword(TEST_PASSWORD),
+        });
+
+        // dayOfWeek 2 = Tuesday, same day as "today" in the frozen clock —
+        // the schedule's first generated session lands on today at 00:00,
+        // proving the today-inclusive edge. 8 weekly sessions are generated
+        // (today, +7, +14, +21, +28, +35, +42, +49) — only the first 5
+        // (offsets 0-28) fall within the 30-day window.
+        const scheduleRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+          classId: groupClass._id.toString(),
+          coachId: coach._id.toString(),
+          dayOfWeek: 2,
+          startTime: '16:00',
+          endTime: '17:00',
+          students: [],
+        });
+
+        const res = await adminAgent.get(`/api/v1/group-class-sessions/by-class/${groupClass._id}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.sessions).toHaveLength(5);
+
+        const allGenerated = await GroupClassSession.find({
+          scheduleId: scheduleRes.body.schedule._id,
+        }).sort({ date: 1 });
+        expect(allGenerated).toHaveLength(8);
+        // The first returned session IS today, at midnight.
+        expect(new Date(res.body.sessions[0].date).toISOString()).toBe('2026-08-25T00:00:00.000Z');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   describe('GET /:id', () => {
     it('returns the session with student names populated, not bare ObjectIds', async () => {
       await seedAdmin();

@@ -255,6 +255,41 @@
   color: var(--color-muted);
 }
 
+/* ── PillRow ─────────────────────────────────────────────────── */
+.pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.pill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pillSelected {
+  border-color: var(--color-gold);
+  background: var(--sidebar-active-bg);
+}
+
+.pillLabel {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.pillSub {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
 /* ── FlowConfirmation ────────────────────────────────────────── */
 .confirmCard {
   text-align: center;
