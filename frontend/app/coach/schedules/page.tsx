@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import api from '../../../lib/api';
 import { DAY_LABELS } from '../../../lib/constants';
+import { formatTime } from '../../../lib/formatTime';
 import ProtectedRoute from '../../components/ProtectedRoute';
 import AppShell from '../../components/layout/AppShell';
 import Card from '../../components/ui/Card/Card';
@@ -87,8 +88,8 @@ function CoachSchedulesPageContent() {
                 <tr key={schedule._id}>
                   <td>{classNameFor(groupClasses, schedule.classId)}</td>
                   <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                  <td>{schedule.startTime}</td>
-                  <td>{schedule.endTime}</td>
+                  <td>{formatTime(schedule.startTime)}</td>
+                  <td>{formatTime(schedule.endTime)}</td>
                   <td>{schedule.students.length}</td>
                   <td>
                     <Link href={`/coach/schedules/${schedule._id}/sessions`}>View Sessions</Link>

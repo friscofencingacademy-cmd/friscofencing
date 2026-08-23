@@ -13,6 +13,7 @@ import {
   reactivateSubscription,
   type AdminSubscriptionStatusFilter,
 } from '../../../lib/services/subscriptionsAdmin';
+import { formatTime } from '../../../lib/formatTime';
 import type { AdminSubscriptionRow, GroupClass, GroupClassSchedule } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
@@ -36,7 +37,7 @@ function formatDateLabel(iso: string): string {
 }
 
 function scheduleLine(schedule: Pick<GroupClassSchedule, 'dayOfWeek' | 'startTime' | 'endTime'>): string {
-  return `${DAY_LABELS[schedule.dayOfWeek]} · ${schedule.startTime}-${schedule.endTime}`;
+  return `${DAY_LABELS[schedule.dayOfWeek]} · ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
 }
 
 function coachLine(schedule: AdminSubscriptionRow['scheduleId']): string {
@@ -175,7 +176,7 @@ export default function AdminSubscriptionsPage() {
 
   function candidateLabel(schedule: GroupClassSchedule): string {
     const groupClass = allGroupClasses.find((gc) => gc._id === schedule.classId);
-    return `${groupClass ? groupClass.name : 'Class'} — ${DAY_LABELS[schedule.dayOfWeek]} ${schedule.startTime}-${schedule.endTime}`;
+    return `${groupClass ? groupClass.name : 'Class'} — ${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
   }
 
   const selectedNewSchedule = allSchedules.find((s) => s._id === changeDialog.newScheduleId) ?? null;
