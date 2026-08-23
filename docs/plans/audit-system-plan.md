@@ -250,3 +250,56 @@ pass criteria (copied from Phase 3), the exact command to run (`cd audit && node
   runs next (`cd audit && npm install && npx playwright install chromium && cp .env.example .env`
   — then fill in real staging credentials, `node seed-audit-accounts.js` once, and
   `node run-registration-audit.js` for the first real run).
+
+---
+
+## Addendum — 2026-08-23: first real run against staging
+
+The written plan above was correct in design; the actual scenario/helper *code* had bugs no
+amount of reading could have caught without a real run — exactly the reason this system exists.
+Found and fixed, in order:
+
+1. **`audit/lib/login.js`**: the login button's accessible name changes to "Logging in..." the
+   instant the click handler starts, well before the request resolves — waiting for the "Log
+   In"-named element to *detach* matched that text change, not a real login (~400ms, zero
+   cookies set, still on `/login`). Fixed to wait for actual navigation away from `/login`. This
+   silently broke every scenario *and* the reporting step identically.
+2. **`backend/scripts/audit-seed.js`**: `findOrCreateUser`'s idempotency check queried by
+   `email` — students have none, so `User.findOne({ email: undefined })` (Mongoose drops the
+   undefined key) matched the first unrelated user in the whole collection instead of ever
+   creating a student. Zero student documents were ever actually created on the first seed run.
+   Fixed to key students by role+name+parentId instead.
+3. **`audit/lib/stripe-card.js`**: the payment-method page's `CardElement` uses Stripe's default
+   options (no `hidePostalCode`), so it has a ZIP field too — omitting it produced a real,
+   legible "Your postal code is incomplete." error that surfaced as a downstream save timeout.
+4. **`audit/scenarios/s3-sibling-discount.js`**: `Locator.isVisible({timeout})` checks the DOM
+   immediately — it does not actually wait/retry despite accepting a `timeout` option. The live
+   discount preview needs a real network round-trip; the immediate check always read `false`.
+   Fixed to `.waitFor({state:'visible'})`.
+5. **`backend/scripts/audit-reset.js`**: clearing the Mongo `Registration` doc doesn't free
+   Stripe's own 24h idempotency-key cache for `initial-registration-${studentId}-${scheduleId}`
+   — a second attempt with the same pair collided with "Keys for idempotent requests can only be
+   used with the same parameters they were first used with," a real 500, even right after a full
+   DB reset. Fixed by deleting the student documents themselves so re-seeding gives them fresh
+   `_id`s (and therefore a fresh idempotency key) every cycle. Also found missing entirely:
+   `PaymentMethod` cleanup for the fixed parents (needed so S4 gets a guaranteed-unsaved card
+   every run) — added.
+6. **`audit/scenarios/s4-decline.js`** (design correction, not just a bug fix): the original
+   design assumed Stripe's decline card saves successfully and only fails at charge time — wrong,
+   confirmed live. `4000000000000002` declines at `stripe.paymentMethods.attach()` itself,
+   surfacing as `POST /payment-methods` → 500 "Your card was declined." Rewrote S4 to test the
+   real behavior (decline at the payment-method save step, not at registration checkout).
+   **Real app finding, not fixed here** (this is the audit surfacing it, not silently patching
+   app behavior): that 500 is architecturally inconsistent with `registration.service.js`'s own
+   decline path, which correctly uses 402 for the same class of failure — a card decline is an
+   expected user-facing outcome, not a server error. Flagging for a future decision, not acting
+   on it unilaterally.
+7. **`audit/scenarios/s4-decline.js`** (second bug, same file): the payment-method page renders
+   **two** `role="alert"` elements (the real one plus an unrelated always-empty one elsewhere in
+   the portal shell). `page.getByRole('alert')` resolved to either, non-deterministically — when
+   it picked the empty one, the scenario reported "Decline message not clean/legible: ''" even
+   though the real message was correct. Fixed by filtering to the alert with actual text.
+
+**Result: 4/4 scenarios passing** on the first fully clean run after all fixes, confirmed both in
+the script's own console report and by reading it back via `GET /audit-runs?latest=true` —
+visible on `/admin/audits` on staging.

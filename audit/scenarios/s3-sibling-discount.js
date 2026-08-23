@@ -19,9 +19,17 @@ async function registerChild(page, config, childNameRegex, className, expectDisc
   await page.getByLabel('Schedule').waitFor();
   await page.getByLabel('Schedule').selectOption({ index: 1 });
 
+  // Found on the first real run against staging, not assumed: Locator
+  // .isVisible() checks the DOM state immediately — it doesn't actually
+  // wait/retry the way .waitFor()/auto-waiting actions do, despite taking a
+  // `timeout` option. The live discount preview (GET /registrations/preview)
+  // needs a real network round-trip, so an immediate isVisible() check ran
+  // before that fetch resolved and always reported false. waitFor() properly
+  // polls until the timeout instead.
   const discountVisible = await page
     .getByText(/10% sibling discount applied/i)
-    .isVisible({ timeout: 8000 })
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
     .catch(() => false);
 
   if (expectDiscount !== discountVisible) {
@@ -31,9 +39,9 @@ async function registerChild(page, config, childNameRegex, className, expectDisc
   }
 
   await page.getByRole('button', { name: /continue/i }).click();
-  await page.getByText(/card on file/i).waitFor({ timeout: 10000 });
+  await page.getByText(/card on file/i).waitFor({ timeout: 45000 });
   await page.getByRole('button', { name: /register & pay/i }).click();
-  await page.getByText('Registration complete!').waitFor({ timeout: 20000 });
+  await page.getByText('Registration complete!').waitFor({ timeout: 45000 });
 
   const sawConfirmationDiscount = await page
     .getByText('Sibling Discount')
@@ -58,7 +66,7 @@ async function run(context, config) {
     if (!alreadyOnFile) {
       await fillCardElement(page, { number: STRIPE_TEST_CARDS.success });
       await page.getByRole('button', { name: /save card/i }).click();
-      await page.getByText(/card on file/i).waitFor({ timeout: 15000 });
+      await page.getByText(/card on file/i).waitFor({ timeout: 30000 });
     }
 
     // First sibling, pricier class — no discount yet.

@@ -34,7 +34,7 @@ safe to re-run).
 | S1 | Trial booking (free, no Stripe) | 3-step wizard completes, confirmation screen renders |
 | S2 | Add a payment method (real `CardElement`, success card) then register for a group class | Card saves, registration completes, `Registration.status === 'active'` |
 | S3 | Sibling discount — second (cheaper) child vs. the first (pricier) | Live `GET /registrations/preview` discount line shown pre-charge exactly matches the real applied discount shown post-charge — never disagree |
-| S4 | Decline path (Stripe's documented decline card) | Card *saves* successfully (Frisco has no SetupIntent-at-save-time check), charge is declined, parent sees a clean message — never a raw Stripe/JS error, never a false-success confirmation |
+| S4 | Decline path (Stripe's documented decline card) | Corrected on the first real run, not assumed: the card is declined at the *save* step itself (`POST /payment-methods` returns 500 "Your card was declined." — Stripe's `4000000000000002` declines on `attach()`, not only on charge), not at checkout. Parent sees a clean message — never a raw Stripe/JS error — and no false "card on file" success |
 
 ## Report
 

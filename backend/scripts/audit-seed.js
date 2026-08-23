@@ -36,8 +36,20 @@ function assertStagingUri(uri) {
   }
 }
 
+// Found on the first real run against staging, not assumed: students have
+// no email, so a bare `{ email: fields.email }` idempotency check became
+// `findOne({ email: undefined })` for every student — Mongoose drops an
+// undefined key from the query before it reaches MongoDB, so this silently
+// matched the FIRST unrelated user in the whole collection (the seeded
+// coach) instead of ever creating a student. Zero student documents ever
+// got created; every "already exists" branch was actually wrong. Students
+// (no email) are identified by role + name + parentId instead.
 async function findOrCreateUser(fields, passwordHash) {
-  const existing = await User.findOne({ email: fields.email });
+  const lookup = fields.email
+    ? { email: fields.email }
+    : { role: fields.role, firstName: fields.firstName, lastName: fields.lastName, parentId: fields.parentId };
+
+  const existing = await User.findOne(lookup);
   if (existing) return existing;
   return User.create({ ...fields, passwordHash });
 }

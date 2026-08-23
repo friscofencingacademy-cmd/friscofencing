@@ -1,12 +1,22 @@
 const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 
-// S4 — decline path. Stripe's documented decline card saves successfully
-// (paymentMethod.service.js's savePaymentMethod only calls
-// stripe.paymentMethods.attach() — no SetupIntent/confirm at save time, see
-// docs/plans/audit-system-plan.md D3) and only fails at actual charge time.
-// Expects a clear, legible decline message (never a raw Stripe/JS error),
-// and no Registration/Subscription left in a false-success state.
+// S4 — decline path.
+//
+// Corrected on the first real run against staging, not assumed: the
+// original design (and this file's original comment) claimed Stripe's
+// decline card saves successfully and only fails at charge time, reasoning
+// from paymentMethod.service.js having no SetupIntent/confirm step. That
+// reasoning was wrong — confirmed live, Stripe's documented decline card
+// (4000000000000002) actually declines at stripe.paymentMethods.attach()
+// itself. POST /payment-methods returns 500 with message "Your card was
+// declined." (a real, if architecturally sloppy, finding on its own: a
+// card decline is an expected user-facing outcome, and 500 is normally
+// reserved for "our server broke" — registration.service.js's own decline
+// path correctly uses 402 for the same kind of failure. Not fixed here —
+// this is the audit surfacing it, not silently patching app behavior).
+// Expects a clean, legible message (never a raw Stripe/JS error or a raw
+// 500 page) and no false "card on file" success.
 async function run(context, config) {
   const page = await context.newPage();
 
@@ -15,36 +25,33 @@ async function run(context, config) {
 
     await page.goto(`${config.stagingUrl}/parent/payment-method`);
     const alreadyOnFile = await page.getByText(/card on file/i).isVisible().catch(() => false);
-    if (!alreadyOnFile) {
-      await fillCardElement(page, { number: STRIPE_TEST_CARDS.decline });
-      await page.getByRole('button', { name: /save card/i }).click();
-      // Saving a decline card is expected to SUCCEED — Stripe only declines
-      // at charge time. If it fails here instead, that's itself a finding.
-      await page.getByText(/card on file/i).waitFor({ timeout: 15000 });
+
+    if (alreadyOnFile) {
+      return {
+        id: 'S4',
+        name: 'Decline path (clean failure)',
+        result: 'skip',
+        note: 'A payment method is already on file for this account — run `npm run audit:reset` (then `audit:seed`) first for a clean decline test.',
+      };
     }
 
-    await page.goto(`${config.stagingUrl}/parent/register`);
+    await fillCardElement(page, { number: STRIPE_TEST_CARDS.decline });
+    await page.getByRole('button', { name: /save card/i }).click();
 
-    await page.getByRole('radio', { name: /audit declinechild/i }).click();
-    await page.getByRole('button', { name: /continue/i }).click();
+    // Found on the first real run against staging, not assumed: this page
+    // has TWO role="alert" elements (this one's Alert plus an unrelated,
+    // always-empty one elsewhere in the portal shell). page.getByRole
+    // ('alert') is ambiguous between them and can resolve to the empty one.
+    // Filter to the one that actually has text.
+    const alertWithText = page.getByRole('alert').filter({ hasNotText: /^$/ });
+    await alertWithText.first().waitFor({ timeout: 20000 });
+    const alertText = (await alertWithText.first().textContent()) || '';
 
-    await page.getByLabel('Class').selectOption({ label: 'Audit Class A' });
-    await page.getByLabel('Schedule').waitFor();
-    await page.getByLabel('Schedule').selectOption({ index: 1 });
-    await page.getByRole('button', { name: /continue/i }).click();
+    const looksRaw = /stripe|typeerror|undefined|\[object|internal server error/i.test(alertText);
+    const sawSaved = await page.getByText(/card on file/i).isVisible().catch(() => false);
 
-    await page.getByText(/card on file/i).waitFor({ timeout: 10000 });
-    await page.getByRole('button', { name: /register & pay/i }).click();
-
-    const alert = page.getByRole('alert');
-    await alert.waitFor({ timeout: 20000 });
-    const alertText = (await alert.textContent()) || '';
-
-    const looksRaw = /stripe|typeerror|undefined|\[object/i.test(alertText);
-    const sawSuccess = await page.getByText('Registration complete!').isVisible().catch(() => false);
-
-    if (sawSuccess) {
-      throw new Error('False success: confirmation screen rendered despite a declined card');
+    if (sawSaved) {
+      throw new Error('False success: a card appears saved despite using a Stripe decline test card');
     }
     if (looksRaw || !alertText.trim()) {
       throw new Error(`Decline message not clean/legible: "${alertText}"`);
@@ -52,14 +59,6 @@ async function run(context, config) {
 
     return { id: 'S4', name: 'Decline path (clean failure)', result: 'pass', note: alertText.trim() };
   } catch (error) {
-    if (await page.getByText(/already registered/i).isVisible().catch(() => false)) {
-      return {
-        id: 'S4',
-        name: 'Decline path (clean failure)',
-        result: 'skip',
-        note: 'Already registered from a prior run — run `npm run audit:reset` in backend/ first.',
-      };
-    }
     return { id: 'S4', name: 'Decline path (clean failure)', result: 'fail', note: error.message };
   } finally {
     await page.close();
