@@ -4,9 +4,19 @@ import type {
   GroupClassSchedule,
   GroupClassSession,
   GroupClassSessionDetail,
+  PublicGroupClassSchedule,
   SessionStudentEntry,
 } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+
+// ── Public (no auth) ─────────────────────────────────────────────────────
+
+export async function fetchPublicSchedules(): Promise<PublicGroupClassSchedule[]> {
+  const res = await api.get<{ schedules: PublicGroupClassSchedule[] }>(
+    '/group-class-schedules/public'
+  );
+  return res.data.schedules;
+}
 
 // ── Coaches (used by the schedule create/edit form) ─────────────────────
 

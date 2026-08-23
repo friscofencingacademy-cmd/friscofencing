@@ -60,4 +60,16 @@ async function remove(id) {
   return location;
 }
 
-module.exports = { create, list, getById, update, remove };
+// Unauthenticated public listing — a thin {name, address, timezone}
+// projection.
+async function listPublic() {
+  const locations = await Location.find();
+
+  return locations.map((location) => ({
+    name: location.name,
+    address: location.address,
+    timezone: location.timezone,
+  }));
+}
+
+module.exports = { create, list, getById, update, remove, listPublic };

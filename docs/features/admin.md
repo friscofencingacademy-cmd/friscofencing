@@ -77,9 +77,15 @@ Pattern A plus two new sub-patterns: role tabs above the table, and a third "cha
 - **Change Password dialog**: separate small dialog, one "New Password" field (client-side min-8 check), `PUT /users/:id/password` — distinct from the profile-edit endpoint. Closes on success; no list refetch needed since it doesn't change displayed columns.
 - **Delete dialog**: identical Pattern A shape. Backend guards (409): `parent` blocked if any `User.parentId` points at them; `student` blocked if referenced by a `Registration`, `Subscription`, or `TrialClass`; `coach` blocked if referenced by a `GroupClassSchedule.coachId`; `admin`/`superadmin` have no entity guard. A user can never delete their own account (400), and a non-superadmin can never view, edit, password-reset, or delete a `superadmin` row (403), even via a direct API call — see `docs/plans/admin-user-management-plan.md` for the full backend-enforced rule set (deliberately stricter than the CKQ reference this was adapted from).
 
+## Spotlights (`/admin/spotlights`)
+
+Pattern A. Columns: Name, Type, Title, Order, Published (Yes/No). Fields: type (select, coach/student), name (required), title, body (textarea), three optional "Bullet 1/2/3" text inputs (the model's `bullets` max-3 constraint is enforced by only offering 3 fields, rather than a dynamic add/remove list), Image URL, order (number), isPublished (checkbox). Save trims each field and omits blank optional ones (`undefined`, dropped by `JSON.stringify`) rather than sending empty strings. No delete guard — nothing else references a `Spotlight` by id. Backs the public home-page spotlights and `/coaches` — see `docs/features/public-site.md`. Sidebar: new **Content** section.
+
+**Image field**: a plain URL input, plus a file picker next to it ("Or upload a file:") that `POST`s to `/spotlights/upload-image` (multipart, 5MB cap) and fills the URL field with the returned Vercel Blob URL on success — either path writes the same `imageUrl` string, so the two are interchangeable. A thumbnail preview renders below once the field has a value. Save is disabled while an upload is in flight.
+
 ## Dashboard (`/admin/dashboard`)
 
-Raw list counts only (classes, schedules, locations, levels) fetched in parallel via the Phase-0 catalog/scheduling query services — no derived business metrics, per the backend-source-of-truth-style rule against inventing frontend math. `LoadError` with retry on failure. A quick-links card grid below links to all admin sections (Classes, Levels, Prices, Schedules, Locations, Users).
+Raw list counts only (classes, schedules, locations, levels) fetched in parallel via the Phase-0 catalog/scheduling query services — no derived business metrics, per the backend-source-of-truth-style rule against inventing frontend math. `LoadError` with retry on failure. No quick-links grid below the counts — the sidebar already reaches every admin section, so a second set of links was redundant (removed 2026-08-21).
 
 ## `/admin` (index)
 

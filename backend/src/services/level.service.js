@@ -69,4 +69,23 @@ async function remove(id) {
   return level;
 }
 
-module.exports = { create, list, getById, update, remove };
+// Unauthenticated public listing — a thin {name, order, monthlyFee}
+// projection, ordered for display. A level with no configured Price is
+// excluded rather than shown with a missing/invented fee.
+async function listPublic() {
+  const levels = await Level.find().sort({ order: 1 });
+  const prices = await Price.find({ levelId: { $in: levels.map((level) => level._id) } });
+  const monthlyFeeByLevelId = new Map(
+    prices.map((price) => [String(price.levelId), price.monthlyFee])
+  );
+
+  return levels
+    .filter((level) => monthlyFeeByLevelId.has(String(level._id)))
+    .map((level) => ({
+      name: level.name,
+      order: level.order,
+      monthlyFee: monthlyFeeByLevelId.get(String(level._id)),
+    }));
+}
+
+module.exports = { create, list, getById, update, remove, listPublic };

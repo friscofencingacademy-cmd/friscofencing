@@ -1,6 +1,6 @@
 # Frisco Fencing Academy — Design System
 
-Short by design — this is a data-dense admin/CRM app with no public marketing site in MVP scope, not a full product design system. Extend this file if a pattern repeats a third time; don't pre-build for patterns that don't exist yet.
+Short by design — this is primarily a data-dense admin/CRM app, plus a small public marketing surface (`/`, `/classes`, `/coaches`, `/register`, `/login`, see `docs/features/public-site.md`), not a full product design system. Extend this file if a pattern repeats a third time; don't pre-build for patterns that don't exist yet.
 
 ## Principles
 
@@ -52,13 +52,13 @@ Three shells coexist, each serving a distinct role set. Never mix a page from on
 
 ### `AppShell` (`frontend/app/components/layout/AppShell.tsx`) — coach + logged-out only
 
-One top nav bar + centered content wrapper (`min(1100px, 100%)`). As of the CKQ UI adoption plan (Phase 1/3), AppShell serves **coach and logged-out visitors only** — admin/superadmin and parent moved to their own dedicated shells below (their `NAV_LINKS_BY_ROLE` entries are now empty arrays, the component itself was kept rather than deleted since coach still needs it). A `Welcome, {firstName}` + logout button renders on the right for the roles that use it.
+One top nav bar + centered content wrapper (`min(1100px, 100%)`). As of the CKQ UI adoption plan (Phase 1/3), AppShell serves **coach and logged-out visitors only** — admin/superadmin and parent moved to their own dedicated shells below (their `NAV_LINKS_BY_ROLE` entries are now empty arrays, the component itself was kept rather than deleted since coach still needs it). A `Welcome, {firstName}` + logout button renders on the right for the roles that use it. The logged-out branch renders the **public nav** instead (`PUBLIC_NAV_LINKS`): Classes, Coaches, Private Lessons, then Log In + Book a Free Trial (primary) — see `docs/features/public-site.md`.
 
 ### Admin shell (`frontend/app/admin/layout.tsx` + `layout.module.css`) — dark, "back office"
 
 Role-gated in the layout itself (admin/superadmin only — a non-admin visitor is redirected to `/` and sees no flash of admin chrome). Structure:
 
-- **Sidebar** (`--sidebar-w` 220px desktop): brand block (wordmark + gold dot, role label) → nav list → sidebar footer (`Welcome, {firstName}` + logout). Dashboard renders standalone above the collapsible sections; sections are **Programs** (Classes, Levels, Prices), **Schedule** (Schedules), **Places** (Locations) — hardcoded in `NAV_SECTIONS` inside `layout.tsx`, not data-driven (5 items across 3 sections doesn't earn a config layer). A section auto-opens when it contains the active route (`useEffect` on `pathname`) and collapses the others.
+- **Sidebar** (`--sidebar-w` 220px desktop): brand block (wordmark + gold dot, role label) → nav list → sidebar footer (`Welcome, {firstName}` + logout). `TOP_LEVEL_ITEMS` (Dashboard, Users) render standalone above the collapsible `NAV_SECTIONS` — **Programs** (Classes, Levels, Schedules, Subscriptions, Private Classes, Coach Contracts), **Billing** (Prices), **Places** (Locations), **Content** (Spotlights) — both hardcoded inside `layout.tsx`, not data-driven. A section auto-opens when it contains the active route (`useEffect` on `pathname`) and collapses the others; a collapsed section's items stay in the DOM (only a CSS class toggles visibility), so a test can query them without opening the section first.
 - **Active state**: exact match for `/admin/dashboard`, prefix match (`pathname.startsWith(href)`) for everything else — so `/admin/schedules/abc/sessions` still highlights "Schedules". Active links carry `aria-current="page"`.
 - **Breakpoints**: ≥1024px full sidebar with labels; 768–1023px icon-only sidebar (`--sidebar-icon-w` 64px, labels/section-labels hidden via CSS, not React); ≤767px sidebar becomes a fixed off-canvas drawer (`left: -100%` → `left: 0`) behind a semi-transparent overlay, opened by a sticky top bar (`--topbar-h` 52px) hamburger button.
 - Admin pages no longer wrap themselves in `<ProtectedRoute>`/`<AppShell>` — the layout provides both the role gate and the chrome.
@@ -84,6 +84,10 @@ One dialog handles both create and edit (`dialog.id === null` means create); a s
 
 Three states, always in this order of precedence: loading → empty (onboarding stepper, when this is the very first meaningful list) → populated (a card grid). Never skip the empty state to show a populated-but-zero-items table — an onboarding stepper with a clear next action converts better than a table with a header row and nothing under it.
 
+### Public marketing pages (`docs/features/public-site.md` for full detail) — the one deliberate exception to "LoadError always"
+
+`/` composes `Hero`, `SpotlightCard`, `StepsRow`, `LevelGrid`, `CtaBand` (`app/components/marketing/`) from `/*/public` (no-auth) backend endpoints. **On the home page only**, a failed section fetch renders nothing — never `LoadError` — because a marketing page must not show a stranger an error card; a section with no data (or a failed fetch) simply doesn't render, the same rule as "no data." `/classes` and `/coaches` are utility pages, not marketing, and use `LoadError` normally. Every rendered value on these pages traces to a `/*/public` response field — no client-side price/availability/seat-count math, ever (mirrors the billing-SOT rule below, extended to the public catalog).
+
 ### Flow wizard (`docs/features/parent-portal.md`'s "Flow kit" section for full component contracts)
 
 The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMain` provides the shell — breadcrumb, title, optional numbered stepper, and a two-column layout (step content + a **sticky summary rail that owns the single advance/submit CTA for that step** — never render a second submit button inside the step content itself). The final step collapses to `singleColumn` and swaps the step content for `FlowConfirmation`. Step state is local (`useState`, never URL/query-driven except for an optional `?child=` deep-link preselect), so back-navigation is free — nothing needs to be persisted or refetched across steps.
@@ -95,13 +99,14 @@ The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMa
 | `Button` | `app/components/ui/Button/` | **The only button.** Polymorphic (`as="button"` or `as="a"` + `href`) discriminated union — using `href` on button-mode or omitting it on anchor-mode is a compile-time type error, not a runtime bug. Variants: `primary`/`secondary`/`ghost`/`danger`. Sizes: `sm`/`md`/`lg`. Supports `loading`, `disabled`, `fullWidth`. |
 | `Alert` | `app/components/ui/Alert/` | `variant="success"` (`role="status"`) or `variant="error"` (`role="alert"`) — the `role` distinction matters for assistive tech (errors interrupt, status updates don't). |
 | `Card` | `app/components/ui/Card/` | Simple bordered/shadowed surface wrapper. |
-| `LoadError` | `app/components/ui/LoadError/` | `{ message?, onRetry?, compact? }` — the ONLY way a failed query renders; pairs with `useLoadState`. Never a modal. |
+| `LoadError` | `app/components/ui/LoadError/` | `{ message?, onRetry?, compact? }` — the ONLY way a failed query renders; pairs with `useLoadState`. Never a modal. One documented exception: the home page (`/`) — see "Public marketing pages" above. |
 | `useLoadState` / `getErrorMessage` | `lib/hooks/useLoadState.ts` | Generic async query hook (`{ data, error, isLoading, retry }`) + a status-code-aware error-message extractor (backend message for a user-facing 4xx, generic text otherwise). |
 | `AdminPageHeader` / `AdminTableRows` | `app/components/admin/` | Admin-only page-header and loading/empty table-row primitives. |
 | `PortalLayout` / `ParentPortalShell` | `app/components/portal/` | Portal shell primitives — see "Shells" above. |
 | `AddChildModal` | `app/components/portal/AddChildModal/` | `{ onClose, onSuccess }` — the one place a household adds a child; used from 3 call sites (children page, sidebar, dashboard empty state). |
 | Flow kit (`FlowMain`, `FlowStepper`, `FlowSection`, `ChildPickerCards`, `OrderSummary`, `FlowConfirmation`) | `app/components/portal/flow/` | See "Flow wizard" pattern above. |
-| `lib/services/{catalog,scheduling,parent}.ts` | `lib/services/` | Query-throws / mutation-never-throws contract — see `docs/TESTING_STRATEGY.md`'s error-handling contract for how to test each side. |
+| Marketing kit (`Hero`, `SpotlightCard`, `StepsRow`, `LevelGrid`, `ScheduleTable`, `CtaBand`) | `app/components/marketing/` | Public-site presentational components — see "Public marketing pages" above and `docs/features/public-site.md`. |
+| `lib/services/{catalog,scheduling,parent,spotlights}.ts` | `lib/services/` | Query-throws / mutation-never-throws contract — see `docs/TESTING_STRATEGY.md`'s error-handling contract for how to test each side. Each file's `── Public (no auth) ──` block groups the unauthenticated `/*/public` fetchers separately from the authenticated ones. |
 | `lib/types.ts` | `lib/` | Domain interfaces typed against real backend responses — the single source of truth for a `Location`/`Student`/`Subscription`/etc. shape on the frontend. |
 
 ## Anti-patterns
@@ -130,4 +135,4 @@ Before opening a PR that touches any page/component covered by this doc:
 
 ## Explicitly not adopted from CKQ (scope, not oversight)
 
-Bootstrap, Playfair-style display serif, the discovery/calendar page patterns, the four-surface notification hierarchy, animated stat bars, stylelint CI enforcement of these rules, CKQ's membership/premium-upsell machinery, view-as impersonation, and agent chat. All exist to serve a public marketing site and a portal-scale feature set this MVP doesn't have. Revisit if/when this project grows a public site.
+Bootstrap, Playfair-style display serif, the discovery/calendar page patterns, the four-surface notification hierarchy, **animated stat bars/counters**, testimonial walls, stylelint CI enforcement of these rules, CKQ's membership/premium-upsell machinery, view-as impersonation, and agent chat. The animated-stats and testimonial-wall exclusions are a deliberate call on the now-shipped public site (`docs/features/public-site.md`), not an MVP-scope placeholder — every public page's copy/numbers must trace to a real backend field, which rules out an unverifiable counter or a vague-praise carousel by construction, not just by taste. The rest exist to serve a portal-scale feature set this app doesn't have; revisit only if that changes.

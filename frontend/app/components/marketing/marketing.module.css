@@ -1,0 +1,137 @@
+/* Type scale + layout specific to the public marketing surface — anything
+   expressible with existing shared.module.css tokens/classes stays there;
+   this file only holds what isn't (hero clamp() sizing, the gold eyebrow,
+   the ink closing band). */
+
+.eyebrow {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-gold);
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin: 0 0 var(--space-2);
+}
+
+/* Shared two-column responsive layout — Hero (photo right) and
+   SpotlightCard (photo left OR right, via a reversed prop) both use this
+   rather than each defining their own near-identical grid. */
+.twoColGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  align-items: center;
+  padding: var(--space-6) 0;
+}
+
+.heroTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1.05;
+  margin: 0 0 var(--space-3);
+}
+
+.heroSubcopy {
+  color: var(--color-muted);
+  max-width: 560px;
+  font-size: 18px;
+  margin: 0 0 var(--space-4);
+}
+
+.heroActions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.photoPlaceholder {
+  aspect-ratio: 4 / 5;
+  background: var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: var(--space-4);
+}
+
+@media (max-width: 760px) {
+  .twoColGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.spotlightTitle {
+  color: var(--color-gold);
+  font-weight: 700;
+  margin: 0 0 var(--space-3);
+}
+
+.spotlightBullets {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.2em;
+  color: var(--color-muted);
+}
+
+.stepsRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-5);
+  text-align: center;
+  padding: var(--space-6) 0;
+}
+
+.stepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+  font-weight: 900;
+  font-family: var(--font-heading), sans-serif;
+  margin: 0 auto var(--space-2);
+}
+
+.stepLabel {
+  font-weight: 600;
+  margin: 0;
+}
+
+.levelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+.levelName {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  margin: 0 0 var(--space-1);
+}
+
+.levelFee {
+  color: var(--color-gold);
+  font-weight: 700;
+  margin: 0;
+}
+
+.ctaBand {
+  background: var(--color-ink);
+  color: var(--color-white);
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+  border-radius: var(--radius-md);
+  margin: var(--space-6) 0;
+}
+
+.ctaBandTitle {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 900;
+  margin: 0 0 var(--space-4);
+}

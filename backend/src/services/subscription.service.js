@@ -5,6 +5,7 @@ const GroupClass = require('../models/groupClass.model');
 const User = require('../models/user.model');
 const { todayAtMidnight } = require('../utils/billingDates');
 const { addStudentToRoster, removeStudentFromRoster } = require('./roster.service');
+const { computeAvailability } = require('./groupClassSchedule.service');
 const mailService = require('./mail.service');
 
 function notFoundError(message) {
@@ -263,7 +264,7 @@ async function changeSchedule(subscriptionId, newScheduleId) {
     throw conflictError('Schedule changes must stay within the same level');
   }
 
-  if (newSchedule.students.length >= newGroupClass.capacity) {
+  if (computeAvailability(newSchedule, newGroupClass) === 'full') {
     throw conflictError('The new schedule is at capacity');
   }
 

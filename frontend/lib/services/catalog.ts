@@ -1,6 +1,18 @@
 import api from '../api';
-import type { GroupClass, Level, Location, Price } from '../types';
+import type { GroupClass, Level, Location, Price, PublicLevel, PublicLocation } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+
+// ── Public (no auth) ─────────────────────────────────────────────────────
+
+export async function fetchPublicLevels(): Promise<PublicLevel[]> {
+  const res = await api.get<{ levels: PublicLevel[] }>('/levels/public');
+  return res.data.levels;
+}
+
+export async function fetchPublicLocations(): Promise<PublicLocation[]> {
+  const res = await api.get<{ locations: PublicLocation[] }>('/locations/public');
+  return res.data.locations;
+}
 
 // ── Locations ────────────────────────────────────────────────────────────
 

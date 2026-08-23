@@ -48,6 +48,37 @@ export interface GroupClassSchedule {
   students: string[];
 }
 
+// GET /locations/public — no auth, no `_id` (see location.service.js's
+// listPublic).
+export interface PublicLocation {
+  name: string;
+  address: string;
+  timezone: string;
+}
+
+// GET /levels/public — no auth. Excludes any level with no configured
+// Price rather than showing a missing/invented fee (see level.service.js's
+// listPublic).
+export interface PublicLevel {
+  name: string;
+  order: number;
+  monthlyFee: number;
+}
+
+// GET /group-class-schedules/public — no auth, no ids/roster; `availability`
+// is a server-derived 'open' | 'full' string only (see
+// groupClassSchedule.service.js's listPublic/computeAvailability).
+export interface PublicGroupClassSchedule {
+  className: string;
+  levelName: string;
+  locationName: string;
+  coachName: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  availability: 'open' | 'full';
+}
+
 export interface SessionStudentEntry {
   studentId: string;
   isPresent: boolean;
@@ -308,6 +339,32 @@ export interface PrivateClassSessionRow {
   markedBy: string | null;
   markedAt: string | null;
   sessionPrice: number | null;
+}
+
+// ── Spotlights (public-site plan, GAP-2) ──────────────────────────────────
+
+export type SpotlightType = 'coach' | 'student';
+
+export interface Spotlight {
+  _id: string;
+  type: SpotlightType;
+  name: string;
+  title?: string;
+  body?: string;
+  bullets: string[];
+  imageUrl?: string;
+  isPublished: boolean;
+  order: number;
+}
+
+// GET /spotlights/public?type=coach|student — no auth, published only,
+// verbatim strings (see spotlight.service.js's listPublic).
+export interface PublicSpotlight {
+  name: string;
+  title?: string;
+  body?: string;
+  bullets: string[];
+  imageUrl?: string;
 }
 
 // PATCH .../attendance and POST .../retry-charge share this response shape.
