@@ -4,7 +4,7 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 ## Backend (`backend/`)
 
-**Current state: 28 test suites / 251 tests passing, run under `TZ=UTC`, 2026-08-21 (after `docs/plans/ckq-parity-plan.md`, all 4 phases).**
+**Current state: 29 test suites / 267 tests passing, run under `TZ=UTC`, 2026-08-23 (after the Book a Trial schedule-step removal — `GET /group-class-sessions/by-class/:classId`).**
 
 ```
 cd backend && TZ=UTC npm test
@@ -28,7 +28,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 37 test suites / 181 tests passing, run under `TZ=UTC`, 2026-08-21 (after `docs/plans/ckq-parity-plan.md`, all 4 phases).**
+**Current state: 43 test suites / 219 tests passing, run under `TZ=UTC`, 2026-08-23 (after the Book a Trial schedule-step removal + `PillRow` picker + the public home page copy fixes).**
 
 ```
 cd frontend && TZ=UTC npm test

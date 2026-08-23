@@ -40,6 +40,7 @@ Shared building blocks for the multi-step registration/trial wizards:
 - **`FlowStepper`** — numbered circles; gold-filled + active label for the current step, a checkmark for completed steps, plain outline + number for upcoming ones.
 - **`FlowSection`** — a bordered card with an optional title, used to group one logical piece of a step's form.
 - **`ChildPickerCards`** — `{ students, selectedId, onSelect }`, a `radiogroup` of radio-cards (palette avatar + name + skill level), one per household child.
+- **`PillRow<T>`** — `{ items, selectedKey, onSelect, getKey, getLabel, getSub?, ariaLabel }`, a `radiogroup` of pill buttons (generic, gold-accented selected state — CKQ-style picker, adapted to Frisco's tokens and `ChildPickerCards`' own `radiogroup`/`radio` a11y pattern rather than CKQ's `aria-pressed` buttons). Currently used only by Book a Trial's session picker.
 - **`OrderSummary`** — `{ lines, cta?, ctaDisabled?, ctaLoading?, onCta?, note? }`. **The advance/submit button for a step lives here, never duplicated elsewhere on the page** — every wizard step's CTA sits in the sticky summary rail so the reviewer's eye never has to leave the summary to know what happens next.
 - **`FlowConfirmation`** — the terminal success panel: a check icon, title/subtitle, a small label/value detail grid, and next-step links.
 
@@ -51,7 +52,7 @@ Both wizards keep local step state (`useState(0)`) — no URL-driven step routin
 
 ### Book a Trial (`/parent/book-trial`) — 3 steps
 
-`Who` (`ChildPickerCards` from `ParentPortalContext`) → `Pick a Class` (class → schedule → session cascade, unchanged same-day-session filtering logic) → `Confirmation` (`FlowConfirmation` with child + session date, links to Dashboard/Register). The summary rail's CTA reads "Continue" on step 0 and "Book Trial Class" on step 1.
+`Who` (`ChildPickerCards` from `ParentPortalContext`) → `Pick a Class` (class → session — **no separate schedule step**: picking a class fetches every upcoming session across ALL of that class's schedules via `GET /group-class-sessions/by-class/:classId`, next 30 days, today-inclusive, server-filtered — the parent picks a session directly via `PillRow`, not a recurring weekly schedule first) → `Confirmation` (`FlowConfirmation` with child + session date/time, links to Dashboard/Register). The summary rail's CTA reads "Continue" on step 0 and "Book Trial Class" on step 1. Register (below) is unchanged — it still has an explicit schedule step, since enrolling is a recurring weekly commitment, not a one-time trial date.
 
 ### Register (`/parent/register`) — 4 steps
 

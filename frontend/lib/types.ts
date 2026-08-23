@@ -108,6 +108,21 @@ export interface GroupClassSessionDetail {
   students: PopulatedSessionStudentEntry[];
 }
 
+// GET /group-class-sessions/by-class/:classId — trial booking's session
+// picker. scheduleId is populated with ONLY the display fields (never the
+// roster or coachId — a parent browsing trial dates must never see another
+// family's child names).
+export interface GroupClassSessionWithSchedule {
+  _id: string;
+  date: string;
+  scheduleId: {
+    _id: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+  };
+}
+
 export interface Price {
   _id: string;
   levelId: string;

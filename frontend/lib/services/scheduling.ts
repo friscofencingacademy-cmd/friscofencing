@@ -4,6 +4,7 @@ import type {
   GroupClassSchedule,
   GroupClassSession,
   GroupClassSessionDetail,
+  GroupClassSessionWithSchedule,
   PublicGroupClassSchedule,
   SessionStudentEntry,
 } from '../types';
@@ -57,6 +58,16 @@ export async function createSchedule(
 export async function fetchSessionsBySchedule(scheduleId: string): Promise<GroupClassSession[]> {
   const res = await api.get<{ sessions: GroupClassSession[] }>(
     `/group-class-sessions/by-schedule/${scheduleId}`
+  );
+  return res.data.sessions;
+}
+
+// Trial booking's session picker — every upcoming session across ALL of a
+// class's schedules (next 30 days, server-filtered), so the parent picks a
+// session directly instead of a schedule first.
+export async function fetchSessionsByClass(classId: string): Promise<GroupClassSessionWithSchedule[]> {
+  const res = await api.get<{ sessions: GroupClassSessionWithSchedule[] }>(
+    `/group-class-sessions/by-class/${classId}`
   );
   return res.data.sessions;
 }
