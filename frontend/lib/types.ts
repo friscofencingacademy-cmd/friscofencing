@@ -257,6 +257,38 @@ export interface AdminSubscriptionListResponse {
   currentPage: number;
 }
 
+// ── Audit runs (docs/plans/audit-system-plan.md) ──────────────────────────
+// Typed against backend/src/models/auditRun.model.js exactly.
+
+export type AuditOverallResult = 'pass' | 'fail' | 'partial';
+export type AuditScenarioResult = 'pass' | 'fail' | 'skip';
+
+export interface AuditRunScenario {
+  id: string;
+  name: string;
+  result: AuditScenarioResult;
+  note: string;
+}
+
+export interface AuditRun {
+  _id: string;
+  auditName: string;
+  group: string | null;
+  overall: AuditOverallResult;
+  scenarios: AuditRunScenario[];
+  summary: string;
+  startedAt: string;
+  finishedAt: string;
+  runner: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LatestAuditRunsResponse {
+  runs: AuditRun[];
+  total: number;
+}
+
 // ── Private class flow (ckq-parity plan, Phase 4) ─────────────────────────
 
 export type PrivateEnrollmentStatus = 'active' | 'cancelled';
