@@ -6,41 +6,15 @@ import axios from 'axios';
 import api from '../../../lib/api';
 import { formatTime } from '../../../lib/formatTime';
 import { fetchMyPrivateEnrollments, cancelPrivateEnrollment } from '../../../lib/services/privateClass';
-import type { MyPrivateEnrollmentEntry } from '../../../lib/types';
+import type { MyPrivateEnrollmentEntry, Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
 import styles from '../../components/ui/shared.module.css';
 
-interface StudentRef {
-  _id: string;
-  firstName: string;
-  lastName: string;
-}
-
-interface ScheduleRef {
-  _id: string;
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
-}
-
-type SubscriptionStatus = 'active' | 'cancelled';
-
-interface SubscriptionItem {
-  _id: string;
-  studentId: StudentRef;
-  scheduleId: ScheduleRef;
-  status: SubscriptionStatus;
-  cancelAtPeriodEnd: boolean;
-  currentPeriodEnd: string;
-  nextBillingDate: string;
-  lastChargeAmount: number | null;
-}
-
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function formatSchedule(schedule: ScheduleRef): string {
+function formatSchedule(schedule: Subscription['scheduleId']): string {
   return `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
 }
 
@@ -190,7 +164,7 @@ function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessons
 }
 
 function SubscriptionsPageContent() {
-  const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -219,7 +193,7 @@ function SubscriptionsPageContent() {
     setError(null);
 
     try {
-      const res = await api.get<{ subscriptions: SubscriptionItem[] }>('/registrations/mine');
+      const res = await api.get<{ subscriptions: Subscription[] }>('/registrations/mine');
       setSubscriptions(res.data.subscriptions);
     } catch (err) {
       setError('Failed to load your registrations.');
@@ -301,6 +275,11 @@ function SubscriptionsPageContent() {
                     {subscription.lastChargeAmount !== null
                       ? `$${subscription.lastChargeAmount.toFixed(2)}`
                       : '—'}
+                    {subscription.lastSiblingDiscountApplied ? (
+                      <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
+                        10% sibling
+                      </span>
+                    ) : null}
                   </td>
                   <td>
                     {subscription.status === 'cancelled' ? null : subscription.cancelAtPeriodEnd ? (

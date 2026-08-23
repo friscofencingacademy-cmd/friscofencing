@@ -10,6 +10,17 @@ async function create(req, res) {
   }
 }
 
+async function preview(req, res) {
+  try {
+    const { studentId, scheduleId } = req.query;
+    const result = await registrationService.previewChargeAmount({ studentId, scheduleId }, req.user);
+    return res.status(200).json(result);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to preview registration pricing' });
+  }
+}
+
 async function listMine(req, res) {
   try {
     const subscriptions = await registrationService.listMine(req.user._id);
@@ -20,4 +31,4 @@ async function listMine(req, res) {
   }
 }
 
-module.exports = { create, listMine };
+module.exports = { create, preview, listMine };

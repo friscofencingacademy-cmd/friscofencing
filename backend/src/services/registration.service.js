@@ -45,13 +45,16 @@ function paymentFailedError(message) {
   return error;
 }
 
-// Registers `studentId` for `scheduleId`: validates permission + pricing,
-// charges the parent's saved card for the first period off-session via a
-// Stripe PaymentIntent, and only then creates the Registration/Subscription
-// docs and mutates rosters. No 3DS/requires_action handling for MVP — a
-// non-'succeeded' PaymentIntent status is treated as a failed registration
-// and nothing below step 11 is created.
-async function create({ studentId, scheduleId }, requestingUser) {
+// Shared by create() and previewChargeAmount() — the auth-critical,
+// order-sensitive first checks (does this student exist, does it belong to
+// this parent, does the schedule exist) are identical in both, so this is
+// the ONE place that logic lives. create()'s subsequent lookups
+// (existingSubscription, groupClass+availability, price) keep their exact
+// original order below, UNCHANGED — the preview path resolves groupClass/
+// price itself since a read-only pricing estimate has no reason to run the
+// existingSubscription/availability checks (the real POST below still
+// enforces both at actual charge time regardless of what a preview showed).
+async function resolveStudentForSchedule(studentId, scheduleId, requestingUser) {
   const student = await User.findById(studentId);
 
   if (!student || student.role !== 'student') {
@@ -67,6 +70,18 @@ async function create({ studentId, scheduleId }, requestingUser) {
   if (!schedule) {
     throw notFoundError('Group class schedule not found');
   }
+
+  return { student, schedule };
+}
+
+// Registers `studentId` for `scheduleId`: validates permission + pricing,
+// charges the parent's saved card for the first period off-session via a
+// Stripe PaymentIntent, and only then creates the Registration/Subscription
+// docs and mutates rosters. No 3DS/requires_action handling for MVP — a
+// non-'succeeded' PaymentIntent status is treated as a failed registration
+// and nothing below step 11 is created.
+async function create({ studentId, scheduleId }, requestingUser) {
+  const { student, schedule } = await resolveStudentForSchedule(studentId, scheduleId, requestingUser);
 
   const existingSubscription = await Subscription.findOne({
     studentId,
@@ -202,6 +217,45 @@ async function create({ studentId, scheduleId }, requestingUser) {
   };
 }
 
+// Read-only pricing/discount estimate for the register wizard's summary —
+// never creates a Registration/Subscription, never touches Stripe, and
+// deliberately doesn't require a saved payment method (showing a price
+// BEFORE the friction of adding a card is the point). Reuses the exact same
+// calculateChargeAmount() the real charge uses, so a preview can never
+// structurally disagree with what actually gets charged — the only way the
+// two could differ is a real state change between preview and submit (e.g.
+// a sibling's subscription changing), which is expected and correct per
+// ADR 001's "re-verified every time" philosophy, not a bug.
+async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
+  if (!studentId || !scheduleId) {
+    throw badRequestError('studentId and scheduleId are required');
+  }
+
+  const { student, schedule } = await resolveStudentForSchedule(studentId, scheduleId, requestingUser);
+
+  const groupClass = await GroupClass.findById(schedule.classId);
+
+  if (!groupClass) {
+    throw notFoundError('Group class not found');
+  }
+
+  const price = await Price.findOne({ levelId: groupClass.levelId });
+
+  if (!price) {
+    throw notFoundError("Pricing not configured for this class's level");
+  }
+
+  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount } =
+    await calculateChargeAmount(student, price.monthlyFee);
+
+  return {
+    monthlyFee: price.monthlyFee,
+    chargeAmount,
+    siblingDiscountApplied,
+    siblingDiscountAmount,
+  };
+}
+
 async function listMine(parentId) {
   const children = await User.find({ role: 'student', parentId }, '_id');
   const childIds = children.map((child) => child._id);
@@ -211,4 +265,4 @@ async function listMine(parentId) {
     .populate('scheduleId');
 }
 
-module.exports = { create, listMine, addOneMonth };
+module.exports = { create, previewChargeAmount, listMine, addOneMonth };

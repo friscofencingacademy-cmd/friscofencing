@@ -8,9 +8,20 @@ import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses, fetchLevels, fetchPrices } from '../../../lib/services/catalog';
 import { fetchSchedules } from '../../../lib/services/scheduling';
-import { createRegistration, fetchMyPaymentMethod } from '../../../lib/services/parent';
+import {
+  createRegistration,
+  fetchMyPaymentMethod,
+  fetchRegistrationPricePreview,
+} from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
-import type { GroupClass, GroupClassSchedule, Level, PaymentMethodInfo, Price } from '../../../lib/types';
+import type {
+  GroupClass,
+  GroupClassSchedule,
+  Level,
+  PaymentMethodInfo,
+  Price,
+  RegistrationPricePreview,
+} from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import LoadError from '../../components/ui/LoadError/LoadError';
@@ -43,6 +54,8 @@ function levelName(levels: Level[], id: string): string {
 interface RegisteredInfo {
   childName: string;
   chargeAmount: number;
+  siblingDiscountApplied?: boolean;
+  siblingDiscountAmount?: number;
 }
 
 export default function RegisterPage() {
@@ -73,6 +86,7 @@ export default function RegisterPage() {
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [registered, setRegistered] = useState<RegisteredInfo | null>(null);
+  const [pricePreview, setPricePreview] = useState<RegistrationPricePreview | null>(null);
 
   // Deep-link preselect: /parent/register?child=<studentId>
   useEffect(() => {
@@ -81,6 +95,31 @@ export default function RegisterPage() {
       setStudentId(preselect);
     }
   }, [searchParams]);
+
+  // Live sibling-discount preview as soon as both a child and a schedule are
+  // picked — a non-critical estimate: a failure here is swallowed silently
+  // (never a stepError) since the real charge is always correctly computed
+  // server-side at submit time regardless of whether this preview loaded.
+  useEffect(() => {
+    if (!studentId || !scheduleId) {
+      setPricePreview(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetchRegistrationPricePreview({ studentId, scheduleId })
+      .then((preview) => {
+        if (!cancelled) setPricePreview(preview);
+      })
+      .catch(() => {
+        if (!cancelled) setPricePreview(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, scheduleId]);
 
   const filteredSchedules = classId ? schedules.filter((schedule) => schedule.classId === classId) : [];
 
@@ -109,6 +148,8 @@ export default function RegisterPage() {
       setRegistered({
         childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
         chargeAmount: result.data.chargeAmount,
+        siblingDiscountApplied: result.data.siblingDiscountApplied,
+        siblingDiscountAmount: result.data.siblingDiscountAmount,
       });
       setStep(3);
       reload();
@@ -132,7 +173,12 @@ export default function RegisterPage() {
           <FlowConfirmation
             title="Registration complete!"
             subtitle={`Your card was charged $${registered?.chargeAmount.toFixed(2)}.`}
-            lines={[{ label: 'Child', value: registered?.childName }]}
+            lines={[
+              { label: 'Child', value: registered?.childName },
+              ...(registered?.siblingDiscountApplied
+                ? [{ label: 'Sibling Discount', value: `-$${registered.siblingDiscountAmount?.toFixed(2)}` }]
+                : []),
+            ]}
             links={
               <>
                 <Button as="a" href="/parent/dashboard">
@@ -157,6 +203,12 @@ export default function RegisterPage() {
       value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${formatTime(selectedSchedule.startTime)}-${formatTime(selectedSchedule.endTime)}` : '—',
     },
     { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
+    ...(pricePreview?.siblingDiscountApplied
+      ? [
+          { label: 'Sibling Discount', value: `-$${pricePreview.siblingDiscountAmount.toFixed(2)}` },
+          { label: "You'll Pay", value: `$${pricePreview.chargeAmount.toFixed(2)}` },
+        ]
+      : []),
   ];
 
   const noPaymentMethod = step === 2 && !paymentMethod;
@@ -238,6 +290,9 @@ export default function RegisterPage() {
                 selectedPrice ? (
                   <p>
                     Level: {levelName(levels, selectedGroupClass.levelId)} — ${selectedPrice.monthlyFee}/month
+                    {pricePreview?.siblingDiscountApplied ? (
+                      <> · 10% sibling discount applied — ${pricePreview.chargeAmount.toFixed(2)}/month</>
+                    ) : null}
                   </p>
                 ) : (
                   <Alert variant="error">Pricing is not configured for this class yet.</Alert>

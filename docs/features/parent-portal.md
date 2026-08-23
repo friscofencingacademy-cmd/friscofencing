@@ -56,7 +56,7 @@ Both wizards keep local step state (`useState(0)`) — no URL-driven step routin
 
 ### Register (`/parent/register`) — 4 steps
 
-`Who` → `Class` (class → schedule cascade + resolved price preview) → `Review & Pay` (saved-payment-method guard now lives here: no card on file → inline notice + link to `/parent/payment-method`, CTA disabled — previously this guard replaced the entire form) → `Done` (`FlowConfirmation` with the charged amount).
+`Who` → `Class` (class → schedule cascade + a live `GET /registrations/preview` sibling-discount preview, fetched as soon as both are selected — read-only, best-effort: a failed preview is swallowed silently, never a step error, since the real charge is always correctly computed server-side at submit time regardless) → `Review & Pay` (saved-payment-method guard now lives here: no card on file → inline notice + link to `/parent/payment-method`, CTA disabled — previously this guard replaced the entire form) → `Done` (`FlowConfirmation` with the charged amount, and the real applied sibling discount if any — from the actual charge response, not the preview).
 
 ### Payment Method (`/parent/payment-method`)
 
