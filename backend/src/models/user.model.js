@@ -56,6 +56,18 @@ const userSchema = new Schema(
       unique: true,
       sparse: true,
     },
+    // The legacy system's stable per-person "PIN" (backend/scripts/
+    // import-legacy-data.js). Only ever set on migrated students — sparse:
+    // true so every non-migrated user (the overwhelming majority) omitting
+    // it never collides on `null`, same reasoning as email/stripeCustomerId
+    // above. This is what makes the import script idempotent: re-running it
+    // against a corrected export (e.g. the real data at go-live) upserts by
+    // this field instead of duplicating.
+    legacyPin: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   {
     timestamps: true,

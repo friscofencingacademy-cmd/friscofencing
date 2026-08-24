@@ -2,8 +2,7 @@ require('dotenv/config');
 
 const mongoose = require('mongoose');
 
-const User = require('../src/models/user.model');
-const { hashPassword } = require('../src/utils/password');
+const { seedSuperadmin } = require('./lib/seedSuperadmin');
 
 const REQUIRED_ENV_VARS = [
   'SUPERADMIN_EMAIL',
@@ -38,25 +37,13 @@ async function main() {
   }
 
   try {
-    const existing = await User.findOne({ email });
+    const { created } = await seedSuperadmin({ email, password, firstName, lastName });
 
-    if (existing) {
-      console.log(`Superadmin with email "${email}" already exists, skipping.`);
-      process.exitCode = 0;
-      return;
-    }
-
-    const passwordHash = await hashPassword(password);
-
-    await User.create({
-      role: 'superadmin',
-      firstName,
-      lastName,
-      email,
-      passwordHash,
-    });
-
-    console.log(`Superadmin "${email}" created successfully.`);
+    console.log(
+      created
+        ? `Superadmin "${email}" created successfully.`
+        : `Superadmin with email "${email}" already exists, skipping.`
+    );
     process.exitCode = 0;
   } catch (error) {
     console.error('Failed to seed superadmin:', error.message);

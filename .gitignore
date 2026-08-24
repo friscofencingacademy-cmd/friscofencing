@@ -1,0 +1,7 @@
+# Legacy migration source files (backend/scripts/import-legacy-data.js).
+# The CSV contains real students' names, phone numbers, emails, and
+# addresses — never committed to git history. The PDF is a working
+# reference already fully encoded into backend/scripts/legacy-import.config.js.
+Aug_23_2026_people.csv
+Class Schedule_New_Dueforapproval_v1.pdf
+*_people.csv
