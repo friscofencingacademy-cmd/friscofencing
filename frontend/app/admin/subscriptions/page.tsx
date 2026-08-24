@@ -314,6 +314,11 @@ export default function AdminSubscriptionsPage() {
                       </td>
                       <td className={styles.td}>
                         {scheduleLine(row.scheduleId)}
+                        {row.isPremium ? (
+                          <span className={styles.chipMuted} style={{ marginLeft: 6 }}>
+                            Premium — any session
+                          </span>
+                        ) : null}
                         <div className={styles.cellMuted}>{coachLine(row.scheduleId)}</div>
                       </td>
                       <td className={styles.td}>{formatDateLabel(row.nextBillingDate)}</td>
@@ -338,7 +343,7 @@ export default function AdminSubscriptionsPage() {
                       </td>
                       <td className={`${styles.td} ${styles.tdRight}`}>
                         <div className={styles.actionBtns}>
-                          {(isActive || isPendingCancel) && (
+                          {(isActive || isPendingCancel) && !row.isPremium && (
                             <button
                               type="button"
                               className={styles.btnSecondary}

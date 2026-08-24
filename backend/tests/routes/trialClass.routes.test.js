@@ -15,6 +15,7 @@ const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
+const Visit = require('../../src/models/visit.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const mailService = require('../../src/services/mail.service');
@@ -84,7 +85,6 @@ async function seedSession() {
     dayOfWeek: 3,
     startTime: '16:00',
     endTime: '17:00',
-    students: [],
   });
 
   expect(scheduleRes.status).toBe(201);
@@ -116,12 +116,13 @@ describe('TrialClass routes', () => {
 
       expect(res.status).toBe(201);
 
-      // Re-fetch the session to confirm the roster mutation persisted.
-      const session = await GroupClassSession.findById(sessionId);
-      const onRoster = session.students.some(
-        (entry) => String(entry.studentId) === String(student._id)
-      );
-      expect(onRoster).toBe(true);
+      // Confirms a scheduled Visit was created (trialClass.service.js's
+      // replacement for the old session.students roster push — docs/plans/
+      // premium-registration-and-attendance-plan.md §3.7).
+      const visit = await Visit.findOne({ studentId: student._id, groupClassSessionId: sessionId });
+      expect(visit).not.toBeNull();
+      expect(visit.status).toBe('scheduled');
+      expect(visit.classType).toBe('trial');
 
       // Confirms the mail wiring actually fires with the right participants
       // (not just that mocking it doesn't break the route). Compared by

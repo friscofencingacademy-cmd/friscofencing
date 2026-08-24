@@ -108,6 +108,17 @@ describe('AdminSubscriptionsPage', () => {
     expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument();
   });
 
+  it('shows a "Premium — any session" chip and hides Change Schedule for an active premium subscription', async () => {
+    rows = [makeRow({ isPremium: true })];
+    render(<AdminSubscriptionsPage />);
+
+    await screen.findByText('Sam Rivera');
+    expect(screen.getByText(/premium — any session/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /change schedule/i })).not.toBeInTheDocument();
+    // Cancel is still offered — premium only blocks Change Schedule.
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+  });
+
   it('shows a muted "Cancelled" chip and no actions for a cancelled subscription', async () => {
     rows = [makeRow({ status: 'cancelled', cancelAtPeriodEnd: false })];
     render(<AdminSubscriptionsPage />);

@@ -164,6 +164,30 @@ async function sendTrialConfirmationEmail({ parent, student, session, schedule, 
   }
 }
 
+async function sendTrialEvaluationEmail({ parent, student, coach, level, notes }) {
+  try {
+    const data = {
+      studentName: fullName(student),
+      coachName: fullName(coach),
+      levelName: level ? level.name : '',
+      notes: notes || '',
+    };
+
+    const { subject, html, text } = renderEmail('trialEvaluation', data);
+
+    return sendMailSafely({
+      to: parent.email,
+      cc: [ADMIN_EMAIL()],
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    console.error('mail.service: failed to build trialEvaluation email:', error.message);
+    return false;
+  }
+}
+
 async function sendRegistrationConfirmationEmail({
   parent,
   student,
@@ -406,6 +430,7 @@ async function sendPrivateClassCancellationEmail({ parent, student, coach, slotL
 module.exports = {
   getTransporter,
   sendTrialConfirmationEmail,
+  sendTrialEvaluationEmail,
   sendRegistrationConfirmationEmail,
   sendRenewalReceiptEmail,
   sendCancellationConfirmationEmail,

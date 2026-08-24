@@ -6,6 +6,8 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { useParentPortal } from '../../../context/ParentPortalContext';
 import { getChildPalette } from '../../../../lib/childPalette';
 import { formatTime } from '../../../../lib/formatTime';
+import { useLoadState } from '../../../../lib/hooks/useLoadState';
+import { fetchSchedules } from '../../../../lib/services/scheduling';
 import Button from '../../../components/ui/Button/Button';
 import styles from './child-detail.module.css';
 
@@ -22,6 +24,11 @@ export default function ChildDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const { students, subscriptions, trialClasses, loading } = useParentPortal();
+  // Page-specific option-list fetch, same exception ParentPortalContext's
+  // own doc comment already carves out for book-trial/register/payment-
+  // method — needed here only to show a premium subscription's full sibling
+  // -schedule list, not part of the shared household context's scope.
+  const { data: allSchedules } = useLoadState(fetchSchedules, []);
 
   const tab = resolveTab(searchParams.get('tab'));
 
@@ -128,11 +135,28 @@ export default function ChildDetailPage() {
         <div className={styles.card}>
           <h2 className={styles.cardTitle}>Schedule</h2>
           {activeSubscription ? (
-            <p>
-              Every {DAY_LABELS[activeSubscription.scheduleId.dayOfWeek]}, {formatTime(activeSubscription.scheduleId.startTime)}
-              {' - '}
-              {formatTime(activeSubscription.scheduleId.endTime)}.
-            </p>
+            activeSubscription.isPremium ? (
+              <>
+                <p>
+                  {student.firstName} is on the premium plan — they can attend any of this level&apos;s scheduled sessions:
+                </p>
+                <ul>
+                  {(allSchedules ?? [])
+                    .filter((schedule) => schedule.classId === activeSubscription.scheduleId.classId)
+                    .map((schedule) => (
+                      <li key={schedule._id}>
+                        Every {DAY_LABELS[schedule.dayOfWeek]}, {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
+                      </li>
+                    ))}
+                </ul>
+              </>
+            ) : (
+              <p>
+                Every {DAY_LABELS[activeSubscription.scheduleId.dayOfWeek]}, {formatTime(activeSubscription.scheduleId.startTime)}
+                {' - '}
+                {formatTime(activeSubscription.scheduleId.endTime)}.
+              </p>
+            )
           ) : (
             <p>{student.firstName} isn&apos;t enrolled in a recurring class yet.</p>
           )}

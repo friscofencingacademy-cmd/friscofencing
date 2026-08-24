@@ -42,13 +42,15 @@ Not a Pattern A CRUD page — a list + action-dialogs page over `Subscription` (
 
 - **Toolbar**: search input (client debounce 400ms → `q`, matches student/parent name or parent email, filtered in Node after populate — academy scale, not worth a search index), status select (All / Active / Pending cancel / Cancelled). Any filter change resets to page 1.
 - **Columns**: Student | Parent (email sub-line) | Class (name + level sub-line) | Schedule (day/time + coach sub-line) | Next billing | Last charge (`$X`, plus a `10% sibling` chip when `lastSiblingDiscountApplied`) | Status chip (`Active` / gold `Cancels <date>` / muted `Cancelled`) | Actions.
-- **Actions**: **Change Schedule** (active or pending-cancel), **Cancel** (active only), **Reactivate** (pending-cancel only).
+- **Actions**: **Change Schedule** (active or pending-cancel, **hidden for a premium subscription** — `row.isPremium`, see below), **Cancel** (active only), **Reactivate** (pending-cancel only).
 - **Change Schedule dialog** — two steps: *pick* (read-only "Current schedule" box + a "New schedule" select client-filtered to schedules at the same level, excluding the current one — hint text when none match) → *confirm* (before/after class+schedule+coach, plus "Monthly fee unchanged — same level."). A 409 (same-level violation, capacity, duplicate-subscription) renders inline and keeps the dialog open.
 - **Cancel dialog** — "Cancel {student}'s subscription? Classes continue through {date}; nothing is refunded and the subscription will not renew." (D8 — no refunds/proration, ever.)
 - **Reactivate dialog** — "Remove the pending cancellation? Renewals continue as normal; nothing is charged now."
 - **Pagination**: simple Prev/Next on `totalPages`.
 
-Backend `changeSchedule(subscriptionId, newScheduleId)` validation order: subscription active (409 otherwise — a pending-cancel sub CAN still move), target schedule exists and differs, **same level** (resolves both schedules' `classId → levelId`, 409 on mismatch — always price-neutral per D6, no delta charge/proration/sibling-discount recompute), target capacity, no duplicate active subscription on the target. Writes, in order: `Subscription.scheduleId`, the student's active `Registration.scheduleId`, `$pull` the old schedule's roster + its future sessions, `$addToSet`/push the new schedule's roster + its future sessions (the add/remove roster logic is shared via `backend/src/services/roster.service.js`, reused by `registration.service.js` and `renewal.service.js` too — previously duplicated in both). `cancel()` and `reactivate()` now also send confirmation emails (log-only try/catch, never blocks the write) — see `docs/modules/email.md`.
+**Premium subscriptions** (docs/plans/premium-registration-and-attendance-plan.md) — the live default since Phase 3 of that plan: `Subscription.isPremium` (set at registration time from the `ENABLE_SCHEDULE_BASED_REGISTRATION` flag). One flat fee for the whole level, attend any of its scheduled sessions — `scheduleId` is still stored (the student's chosen "home"/billing-anchor slot), but it's no longer a restriction. The Schedule column shows a muted "Premium — any session" chip next to the home slot, and **Change Schedule is hidden entirely** for these rows (`subscription.service.js`'s `changeSchedule` 409s before any other check — "there is no schedule to change"). A non-premium row (only reachable with the flag flipped to legacy schedule-based mode) keeps working exactly as documented below.
+
+Backend `changeSchedule(subscriptionId, newScheduleId)` validation order: subscription active (409 otherwise — a pending-cancel sub CAN still move), **not premium** (409, checked first), target schedule exists and differs, **same level** (resolves both schedules' `classId → levelId`, 409 on mismatch — always price-neutral per D6, no delta charge/proration/sibling-discount recompute), target capacity, no duplicate active subscription on the target. Writes, in order: `Subscription.scheduleId`, the student's active `Registration.scheduleId`, `$pull` the old schedule's roster + its future sessions, `$addToSet`/push the new schedule's roster + its future sessions (the add/remove roster logic is shared via `backend/src/services/roster.service.js`, reused by `registration.service.js` and `renewal.service.js` too — previously duplicated in both). `cancel()` and `reactivate()` now also send confirmation emails (log-only try/catch, never blocks the write) — see `docs/modules/email.md`.
 
 ## Coach Contracts (`/admin/coach-contracts`)
 
@@ -60,11 +62,15 @@ Pattern A minus edit. List: coach, `$/hr` billed to parent, `$/hr` coach compens
 
 ## Sessions (`/admin/schedules/:id/sessions`)
 
-Restyled table + header only (no CRUD — sessions are generated automatically when a schedule is created). Each row links to `/sessions/:id/attendance` to mark attendance.
+Restyled table + header only (no CRUD — sessions are generated automatically when a schedule is created). Each row links to `/sessions/:id/attendance` to mark attendance. The "Students" count is computed live from `Visit` (docs/plans/premium-registration-and-attendance-plan.md §1) rather than a stored roster on the session doc — `GroupClassSession` itself has no roster field any more.
 
 ## Attendance (`/sessions/:id/attendance`)
 
-**Left functionally and visually untouched** — this page is shared with the coach role and still renders inside the legacy `AppShell`, per the plan's explicit scope boundary.
+Shared with the coach role, still renders inside the legacy `AppShell`. Attendance is `Visit`-backed (docs/plans/premium-registration-and-attendance-plan.md §1) — marking a checkbox and saving upserts each student's `Visit.status` (`attended`/`missed`) rather than mutating an embedded roster array; the wire contract (`GET`/`PATCH .../attendance`'s `{studentId, isPresent}[]` shape) is unchanged.
+
+**Add Student (walk-in, Phase 3)** — a premium student attending a sibling schedule of their level (not their "home" one) isn't pre-listed; the coach/admin picks them from `GET .../eligible-students` (every student with an active subscription anywhere at the same class, **not gated on `isPremium`** — matches CKQ's own `getStudentsByLevel` exactly, excluding anyone already on this session's own roster or already marked) and adds them via `POST .../students`. Creates the `Visit` as `attended` and tags it `isMakeupClass: true`, which is what lets **Remove** (`DELETE .../students/:studentId`) undo a mistaken pick — a genuine roster student (a real `Subscription` on this exact schedule) can never be removed this way, only a walk-in.
+
+**Evaluate (Phase 2)** — a `trial`-classType row already marked present gets an inline "Evaluate" action (level `<select>` + notes, `POST /evaluations`) — the trial-assessment record Frisco had no equivalent of before this plan. Coach-only restriction: a coach may only evaluate a trial attendee of a session they themselves teach; admin/superadmin are unrestricted. One evaluation per (student, session); sends a confirmation email to the parent with the coach's note + recommended level.
 
 ## Users (`/admin/users`)
 

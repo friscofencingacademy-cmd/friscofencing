@@ -6,6 +6,7 @@ Index of every ADR in this directory, newest first isn't required — kept in nu
 |---|---|---|---|
 | 001 | [In-house subscription/billing model over Stripe-native Subscriptions](./001-in-house-subscription-billing.md) | Implemented | 2026-08-06 |
 | 002 | [CKQ UI adoption — structure/patterns from CKQ, Frisco brand tokens](./002-ckq-ui-adoption.md) | Implemented | 2026-08-20 |
+| 003 | [Premium (flat-fee, any-session) group class billing](./003-premium-group-class-billing.md) | Implemented | 2026-08-24 |
 
 ## Status definitions
 

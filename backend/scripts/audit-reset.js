@@ -32,7 +32,7 @@ const TrialClass = require('../src/models/trialClass.model');
 const Registration = require('../src/models/registration.model');
 const Subscription = require('../src/models/subscription.model');
 const GroupClassSchedule = require('../src/models/groupClassSchedule.model');
-const GroupClassSession = require('../src/models/groupClassSession.model');
+const Visit = require('../src/models/visit.model');
 const PaymentMethod = require('../src/models/paymentMethod.model');
 const stripe = require('../src/config/stripe');
 
@@ -93,10 +93,11 @@ async function main() {
       { students: { $in: studentIds } },
       { $pull: { students: { $in: studentIds } } }
     );
-    const sessionResult = await GroupClassSession.updateMany(
-      { 'students.studentId': { $in: studentIds } },
-      { $pull: { students: { studentId: { $in: studentIds } } } }
-    );
+    // GroupClassSession no longer carries a roster — attendance lives in
+    // Visit (docs/plans/premium-registration-and-attendance-plan.md §1).
+    // The students are being hard-deleted below, so their Visit docs are
+    // deleted outright too, not just cancelled.
+    const visitResult = await Visit.deleteMany({ studentId: { $in: studentIds } });
 
     const studentDeleteResult = await User.deleteMany({ _id: { $in: studentIds } });
 
@@ -128,7 +129,7 @@ async function main() {
     console.log(`  Registration deleted: ${registrationResult.deletedCount}`);
     console.log(`  Subscription deleted: ${subscriptionResult.deletedCount}`);
     console.log(`  Schedules cleaned: ${scheduleResult.modifiedCount}`);
-    console.log(`  Sessions cleaned: ${sessionResult.modifiedCount}`);
+    console.log(`  Visits deleted: ${visitResult.deletedCount}`);
     console.log(`  Student docs deleted (fresh Stripe idempotency identity next seed): ${studentDeleteResult.deletedCount}`);
     console.log(`  PaymentMethods cleared: ${paymentMethodsCleared}`);
     console.log('  Run `npm run audit:seed` again before the next audit run.');

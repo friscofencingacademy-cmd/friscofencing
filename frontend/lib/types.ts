@@ -100,6 +100,10 @@ export interface PopulatedSessionStudentEntry {
     lastName: string;
   };
   isPresent: boolean;
+  // Additive (docs/plans/premium-registration-and-attendance-plan.md §5) —
+  // lets the attendance page offer "Evaluate" only for a trial student
+  // marked present.
+  classType?: 'regular' | 'trial';
 }
 
 export interface GroupClassSessionDetail {
@@ -175,6 +179,11 @@ export interface Subscription {
   nextBillingDate: string;
   lastChargeAmount: number | null;
   lastSiblingDiscountApplied?: boolean;
+  // One flat fee, attend any scheduled session of the level (docs/plans/
+  // premium-registration-and-attendance-plan.md). Optional only because
+  // some older fixtures predate the field, not because it's ever actually
+  // absent on a real Subscription doc.
+  isPremium?: boolean;
 }
 
 export interface PaymentMethodInfo {
@@ -248,6 +257,10 @@ export interface AdminSubscriptionRow {
   nextBillingDate: string;
   lastChargeAmount: number | null;
   lastSiblingDiscountApplied?: boolean;
+  // One flat fee, attend any scheduled session of the level (docs/plans/
+  // premium-registration-and-attendance-plan.md) — gates whether the admin
+  // page offers Change Schedule at all.
+  isPremium?: boolean;
 }
 
 export interface AdminSubscriptionListResponse {
@@ -433,4 +446,15 @@ export interface PrivateAttendanceResult {
   chargeStatus?: PrivateChargeStatus;
   reason?: string;
   charge: PrivateClassChargeRow | null;
+}
+
+// POST /evaluations (docs/plans/premium-registration-and-attendance-plan.md
+// §3.10) — evaluation.service.js's populateEvaluationQuery chain.
+export interface Evaluation {
+  _id: string;
+  studentId: { _id: string; firstName: string; lastName: string };
+  coachId: { _id: string; firstName: string; lastName: string };
+  groupClassSessionId: { _id: string; date: string; scheduleId: string };
+  assignedLevelId: { _id: string; name: string };
+  notes: string;
 }

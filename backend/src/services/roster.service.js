@@ -1,12 +1,20 @@
 const GroupClassSession = require('../models/groupClassSession.model');
+const visitService = require('./visit.service');
 
 // Shared roster-mutation helpers — the same "add/remove a student from a
 // schedule's ongoing roster + every already-generated future session" logic
 // that registration.service.js (add, on first registration) and
-// renewal.service.js (remove, on cancellation finalize) each need, now also
+// renewal.service.js (remove, on cancellation finalize) each need, also
 // reused by subscription.service.js's changeSchedule (both directions on
-// one call). Extracted here on its third use rather than duplicated a third
-// time (docs/plans/ckq-parity-plan.md §4.1).
+// one call) and backend/scripts/lib/runLegacyImport.js's migration.
+// Extracted here on its third use rather than duplicated a third time
+// (docs/plans/ckq-parity-plan.md §4.1).
+//
+// The future-sessions half now goes through Visit instead of mutating each
+// session's own roster array (docs/plans/premium-registration-and-attendance
+// -plan.md §3.5 — GroupClassSession no longer has a students field at all).
+// schedule.students itself is untouched — still the enrollment roster,
+// still what capacity checks and "whose home schedule is this" read.
 
 async function addStudentToRoster(schedule, studentId, today) {
   const alreadyOnRoster = schedule.students.some((id) => String(id) === String(studentId));
@@ -16,24 +24,15 @@ async function addStudentToRoster(schedule, studentId, today) {
     await schedule.save();
   }
 
-  const futureSessions = await GroupClassSession.find({
-    scheduleId: schedule._id,
-    date: { $gte: today },
-  });
+  const futureSessions = await GroupClassSession.find(
+    { scheduleId: schedule._id, date: { $gte: today } },
+    '_id'
+  );
 
-  await Promise.all(
-    futureSessions.map((session) => {
-      const onSessionRoster = session.students.some(
-        (entry) => String(entry.studentId) === String(studentId)
-      );
-
-      if (onSessionRoster) {
-        return null;
-      }
-
-      session.students.push({ studentId, isPresent: false });
-      return session.save();
-    })
+  await visitService.upsertScheduledVisits(
+    studentId,
+    futureSessions.map((session) => ({ sessionId: session._id, scheduleId: schedule._id })),
+    'regular'
   );
 }
 
@@ -45,26 +44,14 @@ async function removeStudentFromRoster(schedule, studentId, today) {
     await schedule.save();
   }
 
-  const futureSessions = await GroupClassSession.find({
-    scheduleId: schedule._id,
-    date: { $gte: today },
-  });
+  const futureSessions = await GroupClassSession.find(
+    { scheduleId: schedule._id, date: { $gte: today } },
+    '_id'
+  );
 
-  await Promise.all(
-    futureSessions.map((session) => {
-      const onRoster = session.students.some(
-        (entry) => String(entry.studentId) === String(studentId)
-      );
-
-      if (!onRoster) {
-        return null;
-      }
-
-      session.students = session.students.filter(
-        (entry) => String(entry.studentId) !== String(studentId)
-      );
-      return session.save();
-    })
+  await visitService.cancelVisitsForStudent(
+    studentId,
+    futureSessions.map((session) => session._id)
   );
 }
 

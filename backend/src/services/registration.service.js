@@ -45,6 +45,16 @@ function paymentFailedError(message) {
   return error;
 }
 
+// The premium-vs-schedule-based flag (docs/plans/premium-registration-and-
+// attendance-plan.md §0/§4) — unset or 'false' (the live default) means
+// premium: one flat fee, attend any scheduled session of the level. Read at
+// call time, never captured at module load, matching mail.service.js's own
+// isEmailBlocked() convention — this codebase's established pattern for an
+// env-var-driven behavioral gate.
+function isPremiumRegistrationEnabled() {
+  return process.env.ENABLE_SCHEDULE_BASED_REGISTRATION !== 'true';
+}
+
 // Shared by create() and previewChargeAmount() — the auth-critical,
 // order-sensitive first checks (does this student exist, does it belong to
 // this parent, does the schedule exist) are identical in both, so this is
@@ -174,6 +184,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
     nextBillingDate: currentPeriodEnd,
     lastChargeAmount: chargeAmount,
     lastSiblingDiscountApplied: siblingDiscountApplied,
+    isPremium: isPremiumRegistrationEnabled(),
   });
 
   await addStudentToRoster(schedule, studentId, todayAtMidnight());
