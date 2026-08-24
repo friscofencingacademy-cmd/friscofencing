@@ -5,6 +5,9 @@ import { useParams } from 'next/navigation';
 import axios from 'axios';
 
 import api from '../../../../lib/api';
+import { fetchLevels } from '../../../../lib/services/catalog';
+import { createEvaluation } from '../../../../lib/services/evaluation';
+import type { Level } from '../../../../lib/types';
 import ProtectedRoute from '../../../components/ProtectedRoute';
 import AppShell from '../../../components/layout/AppShell';
 import Button from '../../../components/ui/Button/Button';
@@ -21,6 +24,9 @@ interface PopulatedStudent {
 interface SessionStudentEntry {
   studentId: PopulatedStudent;
   isPresent: boolean;
+  // Additive (docs/plans/premium-registration-and-attendance-plan.md §5) —
+  // only a 'trial' row that's actually present gets an Evaluate action.
+  classType?: 'regular' | 'trial';
 }
 
 interface SessionDetail {
@@ -35,29 +41,41 @@ function AttendancePageContent() {
 
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
+  const [levels, setLevels] = useState<Level[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Which student's Evaluate form is open, plus that form's own local
+  // state — only one can be open at a time.
+  const [evaluatingStudentId, setEvaluatingStudentId] = useState<string | null>(null);
+  const [evalLevelId, setEvalLevelId] = useState('');
+  const [evalNotes, setEvalNotes] = useState('');
+  const [evalSaving, setEvalSaving] = useState(false);
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [evaluatedStudentIds, setEvaluatedStudentIds] = useState<Set<string>>(new Set());
+
+  async function fetchSession() {
+    const res = await api.get<{ session: SessionDetail }>(`/group-class-sessions/${sessionId}`);
+    setSession(res.data.session);
+
+    const initialAttendance: Record<string, boolean> = {};
+    res.data.session.students.forEach((entry) => {
+      initialAttendance[entry.studentId._id] = entry.isPresent;
+    });
+    setAttendance(initialAttendance);
+  }
+
   useEffect(() => {
     let isMounted = true;
 
-    async function fetchSession() {
+    async function load() {
       setLoading(true);
       try {
-        const res = await api.get<{ session: SessionDetail }>(
-          `/group-class-sessions/${sessionId}`
-        );
-        if (isMounted) {
-          setSession(res.data.session);
-
-          const initialAttendance: Record<string, boolean> = {};
-          res.data.session.students.forEach((entry) => {
-            initialAttendance[entry.studentId._id] = entry.isPresent;
-          });
-          setAttendance(initialAttendance);
-        }
+        await fetchSession();
+        const levelList = await fetchLevels();
+        if (isMounted) setLevels(levelList);
       } catch (err) {
         if (isMounted) {
           setError('Failed to load session.');
@@ -69,11 +87,13 @@ function AttendancePageContent() {
       }
     }
 
-    fetchSession();
+    load();
 
     return () => {
       isMounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSession
+    // closes over sessionId, which is already the effect's real dependency.
   }, [sessionId]);
 
   function toggleStudent(studentId: string) {
@@ -93,6 +113,10 @@ function AttendancePageContent() {
         })),
       });
       setMessage('Attendance saved.');
+      // Re-fetch: a trial student just toggled present needs their
+      // classType/isPresent refreshed before the Evaluate action can show
+      // for them (the Visit backing this only settles server-side).
+      await fetchSession();
     } catch (err) {
       const responseMessage =
         axios.isAxiosError(err) && err.response?.data?.message
@@ -101,6 +125,40 @@ function AttendancePageContent() {
       setError(responseMessage);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openEvaluate(studentId: string) {
+    setEvaluatingStudentId(studentId);
+    setEvalLevelId('');
+    setEvalNotes('');
+    setEvalError(null);
+  }
+
+  function closeEvaluate() {
+    setEvaluatingStudentId(null);
+  }
+
+  async function handleSubmitEvaluation() {
+    if (!evaluatingStudentId || !session) return;
+
+    setEvalSaving(true);
+    setEvalError(null);
+
+    const result = await createEvaluation({
+      studentId: evaluatingStudentId,
+      groupClassSessionId: session._id,
+      assignedLevelId: evalLevelId,
+      notes: evalNotes,
+    });
+
+    setEvalSaving(false);
+
+    if (result.status === 'success') {
+      setEvaluatedStudentIds((previous) => new Set(previous).add(evaluatingStudentId));
+      setEvaluatingStudentId(null);
+    } else {
+      setEvalError(result.message);
     }
   }
 
@@ -127,20 +185,47 @@ function AttendancePageContent() {
         <Card>
           <table className={styles.table}>
             <tbody>
-              {session.students.map((entry) => (
-                <tr key={entry.studentId._id}>
-                  <td>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={attendance[entry.studentId._id] ?? false}
-                        onChange={() => toggleStudent(entry.studentId._id)}
-                      />{' '}
-                      {entry.studentId.firstName} {entry.studentId.lastName}
-                    </label>
-                  </td>
-                </tr>
-              ))}
+              {session.students.map((entry) => {
+                const studentId = entry.studentId._id;
+                // Evaluate only ever offered for a trial row already
+                // persisted as present (entry.isPresent reflects the last
+                // save, not the in-progress checkbox toggle) — matches
+                // evaluation.service.js's own "must be an attended trial
+                // Visit" requirement.
+                const canEvaluate = entry.classType === 'trial' && entry.isPresent;
+                const alreadyEvaluated = evaluatedStudentIds.has(studentId);
+
+                return (
+                  <tr key={studentId}>
+                    <td>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={attendance[studentId] ?? false}
+                          onChange={() => toggleStudent(studentId)}
+                        />{' '}
+                        {entry.studentId.firstName} {entry.studentId.lastName}
+                      </label>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {canEvaluate ? (
+                        alreadyEvaluated ? (
+                          <span style={{ color: 'var(--color-text-muted)' }}>Evaluated</span>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => openEvaluate(studentId)}
+                          >
+                            Evaluate
+                          </Button>
+                        )
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <div style={{ marginTop: 'var(--space-4)' }}>
@@ -148,6 +233,51 @@ function AttendancePageContent() {
               {saving ? 'Saving...' : 'Save Attendance'}
             </Button>
           </div>
+
+          {evaluatingStudentId ? (
+            <div style={{ marginTop: 'var(--space-4)' }}>
+              <Card>
+                {evalError ? <Alert variant="error">{evalError}</Alert> : null}
+                <label>
+                  Recommended level
+                  <select
+                    aria-label="Recommended level"
+                    value={evalLevelId}
+                    onChange={(e) => setEvalLevelId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select a level</option>
+                    {levels.map((level) => (
+                      <option key={level._id} value={level._id}>
+                        {level.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: 'block', marginTop: 'var(--space-3)' }}>
+                  Notes
+                  <textarea
+                    aria-label="Evaluation notes"
+                    value={evalNotes}
+                    onChange={(e) => setEvalNotes(e.target.value)}
+                    required
+                  />
+                </label>
+                <div style={{ marginTop: 'var(--space-3)' }}>
+                  <Button
+                    type="button"
+                    onClick={handleSubmitEvaluation}
+                    disabled={evalSaving || !evalLevelId || !evalNotes}
+                  >
+                    {evalSaving ? 'Saving...' : 'Save Evaluation'}
+                  </Button>{' '}
+                  <Button type="button" variant="secondary" onClick={closeEvaluate}>
+                    Cancel
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          ) : null}
         </Card>
       ) : null}
     </main>

@@ -23,7 +23,7 @@ const Registration = require('../src/models/registration.model');
 const Subscription = require('../src/models/subscription.model');
 const PrivateClassEnrollment = require('../src/models/privateClassEnrollment.model');
 const GroupClassSchedule = require('../src/models/groupClassSchedule.model');
-const GroupClassSession = require('../src/models/groupClassSession.model');
+const Visit = require('../src/models/visit.model');
 
 function assertSafeTarget(uri, allowProduction) {
   const looksLocal = uri.includes('localhost') || uri.includes('127.0.0.1');
@@ -75,10 +75,9 @@ async function main() {
       { students: { $in: studentIds } },
       { $pull: { students: { $in: studentIds } } }
     );
-    const sessionResult = await GroupClassSession.updateMany(
-      { 'students.studentId': { $in: studentIds } },
-      { $pull: { students: { studentId: { $in: studentIds } } } }
-    );
+    // GroupClassSession no longer carries a roster — attendance lives in
+    // Visit (docs/plans/premium-registration-and-attendance-plan.md §1).
+    const visitResult = await Visit.deleteMany({ studentId: { $in: studentIds } });
 
     // Every legacy-imported PARENT that has one, since import-legacy-data.js
     // sets it for a parent record that maps onto a real CSV row (an adult
@@ -117,7 +116,7 @@ async function main() {
     console.log(`  Subscriptions deleted:          ${subscriptionResult.deletedCount}`);
     console.log(`  Private-class enrollments deleted: ${privateEnrollmentResult.deletedCount}`);
     console.log(`  Schedules cleaned:              ${scheduleResult.modifiedCount}`);
-    console.log(`  Sessions cleaned:                ${sessionResult.modifiedCount}`);
+    console.log(`  Visits deleted:                 ${visitResult.deletedCount}`);
     console.log('  Foundational data (levels/prices/location/coaches/classes/schedules) left untouched.');
     console.log('  Run import-legacy-data.js again to reload (test or corrected real) people data.');
     process.exitCode = 0;

@@ -44,4 +44,50 @@ async function markAttendance(req, res) {
   }
 }
 
-module.exports = { byScheduleId, byClassId, getById, markAttendance };
+async function getEligibleStudents(req, res) {
+  try {
+    const students = await groupClassSessionService.getEligibleStudentsForSession(req.params.id, req.user);
+    return res.status(200).json({ students });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to list eligible students' });
+  }
+}
+
+async function addStudent(req, res) {
+  try {
+    const session = await groupClassSessionService.addStudentToSession(
+      req.params.id,
+      req.body.studentId,
+      req.user
+    );
+    return res.status(200).json({ session });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to add student' });
+  }
+}
+
+async function removeStudent(req, res) {
+  try {
+    const session = await groupClassSessionService.removeStudentFromSession(
+      req.params.id,
+      req.params.studentId,
+      req.user
+    );
+    return res.status(200).json({ session });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to remove student' });
+  }
+}
+
+module.exports = {
+  byScheduleId,
+  byClassId,
+  getById,
+  markAttendance,
+  getEligibleStudents,
+  addStudent,
+  removeStudent,
+};

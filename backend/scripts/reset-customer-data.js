@@ -8,15 +8,17 @@ const Subscription = require('../src/models/subscription.model');
 const TrialClass = require('../src/models/trialClass.model');
 const PaymentMethod = require('../src/models/paymentMethod.model');
 const GroupClassSchedule = require('../src/models/groupClassSchedule.model');
-const GroupClassSession = require('../src/models/groupClassSession.model');
+const Visit = require('../src/models/visit.model');
 
 // Reusable cleanup tool: deletes every User NOT in --keep-roles (default
 // superadmin,coach) plus their dependent Registration/Subscription/
-// TrialClass/PaymentMethod records, and pulls the deleted ids out of
-// GroupClassSchedule/GroupClassSession rosters so no dangling refs remain.
-// Structural data (GroupClass, GroupClassSchedule, GroupClassSession docs
-// themselves, Level, Location, Price) is never deleted, only its rosters
-// are pruned.
+// TrialClass/PaymentMethod records, pulls the deleted ids out of
+// GroupClassSchedule rosters, and deletes their Visit records (attendance
+// ledger — docs/plans/premium-registration-and-attendance-plan.md §1;
+// GroupClassSession itself no longer carries a roster to prune). Structural
+// data (GroupClass, GroupClassSchedule, GroupClassSession docs themselves,
+// Level, Location, Price) is never deleted, only GroupClassSchedule's
+// roster is pruned.
 //
 // Usage:
 //   node scripts/reset-customer-data.js <MONGO_URI> [--keep-roles=superadmin,coach] [--execute]
@@ -77,7 +79,7 @@ async function main() {
     console.log(`  - [${user.role}] ${user.firstName} ${user.lastName} <${user.email || 'no email'}>`);
   });
 
-  const [registrationCount, subscriptionCount, trialCount, paymentMethodCount, scheduleRosterCount, sessionRosterCount] =
+  const [registrationCount, subscriptionCount, trialCount, paymentMethodCount, scheduleRosterCount, visitCount] =
     await Promise.all([
       Registration.countDocuments({ studentId: { $in: deleteIds } }),
       Subscription.countDocuments({
@@ -86,7 +88,7 @@ async function main() {
       TrialClass.countDocuments({ studentId: { $in: deleteIds } }),
       PaymentMethod.countDocuments({ parentId: { $in: deleteIds } }),
       GroupClassSchedule.countDocuments({ students: { $in: deleteIds } }),
-      GroupClassSession.countDocuments({ 'students.studentId': { $in: deleteIds } }),
+      Visit.countDocuments({ studentId: { $in: deleteIds } }),
     ]);
 
   console.log('');
@@ -96,7 +98,7 @@ async function main() {
   console.log(`  TrialClass:                ${trialCount}`);
   console.log(`  PaymentMethod:             ${paymentMethodCount}`);
   console.log(`  GroupClassSchedule rosters: ${scheduleRosterCount} schedule(s) to prune`);
-  console.log(`  GroupClassSession rosters:  ${sessionRosterCount} session(s) to prune`);
+  console.log(`  Visit records:              ${visitCount} to delete`);
 
   if (!execute) {
     console.log('');
@@ -112,7 +114,7 @@ async function main() {
   await TrialClass.deleteMany({ studentId: { $in: deleteIds } });
   await PaymentMethod.deleteMany({ parentId: { $in: deleteIds } });
   await GroupClassSchedule.updateMany({}, { $pull: { students: { $in: deleteIds } } });
-  await GroupClassSession.updateMany({}, { $pull: { students: { studentId: { $in: deleteIds } } } });
+  await Visit.deleteMany({ studentId: { $in: deleteIds } });
   await User.deleteMany({ role: { $nin: keepRoles } });
 
   console.log('');

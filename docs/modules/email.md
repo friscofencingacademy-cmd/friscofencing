@@ -44,11 +44,12 @@ mapping to a background+border pair in `tokens.js`. `breakdown` renders a border
 from `{ monthlyFee, siblingDiscountAmount|null, total }` — the arithmetic happens in the caller
 (`calculateChargeAmount.service.js`/`privateClassPricing.js`), never inside the block itself.
 
-## Template registry (10 keys)
+## Template registry (11 keys)
 
 | Key | Used by | CC |
 |---|---|---|
 | `trialConfirmation` | Trial booking | admin, coach |
+| `trialEvaluation` | Coach records a trial evaluation (docs/plans/premium-registration-and-attendance-plan.md §3.10) | admin |
 | `registrationConfirmation` | New group-class registration | admin, coach |
 | `renewalReceipt` | Monthly renewal charge | — |
 | `cancellationConfirmation` | Group subscription cancel (parent- or admin-initiated) | coach only (no admin — CKQ pattern) |

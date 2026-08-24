@@ -63,6 +63,19 @@ const subscriptionSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // One flat monthly fee for the whole level, attend any of its scheduled
+    // sessions — the real Frisco billing model (docs/plans/premium-
+    // registration-and-attendance-plan.md §0/§3.6). Set at creation from
+    // the ENABLE_SCHEDULE_BASED_REGISTRATION flag (registration.service.js's
+    // create()); `scheduleId` above is still required either way — for a
+    // premium subscription it's the student's chosen "home" slot (the
+    // billing anchor + what changeSchedule would move, if it weren't
+    // blocked for premium — see subscription.service.js), not a
+    // restriction on which sessions they can attend.
+    isPremium: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

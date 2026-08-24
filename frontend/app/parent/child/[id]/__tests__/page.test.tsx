@@ -26,11 +26,18 @@ const SUBSCRIPTION = {
   lastChargeAmount: 150,
 };
 
+const CLASS_SCHEDULES = [
+  { _id: 'sched-1', classId: 'class-1', coachId: 'coach-1', dayOfWeek: 3, startTime: '16:00', endTime: '17:00', students: [] },
+  { _id: 'sched-2', classId: 'class-1', coachId: 'coach-2', dayOfWeek: 5, startTime: '18:00', endTime: '20:00', students: [] },
+  { _id: 'sched-other', classId: 'class-other', coachId: 'coach-3', dayOfWeek: 1, startTime: '10:00', endTime: '11:00', students: [] },
+];
+
 const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
-  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] }))
+  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })),
+  http.get('*/group-class-schedules', () => HttpResponse.json({ schedules: CLASS_SCHEDULES }))
 );
 
 beforeAll(() => server.listen());
@@ -88,6 +95,22 @@ describe('ChildDetailPage', () => {
     const scheduleTab = await screen.findByRole('tab', { name: 'Schedule' });
     expect(scheduleTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText(/every wednesday, 4:00 pm - 5:00 pm/i)).toBeInTheDocument();
+  });
+
+  it('shows every sibling schedule of the class for a premium subscription, not just the one it\'s anchored to', async () => {
+    server.use(
+      http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [{ ...SUBSCRIPTION, isPremium: true }] }))
+    );
+    mockSearchParams = new URLSearchParams({ tab: 'schedule' });
+
+    renderPage();
+
+    await screen.findByRole('tab', { name: 'Schedule' });
+    expect(screen.getByText(/premium plan/i)).toBeInTheDocument();
+    expect(screen.getByText(/every wednesday, 4:00 pm - 5:00 pm/i)).toBeInTheDocument();
+    expect(screen.getByText(/every friday, 6:00 pm - 8:00 pm/i)).toBeInTheDocument();
+    // A schedule under a DIFFERENT class must never leak in.
+    expect(screen.queryByText(/monday/i)).not.toBeInTheDocument();
   });
 
   it('falls back to the Overview tab for an invalid ?tab= value', async () => {

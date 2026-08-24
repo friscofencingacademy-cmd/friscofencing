@@ -67,6 +67,44 @@ const TEMPLATES = [
   },
 
   {
+    key: 'trialEvaluation',
+    subject: "{{studentName}}'s trial evaluation is ready",
+    preheader: 'A coach shared feedback and a recommended level from the trial class.',
+    build: (v) => [
+      { t: 'badge', tone: 'green', glyph: '&#127942;' },
+      { t: 'eyebrow', text: 'Trial evaluation', tone: 'green' },
+      { t: 'heading', text: `${v.studentName}'s trial evaluation` },
+      {
+        t: 'text',
+        html: `${strong(v.coachName)} evaluated ${strong(v.studentName)}'s trial class and recommends ${strong(v.levelName)}.`,
+      },
+      {
+        t: 'card',
+        tone: 'green',
+        children: [
+          {
+            t: 'detailList',
+            rows: [
+              ['Coach', esc(v.coachName)],
+              ['Recommended level', esc(v.levelName)],
+            ],
+          },
+        ],
+      },
+      {
+        t: 'text',
+        html: esc(v.notes),
+      },
+      {
+        t: 'text',
+        html: 'Ready to enroll? Head to Register in your parent portal.',
+        muted: true,
+        size: 'sm',
+      },
+    ],
+  },
+
+  {
     key: 'registrationConfirmation',
     subject: '{{studentName}} is enrolled — Frisco Fencing Academy',
     preheader: 'Enrollment confirmed — here are the class details and your payment breakdown.',

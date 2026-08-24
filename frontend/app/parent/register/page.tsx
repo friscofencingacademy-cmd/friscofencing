@@ -199,7 +199,7 @@ export default function RegisterPage() {
     { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
     { label: 'Class', value: selectedGroupClass?.name ?? '—' },
     {
-      label: 'Schedule',
+      label: 'Usual time',
       value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${formatTime(selectedSchedule.startTime)}-${formatTime(selectedSchedule.endTime)}` : '—',
     },
     { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
@@ -271,7 +271,13 @@ export default function RegisterPage() {
               </select>
             </FlowSection>
 
-            <FlowSection title="Choose a schedule">
+            <FlowSection title="Choose your preferred class time">
+              {classId ? (
+                <p>
+                  You&apos;re enrolling in the full {selectedGroupClass ? selectedGroupClass.name : 'class'} program
+                  — you can attend any of its scheduled sessions. Pick one below as your usual time.
+                </p>
+              ) : null}
               <select
                 aria-label="Schedule"
                 value={scheduleId}

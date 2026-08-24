@@ -9,7 +9,12 @@ const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
+const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
+const Visit = require('../../src/models/visit.model');
+const Subscription = require('../../src/models/subscription.model');
 const { hashPassword } = require('../../src/utils/password');
+const { addStudentToRoster } = require('../../src/services/roster.service');
+const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
 const TEST_PASSWORD = 'correct-password';
@@ -62,9 +67,15 @@ async function seedClass() {
 }
 
 // Builds a schedule (via the real create route, so sessions are generated
-// the same way production does) with an assigned coach and two enrolled
-// students, and returns everything a test needs to exercise attendance
-// marking against the first generated session.
+// the same way production does — no inline `students` in the create
+// payload, since the real admin UI never sends one; createSchedule's own
+// type Picks only classId/coachId/dayOfWeek/startTime/endTime) with an
+// assigned coach and two enrolled students, and returns everything a test
+// needs to exercise attendance marking against the first generated session.
+// Enrollment goes through the real roster.service.js helper (the same one
+// registration.service.js uses) so each student gets a real
+// GroupClassSchedule.students entry AND scheduled Visit rows across every
+// generated session — exactly what a real registration produces.
 async function seedScheduleWithSession(adminAgent) {
   const groupClass = await seedClass();
 
@@ -93,11 +104,15 @@ async function seedScheduleWithSession(adminAgent) {
     dayOfWeek: 3,
     startTime: '16:00',
     endTime: '17:00',
-    students: [student1._id.toString(), student2._id.toString()],
   });
 
   expect(createRes.status).toBe(201);
   const scheduleId = createRes.body.schedule._id;
+
+  const schedule = await GroupClassSchedule.findById(scheduleId);
+  const today = todayAtMidnight();
+  await addStudentToRoster(schedule, student1._id, today);
+  await addStudentToRoster(schedule, student2._id, today);
 
   const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
   const session = sessions[0];
@@ -144,7 +159,6 @@ describe('GroupClassSession routes', () => {
         dayOfWeek: 2,
         startTime: '16:00',
         endTime: '17:00',
-        students: [otherStudent._id.toString()],
       });
       const scheduleB = await adminAgent.post('/api/v1/group-class-schedules').send({
         classId: groupClass._id.toString(),
@@ -152,8 +166,9 @@ describe('GroupClassSession routes', () => {
         dayOfWeek: 4,
         startTime: '18:00',
         endTime: '19:00',
-        students: [],
       });
+      const scheduleADoc = await GroupClassSchedule.findById(scheduleA.body.schedule._id);
+      await addStudentToRoster(scheduleADoc, otherStudent._id, todayAtMidnight());
 
       const res = await parentAgent.get(`/api/v1/group-class-sessions/by-class/${groupClass._id}`);
 
@@ -233,7 +248,6 @@ describe('GroupClassSession routes', () => {
           dayOfWeek: 2,
           startTime: '16:00',
           endTime: '17:00',
-          students: [],
         });
 
         const res = await adminAgent.get(`/api/v1/group-class-sessions/by-class/${groupClass._id}`);
@@ -297,12 +311,10 @@ describe('GroupClassSession routes', () => {
 
       expect(res.status).toBe(200);
 
-      const persisted = await GroupClassSession.findById(sessionId);
-      const persistedByStudent = new Map(
-        persisted.students.map((s) => [String(s.studentId), s.isPresent])
-      );
-      expect(persistedByStudent.get(student1._id.toString())).toBe(true);
-      expect(persistedByStudent.get(student2._id.toString())).toBe(false);
+      const visits = await Visit.find({ groupClassSessionId: sessionId });
+      const statusByStudent = new Map(visits.map((v) => [String(v.studentId), v.status]));
+      expect(statusByStudent.get(student1._id.toString())).toBe('attended');
+      expect(statusByStudent.get(student2._id.toString())).toBe('missed');
     });
 
     it('returns 403 for a coach not assigned to this session', async () => {
@@ -331,9 +343,48 @@ describe('GroupClassSession routes', () => {
 
       expect(res.status).toBe(200);
 
-      const persisted = await GroupClassSession.findById(sessionId);
-      const entry = persisted.students.find((s) => String(s.studentId) === student1._id.toString());
-      expect(entry.isPresent).toBe(true);
+      const visit = await Visit.findOne({ groupClassSessionId: sessionId, studentId: student1._id });
+      expect(visit.status).toBe('attended');
+    });
+
+    it('creates the Visit on the fly for a student with an active Subscription on this schedule but no pre-existing Visit (defensive fallback, matches CKQ)', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+
+      const { coach, sessionId, scheduleId } = await seedScheduleWithSession(adminAgent);
+      const coachAgent = await loginAgent(coach.email);
+
+      const parent = await User.create({ role: 'parent', firstName: 'P', lastName: 'Rent' });
+      const lateStudent = await User.create({
+        role: 'student',
+        firstName: 'Subscribed',
+        lastName: 'NoVisitYet',
+        parentId: parent._id,
+      });
+      // Deliberately bypasses roster.service.js — a real Subscription on
+      // this exact schedule, but no Visit ever created for it, mimicking
+      // generateInitialSessions running again after this student registered
+      // (§3.3's documented defensive-fallback scenario).
+      await Subscription.create({
+        studentId: lateStudent._id,
+        scheduleId,
+        parentId: parent._id,
+        status: 'active',
+        currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+        nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+      });
+
+      const res = await coachAgent
+        .patch(`/api/v1/group-class-sessions/${sessionId}/attendance`)
+        .send({ students: [{ studentId: lateStudent._id.toString(), isPresent: true }] });
+
+      expect(res.status).toBe(200);
+
+      const visit = await Visit.findOne({ groupClassSessionId: sessionId, studentId: lateStudent._id });
+      expect(visit).not.toBeNull();
+      expect(visit.status).toBe('attended');
+      expect(visit.classType).toBe('regular');
     });
 
     it('returns 400 when a studentId is not on the session roster', async () => {
@@ -354,6 +405,169 @@ describe('GroupClassSession routes', () => {
         .send({ students: [{ studentId: strangerStudent._id.toString(), isPresent: true }] });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('Walk-in attendance (Phase 3 — addStudentToSession/removeStudentFromSession/getEligibleStudentsForSession)', () => {
+    // Two schedules under the SAME class, different coaches, one student
+    // enrolled on each — exactly the "premium student attends a sibling
+    // schedule of their level" scenario the walk-in mechanism exists for.
+    async function seedTwoSchedulesSameClass(adminAgent) {
+      const groupClass = await seedClass();
+
+      const coachA = await User.create({
+        role: 'coach',
+        firstName: 'Coach',
+        lastName: 'A',
+        email: 'walkin-coach-a@example.com',
+        passwordHash: await hashPassword(TEST_PASSWORD),
+      });
+      const coachB = await User.create({
+        role: 'coach',
+        firstName: 'Coach',
+        lastName: 'B',
+        email: 'walkin-coach-b@example.com',
+        passwordHash: await hashPassword(TEST_PASSWORD),
+      });
+
+      const scheduleARes = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coachA._id.toString(),
+        dayOfWeek: 2,
+        startTime: '16:00',
+        endTime: '17:00',
+      });
+      const scheduleBRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coachB._id.toString(),
+        dayOfWeek: 4,
+        startTime: '18:00',
+        endTime: '19:00',
+      });
+
+      const scheduleA = await GroupClassSchedule.findById(scheduleARes.body.schedule._id);
+      const scheduleB = await GroupClassSchedule.findById(scheduleBRes.body.schedule._id);
+
+      const studentA = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleA' });
+      const studentB = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleB' });
+      const unrelatedStudent = await User.create({ role: 'student', firstName: 'No', lastName: 'Subscription' });
+
+      const today = todayAtMidnight();
+      await addStudentToRoster(scheduleA, studentA._id, today);
+      await addStudentToRoster(scheduleB, studentB._id, today);
+
+      const parent = await User.create({ role: 'parent', firstName: 'P', lastName: 'Rent' });
+      await Subscription.create({
+        studentId: studentA._id,
+        scheduleId: scheduleA._id,
+        parentId: parent._id,
+        status: 'active',
+        currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+        nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+        isPremium: true,
+      });
+      await Subscription.create({
+        studentId: studentB._id,
+        scheduleId: scheduleB._id,
+        parentId: parent._id,
+        status: 'active',
+        currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+        nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+        isPremium: true,
+      });
+
+      const sessionsA = await GroupClassSession.find({ scheduleId: scheduleA._id }).sort({ date: 1 });
+
+      return { coachA, coachB, studentA, studentB, unrelatedStudent, sessionAId: sessionsA[0]._id.toString() };
+    }
+
+    it("eligible-students returns the sibling-schedule student, excluding this session's own roster and anyone with no subscription", async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, studentA, studentB, unrelatedStudent, sessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      const res = await coachAAgent.get(`/api/v1/group-class-sessions/${sessionAId}/eligible-students`);
+
+      expect(res.status).toBe(200);
+      const ids = res.body.students.map((s) => s._id);
+      expect(ids).toContain(studentB._id.toString());
+      expect(ids).not.toContain(studentA._id.toString());
+      expect(ids).not.toContain(unrelatedStudent._id.toString());
+    });
+
+    it('returns 403 for eligible-students when the caller is not this session\'s assigned coach', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachB, sessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachBAgent = await loginAgent(coachB.email);
+
+      const res = await coachBAgent.get(`/api/v1/group-class-sessions/${sessionAId}/eligible-students`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('adds an eligible walk-in as attended + isMakeupClass, then 409s on a repeat add', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, studentB, sessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      const res = await coachAAgent
+        .post(`/api/v1/group-class-sessions/${sessionAId}/students`)
+        .send({ studentId: studentB._id.toString() });
+
+      expect(res.status).toBe(200);
+
+      const visit = await Visit.findOne({ groupClassSessionId: sessionAId, studentId: studentB._id });
+      expect(visit.status).toBe('attended');
+      expect(visit.isMakeupClass).toBe(true);
+      expect(visit.classType).toBe('regular');
+
+      const repeat = await coachAAgent
+        .post(`/api/v1/group-class-sessions/${sessionAId}/students`)
+        .send({ studentId: studentB._id.toString() });
+
+      expect(repeat.status).toBe(409);
+    });
+
+    it('returns 400 adding a student not on the eligible list (no subscription anywhere at this level)', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, unrelatedStudent, sessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      const res = await coachAAgent
+        .post(`/api/v1/group-class-sessions/${sessionAId}/students`)
+        .send({ studentId: unrelatedStudent._id.toString() });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('removes a walk-in (isMakeupClass) but refuses to remove a genuine roster student', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, studentA, studentB, sessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      await coachAAgent
+        .post(`/api/v1/group-class-sessions/${sessionAId}/students`)
+        .send({ studentId: studentB._id.toString() });
+
+      const removeWalkIn = await coachAAgent.delete(
+        `/api/v1/group-class-sessions/${sessionAId}/students/${studentB._id}`
+      );
+      expect(removeWalkIn.status).toBe(200);
+
+      const cancelledVisit = await Visit.findOne({ groupClassSessionId: sessionAId, studentId: studentB._id });
+      expect(cancelledVisit.status).toBe('cancelled');
+
+      const removeRoster = await coachAAgent.delete(
+        `/api/v1/group-class-sessions/${sessionAId}/students/${studentA._id}`
+      );
+      expect(removeRoster.status).toBe(400);
     });
   });
 });

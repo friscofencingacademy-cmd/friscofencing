@@ -1,0 +1,29 @@
+# ADR 003: Premium (flat-fee, any-session) group class billing
+
+**Status:** Implemented — 2026-08-24 (`docs/plans/premium-registration-and-attendance-plan.md`, Phases 1–4)
+
+## Context
+
+Frisco's real business model is one flat monthly fee per level — a student can attend any of that level's scheduled sessions in a week, not one fixed slot. The original schema (ADR 001) tied `Registration`/`Subscription` to a single `GroupClassSchedule`, matching a per-slot billing model Frisco never actually ran. `backend/scripts/lib/runLegacyImport.js`'s migration of the real Kicksite roster (2026-08-24) had already worked around this with an eager stopgap — enroll a student's `Subscription` on one "primary" schedule, then roster them onto every sibling schedule of the level too — but that was a migration-script patch, not the live app's registration behavior.
+
+A local checkout of CKQ's own backend (`chesskqwebsite/backend/backend-2.0`, a different platform on the same general architecture) was read directly to settle the design, rather than guessing: CKQ's `Subscription.schedule` stays a **single** required ref even for its own premium tier — no `classId` field, no schedule array. Premium is a plain `isPremium` boolean plus a `homeSchedule` ref; multi-schedule access is never persisted, it's computed live wherever needed (dashboard, live-room join eligibility). Attendance for a non-home session isn't a pre-existing roster entry either — CKQ has a separate `Visit` ledger, created lazily at the moment attendance actually happens, decoupled entirely from `GroupClassSession`'s static roster concept (which CKQ's own session model doesn't have at all). CKQ also has an `Evaluation` model — a coach's post-trial note + recommended level — that Frisco had no equivalent of.
+
+## Decision
+
+Adopted the CKQ **schema shape**, not its scope — trimmed of everything Frisco doesn't need (no `Service` abstraction, no curriculum/homework/lesson tracking, no online/in-person split, no per-schedule agreed-rate).
+
+1. **No `classId`, no schedule array, on `Registration`/`Subscription`.** `scheduleId` stays exactly as it was — required, single ref, the student's billing anchor/"home" slot.
+2. **`Visit`** (`backend/src/models/visit.model.js`) replaces `GroupClassSession.students[].isPresent` entirely as the attendance ledger. `GroupClassSession` itself dropped its `students` field (no migration needed — nothing had been marked yet in production/staging). A student's own home-schedule sessions get a `Visit` pre-scheduled at registration time (`roster.service.js`); a walk-in to a sibling schedule gets one created on the spot, tagged `isMakeupClass: true`.
+3. **`Evaluation`** (`backend/src/models/evaluation.model.js`) — a coach/admin records a level + notes against an `attended`, `trial`-classType `Visit`. Coach callers are restricted to their own taught sessions and trial attendees only; admin/superadmin are unrestricted.
+4. **`Subscription.isPremium`** (boolean, per-doc, matching CKQ) — set at registration time from **`ENABLE_SCHEDULE_BASED_REGISTRATION`** (env var; unset/`false` is the live default = premium). This is a deploy-time rollback lever, not a runtime toggle the frontend reads — the UI always shows premium-oriented copy.
+5. **The cross-schedule "who can be added as a walk-in" picker is *not* gated on `isPremium`** — verified directly against CKQ's `getStudentsByLevel`, which returns every student with an active subscription anywhere at the level, no premium check at all. Matched exactly (`groupClassSession.service.js`'s `getEligibleStudentsForSession`).
+6. **`changeSchedule` is blocked outright for a premium subscription** (409, checked before every other validation) — there is no "different schedule" to move to when every subscriber already attends any session of their level. Unlike CKQ (which blocks it for a per-schedule-rate reason Frisco's flat pricing doesn't have), Frisco's reason is simply that the action is meaningless now.
+7. **`Visit` scope is group classes + trials only** — private lessons keep their existing `PrivateClassSession`/`PrivateClassCharge` system, untouched.
+8. **No soft-delete (`isActive`/`isDeleted`) on the new models** — CKQ uses that convention throughout; Frisco doesn't use it anywhere in its own models (explicit status enums / hard edit instead), so `Visit`/`Evaluation` don't either.
+
+## Consequences
+
+- `roster.service.js`'s `addStudentToRoster`/`removeStudentFromRoster` no longer mutate every future `GroupClassSession` doc directly (the old N-session-fan-out); they mutate `GroupClassSchedule.students` once and call `visitService.upsertScheduledVisits`/`cancelVisitsForStudent` for that schedule's already-generated sessions — simpler, and automatically correct if new sessions are generated later (no re-fan-out needed).
+- A **new** premium registration does *not* eagerly fan a student's `Visit`s out across every sibling schedule of their level (unlike `runLegacyImport.js`'s one-time migration stopgap, which still does — that script predates this ADR and was never updated, since its job was already done). Cross-schedule attendance for anyone registered after this ADR goes entirely through the walk-in mechanism (`addStudentToSession`), matching CKQ's real design.
+- The parent-facing wire contracts (`createRegistration({studentId, scheduleId})`, `GET/PATCH .../attendance`'s `{studentId, isPresent}[]` shape) are unchanged — only copy and internal source-of-truth moved, verified by keeping the existing response shape backward-compatible (computed from `Visit` instead of an embedded field) rather than versioning the API.
+- `Registration`/`Subscription` staying schedule-keyed means flipping `ENABLE_SCHEDULE_BASED_REGISTRATION` back to `true` restores the exact pre-ADR behavior with zero schema migration — the flag was designed around that reversibility, not just as a boolean for its own sake.

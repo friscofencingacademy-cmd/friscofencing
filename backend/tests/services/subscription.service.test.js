@@ -19,9 +19,12 @@ const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
+const Visit = require('../../src/models/visit.model');
 const Registration = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
 const { hashPassword } = require('../../src/utils/password');
+const { addStudentToRoster } = require('../../src/services/roster.service');
+const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
 let mongod;
@@ -94,12 +97,8 @@ async function makeParentAndStudent(suffix) {
   return { parent, student };
 }
 
-async function enroll({ level, oldSchedule, groupClass, student, parent }) {
-  await GroupClassSchedule.findByIdAndUpdate(oldSchedule._id, { $addToSet: { students: student._id } });
-  await GroupClassSession.updateMany(
-    { scheduleId: oldSchedule._id },
-    { $push: { students: { studentId: student._id, isPresent: false } } }
-  );
+async function enroll({ level, oldSchedule, groupClass, student, parent, isPremium = false }) {
+  await addStudentToRoster(oldSchedule, student._id, todayAtMidnight());
 
   const registration = await Registration.create({
     studentId: student._id,
@@ -116,6 +115,7 @@ async function enroll({ level, oldSchedule, groupClass, student, parent }) {
     currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
     currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
     nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+    isPremium,
   });
 
   return { registration, subscription };
@@ -155,18 +155,24 @@ describe('subscription.service — changeSchedule', () => {
     expect(oldScheduleAfter.students.map(String)).not.toContain(String(student._id));
 
     const oldSessionsAfter = await GroupClassSession.find({ scheduleId: oldSchedule._id });
-    oldSessionsAfter.forEach((session) => {
-      expect(session.students.some((e) => String(e.studentId) === String(student._id))).toBe(false);
+    const remainingOldVisits = await Visit.find({
+      studentId: student._id,
+      groupClassSessionId: { $in: oldSessionsAfter.map((session) => session._id) },
+      status: { $ne: 'cancelled' },
     });
+    expect(remainingOldVisits).toHaveLength(0);
 
     const newScheduleAfter = await GroupClassSchedule.findById(newSchedule._id);
     expect(newScheduleAfter.students.map(String)).toContain(String(student._id));
 
     const newSessionsAfter = await GroupClassSession.find({ scheduleId: newSchedule._id });
     expect(newSessionsAfter.length).toBeGreaterThan(0);
-    newSessionsAfter.forEach((session) => {
-      expect(session.students.some((e) => String(e.studentId) === String(student._id))).toBe(true);
+    const newVisits = await Visit.find({
+      studentId: student._id,
+      groupClassSessionId: { $in: newSessionsAfter.map((session) => session._id) },
+      status: { $ne: 'cancelled' },
     });
+    expect(newVisits).toHaveLength(newSessionsAfter.length);
 
     // Billing untouched — same level, same price.
     expect(updatedSubscription.lastChargeAmount).toBeNull();
@@ -252,6 +258,22 @@ describe('subscription.service — changeSchedule', () => {
     await expect(
       subscriptionService.changeSchedule(subscription._id, newSchedule._id)
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('returns 409 for a premium subscription — nothing to change, checked before every other validation', async () => {
+    const level = await Level.create({ name: 'PremiumLevel', order: 8 });
+    const { schedule: oldSchedule, groupClass } = await makeSchedule({ levelId: level._id, suffix: 'premold' });
+    const { schedule: newSchedule } = await makeSchedule({ levelId: level._id, suffix: 'premnew' });
+    const { parent, student } = await makeParentAndStudent('premium1');
+    const { subscription } = await enroll({ oldSchedule, groupClass, student, parent, isPremium: true });
+
+    await expect(
+      subscriptionService.changeSchedule(subscription._id, newSchedule._id)
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('no schedule to change') });
+
+    // Nothing moved.
+    const scheduleAfter = await GroupClassSchedule.findById(oldSchedule._id);
+    expect(scheduleAfter.students.map(String)).toContain(String(student._id));
   });
 
   it('a pending-cancel (but still active) subscription CAN change schedules', async () => {

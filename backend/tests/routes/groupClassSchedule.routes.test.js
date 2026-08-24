@@ -9,7 +9,10 @@ const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
+const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const { hashPassword } = require('../../src/utils/password');
+const { addStudentToRoster } = require('../../src/services/roster.service');
+const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
 const TEST_PASSWORD = 'correct-password';
@@ -62,7 +65,7 @@ async function seedClass() {
 }
 
 describe('GroupClassSchedule routes', () => {
-  it('generates exactly 8 weekly sessions on creation, each on the requested day-of-week, snapshotting the roster', async () => {
+  it('generates exactly 8 weekly sessions on creation, each on the requested day-of-week', async () => {
     await seedUser();
     const adminAgent = await loginAgent('test-admin@example.com');
 
@@ -74,18 +77,21 @@ describe('GroupClassSchedule routes', () => {
       email: 'test-coach@example.com',
       passwordHash: await hashPassword(TEST_PASSWORD),
     });
-    const student1 = await User.create({ role: 'student', firstName: 'S', lastName: 'One' });
-    const student2 = await User.create({ role: 'student', firstName: 'S', lastName: 'Two' });
 
     const DAY_OF_WEEK = 3; // Wednesday
 
+    // No `students` in the create payload — the real admin UI never sends
+    // one (createSchedule's own type Picks only classId/coachId/dayOfWeek/
+    // startTime/endTime). Enrollment happens later, via registration, which
+    // is what creates each student's roster entry AND scheduled Visit rows
+    // (docs/plans/premium-registration-and-attendance-plan.md §1/§3.2) —
+    // covered by registration.routes.test.js, not schedule creation.
     const createRes = await adminAgent.post('/api/v1/group-class-schedules').send({
       classId: groupClass._id.toString(),
       coachId: coach._id.toString(),
       dayOfWeek: DAY_OF_WEEK,
       startTime: '16:00',
       endTime: '17:00',
-      students: [student1._id.toString(), student2._id.toString()],
     });
 
     expect(createRes.status).toBe(201);
@@ -103,14 +109,6 @@ describe('GroupClassSchedule routes', () => {
         const diffDays = (session.date - previousDate) / (1000 * 60 * 60 * 24);
         expect(diffDays).toBe(7);
       }
-
-      const studentIds = session.students.map((s) => s.studentId.toString()).sort();
-      expect(studentIds).toEqual(
-        [student1._id.toString(), student2._id.toString()].sort()
-      );
-      session.students.forEach((s) => {
-        expect(s.isPresent).toBe(false);
-      });
     });
 
     const listRes = await adminAgent.get(
@@ -118,6 +116,45 @@ describe('GroupClassSchedule routes', () => {
     );
     expect(listRes.status).toBe(200);
     expect(listRes.body.sessions).toHaveLength(8);
+  });
+
+  it('GET /by-schedule/:scheduleId attaches each session\'s roster (student count), computed live from Visit — the exact shape the admin/coach sessions-list pages read', async () => {
+    await seedUser();
+    const adminAgent = await loginAgent('test-admin@example.com');
+
+    const groupClass = await seedClass();
+    const coach = await User.create({
+      role: 'coach',
+      firstName: 'Coach',
+      lastName: 'Roster',
+      email: 'test-coach-roster@example.com',
+      passwordHash: await hashPassword(TEST_PASSWORD),
+    });
+    const student = await User.create({ role: 'student', firstName: 'S', lastName: 'Roster' });
+
+    const createRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+      classId: groupClass._id.toString(),
+      coachId: coach._id.toString(),
+      dayOfWeek: 3,
+      startTime: '16:00',
+      endTime: '17:00',
+    });
+    const scheduleId = createRes.body.schedule._id;
+
+    const schedule = await GroupClassSchedule.findById(scheduleId);
+    await addStudentToRoster(schedule, student._id, todayAtMidnight());
+
+    const listRes = await adminAgent.get(`/api/v1/group-class-sessions/by-schedule/${scheduleId}`);
+
+    expect(listRes.status).toBe(200);
+    listRes.body.sessions.forEach((session) => {
+      expect(session.students).toHaveLength(1);
+      expect(session.students[0]).toEqual({
+        studentId: student._id.toString(),
+        isPresent: false,
+        classType: 'regular',
+      });
+    });
   });
 
   it('returns 400 when coachId does not refer to a coach', async () => {

@@ -23,6 +23,7 @@ const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
+const Visit = require('../../src/models/visit.model');
 const Price = require('../../src/models/price.model');
 const Registration = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
@@ -218,6 +219,10 @@ describe('Registration routes', () => {
 
         const subscriptions = await Subscription.find({ studentId: student._id });
         expect(subscriptions).toHaveLength(1);
+        // ENABLE_SCHEDULE_BASED_REGISTRATION is unset in this suite — the
+        // live default is premium (docs/plans/premium-registration-and-
+        // attendance-plan.md §0/§4).
+        expect(subscriptions[0].isPremium).toBe(true);
 
         const schedule = await GroupClassSchedule.findById(scheduleId);
         expect(
@@ -226,12 +231,12 @@ describe('Registration routes', () => {
 
         const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
         expect(sessions.length).toBeGreaterThan(0);
-        sessions.forEach((session) => {
-          const onRoster = session.students.some(
-            (entry) => String(entry.studentId) === String(student._id)
-          );
-          expect(onRoster).toBe(true);
+        const scheduledVisits = await Visit.find({
+          studentId: student._id,
+          groupClassSessionId: { $in: sessions.map((session) => session._id) },
+          status: { $ne: 'cancelled' },
         });
+        expect(scheduledVisits).toHaveLength(sessions.length);
 
         // Confirms the mail wiring actually fires with the right shape —
         // proving it fires, not just that mocking it doesn't break the
@@ -243,6 +248,33 @@ describe('Registration routes', () => {
             chargeAmount: expect.any(Number),
           })
         );
+      },
+      30000
+    );
+
+    it(
+      'sets isPremium: false when ENABLE_SCHEDULE_BASED_REGISTRATION=true (the rollback flag)',
+      async () => {
+        process.env.ENABLE_SCHEDULE_BASED_REGISTRATION = 'true';
+        try {
+          const { scheduleId } = await seedSchedule();
+          const { student } = await seedParentAndStudent('reg-parent-legacy@example.com');
+          const parentAgent = await loginAgent('reg-parent-legacy@example.com');
+
+          await savePaymentMethodFor(parentAgent);
+
+          const res = await parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId,
+          });
+
+          expect(res.status).toBe(201);
+
+          const subscription = await Subscription.findOne({ studentId: student._id });
+          expect(subscription.isPremium).toBe(false);
+        } finally {
+          delete process.env.ENABLE_SCHEDULE_BASED_REGISTRATION;
+        }
       },
       30000
     );

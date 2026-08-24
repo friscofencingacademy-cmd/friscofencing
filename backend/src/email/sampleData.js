@@ -17,6 +17,13 @@ const SAMPLE_DATA = {
     locationName: 'Frisco HQ',
   },
 
+  trialEvaluation: {
+    studentName: 'Sam Rivera',
+    coachName: 'Coach Dana',
+    levelName: 'Beginner Above 10Y',
+    notes: 'Great footwork and focus for a first class — ready to start regular training.',
+  },
+
   registrationConfirmation: {
     studentName: 'Sam Rivera',
     className: 'Beginner Foil',

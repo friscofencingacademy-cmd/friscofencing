@@ -237,6 +237,15 @@ async function changeSchedule(subscriptionId, newScheduleId) {
     throw conflictError('Only an active subscription can change schedules');
   }
 
+  // Premium subscribers attend any scheduled session of their level already
+  // — there is no "different schedule" to move to. Checked before every
+  // other validation below (docs/plans/premium-registration-and-attendance
+  // -plan.md §3.8) since none of it is reachable/meaningful for a premium
+  // subscription regardless of what newScheduleId names.
+  if (subscription.isPremium) {
+    throw conflictError('Premium subscriptions attend any scheduled session — there is no schedule to change.');
+  }
+
   const newSchedule = await GroupClassSchedule.findById(newScheduleId);
 
   if (!newSchedule) {

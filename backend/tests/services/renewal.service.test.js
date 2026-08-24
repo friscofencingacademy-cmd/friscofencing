@@ -15,14 +15,16 @@ const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
+const Visit = require('../../src/models/visit.model');
 const Price = require('../../src/models/price.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const stripe = require('../../src/config/stripe');
 const paymentMethodService = require('../../src/services/paymentMethod.service');
 const { generateInitialSessions } = require('../../src/services/groupClassSession.service');
+const { addStudentToRoster } = require('../../src/services/roster.service');
 const { renewOne, runRenewals } = require('../../src/services/renewal.service');
-const { addOneMonth } = require('../../src/utils/billingDates');
+const { addOneMonth, todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const mailService = require('../../src/services/mail.service');
 
@@ -93,16 +95,16 @@ async function seedParentAndStudent(email) {
   return { parent, student };
 }
 
-// Puts the student on the schedule's live roster AND generates the
-// schedule's initial sessions with that roster already baked in — mirrors
-// what a real registration backfills into every already-generated future
-// session.
+// Generates the schedule's initial sessions, then puts the student on the
+// schedule's live roster via the real roster.service.js helper — the same
+// one registration.service.js uses, so this produces exactly what a real
+// registration backfills into every already-generated future session
+// (schedule.students entry + a scheduled Visit per session).
 async function enrollStudentOnRosterAndSessions(schedule, studentId) {
-  schedule.students.push(studentId);
-  await schedule.save();
-
   const sessions = generateInitialSessions(schedule);
   await GroupClassSession.insertMany(sessions);
+
+  await addStudentToRoster(schedule, studentId, todayAtMidnight());
 
   return GroupClassSession.find({ scheduleId: schedule._id }).sort({ date: 1 });
 }
@@ -220,11 +222,12 @@ describe('renewOne', () => {
 
       const sessions = await enrollStudentOnRosterAndSessions(schedule, student._id);
       expect(sessions.length).toBeGreaterThan(0);
-      sessions.forEach((session) => {
-        expect(
-          session.students.some((entry) => String(entry.studentId) === String(student._id))
-        ).toBe(true);
+      const scheduledVisits = await Visit.find({
+        studentId: student._id,
+        groupClassSessionId: { $in: sessions.map((session) => session._id) },
+        status: { $ne: 'cancelled' },
       });
+      expect(scheduledVisits).toHaveLength(sessions.length);
 
       const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
       const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
@@ -253,11 +256,12 @@ describe('renewOne', () => {
 
       const updatedSessions = await GroupClassSession.find({ scheduleId: schedule._id });
       expect(updatedSessions.length).toBe(sessions.length);
-      updatedSessions.forEach((session) => {
-        expect(
-          session.students.some((entry) => String(entry.studentId) === String(student._id))
-        ).toBe(false);
+      const remainingActiveVisits = await Visit.find({
+        studentId: student._id,
+        groupClassSessionId: { $in: updatedSessions.map((session) => session._id) },
+        status: { $ne: 'cancelled' },
       });
+      expect(remainingActiveVisits).toHaveLength(0);
     },
     20000
   );

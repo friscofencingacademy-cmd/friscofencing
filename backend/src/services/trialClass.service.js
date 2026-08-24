@@ -6,6 +6,7 @@ const GroupClass = require('../models/groupClass.model');
 const Level = require('../models/level.model');
 const Location = require('../models/location.model');
 const mailService = require('./mail.service');
+const visitService = require('./visit.service');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -58,14 +59,7 @@ async function create({ studentId, sessionId }, requestingUser) {
     throw notFoundError('Group class session not found');
   }
 
-  const alreadyOnRoster = session.students.some(
-    (entry) => String(entry.studentId) === String(studentId)
-  );
-
-  if (!alreadyOnRoster) {
-    session.students.push({ studentId, isPresent: false });
-    await session.save();
-  }
+  await visitService.createScheduledVisit(studentId, sessionId, session.scheduleId, 'trial');
 
   const trialClass = await TrialClass.create({ studentId, sessionId });
 
