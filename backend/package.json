@@ -14,7 +14,11 @@
     "preview-emails": "node scripts/preview-emails.js",
     "extend-private-sessions": "node scripts/extend-private-sessions.js",
     "audit:seed": "node scripts/audit-seed.js",
-    "audit:reset": "node scripts/audit-reset.js"
+    "audit:reset": "node scripts/audit-reset.js",
+    "import:legacy": "node scripts/import-legacy-data.js",
+    "import:legacy:reset": "node scripts/reset-legacy-data.js",
+    "wipe:staging": "node scripts/wipe-staging-environment.js",
+    "refresh:staging": "node scripts/refresh-staging-data.js"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.0",
