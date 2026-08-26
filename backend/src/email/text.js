@@ -28,6 +28,9 @@ function stripTags(html) {
 function breakdownText(d) {
   const lines = ['Payment breakdown'];
   lines.push(`  Monthly fee: ${money(d.monthlyFee)}`);
+  if (d.prorated) {
+    lines.push(`  Prorated: ${d.remainingClassDays} of ${d.totalClassDays} class days this month`);
+  }
   if (d.siblingDiscountAmount) {
     lines.push(`  Sibling discount (10%): -${money(d.siblingDiscountAmount)}`);
   }

@@ -23,7 +23,7 @@
  *   { t:'card', tone, children:Block[] }
  *   { t:'detailList', rows:[label,value][] }
  *   { t:'steps', title, items:[] }
- *   { t:'breakdown', data:{ monthlyFee, siblingDiscountAmount, registrationFeeCharged, total } }
+ *   { t:'breakdown', data:{ monthlyFee, siblingDiscountAmount, registrationFeeCharged, prorated, totalClassDays, remainingClassDays, total } }
  */
 
 const { C, FONT, LOGO_URL, ORG } = require('./tokens');
@@ -71,6 +71,9 @@ function breakdownHtml(d) {
   };
 
   let rows = row('Monthly fee', money(d.monthlyFee));
+  if (d.prorated) {
+    rows += row('Prorated', `${d.remainingClassDays} of ${d.totalClassDays} class days this month`);
+  }
   if (d.siblingDiscountAmount) {
     rows += row('Sibling discount (10%)', `&minus;${money(d.siblingDiscountAmount)}`, { discount: true });
   }

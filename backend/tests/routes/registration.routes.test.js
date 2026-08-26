@@ -29,6 +29,7 @@ const Registration = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const Setting = require('../../src/models/setting.model');
+const { computeProration } = require('../../src/services/billing/proration.service');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
@@ -637,6 +638,178 @@ describe('Registration routes', () => {
     );
   });
 
+  describe('prorated first-month billing', () => {
+    it(
+      'charges nothing extra and keeps the existing rolling period when prorationEnabled is OFF (the default) — byte-identical to pre-proration behavior',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('proration-off@example.com');
+        const parentAgent = await loginAgent('proration-off@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
+        expect(res.body.prorated).toBe(false);
+        expect(res.body.totalClassDays).toBeNull();
+        expect(res.body.remainingClassDays).toBeNull();
+        expect(res.body.dailyRate).toBeNull();
+
+        const subscription = await Subscription.findOne({ studentId: student._id });
+        expect(subscription.firstChargeProrated).toBe(false);
+        // Rolling one-month period, not a calendar-month boundary.
+        const daysUntilPeriodEnd =
+          (subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime()) /
+          (1000 * 60 * 60 * 24);
+        expect(daysUntilPeriodEnd).toBeGreaterThan(27); // ~a full month out, not "days left this month"
+      },
+      20000
+    );
+
+    it(
+      'explicitly toggling prorationEnabled OFF (a Setting doc exists but disabled) is the same as no Setting at all',
+      async () => {
+        await Setting.create({ prorationEnabled: false });
+
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('proration-explicit-off@example.com');
+        const parentAgent = await loginAgent('proration-explicit-off@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
+        expect(res.body.prorated).toBe(false);
+      },
+      20000
+    );
+
+    it(
+      'prorates the real Stripe charge and anchors the period to calendar month-end when prorationEnabled is ON',
+      async () => {
+        await Setting.create({ prorationEnabled: true });
+
+        const { scheduleId, levelId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('proration-on@example.com');
+        const parentAgent = await loginAgent('proration-on@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        // Same function the real code calls (docs/plans/prorated-first-
+        // month-billing-plan.md, D3) — used here only to compute what the
+        // real API SHOULD return for "right now", not a reimplementation of
+        // the math, so this test stays deterministic regardless of what day
+        // of the month it actually runs on.
+        const expected = await computeProration({
+          levelId,
+          monthlyFee: MONTHLY_FEE,
+          registrationDate: new Date(),
+        });
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.prorated).toBe(true);
+        expect(res.body.totalClassDays).toBe(expected.totalClassDays);
+        expect(res.body.remainingClassDays).toBe(expected.remainingClassDays);
+        expect(res.body.chargeAmount).toBe(expected.proratedAmount);
+        expect(res.body.totalChargeAmount).toBe(expected.proratedAmount);
+
+        const subscription = await Subscription.findOne({ studentId: student._id });
+        expect(subscription.firstChargeProrated).toBe(true);
+        expect(subscription.currentPeriodEnd.getFullYear()).toBe(expected.periodEnd.getFullYear());
+        expect(subscription.currentPeriodEnd.getMonth()).toBe(expected.periodEnd.getMonth());
+        expect(subscription.currentPeriodEnd.getDate()).toBe(expected.periodEnd.getDate());
+
+        // The real Stripe PaymentIntent reflects the prorated amount, not
+        // the full monthly fee.
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const intent = paymentIntents.data.find(
+          (i) => i.amount === Math.round(expected.proratedAmount * 100)
+        );
+        expect(intent).toBeDefined();
+        expect(intent.status).toBe('succeeded');
+      },
+      20000
+    );
+
+    it(
+      'applies proration BEFORE the sibling discount (owner-directed sequencing) — the 10% is computed on the prorated amount, not the raw list price',
+      async () => {
+        await Setting.create({ prorationEnabled: true });
+
+        const parent = await seedUser({ role: 'parent', email: 'proration-sibling@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'Proration',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'Proration',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('proration-sibling@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'ProrationPricier',
+          levelOrder: 40,
+        });
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'ProrationCheap',
+          levelOrder: 41,
+        });
+
+        // First child registers into the pricier level — no active sibling
+        // yet, so no discount regardless of proration.
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+
+        const cheaperSchedule = await GroupClassSchedule.findById(cheaperScheduleId);
+        const cheaperGroupClass = await GroupClass.findById(cheaperSchedule.classId);
+
+        const expectedProration = await computeProration({
+          levelId: cheaperGroupClass.levelId,
+          monthlyFee: MONTHLY_FEE,
+          registrationDate: new Date(),
+        });
+        const expectedDiscount = Number((expectedProration.proratedAmount * 0.1).toFixed(2));
+        const expectedFinal = Number((expectedProration.proratedAmount - expectedDiscount).toFixed(2));
+
+        // Second child registers into the cheaper level, prorated — the
+        // sibling comparison must use the PRORATED amount, not MONTHLY_FEE.
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+
+        expect(secondRes.status).toBe(201);
+        expect(secondRes.body.prorated).toBe(true);
+        expect(secondRes.body.siblingDiscountApplied).toBe(true);
+        expect(secondRes.body.siblingDiscountAmount).toBe(expectedDiscount);
+        expect(secondRes.body.chargeAmount).toBe(expectedFinal);
+      },
+      40000
+    );
+  });
+
   describe('GET /api/v1/registrations/preview', () => {
     it('returns the undiscounted monthly fee for an only child, and creates/charges nothing', async () => {
       const { scheduleId } = await seedSchedule();
@@ -649,7 +822,8 @@ describe('Registration routes', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({
+      const { periodEnd, ...rest } = res.body;
+      expect(rest).toEqual({
         monthlyFee: MONTHLY_FEE,
         chargeAmount: MONTHLY_FEE,
         totalChargeAmount: MONTHLY_FEE,
@@ -659,7 +833,17 @@ describe('Registration routes', () => {
         registrationFeeCharged: 0,
         registrationFeeWaived: false,
         registrationFeeReason: null,
+        // Proration defaults to OFF — byte-identical to pre-proration
+        // behavior — until an admin explicitly enables it.
+        prorated: false,
+        totalClassDays: null,
+        remainingClassDays: null,
+        dailyRate: null,
       });
+      // periodEnd is always present (even when not prorated) so the wizard
+      // can always show a "renews on" date — asserted loosely since it's
+      // relative to whenever this test actually runs.
+      expect(new Date(periodEnd).getTime()).toBeGreaterThan(Date.now());
 
       // The critical "this is truly read-only" regression guard: no
       // Registration/Subscription got created. A global stripe.paymentIntents
@@ -718,7 +902,8 @@ describe('Registration routes', () => {
         });
 
         expect(previewRes.status).toBe(200);
-        expect(previewRes.body).toEqual({
+        const { periodEnd: siblingPreviewPeriodEnd, ...siblingPreviewRest } = previewRes.body;
+        expect(siblingPreviewRest).toEqual({
           monthlyFee: MONTHLY_FEE,
           chargeAmount: MONTHLY_FEE * 0.9,
           totalChargeAmount: MONTHLY_FEE * 0.9,
@@ -729,7 +914,12 @@ describe('Registration routes', () => {
           registrationFeeCharged: 0,
           registrationFeeWaived: false,
           registrationFeeReason: null,
+          prorated: false,
+          totalClassDays: null,
+          remainingClassDays: null,
+          dailyRate: null,
         });
+        expect(new Date(siblingPreviewPeriodEnd).getTime()).toBeGreaterThan(Date.now());
 
         // Preview created nothing.
         expect(await Subscription.countDocuments({ studentId: secondChild._id })).toBe(0);

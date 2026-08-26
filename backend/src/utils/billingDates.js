@@ -27,4 +27,18 @@ function addMonths(date, months) {
   return result;
 }
 
-module.exports = { addOneMonth, addMonths, todayAtMidnight };
+// Number of calendar days in `date`'s month (28-31) — day 0 of next month is
+// the last day of this one, a standard JS Date idiom.
+function daysInMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
+// The last calendar date of `date`'s month, end-of-day — used by
+// proration.service.js as a prorated first period's currentPeriodEnd.
+function endOfMonth(date) {
+  const result = new Date(date.getFullYear(), date.getMonth(), daysInMonth(date));
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
+module.exports = { addOneMonth, addMonths, daysInMonth, endOfMonth, todayAtMidnight };

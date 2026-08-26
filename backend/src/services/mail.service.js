@@ -200,6 +200,9 @@ async function sendRegistrationConfirmationEmail({
   monthlyFee,
   siblingDiscountAmount,
   registrationFeeCharged,
+  prorated,
+  totalClassDays,
+  remainingClassDays,
 }) {
   try {
     const firstClassDateLabel = schedule ? dayOfWeekLabel(schedule.dayOfWeek) : '';
@@ -214,6 +217,9 @@ async function sendRegistrationConfirmationEmail({
       monthlyFee,
       siblingDiscountAmount: siblingDiscountAmount || 0,
       registrationFeeCharged: registrationFeeCharged || 0,
+      prorated: prorated || false,
+      totalClassDays: totalClassDays || 0,
+      remainingClassDays: remainingClassDays || 0,
       chargeAmount,
       firstClassDateLabel: firstClassDateLabel ? `next ${firstClassDateLabel}` : 'your next scheduled class',
     };

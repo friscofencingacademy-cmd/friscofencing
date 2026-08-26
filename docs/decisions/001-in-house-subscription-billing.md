@@ -30,6 +30,39 @@ Built as `renewOne(subscriptionId)` (its own fresh fetch + live re-check, never 
 
 **One-time registration fee**, admin-configurable (`Setting.registrationFee`, superadmin-only), bundled into the same `PaymentIntent` as a registration's first monthly charge — never a second charge, never discounted by the sibling rule. Includes an optional returning-student waiver (`Setting.returningStudentGracePeriodMonths`): a student whose most recent prior `Subscription` ended (per `currentPeriodEnd`) within that many months of `now` pays no fee on re-registration. See `DATABASE_SCHEMA_DOCUMENTATION.md`'s `Setting` section for the full field/model detail. No caching, consistent with this ADR's "re-verified every time" principle — a `Setting` read is cheap and only happens at registration time, so there's no performance case for deviating from that.
 
+## Addendum — 2026-08-26 (2): prorated first-month billing
+
+Full plan: `docs/plans/prorated-first-month-billing-plan.md`. Admin-gated (`Setting.prorationEnabled`,
+default `false` — no live charge changes until an owner deliberately turns it on).
+
+**What changes.** A student's first charge is prorated to the class days remaining, this calendar
+month, at their level — not a rolling month. `backend/src/services/billing/proration.service.js`'s
+`computeProration()` is the single function this math ever runs in; `create()` and
+`previewChargeAmount()` are its only two callers, so a preview can never structurally disagree with
+the real charge, same guarantee every other billing preview in this codebase already has. The
+frontend never reimplements this math — it only displays what the backend returned.
+
+**Sequencing, owner-directed and worth stating precisely because it isn't the only defensible
+order:** proration runs on the *raw* list price first; that *result* is what feeds into
+`calculateChargeAmount()` — completely unmodified by this change. Sibling-discount eligibility
+therefore compares "what this student actually owes this cycle" (their prorated amount, if
+prorated) against a sibling's own current standard rate — not the raw, unprorated list price. The
+one-time registration fee is unaffected by any of this: flat, unprorated, undiscounted, always added
+last, exactly as it was before this addendum.
+
+**Period model, for a prorated first charge only.** `currentPeriodEnd` becomes the end of the
+registration's calendar month instead of `addOneMonth(now)` — a genuinely short first period,
+matching the smaller charge, because access to a physical space shouldn't outlast what was paid for.
+Every subsequent renewal is `renewal.service.js`, **completely unchanged** — a full calendar month
+at full price. When `prorationEnabled` is `false` (the shipped default), `create()` and
+`previewChargeAmount()` are byte-identical to their pre-proration behavior.
+
+**Deliberately out of scope**, see the plan doc's own "explicitly out of scope" section for the full
+list: no holiday/closure exclusion (Frisco has no `Holiday` model), no migration of any already-
+active subscription's rolling period to a calendar-anchored one, no change to the renewal cron's
+cadence (renewals will cluster around the 1st of the month once this is live at real volume — a
+noted future operational consideration, not addressed by code here).
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.
