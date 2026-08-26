@@ -30,10 +30,12 @@ import {
   FlowConfirmation,
   FlowMain,
   FlowSection,
+  LevelPickerCards,
   OrderSummary,
+  PillRow,
 } from '../../components/portal/flow';
 
-const STEPS = ['Who', 'Class', 'Review & Pay', 'Done'];
+const STEPS = ['Who', 'Level', 'Review & Pay', 'Done'];
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 async function fetchRegisterOptions() {
@@ -56,6 +58,7 @@ interface RegisteredInfo {
   chargeAmount: number;
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
+  siblingDiscountReason?: string | null;
 }
 
 export default function RegisterPage() {
@@ -81,7 +84,7 @@ export default function RegisterPage() {
 
   const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
-  const [classId, setClassId] = useState('');
+  const [levelId, setLevelId] = useState('');
   const [scheduleId, setScheduleId] = useState('');
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -121,16 +124,24 @@ export default function RegisterPage() {
     };
   }, [studentId, scheduleId]);
 
-  const filteredSchedules = classId ? schedules.filter((schedule) => schedule.classId === classId) : [];
+  // A level maps 1:1 to a GroupClass in practice (confirmed against real
+  // schedule data — className always equals levelName), but the data model
+  // doesn't strictly enforce that, so this resolves every class under the
+  // selected level (usually exactly one) rather than assuming a single id —
+  // robust either way, and the parent never sees "class" as a concept at
+  // all any more (see LevelPickerCards).
+  const classIdsForLevel = levelId
+    ? groupClasses.filter((groupClass) => groupClass.levelId === levelId).map((groupClass) => groupClass._id)
+    : [];
+  const filteredSchedules = schedules.filter((schedule) => classIdsForLevel.includes(schedule.classId));
 
-  const handleClassChange = useCallback((value: string) => {
-    setClassId(value);
+  const handleLevelChange = useCallback((value: string) => {
+    setLevelId(value);
     setScheduleId('');
   }, []);
 
   const selectedStudent = students.find((student) => student._id === studentId);
-  const selectedGroupClass = classId ? groupClasses.find((groupClass) => groupClass._id === classId) ?? null : null;
-  const selectedPrice = selectedGroupClass ? prices.find((price) => price.levelId === selectedGroupClass.levelId) ?? null : null;
+  const selectedPrice = levelId ? prices.find((price) => price.levelId === levelId) ?? null : null;
   const selectedSchedule = scheduleId ? schedules.find((schedule) => schedule._id === scheduleId) ?? null : null;
 
   async function handleSubmit() {
@@ -150,6 +161,7 @@ export default function RegisterPage() {
         chargeAmount: result.data.chargeAmount,
         siblingDiscountApplied: result.data.siblingDiscountApplied,
         siblingDiscountAmount: result.data.siblingDiscountAmount,
+        siblingDiscountReason: result.data.siblingDiscountReason,
       });
       setStep(3);
       reload();
@@ -178,6 +190,13 @@ export default function RegisterPage() {
               ...(registered?.siblingDiscountApplied
                 ? [{ label: 'Sibling Discount', value: `-$${registered.siblingDiscountAmount?.toFixed(2)}` }]
                 : []),
+              // Backend-owned explanation string — shown whenever there's
+              // something to say (a discount applied, or one didn't because
+              // a sibling already has the lower-priced plan), never derived
+              // on the frontend.
+              ...(registered?.siblingDiscountReason
+                ? [{ label: 'Why', value: registered.siblingDiscountReason }]
+                : []),
             ]}
             links={
               <>
@@ -197,7 +216,7 @@ export default function RegisterPage() {
 
   const summaryLines = [
     { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
-    { label: 'Class', value: selectedGroupClass?.name ?? '—' },
+    { label: 'Level', value: levelId ? levelName(levels, levelId) : '—' },
     {
       label: 'Usual time',
       value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${formatTime(selectedSchedule.startTime)}-${formatTime(selectedSchedule.endTime)}` : '—',
@@ -260,51 +279,35 @@ export default function RegisterPage() {
           </FlowSection>
         ) : step === 1 ? (
           <>
-            <FlowSection title="Choose a class">
-              <select aria-label="Class" value={classId} onChange={(e) => handleClassChange(e.target.value)} required>
-                <option value="">Select a class</option>
-                {groupClasses.map((groupClass) => (
-                  <option key={groupClass._id} value={groupClass._id}>
-                    {groupClass.name}
-                  </option>
-                ))}
-              </select>
+            <FlowSection title="Choose your level">
+              <LevelPickerCards levels={levels} prices={prices} selectedId={levelId} onSelect={handleLevelChange} />
             </FlowSection>
 
-            <FlowSection title="Choose your preferred class time">
-              {classId ? (
+            {levelId ? (
+              <FlowSection title="Choose your preferred time">
                 <p>
-                  You&apos;re enrolling in the full {selectedGroupClass ? selectedGroupClass.name : 'class'} program
-                  — you can attend any of its scheduled sessions. Pick one below as your usual time.
+                  You&apos;re enrolling in the full {levelName(levels, levelId)} program — you can attend any of
+                  its scheduled sessions. Pick one below as your usual time.
                 </p>
-              ) : null}
-              <select
-                aria-label="Schedule"
-                value={scheduleId}
-                onChange={(e) => setScheduleId(e.target.value)}
-                required
-                disabled={!classId}
-              >
-                <option value="">Select a schedule</option>
-                {filteredSchedules.map((schedule) => (
-                  <option key={schedule._id} value={schedule._id}>
-                    {DAY_LABELS[schedule.dayOfWeek]} {formatTime(schedule.startTime)}-{formatTime(schedule.endTime)}
-                  </option>
-                ))}
-              </select>
-              {selectedGroupClass ? (
-                selectedPrice ? (
-                  <p>
-                    Level: {levelName(levels, selectedGroupClass.levelId)} — ${selectedPrice.monthlyFee}/month
-                    {pricePreview?.siblingDiscountApplied ? (
-                      <> · 10% sibling discount applied — ${pricePreview.chargeAmount.toFixed(2)}/month</>
-                    ) : null}
-                  </p>
+                {filteredSchedules.length === 0 ? (
+                  <Alert variant="error">No time slots are available for this level yet.</Alert>
                 ) : (
-                  <Alert variant="error">Pricing is not configured for this class yet.</Alert>
-                )
-              ) : null}
-            </FlowSection>
+                  <PillRow
+                    items={filteredSchedules}
+                    selectedKey={scheduleId || null}
+                    onSelect={setScheduleId}
+                    getKey={(schedule) => schedule._id}
+                    getLabel={(schedule) => `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`}
+                    ariaLabel="Select a time"
+                  />
+                )}
+                {pricePreview?.siblingDiscountApplied ? (
+                  <p>10% sibling discount applied — ${pricePreview.chargeAmount.toFixed(2)}/month</p>
+                ) : pricePreview?.siblingDiscountReason ? (
+                  <p>{pricePreview.siblingDiscountReason}</p>
+                ) : null}
+              </FlowSection>
+            ) : null}
 
             <Button type="button" variant="secondary" onClick={() => setStep(0)}>
               Back

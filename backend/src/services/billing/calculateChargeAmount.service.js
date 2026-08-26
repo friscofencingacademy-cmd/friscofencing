@@ -80,7 +80,7 @@ async function calculateChargeAmount(student, monthlyFee) {
   }
 
   if (activeSiblingFees.length === 0) {
-    return { amount: monthlyFee, siblingDiscountApplied: false, siblingDiscountAmount: 0 };
+    return { amount: monthlyFee, siblingDiscountApplied: false, siblingDiscountAmount: 0, reason: null };
   }
 
   const comparisonSibling = activeSiblingFees.reduce((lowest, current) =>
@@ -104,14 +104,20 @@ async function calculateChargeAmount(student, monthlyFee) {
   }
 
   if (!thisStudentWins) {
-    return { amount: monthlyFee, siblingDiscountApplied: false, siblingDiscountAmount: 0 };
+    return {
+      amount: monthlyFee,
+      siblingDiscountApplied: false,
+      siblingDiscountAmount: 0,
+      reason: 'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
+    };
   }
 
   return {
     amount: monthlyFee * 0.9,
     siblingDiscountApplied: true,
     siblingDiscountAmount: monthlyFee * 0.1,
+    reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
   };
 }
 
-module.exports = { calculateChargeAmount };
+module.exports = { calculateChargeAmount, resolveCurrentFee };

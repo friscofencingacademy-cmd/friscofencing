@@ -184,6 +184,19 @@ export interface Subscription {
   // some older fixtures predate the field, not because it's ever actually
   // absent on a real Subscription doc.
   isPremium?: boolean;
+  // Live sibling-discount snapshot, computed fresh on every GET (never a
+  // stored field) — see registration.service.js's listMine. Distinct from
+  // lastChargeAmount/lastSiblingDiscountApplied above, which only reflect
+  // what happened at THIS subscription's own last charge and can go stale
+  // the moment a sibling's situation changes. Present only for an active
+  // subscription whose current fee could be resolved; absent (not null) for
+  // a cancelled subscription or one whose pricing can no longer be found.
+  currentCharge?: {
+    amount: number;
+    siblingDiscountApplied: boolean;
+    siblingDiscountAmount: number;
+    reason: string | null;
+  };
 }
 
 export interface PaymentMethodInfo {
@@ -201,6 +214,7 @@ export interface RegistrationCreateResponse {
   paymentIntentStatus: string;
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
+  siblingDiscountReason?: string | null;
 }
 
 // GET /registrations/preview — read-only pricing/discount estimate for the
@@ -213,6 +227,7 @@ export interface RegistrationPricePreview {
   chargeAmount: number;
   siblingDiscountApplied: boolean;
   siblingDiscountAmount: number;
+  siblingDiscountReason: string | null;
 }
 
 // ── Admin Group Class Subscriptions (ckq-parity plan, Phase 3) ────────────

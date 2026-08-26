@@ -26,9 +26,13 @@ async function run(context, config) {
     await page.getByRole('radio', { name: /audit childone/i }).click();
     await page.getByRole('button', { name: /continue/i }).click();
 
-    await page.getByLabel('Class').selectOption({ label: 'Audit Class A' });
-    await page.getByLabel('Schedule').waitFor();
-    await page.getByLabel('Schedule').selectOption({ index: 1 }); // the one schedule audit-seed.js created
+    // Level-cards + time-pills, not the old Class/Schedule <select>s — the
+    // register wizard no longer exposes "class" as a separate concept
+    // (docs/features/parent-portal.md's Register wizard section).
+    await page.getByRole('radio', { name: /audit level a/i }).click();
+    const timePill = page.getByRole('radiogroup', { name: 'Select a time' }).getByRole('radio').first();
+    await timePill.waitFor({ timeout: 10000 }); // the one schedule audit-seed.js created
+    await timePill.click();
     await page.getByRole('button', { name: /continue/i }).click();
 
     await page.getByText(/card on file/i).waitFor({ timeout: 45000 });

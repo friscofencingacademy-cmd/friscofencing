@@ -93,6 +93,7 @@ describe('calculateChargeAmount', () => {
       amount: 150,
       siblingDiscountApplied: false,
       siblingDiscountAmount: 0,
+      reason: null,
     });
   });
 
@@ -117,6 +118,7 @@ describe('calculateChargeAmount', () => {
       amount: 90,
       siblingDiscountApplied: true,
       siblingDiscountAmount: 10,
+      reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
     });
   });
 
@@ -141,6 +143,7 @@ describe('calculateChargeAmount', () => {
       amount: 200,
       siblingDiscountApplied: false,
       siblingDiscountAmount: 0,
+      reason: 'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
     });
   });
 
@@ -208,6 +211,7 @@ describe('calculateChargeAmount', () => {
       amount: 90,
       siblingDiscountApplied: true,
       siblingDiscountAmount: 10,
+      reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
     });
 
     siblingSubscription.status = 'cancelled';
@@ -219,6 +223,7 @@ describe('calculateChargeAmount', () => {
       amount: 100,
       siblingDiscountApplied: false,
       siblingDiscountAmount: 0,
+      reason: null,
     });
   });
 });

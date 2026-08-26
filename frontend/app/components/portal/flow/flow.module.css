@@ -232,6 +232,11 @@
   background: var(--sidebar-active-bg);
 }
 
+.childCard:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .childAvatar {
   width: 36px;
   height: 36px;

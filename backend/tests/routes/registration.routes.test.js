@@ -551,6 +551,7 @@ describe('Registration routes', () => {
         chargeAmount: MONTHLY_FEE,
         siblingDiscountApplied: false,
         siblingDiscountAmount: 0,
+        siblingDiscountReason: null,
       });
 
       // The critical "this is truly read-only" regression guard: no
@@ -615,6 +616,8 @@ describe('Registration routes', () => {
           chargeAmount: MONTHLY_FEE * 0.9,
           siblingDiscountApplied: true,
           siblingDiscountAmount: MONTHLY_FEE * 0.1,
+          siblingDiscountReason:
+            'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
         });
 
         // Preview created nothing.
@@ -685,6 +688,112 @@ describe('Registration routes', () => {
       });
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('GET /api/v1/registrations/mine', () => {
+    it(
+      'enriches each active subscription with a LIVE currentCharge that reflects a sibling discount only true after a LATER registration — never a stale lastChargeAmount snapshot',
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'reg-mine-sibling@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'Mine',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'Mine',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('reg-mine-sibling@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'MinePricier',
+          levelOrder: 30,
+        });
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'MineCheap',
+          levelOrder: 31,
+        });
+
+        // First (pricier) child registers first — no sibling yet, full
+        // price, and this is what gets recorded as lastChargeAmount /
+        // lastSiblingDiscountApplied on their Subscription.
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+
+        // Second (cheaper) child registers second — wins the discount.
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+        expect(secondRes.status).toBe(201);
+
+        const mineRes = await parentAgent.get('/api/v1/registrations/mine');
+        expect(mineRes.status).toBe(200);
+
+        const firstRow = mineRes.body.subscriptions.find(
+          (sub) => sub.studentId._id === firstChild._id.toString()
+        );
+        const secondRow = mineRes.body.subscriptions.find(
+          (sub) => sub.studentId._id === secondChild._id.toString()
+        );
+
+        // The stale, historical fields from firstChild's OWN charge (taken
+        // before secondChild existed) are untouched — still full price, no
+        // discount. This is the exact snapshot a parent would have seen
+        // before this fix, and it never gets rewritten retroactively.
+        expect(firstRow.lastChargeAmount).toBe(MONTHLY_FEE * 2);
+        expect(firstRow.lastSiblingDiscountApplied).toBeFalsy();
+
+        // But the LIVE currentCharge correctly shows firstChild is no
+        // longer the lower payer, with a clear reason — not just a silently
+        // missing discount that looks broken.
+        expect(firstRow.currentCharge).toEqual({
+          amount: MONTHLY_FEE * 2,
+          siblingDiscountApplied: false,
+          siblingDiscountAmount: 0,
+          reason:
+            'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
+        });
+
+        expect(secondRow.currentCharge).toEqual({
+          amount: MONTHLY_FEE * 0.9,
+          siblingDiscountApplied: true,
+          siblingDiscountAmount: MONTHLY_FEE * 0.1,
+          reason:
+            'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+        });
+      },
+      40000
+    );
+
+    it('omits currentCharge for a cancelled subscription', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('reg-mine-cancelled@example.com');
+      const parentAgent = await loginAgent('reg-mine-cancelled@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      const regRes = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+      expect(regRes.status).toBe(201);
+
+      await Subscription.findByIdAndUpdate(regRes.body.subscription._id, { status: 'cancelled' });
+
+      const mineRes = await parentAgent.get('/api/v1/registrations/mine');
+      expect(mineRes.status).toBe(200);
+      expect(mineRes.body.subscriptions[0].status).toBe('cancelled');
+      expect(mineRes.body.subscriptions[0].currentCharge).toBeUndefined();
     });
   });
 });
