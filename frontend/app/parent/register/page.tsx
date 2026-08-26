@@ -56,9 +56,13 @@ function levelName(levels: Level[], id: string): string {
 interface RegisteredInfo {
   childName: string;
   chargeAmount: number;
+  totalChargeAmount: number;
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
   siblingDiscountReason?: string | null;
+  registrationFeeCharged?: number;
+  registrationFeeWaived?: boolean;
+  registrationFeeReason?: string | null;
 }
 
 export default function RegisterPage() {
@@ -159,9 +163,13 @@ export default function RegisterPage() {
       setRegistered({
         childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
         chargeAmount: result.data.chargeAmount,
+        totalChargeAmount: result.data.totalChargeAmount,
         siblingDiscountApplied: result.data.siblingDiscountApplied,
         siblingDiscountAmount: result.data.siblingDiscountAmount,
         siblingDiscountReason: result.data.siblingDiscountReason,
+        registrationFeeCharged: result.data.registrationFeeCharged,
+        registrationFeeWaived: result.data.registrationFeeWaived,
+        registrationFeeReason: result.data.registrationFeeReason,
       });
       setStep(3);
       reload();
@@ -184,7 +192,7 @@ export default function RegisterPage() {
         <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]} title="Register" steps={STEPS} current={3} singleColumn>
           <FlowConfirmation
             title="Registration complete!"
-            subtitle={`Your card was charged $${registered?.chargeAmount.toFixed(2)}.`}
+            subtitle={`Your card was charged $${registered?.totalChargeAmount.toFixed(2)}.`}
             lines={[
               { label: 'Child', value: registered?.childName },
               ...(registered?.siblingDiscountApplied
@@ -196,6 +204,14 @@ export default function RegisterPage() {
               // on the frontend.
               ...(registered?.siblingDiscountReason
                 ? [{ label: 'Why', value: registered.siblingDiscountReason }]
+                : []),
+              // One-time fee, itemized separately — never folded into the
+              // recurring monthly amount above.
+              ...(registered?.registrationFeeCharged
+                ? [{ label: 'Registration Fee (one-time)', value: `$${registered.registrationFeeCharged.toFixed(2)}` }]
+                : []),
+              ...(registered?.registrationFeeWaived
+                ? [{ label: 'Registration Fee', value: 'Waived' }]
                 : []),
             ]}
             links={
@@ -227,6 +243,14 @@ export default function RegisterPage() {
           { label: 'Sibling Discount', value: `-$${pricePreview.siblingDiscountAmount.toFixed(2)}` },
           { label: "You'll Pay", value: `$${pricePreview.chargeAmount.toFixed(2)}` },
         ]
+      : []),
+    // One-time fee, itemized separately — never folded into "Monthly Fee"
+    // above, so a parent always sees exactly what it's for.
+    ...(pricePreview?.registrationFeeCharged
+      ? [{ label: 'Registration Fee (one-time)', value: `$${pricePreview.registrationFeeCharged.toFixed(2)}` }]
+      : []),
+    ...(pricePreview?.registrationFeeCharged
+      ? [{ label: 'Due Today', value: `$${pricePreview.totalChargeAmount.toFixed(2)}` }]
       : []),
   ];
 

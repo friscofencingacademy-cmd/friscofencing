@@ -10,6 +10,7 @@ const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
+const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
@@ -133,12 +134,23 @@ async function create({ studentId, scheduleId }, requestingUser) {
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
     await calculateChargeAmount(student, price.monthlyFee);
 
+  // One-time fee, on top of the monthly charge above — never discounted by
+  // the sibling rule (a flat enrollment fee, not recurring tuition). $0 for
+  // most registrations today, since no admin has configured a fee yet.
+  const {
+    amount: registrationFeeCharged,
+    waived: registrationFeeWaived,
+    reason: registrationFeeReason,
+  } = await resolveRegistrationFee(studentId);
+
+  const totalChargeAmount = chargeAmount + registrationFeeCharged;
+
   let paymentIntent;
 
   try {
     paymentIntent = await stripe.paymentIntents.create(
       {
-        amount: Math.round(chargeAmount * 100),
+        amount: Math.round(totalChargeAmount * 100),
         currency: 'usd',
         customer: stripeCustomerId,
         payment_method: paymentMethod.stripePaymentMethodId,
@@ -185,6 +197,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
     lastChargeAmount: chargeAmount,
     lastSiblingDiscountApplied: siblingDiscountApplied,
     isPremium: isPremiumRegistrationEnabled(),
+    registrationFeeCharged,
   });
 
   await addStudentToRoster(schedule, studentId, todayAtMidnight());
@@ -208,9 +221,10 @@ async function create({ studentId, scheduleId }, requestingUser) {
       level,
       location,
       coach,
-      chargeAmount,
+      chargeAmount: totalChargeAmount,
       monthlyFee: price.monthlyFee,
       siblingDiscountAmount,
+      registrationFeeCharged,
     });
   } catch (error) {
     // eslint-disable-next-line no-console -- operational logging for a
@@ -222,10 +236,14 @@ async function create({ studentId, scheduleId }, requestingUser) {
     registration,
     subscription,
     chargeAmount,
+    totalChargeAmount,
     paymentIntentStatus: paymentIntent.status,
     siblingDiscountApplied,
     siblingDiscountAmount,
     siblingDiscountReason,
+    registrationFeeCharged,
+    registrationFeeWaived,
+    registrationFeeReason,
   };
 }
 
@@ -260,12 +278,22 @@ async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
     await calculateChargeAmount(student, price.monthlyFee);
 
+  const {
+    amount: registrationFeeCharged,
+    waived: registrationFeeWaived,
+    reason: registrationFeeReason,
+  } = await resolveRegistrationFee(studentId);
+
   return {
     monthlyFee: price.monthlyFee,
     chargeAmount,
+    totalChargeAmount: chargeAmount + registrationFeeCharged,
     siblingDiscountApplied,
     siblingDiscountAmount,
     siblingDiscountReason,
+    registrationFeeCharged,
+    registrationFeeWaived,
+    registrationFeeReason,
   };
 }
 

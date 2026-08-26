@@ -72,6 +72,20 @@ describe('email design system — renderEmail', () => {
     expect(html).not.toContain('Sibling discount');
   });
 
+  it('shows a one-time registration fee row when registrationFeeCharged is > 0, and omits it when 0/falsy', () => {
+    const withFee = renderEmail('registrationConfirmation', {
+      ...SAMPLE_DATA.registrationConfirmation,
+      registrationFeeCharged: 25,
+      chargeAmount: 175,
+    });
+    expect(withFee.html).toContain('Registration fee (one-time)');
+    expect(withFee.html).toContain('$25.00');
+    expect(withFee.text).toContain('Registration fee (one-time): $25.00');
+
+    const withoutFee = renderEmail('registrationConfirmation', SAMPLE_DATA.registrationConfirmation);
+    expect(withoutFee.html).not.toContain('Registration fee');
+  });
+
   it('text twin contains detailList labels and button URLs', () => {
     const { text } = renderEmail('registrationConfirmation', SAMPLE_DATA.registrationConfirmation);
 

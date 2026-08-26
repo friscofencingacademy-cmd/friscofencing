@@ -98,6 +98,22 @@ describe('AdminSubscriptionsPage', () => {
     expect(within(table).getByText('Active')).toBeInTheDocument();
   });
 
+  it('shows the one-time registration fee as a note under Last Charge when the subscription has one', async () => {
+    rows = [makeRow({ registrationFeeCharged: 25 })];
+    render(<AdminSubscriptionsPage />);
+
+    await screen.findByText('Sam Rivera');
+    expect(screen.getByText('+ $25.00 registration fee')).toBeInTheDocument();
+  });
+
+  it('omits the registration-fee note entirely when none was charged', async () => {
+    rows = [makeRow({ registrationFeeCharged: 0 })];
+    render(<AdminSubscriptionsPage />);
+
+    await screen.findByText('Sam Rivera');
+    expect(screen.queryByText(/registration fee/i)).not.toBeInTheDocument();
+  });
+
   it('shows a gold "Cancels <date>" chip and a Reactivate action for a pending-cancel subscription', async () => {
     rows = [makeRow({ cancelAtPeriodEnd: true })];
     render(<AdminSubscriptionsPage />);

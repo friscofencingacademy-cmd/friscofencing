@@ -184,6 +184,10 @@ export interface Subscription {
   // some older fixtures predate the field, not because it's ever actually
   // absent on a real Subscription doc.
   isPremium?: boolean;
+  // One-time registration fee actually charged at creation — captured once,
+  // never touched by a later admin change to the fee or by renewals. 0 for
+  // most subscriptions today (no fee configured), never null/undefined.
+  registrationFeeCharged?: number;
   // Live sibling-discount snapshot, computed fresh on every GET (never a
   // stored field) — see registration.service.js's listMine. Distinct from
   // lastChargeAmount/lastSiblingDiscountApplied above, which only reflect
@@ -211,10 +215,17 @@ export interface RegistrationCreateResponse {
   registration: Registration;
   subscription: Subscription;
   chargeAmount: number;
+  // What Stripe actually charged: chargeAmount + registrationFeeCharged.
+  // chargeAmount alone stays the recurring monthly amount, unchanged
+  // meaning — use this for "your card was charged" copy.
+  totalChargeAmount: number;
   paymentIntentStatus: string;
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
   siblingDiscountReason?: string | null;
+  registrationFeeCharged?: number;
+  registrationFeeWaived?: boolean;
+  registrationFeeReason?: string | null;
 }
 
 // GET /registrations/preview — read-only pricing/discount estimate for the
@@ -225,9 +236,19 @@ export interface RegistrationCreateResponse {
 export interface RegistrationPricePreview {
   monthlyFee: number;
   chargeAmount: number;
+  totalChargeAmount: number;
   siblingDiscountApplied: boolean;
   siblingDiscountAmount: number;
   siblingDiscountReason: string | null;
+  registrationFeeCharged: number;
+  registrationFeeWaived: boolean;
+  registrationFeeReason: string | null;
+}
+
+// GET/PATCH /api/v1/settings — superadmin-only (setting.model.js). Singleton.
+export interface Setting {
+  registrationFee: number;
+  returningStudentGracePeriodMonths: number;
 }
 
 // ── Admin Group Class Subscriptions (ckq-parity plan, Phase 3) ────────────
@@ -276,6 +297,9 @@ export interface AdminSubscriptionRow {
   // premium-registration-and-attendance-plan.md) — gates whether the admin
   // page offers Change Schedule at all.
   isPremium?: boolean;
+  // One-time registration fee charged at creation, 0 if none was configured
+  // at the time — see Subscription's own field for the full doc comment.
+  registrationFeeCharged?: number;
 }
 
 export interface AdminSubscriptionListResponse {

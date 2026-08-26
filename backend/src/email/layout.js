@@ -23,7 +23,7 @@
  *   { t:'card', tone, children:Block[] }
  *   { t:'detailList', rows:[label,value][] }
  *   { t:'steps', title, items:[] }
- *   { t:'breakdown', data:{ monthlyFee, siblingDiscountAmount, total } }
+ *   { t:'breakdown', data:{ monthlyFee, siblingDiscountAmount, registrationFeeCharged, total } }
  */
 
 const { C, FONT, LOGO_URL, ORG } = require('./tokens');
@@ -73,6 +73,9 @@ function breakdownHtml(d) {
   let rows = row('Monthly fee', money(d.monthlyFee));
   if (d.siblingDiscountAmount) {
     rows += row('Sibling discount (10%)', `&minus;${money(d.siblingDiscountAmount)}`, { discount: true });
+  }
+  if (d.registrationFeeCharged) {
+    rows += row('Registration fee (one-time)', money(d.registrationFeeCharged));
   }
 
   return (

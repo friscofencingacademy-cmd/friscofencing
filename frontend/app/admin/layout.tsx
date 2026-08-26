@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Menu,
   MapPin,
+  Settings,
   ShieldCheck,
   Star,
   Swords,
@@ -55,7 +56,10 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: 'Billing',
-    items: [{ href: '/admin/prices', label: 'Prices', icon: <DollarSign size={15} /> }],
+    items: [
+      { href: '/admin/prices', label: 'Prices', icon: <DollarSign size={15} /> },
+      { href: '/admin/settings', label: 'Settings', icon: <Settings size={15} /> },
+    ],
   },
   {
     label: 'Places',
