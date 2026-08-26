@@ -19,4 +19,12 @@ function todayAtMidnight() {
   return result;
 }
 
-module.exports = { addOneMonth, todayAtMidnight };
+// Same rollover semantics as addOneMonth, generalized to N months — used by
+// registrationFee.service.js's returning-student grace-period deadline.
+function addMonths(date, months) {
+  const result = new Date(date);
+  result.setMonth(result.getMonth() + months);
+  return result;
+}
+
+module.exports = { addOneMonth, addMonths, todayAtMidnight };

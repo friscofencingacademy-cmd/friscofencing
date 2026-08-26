@@ -329,6 +329,11 @@ export default function AdminSubscriptionsPage() {
                             10% sibling
                           </span>
                         ) : null}
+                        {row.registrationFeeCharged ? (
+                          <div className={styles.cellMuted}>
+                            + ${row.registrationFeeCharged.toFixed(2)} registration fee
+                          </div>
+                        ) : null}
                       </td>
                       <td className={styles.td}>
                         {isCancelled ? (

@@ -76,6 +76,18 @@ const subscriptionSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // One-time registration fee actually charged at THIS subscription's
+    // creation (registrationFee.service.js), captured once and never
+    // touched again — including by a later admin change to the Setting's
+    // fee amount, or by renewals (which never re-charge it). 0 for any
+    // subscription created before this field existed, or when no fee was
+    // configured at the time — never null, so display code never needs a
+    // null-check alongside lastChargeAmount's genuine null-for-"never
+    // charged yet" meaning.
+    registrationFeeCharged: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

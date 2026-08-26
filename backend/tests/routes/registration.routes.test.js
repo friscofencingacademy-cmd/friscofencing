@@ -28,6 +28,7 @@ const Price = require('../../src/models/price.model');
 const Registration = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
+const Setting = require('../../src/models/setting.model');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
@@ -534,6 +535,108 @@ describe('Registration routes', () => {
     );
   });
 
+  describe('one-time registration fee', () => {
+    it(
+      'bundles the configured registration fee into the same real Stripe charge as the monthly fee, and persists it on the Subscription',
+      async () => {
+        await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
+
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-fee-basic@example.com');
+        const parentAgent = await loginAgent('reg-fee-basic@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
+        expect(res.body.registrationFeeCharged).toBe(25);
+        expect(res.body.registrationFeeWaived).toBe(false);
+        expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE + 25);
+
+        const subscription = await Subscription.findOne({ studentId: student._id });
+        expect(subscription.registrationFeeCharged).toBe(25);
+        // The historical charge-amount record stays the recurring monthly
+        // amount only — the one-time fee is tracked in its own field, never
+        // folded into lastChargeAmount (that field is what future renewals
+        // compare against; the fee never recurs).
+        expect(subscription.lastChargeAmount).toBe(MONTHLY_FEE);
+
+        // The real, single Stripe PaymentIntent reflects monthly + fee together.
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const intent = paymentIntents.data.find(
+          (i) => i.amount === Math.round((MONTHLY_FEE + 25) * 100)
+        );
+        expect(intent).toBeDefined();
+        expect(intent.status).toBe('succeeded');
+      },
+      20000
+    );
+
+    it('charges nothing extra when no Setting has ever been saved — existing behavior is unchanged', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('reg-fee-unset@example.com');
+      const parentAgent = await loginAgent('reg-fee-unset@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      const res = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.registrationFeeCharged).toBe(0);
+      expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE);
+    });
+
+    it(
+      'waives the fee end-to-end for a student returning within the grace period — real charge excludes it',
+      async () => {
+        await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
+
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-fee-waived@example.com');
+        const parentAgent = await loginAgent('reg-fee-waived@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        // Simulate a prior enrollment that ended 2 months ago (well inside
+        // the 6-month grace period) — the renewal cron is what would
+        // normally produce this 'cancelled' state; seeded directly here
+        // since only the resulting document matters for this test.
+        const twoMonthsAgo = new Date();
+        twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+        await Subscription.create({
+          studentId: student._id,
+          scheduleId,
+          parentId: student.parentId,
+          status: 'cancelled',
+          currentPeriodStart: new Date('2025-01-01T00:00:00.000Z'),
+          currentPeriodEnd: twoMonthsAgo,
+          nextBillingDate: twoMonthsAgo,
+        });
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.registrationFeeCharged).toBe(0);
+        expect(res.body.registrationFeeWaived).toBe(true);
+        expect(res.body.registrationFeeReason).toMatch(/waived/i);
+        expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE);
+
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const intent = paymentIntents.data.find((i) => i.amount === Math.round(MONTHLY_FEE * 100));
+        expect(intent).toBeDefined();
+      },
+      20000
+    );
+  });
+
   describe('GET /api/v1/registrations/preview', () => {
     it('returns the undiscounted monthly fee for an only child, and creates/charges nothing', async () => {
       const { scheduleId } = await seedSchedule();
@@ -549,9 +652,13 @@ describe('Registration routes', () => {
       expect(res.body).toEqual({
         monthlyFee: MONTHLY_FEE,
         chargeAmount: MONTHLY_FEE,
+        totalChargeAmount: MONTHLY_FEE,
         siblingDiscountApplied: false,
         siblingDiscountAmount: 0,
         siblingDiscountReason: null,
+        registrationFeeCharged: 0,
+        registrationFeeWaived: false,
+        registrationFeeReason: null,
       });
 
       // The critical "this is truly read-only" regression guard: no
@@ -614,10 +721,14 @@ describe('Registration routes', () => {
         expect(previewRes.body).toEqual({
           monthlyFee: MONTHLY_FEE,
           chargeAmount: MONTHLY_FEE * 0.9,
+          totalChargeAmount: MONTHLY_FEE * 0.9,
           siblingDiscountApplied: true,
           siblingDiscountAmount: MONTHLY_FEE * 0.1,
           siblingDiscountReason:
             'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+          registrationFeeCharged: 0,
+          registrationFeeWaived: false,
+          registrationFeeReason: null,
         });
 
         // Preview created nothing.

@@ -31,6 +31,9 @@ function breakdownText(d) {
   if (d.siblingDiscountAmount) {
     lines.push(`  Sibling discount (10%): -${money(d.siblingDiscountAmount)}`);
   }
+  if (d.registrationFeeCharged) {
+    lines.push(`  Registration fee (one-time): ${money(d.registrationFeeCharged)}`);
+  }
   lines.push(`  TOTAL CHARGED: ${money(d.total)}`);
   return lines.join('\n');
 }

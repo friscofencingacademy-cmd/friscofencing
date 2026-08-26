@@ -46,15 +46,28 @@ const server = setupServer(
     HttpResponse.json({
       monthlyFee: 150,
       chargeAmount: 150,
+      totalChargeAmount: 150,
       siblingDiscountApplied: false,
       siblingDiscountAmount: 0,
       siblingDiscountReason: null,
+      registrationFeeCharged: 0,
+      registrationFeeWaived: false,
+      registrationFeeReason: null,
     })
   ),
   http.post('*/registrations', async ({ request }) => {
     postPayload = await request.json();
     return HttpResponse.json(
-      { registration: { _id: 'reg-1' }, subscription: { _id: 'sub-1' }, chargeAmount: 150, paymentIntentStatus: 'succeeded' },
+      {
+        registration: { _id: 'reg-1' },
+        subscription: { _id: 'sub-1' },
+        chargeAmount: 150,
+        totalChargeAmount: 150,
+        paymentIntentStatus: 'succeeded',
+        registrationFeeCharged: 0,
+        registrationFeeWaived: false,
+        registrationFeeReason: null,
+      },
       { status: 201 }
     );
   })
@@ -162,9 +175,13 @@ describe('RegisterPage wizard', () => {
         HttpResponse.json({
           monthlyFee: 150,
           chargeAmount: 135,
+          totalChargeAmount: 135,
           siblingDiscountApplied: true,
           siblingDiscountAmount: 15,
           siblingDiscountReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+          registrationFeeCharged: 0,
+          registrationFeeWaived: false,
+          registrationFeeReason: null,
         })
       )
     );
@@ -216,10 +233,14 @@ describe('RegisterPage wizard', () => {
             registration: { _id: 'reg-1' },
             subscription: { _id: 'sub-1' },
             chargeAmount: 135,
+            totalChargeAmount: 135,
             paymentIntentStatus: 'succeeded',
             siblingDiscountApplied: true,
             siblingDiscountAmount: 15,
             siblingDiscountReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+            registrationFeeCharged: 0,
+            registrationFeeWaived: false,
+            registrationFeeReason: null,
           },
           { status: 201 }
         );
@@ -239,5 +260,97 @@ describe('RegisterPage wizard', () => {
     expect(
       screen.getByText('This is the lower-priced plan among your active children, so the 10% sibling discount applies here.')
     ).toBeInTheDocument();
+  });
+
+  it('itemizes a configured registration fee separately from the monthly fee, in the Review step summary', async () => {
+    server.use(
+      http.get('*/registrations/preview', () =>
+        HttpResponse.json({
+          monthlyFee: 150,
+          chargeAmount: 150,
+          totalChargeAmount: 175,
+          siblingDiscountApplied: false,
+          siblingDiscountAmount: 0,
+          siblingDiscountReason: null,
+          registrationFeeCharged: 25,
+          registrationFeeWaived: false,
+          registrationFeeReason: null,
+        })
+      )
+    );
+
+    renderRegisterPage();
+    await goToReviewStep();
+
+    expect(screen.getByText('Registration Fee (one-time)')).toBeInTheDocument();
+    expect(screen.getByText('$25.00')).toBeInTheDocument();
+    expect(screen.getByText('Due Today')).toBeInTheDocument();
+    expect(screen.getByText('$175.00')).toBeInTheDocument();
+  });
+
+  it('shows the registration fee on the confirmation screen and charges the true total including it', async () => {
+    server.use(
+      http.post('*/registrations', async ({ request }) => {
+        postPayload = await request.json();
+        return HttpResponse.json(
+          {
+            registration: { _id: 'reg-1' },
+            subscription: { _id: 'sub-1' },
+            chargeAmount: 150,
+            totalChargeAmount: 175,
+            paymentIntentStatus: 'succeeded',
+            registrationFeeCharged: 25,
+            registrationFeeWaived: false,
+            registrationFeeReason: null,
+          },
+          { status: 201 }
+        );
+      })
+    );
+
+    renderRegisterPage();
+    await goToReviewStep();
+    await screen.findByText(/card on file/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+    // The headline reflects the TRUE total charged (monthly + fee), not
+    // just the recurring monthly amount.
+    expect(screen.getByText(/your card was charged \$175\.00/i)).toBeInTheDocument();
+    expect(screen.getByText('Registration Fee (one-time)')).toBeInTheDocument();
+    expect(screen.getByText('$25.00')).toBeInTheDocument();
+  });
+
+  it('shows the registration fee as waived on the confirmation screen for a returning student, without an extra charge', async () => {
+    server.use(
+      http.post('*/registrations', async ({ request }) => {
+        postPayload = await request.json();
+        return HttpResponse.json(
+          {
+            registration: { _id: 'reg-1' },
+            subscription: { _id: 'sub-1' },
+            chargeAmount: 150,
+            totalChargeAmount: 150,
+            paymentIntentStatus: 'succeeded',
+            registrationFeeCharged: 0,
+            registrationFeeWaived: true,
+            registrationFeeReason: 'Registration fee waived — returning within 6 months of your last enrollment.',
+          },
+          { status: 201 }
+        );
+      })
+    );
+
+    renderRegisterPage();
+    await goToReviewStep();
+    await screen.findByText(/card on file/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+    expect(screen.getByText(/your card was charged \$150\.00/i)).toBeInTheDocument();
+    expect(screen.getByText('Registration Fee')).toBeInTheDocument();
+    expect(screen.getByText('Waived')).toBeInTheDocument();
   });
 });

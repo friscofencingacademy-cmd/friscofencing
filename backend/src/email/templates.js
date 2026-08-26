@@ -138,6 +138,7 @@ const TEMPLATES = [
           data: {
             monthlyFee: v.monthlyFee,
             siblingDiscountAmount: v.siblingDiscountAmount || 0,
+            registrationFeeCharged: v.registrationFeeCharged || 0,
             total: v.chargeAmount,
           },
         },
