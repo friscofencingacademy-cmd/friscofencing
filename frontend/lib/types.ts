@@ -188,6 +188,10 @@ export interface Subscription {
   // never touched by a later admin change to the fee or by renewals. 0 for
   // most subscriptions today (no fee configured), never null/undefined.
   registrationFeeCharged?: number;
+  // Permanent audit record of whether THIS subscription's first charge was
+  // prorated — captured once at creation, never touched again (a prorated
+  // first period is always followed by full-price, full-month renewals).
+  firstChargeProrated?: boolean;
   // Live sibling-discount snapshot, computed fresh on every GET (never a
   // stored field) — see registration.service.js's listMine. Distinct from
   // lastChargeAmount/lastSiblingDiscountApplied above, which only reflect
@@ -211,7 +215,7 @@ export interface PaymentMethodInfo {
   cardExpYear: number;
 }
 
-export interface RegistrationCreateResponse {
+export interface RegistrationCreateResponse extends ProrationInfo {
   registration: Registration;
   subscription: Subscription;
   chargeAmount: number;
@@ -233,7 +237,7 @@ export interface RegistrationCreateResponse {
 // fields calculateChargeAmount() computes for the real charge (see
 // backend/src/services/registration.service.js's previewChargeAmount), so
 // this can never structurally disagree with what actually gets charged.
-export interface RegistrationPricePreview {
+export interface RegistrationPricePreview extends ProrationInfo {
   monthlyFee: number;
   chargeAmount: number;
   totalChargeAmount: number;
@@ -249,6 +253,21 @@ export interface RegistrationPricePreview {
 export interface Setting {
   registrationFee: number;
   returningStudentGracePeriodMonths: number;
+  prorationEnabled: boolean;
+}
+
+// Shared by RegistrationPricePreview and RegistrationCreateResponse —
+// identical shape, same guarantee (preview can never structurally disagree
+// with the real charge, docs/plans/prorated-first-month-billing-plan.md).
+// totalClassDays/remainingClassDays/dailyRate are null when `prorated` is
+// false; periodEnd is always present (even unprorated) so the wizard can
+// always show a "renews on" date.
+export interface ProrationInfo {
+  prorated: boolean;
+  totalClassDays: number | null;
+  remainingClassDays: number | null;
+  dailyRate: number | null;
+  periodEnd: string;
 }
 
 // ── Admin Group Class Subscriptions (ckq-parity plan, Phase 3) ────────────
@@ -300,6 +319,8 @@ export interface AdminSubscriptionRow {
   // One-time registration fee charged at creation, 0 if none was configured
   // at the time — see Subscription's own field for the full doc comment.
   registrationFeeCharged?: number;
+  // See Subscription's own field for the full doc comment.
+  firstChargeProrated?: boolean;
 }
 
 export interface AdminSubscriptionListResponse {

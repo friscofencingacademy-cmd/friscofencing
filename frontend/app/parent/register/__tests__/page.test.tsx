@@ -53,6 +53,11 @@ const server = setupServer(
       registrationFeeCharged: 0,
       registrationFeeWaived: false,
       registrationFeeReason: null,
+      prorated: false,
+      totalClassDays: null,
+      remainingClassDays: null,
+      dailyRate: null,
+      periodEnd: '2026-09-26T00:00:00.000Z',
     })
   ),
   http.post('*/registrations', async ({ request }) => {
@@ -67,6 +72,11 @@ const server = setupServer(
         registrationFeeCharged: 0,
         registrationFeeWaived: false,
         registrationFeeReason: null,
+        prorated: false,
+        totalClassDays: null,
+        remainingClassDays: null,
+        dailyRate: null,
+        periodEnd: '2026-09-26T00:00:00.000Z',
       },
       { status: 201 }
     );
@@ -352,5 +362,98 @@ describe('RegisterPage wizard', () => {
     expect(screen.getByText(/your card was charged \$150\.00/i)).toBeInTheDocument();
     expect(screen.getByText('Registration Fee')).toBeInTheDocument();
     expect(screen.getByText('Waived')).toBeInTheDocument();
+  });
+
+  it('shows the prorated class-day breakdown while choosing a level/time, and itemizes it in the Review step summary', async () => {
+    server.use(
+      http.get('*/registrations/preview', () =>
+        HttpResponse.json({
+          monthlyFee: 300,
+          chargeAmount: 160,
+          totalChargeAmount: 160,
+          siblingDiscountApplied: false,
+          siblingDiscountAmount: 0,
+          siblingDiscountReason: null,
+          registrationFeeCharged: 0,
+          registrationFeeWaived: false,
+          registrationFeeReason: null,
+          prorated: true,
+          totalClassDays: 15,
+          remainingClassDays: 8,
+          dailyRate: 20,
+          periodEnd: '2026-08-31T23:59:59.999Z',
+        })
+      )
+    );
+
+    renderRegisterPage();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    fireEvent.click(await screen.findByRole('radio', { name: /beginner/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i }));
+
+    // Step 1's inline breakdown — backend numbers verbatim, no frontend math.
+    expect(
+      await screen.findByText(/8 of 15 class days remain this month — \$20\.00\/day → \$160\.00 due today/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/full price starts aug 31, 2026/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    // Review step's itemized summary rail.
+    expect(screen.getByText('Prorated')).toBeInTheDocument();
+    expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
+    expect(screen.getByText('Due Today')).toBeInTheDocument();
+    expect(screen.getByText('$160.00')).toBeInTheDocument();
+    expect(screen.getByText('Full price starts')).toBeInTheDocument();
+  });
+
+  it('itemizes the prorated charge and the full-price start date on the confirmation screen', async () => {
+    server.use(
+      http.post('*/registrations', async ({ request }) => {
+        postPayload = await request.json();
+        return HttpResponse.json(
+          {
+            registration: { _id: 'reg-1' },
+            subscription: { _id: 'sub-1' },
+            chargeAmount: 160,
+            totalChargeAmount: 160,
+            paymentIntentStatus: 'succeeded',
+            registrationFeeCharged: 0,
+            registrationFeeWaived: false,
+            registrationFeeReason: null,
+            prorated: true,
+            totalClassDays: 15,
+            remainingClassDays: 8,
+            dailyRate: 20,
+            periodEnd: '2026-08-31T23:59:59.999Z',
+          },
+          { status: 201 }
+        );
+      })
+    );
+
+    renderRegisterPage();
+    await goToReviewStep();
+    await screen.findByText(/card on file/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+    expect(screen.getByText(/your card was charged \$160\.00/i)).toBeInTheDocument();
+    expect(screen.getByText('Prorated')).toBeInTheDocument();
+    expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
+    expect(screen.getByText('Full price starts')).toBeInTheDocument();
+    expect(screen.getByText('Aug 31, 2026')).toBeInTheDocument();
+  });
+
+  it('renders exactly as before (no proration UI at all) when prorated is false — the non-prorated path is unaffected', async () => {
+    renderRegisterPage();
+    await goToReviewStep();
+
+    expect(screen.queryByText('Prorated')).not.toBeInTheDocument();
+    expect(screen.queryByText('Due Today')).not.toBeInTheDocument();
   });
 });

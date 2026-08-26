@@ -113,9 +113,12 @@ every future registration immediately, with no confirmation step. Lives in the *
 section, alongside Prices.
 
 Not a Pattern A CRUD page (there's only ever one `Setting` document) — a single form: "Registration Fee
-($)" and "Waive if returning within (months)". Save does client-side validation (both fields ≥ 0) before
-`PATCH /api/v1/settings`; a backend error shows inline and the form stays editable. See
-`docs/decisions/001-in-house-subscription-billing.md`'s 2026-08-26 addendum for the full billing behavior
+($)", "Waive if returning within (months)", and "Enable prorated first-month billing" (checkbox — off
+by default, turning it on never changes an already-active subscription). Save does client-side
+validation (both number fields ≥ 0) before `PATCH /api/v1/settings`; a backend error shows inline and
+the form stays editable. See `docs/decisions/001-in-house-subscription-billing.md`'s 2026-08-26 addenda
+(both of them — registration fee, then prorated billing) and `docs/plans/prorated-first-month-billing-
+plan.md` for the full billing behavior
 this configures.
 
 ## Dashboard (`/admin/dashboard`)

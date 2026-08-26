@@ -281,6 +281,11 @@ function SubscriptionsPageContent() {
                         10% sibling
                       </span>
                     ) : null}
+                    {subscription.firstChargeProrated ? (
+                      <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
+                        Prorated first month
+                      </span>
+                    ) : null}
                   </td>
                   <td>
                     {/* Live, computed fresh on every load — never the stale

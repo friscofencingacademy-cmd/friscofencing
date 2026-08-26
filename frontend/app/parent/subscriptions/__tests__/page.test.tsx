@@ -280,6 +280,20 @@ describe('SubscriptionsPage', () => {
     expect(screen.getByText('10% sibling')).toBeInTheDocument();
   });
 
+  it('shows a "Prorated first month" chip when firstChargeProrated is true, and omits it otherwise', async () => {
+    server.use(
+      http.get('*/registrations/mine', () =>
+        HttpResponse.json({
+          subscriptions: [{ ...ACTIVE_SUBSCRIPTION, firstChargeProrated: true }],
+        })
+      )
+    );
+
+    renderSubscriptionsPage();
+
+    expect(await screen.findByText('Prorated first month')).toBeInTheDocument();
+  });
+
   it('shows the LIVE current sibling discount (and reason) separately from the historical Last Charge — even when they disagree', async () => {
     server.use(
       http.get('*/registrations/mine', () =>
