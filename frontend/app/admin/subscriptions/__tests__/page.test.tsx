@@ -106,6 +106,22 @@ describe('AdminSubscriptionsPage', () => {
     expect(screen.getByText('+ $25.00 registration fee')).toBeInTheDocument();
   });
 
+  it('shows a "Prorated first month" chip when firstChargeProrated is true, and omits it otherwise', async () => {
+    rows = [makeRow({ firstChargeProrated: true })];
+    render(<AdminSubscriptionsPage />);
+
+    await screen.findByText('Sam Rivera');
+    expect(screen.getByText('Prorated first month')).toBeInTheDocument();
+  });
+
+  it('omits the prorated chip when firstChargeProrated is false', async () => {
+    rows = [makeRow({ firstChargeProrated: false })];
+    render(<AdminSubscriptionsPage />);
+
+    await screen.findByText('Sam Rivera');
+    expect(screen.queryByText('Prorated first month')).not.toBeInTheDocument();
+  });
+
   it('omits the registration-fee note entirely when none was charged', async () => {
     rows = [makeRow({ registrationFeeCharged: 0 })];
     render(<AdminSubscriptionsPage />);

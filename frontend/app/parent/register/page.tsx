@@ -53,6 +53,12 @@ function levelName(levels: Level[], id: string): string {
   return levels.find((level) => level._id === id)?.name ?? id;
 }
 
+// The ISO date's calendar-day portion only — the backend is the source of
+// truth for this date (periodEnd), this is display formatting only.
+function formatDateLabel(isoDate: string): string {
+  return new Date(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 interface RegisteredInfo {
   childName: string;
   chargeAmount: number;
@@ -63,6 +69,11 @@ interface RegisteredInfo {
   registrationFeeCharged?: number;
   registrationFeeWaived?: boolean;
   registrationFeeReason?: string | null;
+  prorated?: boolean;
+  totalClassDays?: number | null;
+  remainingClassDays?: number | null;
+  dailyRate?: number | null;
+  periodEnd?: string;
 }
 
 export default function RegisterPage() {
@@ -170,6 +181,11 @@ export default function RegisterPage() {
         registrationFeeCharged: result.data.registrationFeeCharged,
         registrationFeeWaived: result.data.registrationFeeWaived,
         registrationFeeReason: result.data.registrationFeeReason,
+        prorated: result.data.prorated,
+        totalClassDays: result.data.totalClassDays,
+        remainingClassDays: result.data.remainingClassDays,
+        dailyRate: result.data.dailyRate,
+        periodEnd: result.data.periodEnd,
       });
       setStep(3);
       reload();
@@ -213,6 +229,15 @@ export default function RegisterPage() {
               ...(registered?.registrationFeeWaived
                 ? [{ label: 'Registration Fee', value: 'Waived' }]
                 : []),
+              // This month's charge was prorated to the class days
+              // remaining — never a frontend day count, straight from the
+              // backend response.
+              ...(registered?.prorated
+                ? [{ label: 'Prorated', value: `${registered.remainingClassDays} of ${registered.totalClassDays} class days this month` }]
+                : []),
+              ...(registered?.periodEnd
+                ? [{ label: registered?.prorated ? 'Full price starts' : 'Plan renews', value: formatDateLabel(registered.periodEnd) }]
+                : []),
             ]}
             links={
               <>
@@ -244,13 +269,22 @@ export default function RegisterPage() {
           { label: "You'll Pay", value: `$${pricePreview.chargeAmount.toFixed(2)}` },
         ]
       : []),
+    // This month's charge is prorated to the class days remaining — shown
+    // right under "Monthly Fee" so it's clear the full list price above
+    // isn't what's actually being charged today.
+    ...(pricePreview?.prorated
+      ? [{ label: 'Prorated', value: `${pricePreview.remainingClassDays} of ${pricePreview.totalClassDays} class days this month` }]
+      : []),
     // One-time fee, itemized separately — never folded into "Monthly Fee"
     // above, so a parent always sees exactly what it's for.
     ...(pricePreview?.registrationFeeCharged
       ? [{ label: 'Registration Fee (one-time)', value: `$${pricePreview.registrationFeeCharged.toFixed(2)}` }]
       : []),
-    ...(pricePreview?.registrationFeeCharged
+    ...(pricePreview?.registrationFeeCharged || pricePreview?.prorated
       ? [{ label: 'Due Today', value: `$${pricePreview.totalChargeAmount.toFixed(2)}` }]
+      : []),
+    ...(pricePreview?.periodEnd
+      ? [{ label: pricePreview.prorated ? 'Full price starts' : 'Plan renews', value: formatDateLabel(pricePreview.periodEnd) }]
       : []),
   ];
 
@@ -329,6 +363,13 @@ export default function RegisterPage() {
                   <p>10% sibling discount applied — ${pricePreview.chargeAmount.toFixed(2)}/month</p>
                 ) : pricePreview?.siblingDiscountReason ? (
                   <p>{pricePreview.siblingDiscountReason}</p>
+                ) : null}
+                {pricePreview?.prorated ? (
+                  <p>
+                    {pricePreview.remainingClassDays} of {pricePreview.totalClassDays} class days remain this
+                    month — ${pricePreview.dailyRate?.toFixed(2)}/day → ${pricePreview.totalChargeAmount.toFixed(2)}{' '}
+                    due today. Full price starts {formatDateLabel(pricePreview.periodEnd)}.
+                  </p>
                 ) : null}
               </FlowSection>
             ) : null}

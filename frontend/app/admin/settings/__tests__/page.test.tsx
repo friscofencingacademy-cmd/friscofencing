@@ -21,7 +21,7 @@ const ADMIN_USER = {
   email: 'admin@example.com',
 };
 
-const SETTINGS = { registrationFee: 25, returningStudentGracePeriodMonths: 6 };
+const SETTINGS = { registrationFee: 25, returningStudentGracePeriodMonths: 6, prorationEnabled: false };
 
 let patchPayload: unknown = null;
 
@@ -55,6 +55,29 @@ describe('AdminSettingsPage', () => {
 
     expect(await screen.findByLabelText('Registration Fee ($)')).toHaveValue(25);
     expect(screen.getByLabelText('Waive if returning within (months)')).toHaveValue(6);
+    expect(screen.getByLabelText('Enable prorated first-month billing')).not.toBeChecked();
+  });
+
+  it('toggles and saves prorationEnabled independently of the other two fields', async () => {
+    renderPage();
+
+    const checkbox = await screen.findByLabelText('Enable prorated first-month billing');
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(patchPayload).toEqual({
+        registrationFee: 25,
+        returningStudentGracePeriodMonths: 6,
+        prorationEnabled: true,
+      });
+    });
+
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
   });
 
   it('saves an edited value and shows a confirmation', async () => {
@@ -66,7 +89,11 @@ describe('AdminSettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
-      expect(patchPayload).toEqual({ registrationFee: 40, returningStudentGracePeriodMonths: 6 });
+      expect(patchPayload).toEqual({
+        registrationFee: 40,
+        returningStudentGracePeriodMonths: 6,
+        prorationEnabled: false,
+      });
     });
 
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument();

@@ -329,6 +329,11 @@ export default function AdminSubscriptionsPage() {
                             10% sibling
                           </span>
                         ) : null}
+                        {row.firstChargeProrated ? (
+                          <span className={styles.chipMuted} style={{ marginLeft: 6 }}>
+                            Prorated first month
+                          </span>
+                        ) : null}
                         {row.registrationFeeCharged ? (
                           <div className={styles.cellMuted}>
                             + ${row.registrationFeeCharged.toFixed(2)} registration fee
