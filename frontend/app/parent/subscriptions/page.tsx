@@ -258,6 +258,7 @@ function SubscriptionsPageContent() {
                 <th>Current Period End</th>
                 <th>Next Billing Date</th>
                 <th>Last Charge</th>
+                <th>Sibling Discount (Current)</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -280,6 +281,31 @@ function SubscriptionsPageContent() {
                         10% sibling
                       </span>
                     ) : null}
+                  </td>
+                  <td>
+                    {/* Live, computed fresh on every load — never the stale
+                        lastChargeAmount/lastSiblingDiscountApplied snapshot
+                        above, which only reflects what happened at THIS
+                        subscription's own last charge and can go stale the
+                        moment a sibling's situation changes. */}
+                    {!subscription.currentCharge ? (
+                      <span style={{ color: 'var(--color-muted)' }}>—</span>
+                    ) : (
+                      <>
+                        {subscription.currentCharge.siblingDiscountApplied ? (
+                          <span className={`${styles.chip} ${styles.chipMuted}`}>
+                            10% sibling — ${subscription.currentCharge.amount.toFixed(2)}/mo
+                          </span>
+                        ) : (
+                          <span>Full price</span>
+                        )}
+                        {subscription.currentCharge.reason ? (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 2 }}>
+                            {subscription.currentCharge.reason}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </td>
                   <td>
                     {subscription.status === 'cancelled' ? null : subscription.cancelAtPeriodEnd ? (

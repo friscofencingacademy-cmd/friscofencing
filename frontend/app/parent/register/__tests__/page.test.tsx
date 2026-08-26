@@ -43,7 +43,13 @@ const server = setupServer(
   // would let the request fall through toward a real (failing) network
   // call in every test that doesn't care about the preview at all.
   http.get('*/registrations/preview', () =>
-    HttpResponse.json({ monthlyFee: 150, chargeAmount: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0 })
+    HttpResponse.json({
+      monthlyFee: 150,
+      chargeAmount: 150,
+      siblingDiscountApplied: false,
+      siblingDiscountAmount: 0,
+      siblingDiscountReason: null,
+    })
   ),
   http.post('*/registrations', async ({ request }) => {
     postPayload = await request.json();
@@ -74,22 +80,16 @@ async function goToReviewStep() {
   fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
   fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
-  await screen.findByLabelText('Class');
-  fireEvent.change(screen.getByLabelText('Class'), { target: { value: CLASS_A._id } });
-  await waitFor(() => {
-    expect(screen.getByRole('option', { name: /wednesday 4:00 pm-5:00 pm/i })).toBeInTheDocument();
-  });
-  fireEvent.change(screen.getByLabelText('Schedule'), { target: { value: SCHEDULE_A._id } });
-
-  await waitFor(() => {
-    expect(screen.getByText(/Level: Beginner — \$150\/month/)).toBeInTheDocument();
-  });
+  fireEvent.click(await screen.findByRole('radio', { name: /beginner/i }));
+  const timePill = await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i });
+  fireEvent.click(timePill);
+  await waitFor(() => expect(timePill).toHaveAttribute('aria-checked', 'true'));
 
   fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 }
 
 describe('RegisterPage wizard', () => {
-  it('walks Who -> Class -> Review & Pay -> Done and submits { studentId, scheduleId }', async () => {
+  it('walks Who -> Level -> Review & Pay -> Done and submits { studentId, scheduleId }', async () => {
     renderRegisterPage();
 
     await goToReviewStep();
@@ -128,7 +128,7 @@ describe('RegisterPage wizard', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
-    await screen.findByLabelText('Class');
+    await screen.findByRole('radiogroup', { name: /select a level/i });
     fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
 
     const childCard = await screen.findByRole('radio', { name: /kid one/i });
@@ -159,7 +159,13 @@ describe('RegisterPage wizard', () => {
   it('shows a live sibling-discount preview once a child and schedule are both selected', async () => {
     server.use(
       http.get('*/registrations/preview', () =>
-        HttpResponse.json({ monthlyFee: 150, chargeAmount: 135, siblingDiscountApplied: true, siblingDiscountAmount: 15 })
+        HttpResponse.json({
+          monthlyFee: 150,
+          chargeAmount: 135,
+          siblingDiscountApplied: true,
+          siblingDiscountAmount: 15,
+          siblingDiscountReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+        })
       )
     );
 
@@ -168,12 +174,8 @@ describe('RegisterPage wizard', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
-    await screen.findByLabelText('Class');
-    fireEvent.change(screen.getByLabelText('Class'), { target: { value: CLASS_A._id } });
-    await waitFor(() => {
-      expect(screen.getByRole('option', { name: /wednesday 4:00 pm-5:00 pm/i })).toBeInTheDocument();
-    });
-    fireEvent.change(screen.getByLabelText('Schedule'), { target: { value: SCHEDULE_A._id } });
+    fireEvent.click(await screen.findByRole('radio', { name: /beginner/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i }));
 
     expect(await screen.findByText(/10% sibling discount applied — \$135\.00\/month/)).toBeInTheDocument();
     expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
@@ -205,7 +207,7 @@ describe('RegisterPage wizard', () => {
     expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
   });
 
-  it('shows the real applied sibling discount on the confirmation screen, from the actual charge response', async () => {
+  it('shows the real applied sibling discount and the backend-supplied reason on the confirmation screen, from the actual charge response', async () => {
     server.use(
       http.post('*/registrations', async ({ request }) => {
         postPayload = await request.json();
@@ -217,6 +219,7 @@ describe('RegisterPage wizard', () => {
             paymentIntentStatus: 'succeeded',
             siblingDiscountApplied: true,
             siblingDiscountAmount: 15,
+            siblingDiscountReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
           },
           { status: 201 }
         );
@@ -233,5 +236,8 @@ describe('RegisterPage wizard', () => {
     expect(screen.getByText(/\$135\.00/)).toBeInTheDocument();
     expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
     expect(screen.getByText('-$15.00')).toBeInTheDocument();
+    expect(
+      screen.getByText('This is the lower-priced plan among your active children, so the 10% sibling discount applies here.')
+    ).toBeInTheDocument();
   });
 });

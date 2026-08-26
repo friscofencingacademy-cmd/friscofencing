@@ -280,6 +280,79 @@ describe('SubscriptionsPage', () => {
     expect(screen.getByText('10% sibling')).toBeInTheDocument();
   });
 
+  it('shows the LIVE current sibling discount (and reason) separately from the historical Last Charge — even when they disagree', async () => {
+    server.use(
+      http.get('*/registrations/mine', () =>
+        HttpResponse.json({
+          subscriptions: [
+            {
+              // Historically charged full price with no discount (this
+              // subscription was created before the sibling existed) — but
+              // the LIVE currentCharge now says the sibling has the
+              // lower-priced plan instead. The two must render as distinct,
+              // clearly-labeled facts, not be collapsed into one.
+              ...ACTIVE_SUBSCRIPTION,
+              lastChargeAmount: 150,
+              lastSiblingDiscountApplied: false,
+              currentCharge: {
+                amount: 150,
+                siblingDiscountApplied: false,
+                siblingDiscountAmount: 0,
+                reason: 'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
+              },
+            },
+          ],
+        })
+      )
+    );
+
+    renderSubscriptionsPage();
+
+    expect(await screen.findByText('$150.00')).toBeInTheDocument();
+    expect(screen.getByText('Full price')).toBeInTheDocument();
+    expect(
+      screen.getByText('Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.')
+    ).toBeInTheDocument();
+  });
+
+  it('shows a live "10% sibling" current-discount chip with its reason when currentCharge says the discount applies', async () => {
+    server.use(
+      http.get('*/registrations/mine', () =>
+        HttpResponse.json({
+          subscriptions: [
+            {
+              ...ACTIVE_SUBSCRIPTION,
+              currentCharge: {
+                amount: 135,
+                siblingDiscountApplied: true,
+                siblingDiscountAmount: 15,
+                reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+              },
+            },
+          ],
+        })
+      )
+    );
+
+    renderSubscriptionsPage();
+
+    expect(await screen.findByText('10% sibling — $135.00/mo')).toBeInTheDocument();
+    expect(
+      screen.getByText('This is the lower-priced plan among your active children, so the 10% sibling discount applies here.')
+    ).toBeInTheDocument();
+  });
+
+  it('shows a dash for currentCharge when the subscription is cancelled (no live discount to compute)', async () => {
+    renderSubscriptionsPage();
+
+    // CANCELLED_SUBSCRIPTION never sets currentCharge — its row must show a
+    // plain dash, not "Full price" or a stale chip. (lastChargeAmount is
+    // also null on this fixture, so its Last Charge cell renders its own
+    // '—' too — two dashes total in the row, not a display bug.)
+    const cancelledRow = (await screen.findByText('Other Kid')).closest('tr') as HTMLElement;
+    expect(within(cancelledRow).getAllByText('—')).toHaveLength(2);
+  });
+
   describe('Private Lessons section', () => {
     it('renders a row per private enrollment with coach, slot, rate, and recent charges', async () => {
       renderSubscriptionsPage();

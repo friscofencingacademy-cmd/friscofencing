@@ -9,7 +9,7 @@ const Subscription = require('../models/subscription.model');
 const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
-const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
+const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
@@ -130,7 +130,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
 
   const stripeCustomerId = await ensureStripeCustomer(requestingUser);
 
-  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount } =
+  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
     await calculateChargeAmount(student, price.monthlyFee);
 
   let paymentIntent;
@@ -225,6 +225,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
     paymentIntentStatus: paymentIntent.status,
     siblingDiscountApplied,
     siblingDiscountAmount,
+    siblingDiscountReason,
   };
 }
 
@@ -256,7 +257,7 @@ async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
     throw notFoundError("Pricing not configured for this class's level");
   }
 
-  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount } =
+  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
     await calculateChargeAmount(student, price.monthlyFee);
 
   return {
@@ -264,16 +265,55 @@ async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
     chargeAmount,
     siblingDiscountApplied,
     siblingDiscountAmount,
+    siblingDiscountReason,
   };
 }
 
+// Enriches every ACTIVE subscription with a LIVE current-discount snapshot —
+// the same calculateChargeAmount() the actual charge (create()) and the
+// pre-registration preview (previewChargeAmount()) use, called fresh here
+// too rather than reading back lastChargeAmount/lastSiblingDiscountApplied
+// (a record of what happened at that subscription's own last charge, which
+// goes stale the moment a sibling's situation changes and is never
+// retroactively corrected — see registration.service.js's module doc and
+// ADR 001's "re-verified every time" principle). This mirrors CKQ's
+// calculateUpcomingPayment()->upcoming-payments-preview pattern: one
+// function is the source of truth for both what a subscriber WILL be
+// charged and what the list page DISPLAYS, so the two can never disagree.
+// `currentCharge` is display-only, additive, and never written back to the
+// Subscription document — the real charge is still computed independently,
+// live, at actual renewal time.
 async function listMine(parentId) {
   const children = await User.find({ role: 'student', parentId }, '_id');
   const childIds = children.map((child) => child._id);
 
-  return Subscription.find({ studentId: { $in: childIds } })
+  const subscriptions = await Subscription.find({ studentId: { $in: childIds } })
     .populate('studentId', 'firstName lastName')
-    .populate('scheduleId');
+    .populate('scheduleId')
+    .lean();
+
+  return Promise.all(
+    subscriptions.map(async (subscription) => {
+      if (subscription.status !== 'active' || !subscription.scheduleId) {
+        return subscription;
+      }
+
+      const currentFee = await resolveCurrentFee({ scheduleId: subscription.scheduleId._id });
+
+      if (currentFee === null) {
+        return subscription;
+      }
+
+      const student = { _id: subscription.studentId._id, parentId };
+      const { amount, siblingDiscountApplied, siblingDiscountAmount, reason } =
+        await calculateChargeAmount(student, currentFee);
+
+      return {
+        ...subscription,
+        currentCharge: { amount, siblingDiscountApplied, siblingDiscountAmount, reason },
+      };
+    })
+  );
 }
 
 module.exports = { create, previewChargeAmount, listMine, addOneMonth };

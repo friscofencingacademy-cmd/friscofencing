@@ -2,22 +2,24 @@ const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 
 // S3 — sibling discount. Registers audit-sibling-parent's FIRST child into
-// the PRICIER class (no discount expected — no sibling with an active
-// subscription exists yet), then the SECOND child into the CHEAPER class
+// the PRICIER level (no discount expected — no sibling with an active
+// subscription exists yet), then the SECOND child into the CHEAPER level
 // (expects the live GET /registrations/preview discount line in the UI,
 // per this session's sibling-discount-preview feature, and the real
 // applied discount on the confirmation screen). Cross-checks that the two
 // never disagree — the same property registration.routes.test.js proves
 // at the API level, here proven through the real UI a parent actually sees.
-async function registerChild(page, config, childNameRegex, className, expectDiscount) {
+async function registerChild(page, config, childNameRegex, levelName, expectDiscount) {
   await page.goto(`${config.stagingUrl}/parent/register`);
 
   await page.getByRole('radio', { name: childNameRegex }).click();
   await page.getByRole('button', { name: /continue/i }).click();
 
-  await page.getByLabel('Class').selectOption({ label: className });
-  await page.getByLabel('Schedule').waitFor();
-  await page.getByLabel('Schedule').selectOption({ index: 1 });
+  // Level-cards + time-pills, not the old Class/Schedule <select>s.
+  await page.getByRole('radio', { name: new RegExp(levelName, 'i') }).click();
+  const timePill = page.getByRole('radiogroup', { name: 'Select a time' }).getByRole('radio').first();
+  await timePill.waitFor({ timeout: 10000 });
+  await timePill.click();
 
   // Found on the first real run against staging, not assumed: Locator
   // .isVisible() checks the DOM state immediately — it doesn't actually
@@ -34,7 +36,7 @@ async function registerChild(page, config, childNameRegex, className, expectDisc
 
   if (expectDiscount !== discountVisible) {
     throw new Error(
-      `Expected sibling-discount preview visibility=${expectDiscount}, got ${discountVisible} for ${className}`
+      `Expected sibling-discount preview visibility=${expectDiscount}, got ${discountVisible} for ${levelName}`
     );
   }
 
@@ -69,12 +71,12 @@ async function run(context, config) {
       await page.getByText(/card on file/i).waitFor({ timeout: 30000 });
     }
 
-    // First sibling, pricier class — no discount yet.
-    await registerChild(page, config, /audit firstsibling/i, 'Audit Class A', false);
+    // First sibling, pricier level — no discount yet.
+    await registerChild(page, config, /audit firstsibling/i, 'Audit Level A', false);
 
-    // Second sibling, cheaper class — expects the discount, both pre- and
+    // Second sibling, cheaper level — expects the discount, both pre- and
     // post-charge.
-    await registerChild(page, config, /audit secondsibling/i, 'Audit Class B', true);
+    await registerChild(page, config, /audit secondsibling/i, 'Audit Level B', true);
 
     return { id: 'S3', name: 'Sibling discount (preview == charge)', result: 'pass', note: '' };
   } catch (error) {
