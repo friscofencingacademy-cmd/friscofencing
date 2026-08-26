@@ -29,6 +29,16 @@ const settingSchema = new Schema(
       default: 0,
       min: 0,
     },
+    // Master switch for prorated first-month billing (docs/plans/prorated-
+    // first-month-billing-plan.md) — false (the default) leaves every
+    // registration byte-identical to today's behavior (full monthly fee,
+    // rolling one-month period). true makes a NEW registration's first
+    // charge/period reflect the class days remaining in the calendar month
+    // it's created in. Never affects an already-active subscription.
+    prorationEnabled: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

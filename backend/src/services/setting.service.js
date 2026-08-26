@@ -20,12 +20,13 @@ async function getSettings() {
   const doc = await Setting.findOne();
 
   if (!doc) {
-    return { registrationFee: 0, returningStudentGracePeriodMonths: 0 };
+    return { registrationFee: 0, returningStudentGracePeriodMonths: 0, prorationEnabled: false };
   }
 
   return {
     registrationFee: doc.registrationFee,
     returningStudentGracePeriodMonths: doc.returningStudentGracePeriodMonths,
+    prorationEnabled: doc.prorationEnabled,
   };
 }
 
@@ -51,6 +52,13 @@ async function updateSettings(patch) {
       throw badRequestError('returningStudentGracePeriodMonths must be a number >= 0');
     }
     setFields.returningStudentGracePeriodMonths = patch.returningStudentGracePeriodMonths;
+  }
+
+  if (patch.prorationEnabled !== undefined) {
+    if (typeof patch.prorationEnabled !== 'boolean') {
+      throw badRequestError('prorationEnabled must be a boolean');
+    }
+    setFields.prorationEnabled = patch.prorationEnabled;
   }
 
   await Setting.findOneAndUpdate(

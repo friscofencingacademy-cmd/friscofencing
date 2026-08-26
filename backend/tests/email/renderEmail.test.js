@@ -72,6 +72,21 @@ describe('email design system — renderEmail', () => {
     expect(html).not.toContain('Sibling discount');
   });
 
+  it('shows a "Prorated" row with the class-day counts when prorated is true, and omits it when false', () => {
+    const prorated = renderEmail('registrationConfirmation', {
+      ...SAMPLE_DATA.registrationConfirmation,
+      prorated: true,
+      totalClassDays: 15,
+      remainingClassDays: 8,
+    });
+    expect(prorated.html).toContain('Prorated');
+    expect(prorated.html).toContain('8 of 15 class days this month');
+    expect(prorated.text).toContain('Prorated: 8 of 15 class days this month');
+
+    const notProrated = renderEmail('registrationConfirmation', SAMPLE_DATA.registrationConfirmation);
+    expect(notProrated.html).not.toContain('Prorated');
+  });
+
   it('shows a one-time registration fee row when registrationFeeCharged is > 0, and omits it when 0/falsy', () => {
     const withFee = renderEmail('registrationConfirmation', {
       ...SAMPLE_DATA.registrationConfirmation,

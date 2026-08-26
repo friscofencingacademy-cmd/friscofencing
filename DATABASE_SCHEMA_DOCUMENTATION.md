@@ -53,7 +53,7 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 | Collection | Key fields |
 |---|---|
 | `Registration` | `studentId` ref, `scheduleId` ref, `status` (`active`/`cancelled`) — the enrollment fact |
-| `Subscription` | `studentId`, `scheduleId`, `parentId` refs; `status`; `cancelAtPeriodEnd`; `currentPeriodStart/End`; `nextBillingDate`; `lastChargeAmount`/`lastSiblingDiscountApplied` (record-keeping only — never read back as a source of truth); `registrationFeeCharged` (one-time fee actually charged at creation, `0` default — captured once, never re-read/re-charged by renewals or a later change to the fee setting) — the billing lifecycle, kept as a separate concern from `Registration` even though 1:1 today. **No unique index on `(studentId, scheduleId)`** — a student can legitimately re-register after a past cancellation; "no currently active enrollment" is a service-layer check, not a schema constraint. |
+| `Subscription` | `studentId`, `scheduleId`, `parentId` refs; `status`; `cancelAtPeriodEnd`; `currentPeriodStart/End`; `nextBillingDate`; `lastChargeAmount`/`lastSiblingDiscountApplied` (record-keeping only — never read back as a source of truth); `registrationFeeCharged` (one-time fee actually charged at creation, `0` default — captured once, never re-read/re-charged by renewals or a later change to the fee setting); `firstChargeProrated` (Boolean, default `false` — permanent audit record of whether *this* subscription's first charge was prorated, see `Setting.prorationEnabled` below; never touched again, including by renewals) — the billing lifecycle, kept as a separate concern from `Registration` even though 1:1 today. **No unique index on `(studentId, scheduleId)`** — a student can legitimately re-register after a past cancellation; "no currently active enrollment" is a service-layer check, not a schema constraint. |
 
 **Renewal + cancellation (Phase 9):** `POST /subscriptions/:id/cancel` sets `cancelAtPeriodEnd` only — `status` and roster access are untouched, access continues through the paid period. `backend/scripts/run-renewals.js` (`npm run renewals`, no real scheduler yet) processes due subscriptions one at a time via `renewOne`, which does its own fresh fetch before charging or finalizing. See `docs/decisions/001-in-house-subscription-billing.md` for the full design.
 
@@ -66,13 +66,26 @@ The charge-amount calculation lives in its own file, `backend/src/services/billi
 ## `Setting` — implemented (registration-fee plan)
 | Collection | Key fields |
 |---|---|
-| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`); `returningStudentGracePeriodMonths` (Number, default `0`). |
+| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`). |
 
 Superadmin-only (`GET`/`PATCH /api/v1/settings`) — same trust bar as `/audit-runs`, since these values change the charge on every future registration immediately, with no confirmation step. No caching — read fresh on every call, consistent with `calculateChargeAmount`'s "never cached" principle.
 
 **Registration fee** (`backend/src/services/billing/registrationFee.service.js`): a one-time fee bundled into the same Stripe `PaymentIntent` as the first month's charge (one charge, the existing idempotency key) — never a second, separate charge. Never discounted by the sibling rule (a flat enrollment fee, not recurring tuition). `$0` (the default) means no charge to anyone until an admin explicitly sets a positive fee.
 
 **Returning-student waiver**: if a student has a prior `Subscription` with `status: 'cancelled'`, and `now` is within `returningStudentGracePeriodMonths` of that subscription's `currentPeriodEnd` (when their access actually ended, not when cancellation was requested — see the two-stage cancellation note above), the fee is waived for this registration. `returningStudentGracePeriodMonths: 0` (the default) means the fee always applies, even to a returning student.
+
+**Prorated first-month billing** (`backend/src/services/billing/proration.service.js`, full plan
+`docs/plans/prorated-first-month-billing-plan.md`): when `prorationEnabled` is `true`, a
+registration's first charge is prorated to the class days remaining, this calendar month, at the
+student's level. `computeProration()` is the single function this math ever runs in — resolves every
+`GroupClassSchedule` at the level, dedupes their `dayOfWeek` values, counts matching calendar days in
+the registration month vs. remaining from the registration date, and returns a daily rate + prorated
+amount + the calendar-month-end date that becomes the first `Subscription.currentPeriodEnd`. That
+*result* (not the raw list price) is what feeds into `calculateChargeAmount()`, unmodified — sibling-
+discount eligibility compares the prorated amount against a sibling's own current rate. A level with
+zero configured schedules falls back to the full, unprorated fee rather than dividing by zero.
+`prorationEnabled: false` (the default) leaves every registration byte-identical to pre-proration
+behavior.
 
 ## `WebhookEvent` — implemented (Phase 11, scoped)
 | Field | Type | Notes |

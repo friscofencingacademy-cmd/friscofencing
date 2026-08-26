@@ -88,6 +88,16 @@ const subscriptionSchema = new Schema(
       type: Number,
       default: 0,
     },
+    // Permanent audit record of whether THIS subscription's first charge
+    // was prorated (docs/plans/prorated-first-month-billing-plan.md) —
+    // captured once at creation, never recomputed or touched again,
+    // including by renewals (a prorated first period is always followed by
+    // full-price, full-month renewals). false for any subscription created
+    // before this field existed or while prorationEnabled was off.
+    firstChargeProrated: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
