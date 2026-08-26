@@ -45,8 +45,16 @@ async function registerChild(page, config, childNameRegex, levelName, expectDisc
   await page.getByRole('button', { name: /register & pay/i }).click();
   await page.getByText('Registration complete!').waitFor({ timeout: 45000 });
 
+  // exact:true — the confirmation screen also shows a plain-language reason
+  // line (e.g. "...the 10% sibling discount applies here.") next to this
+  // one whenever the discount applies. A non-exact substring match resolves
+  // to BOTH elements, which throws a Playwright strict-mode violation that
+  // .catch(() => false) silently swallowed as "not visible" — a false
+  // failure found on a real run against staging, not assumed up front (the
+  // real charge was correct: verified independently via GET
+  // /registrations/mine, which showed lastSiblingDiscountApplied: true).
   const sawConfirmationDiscount = await page
-    .getByText('Sibling Discount')
+    .getByText('Sibling Discount', { exact: true })
     .isVisible()
     .catch(() => false);
 
