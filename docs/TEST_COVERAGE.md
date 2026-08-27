@@ -6,12 +6,16 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 84.95% | 89.62% |
-| Branches | — (informational) | 62.14% | 79.48% |
-| Functions | — (informational) | 85.04% | 89.03% |
-| Lines | — (informational) | 85.00% | 90.87% |
+| Statements | 80% | 86.98% | 89.62% |
+| Branches | — (informational) | 66.99% | 79.48% |
+| Functions | — (informational) | 88.45% | 89.03% |
+| Lines | — (informational) | 87.02% | 90.87% |
 
-Measured 2026-08-23 via `TZ=UTC npm test -- --coverage` in each repo. Both already clear the 80%-statements target.
+Backend re-measured 2026-08-27 via `TZ=UTC npm test -- --coverage` (PR 1 of
+`docs/plans/registration-ledger-plan.md` — the Registration payment-ledger rebuild); frontend
+figure carried forward from 2026-08-23 (untouched by that PR beyond a type-only change to
+`lib/types.ts`, verified by a full frontend suite run — 47/47 suites green). Both clear the
+80%-statements target.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
@@ -37,7 +41,15 @@ number that actually matters, and it's solid. Full reasoning in `docs/TESTING_ST
 
 ## Backend (`backend/`)
 
-**Current state: 30 test suites / 281 tests passing, run under `TZ=UTC`, 2026-08-23 (after the payment-method decline status-code fix found by the live audit).**
+**Current state: 42 test suites / 410 tests, run under `TZ=UTC`, 2026-08-27 (after PR 1 of the
+Registration payment-ledger rebuild — `docs/plans/registration-ledger-plan.md`). 409 pass; the
+one failure (`registration.routes.test.js`'s "prorates the real Stripe charge and anchors the
+period to calendar month-end" test) is a pre-existing, date-dependent bug unrelated to this PR —
+`computeProration()` can hit a $0 remaining-class-days edge case near calendar month-end, which
+Stripe rejects with a raw 500 (already logged in
+`docs/plans/registration-ledger-gap-analysis.md`'s "Related open items," out of scope for this
+plan). Verified by `git stash`-ing this PR's changes and re-running the same test in isolation:
+identical failure on the unmodified code.**
 
 ```
 cd backend && TZ=UTC npm test
@@ -50,12 +62,13 @@ cd backend && TZ=UTC npm test
 | Unit | `tests/services/billing/calculateChargeAmount.service.test.js` | Sibling-discount math | No |
 | Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
 | Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
-| Route-integration | `tests/routes/*.routes.test.js` (20 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing), prices, students, users, trial-classes, registrations (incl. the pricing preview), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
+| Route-integration | `tests/routes/*.routes.test.js` (20 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing), prices, students, users, trial-classes, registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
+| Script | `tests/scripts/lib/migrateRegistrationsToLedger.test.js` | The one-time old-shape-Registration → payment-ledger migration script (`docs/plans/registration-ledger-plan.md` D8): dry-run writes nothing, live run rewrites matched docs (incl. the prorated-periodEnd variant), orphaned docs left untouched and reported, safe to re-run | Yes (memory) |
 | Smoke | `tests/health.test.js` | `/health` endpoint | No |
 
 ### Coverage gaps (honest, not hidden)
 
-- `src/utils/billingDates.js` (`addOneMonth`, `todayAtMidnight`) has no standalone unit test — only indirect coverage via `registration.routes.test.js` and `renewal.service.test.js` exercising the dates it produces.
+- `src/utils/billingDates.js` (`addOneMonth`, `addOneDay`, `todayAtMidnight`) has no standalone unit test — only indirect coverage via `registration.routes.test.js` and `renewal.service.test.js` exercising the dates it produces.
 - The two new delete guards added in the UI-adoption plan (`GroupClass` blocked by `GroupClassSchedule`, `Level` also blocked by `Price`) are tested at the route-integration level (`groupClass.routes.test.js`, `level.routes.test.js`) — no separate service-unit test, consistent with how every other existing guard was already tested.
 - `backend/scripts/{preview-emails,extend-private-sessions}.js` are manual-run operational scripts with no test file, consistent with the pre-existing `run-renewals.js`/`seed-superadmin.js` convention (none of the manual scripts in this repo have dedicated tests — their underlying logic, `generateSessions`/`renderEmail`/`renewOne`, is what's actually tested).
 

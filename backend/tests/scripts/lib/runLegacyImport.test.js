@@ -99,6 +99,17 @@ describe('scripts/lib/runLegacyImport', () => {
 
     const registrations = await Registration.find({ scheduleId: primarySchedule._id });
     expect(registrations).toHaveLength(2);
+    // Real ledger rows (docs/plans/registration-ledger-plan.md), not the old
+    // 3-field enrollment stub — 'completed' because this backfill represents
+    // a REAL historical charge in the legacy system, just with no Stripe
+    // PaymentIntent of our own to attach.
+    registrations.forEach((registration) => {
+      expect(registration.eventType).toBe('initial');
+      expect(registration.status).toBe('completed');
+      expect(registration.stripePaymentIntentId).toBeNull();
+      expect(typeof registration.amount).toBe('number');
+      expect(String(registration.subscriptionId)).not.toBe('undefined');
+    });
 
     // Neither sibling's Subscription.lastSiblingDiscountApplied is true
     // immediately after migration — NOT a bug. Alice (processed first) has

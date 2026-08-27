@@ -1,5 +1,4 @@
 const Subscription = require('../models/subscription.model');
-const Registration = require('../models/registration.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const User = require('../models/user.model');
@@ -290,21 +289,20 @@ async function changeSchedule(subscriptionId, newScheduleId) {
 
   const today = todayAtMidnight();
 
-  // Writes, in this order (docs/plans/ckq-parity-plan.md §4.1):
+  // Writes, in this order (originally docs/plans/ckq-parity-plan.md §4.1;
+  // step (b) — repointing the student's active Registration's scheduleId —
+  // was removed when Registration became an immutable payment ledger, see
+  // docs/plans/registration-ledger-plan.md D7: a past charge's scheduleId is
+  // a historical fact about what that charge was for, and must not be
+  // rewritten by a later schedule change):
   // a. the Subscription's own scheduleId pointer
   subscription.scheduleId = newScheduleId;
   await subscription.save();
 
-  // b. the student's active Registration for the old schedule
-  await Registration.updateOne(
-    { studentId: subscription.studentId, scheduleId: oldSchedule._id, status: 'active' },
-    { $set: { scheduleId: newScheduleId } }
-  );
-
-  // c. pull from the old schedule's roster + its future sessions
+  // b. pull from the old schedule's roster + its future sessions
   await removeStudentFromRoster(oldSchedule, subscription.studentId, today);
 
-  // d. add to the new schedule's roster + its future sessions
+  // c. add to the new schedule's roster + its future sessions
   await addStudentToRoster(newSchedule, subscription.studentId, today);
 
   // Fire-and-forget confirmation email — never affects the writes above.

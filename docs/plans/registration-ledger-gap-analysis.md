@@ -1,6 +1,6 @@
 # Gap analysis: `Registration`/`Subscription` is not a payment ledger
 
-**Status:** Open finding, not yet a decision. Written for review (by another model / the owner) before any implementation. Nothing in this doc has been built.
+**Status:** Reviewed and DECIDED 2026-08-27 — the candidate direction below was adopted (with one correction: the concurrent-registration race is closed by a partial unique index on `Subscription {studentId, scheduleId, status:'active'}`, not by the Registration ledger index, which cannot see two racing subscriptions). Implementation spec: `docs/plans/registration-ledger-plan.md`. Nothing built yet.
 
 **Date:** 2026-08-27
 

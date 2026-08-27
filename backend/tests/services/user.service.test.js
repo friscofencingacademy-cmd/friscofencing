@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
 const User = require('../../src/models/user.model');
+const Subscription = require('../../src/models/subscription.model');
+const Registration = require('../../src/models/registration.model');
 const userService = require('../../src/services/user.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
@@ -136,6 +138,60 @@ describe('user.service', () => {
       await expect(
         userService.remove(admin._id.toString(), 'admin', admin._id)
       ).rejects.toMatchObject({ status: 400 });
+    });
+
+    // Registration is a payment ledger now, not an enrollment record
+    // (docs/plans/registration-ledger-plan.md D7) — Subscription is the sole
+    // guard for a student's enrollment history. A Subscription is never
+    // itself deleted, so this also covers "a student with ledger history"
+    // for as long as every Registration row's subscriptionId still points
+    // at a live Subscription.
+    it('blocks deleting a student with a Subscription, with the exact count in the 409 message', async () => {
+      const parent = await createParent({ email: 'parent-sub-guard@example.com' });
+      const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
+
+      await Subscription.create({
+        studentId: student._id,
+        scheduleId: new mongoose.Types.ObjectId(),
+        parentId: parent._id,
+        status: 'cancelled',
+        cancelAtPeriodEnd: false,
+        currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+        nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+      });
+
+      await expect(
+        userService.remove(student._id, 'admin', new mongoose.Types.ObjectId())
+      ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('1 subscription(s)') });
+
+      expect(await User.findById(student._id)).not.toBeNull();
+    });
+
+    it('does NOT block deleting a student whose only reference is a Registration ledger row with no matching Subscription (the old enrollment-based guard no longer applies)', async () => {
+      const parent = await createParent({ email: 'parent-orphan-ledger@example.com' });
+      const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
+      const scheduleId = new mongoose.Types.ObjectId();
+
+      // An orphaned ledger row (its subscriptionId points at nothing real) —
+      // exactly the kind of doc the old Registration-count check would have
+      // blocked on, and the new Subscription-count check correctly ignores.
+      await Registration.create({
+        subscriptionId: new mongoose.Types.ObjectId(),
+        studentId: student._id,
+        scheduleId,
+        parentId: parent._id,
+        eventType: 'initial',
+        status: 'completed',
+        amount: 150,
+        breakdown: { monthlyFee: 150 },
+        periodStart: new Date('2026-01-01T00:00:00.000Z'),
+        periodEnd: new Date('2026-02-01T00:00:00.000Z'),
+      });
+
+      await userService.remove(student._id, 'admin', new mongoose.Types.ObjectId());
+
+      expect(await User.findById(student._id)).toBeNull();
     });
   });
 

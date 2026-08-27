@@ -155,13 +155,39 @@ export interface TrialClass {
   sessionId: { _id: string; date: string };
 }
 
-export type RegistrationStatus = 'active' | 'cancelled';
+// Registration is a payment LEDGER row now, not an enrollment record —
+// docs/plans/registration-ledger-plan.md. `Subscription` (below) is the
+// enrollment fact; this is the money fact: one immutable row per charge
+// cycle, attempted or succeeded, returned from POST /registrations as the
+// `registration` key of RegistrationCreateResponse.
+export type RegistrationEventType = 'initial' | 'renewal' | 'legacy';
+export type RegistrationStatus = 'pending' | 'completed' | 'failed';
+
+export interface RegistrationBreakdown {
+  monthlyFee: number;
+  prorated: boolean;
+  proratedAmount: number | null;
+  siblingDiscountApplied: boolean;
+  siblingDiscountAmount: number;
+  registrationFeeCharged: number;
+}
 
 export interface Registration {
   _id: string;
+  subscriptionId: string;
   studentId: string;
   scheduleId: string;
+  parentId: string;
+  eventType: RegistrationEventType;
   status: RegistrationStatus;
+  amount: number;
+  breakdown: RegistrationBreakdown;
+  periodStart: string;
+  periodEnd: string;
+  stripePaymentIntentId: string | null;
+  failureMessage: string | null;
+  attempt: number;
+  paidAt: string | null;
 }
 
 export type SubscriptionStatus = 'active' | 'cancelled';
