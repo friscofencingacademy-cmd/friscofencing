@@ -78,6 +78,32 @@ function formatSessionLine(session: GroupClassSessionWithSchedule): string {
   return `${formatSessionDate(session.date)} · ${formatSessionTimeRange(session.scheduleId)}`;
 }
 
+// ── Start-date window (pure calendar-day math, never billing math) ─────────
+// The picker only ever offers "this month" dates, capped at 14 days out —
+// and capped EARLIER at the last calendar day of the current month if that
+// would otherwise spill into next month. This is a display-window decision
+// (how far ahead the picker reaches), not a re-derivation of anything the
+// backend computes — the actual prorated/full-price dollar amount for
+// whichever date gets picked always comes from GET /registrations/preview
+// and the real POST /registrations response, verbatim, same as before.
+function thisMonthWindowEnd(today: Date): Date {
+  const fourteenDaysOut = new Date(today);
+  fourteenDaysOut.setDate(fourteenDaysOut.getDate() + 14);
+
+  const endOfThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  endOfThisMonth.setHours(23, 59, 59, 999);
+
+  return fourteenDaysOut < endOfThisMonth ? fourteenDaysOut : endOfThisMonth;
+}
+
+// True when `candidate` falls in the calendar month immediately after
+// `today`'s — used only to find the one real session "Enroll for next
+// month" anchors to, never to compute what it costs.
+function isNextCalendarMonth(candidate: Date, today: Date): boolean {
+  const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  return candidate.getFullYear() === nextMonthStart.getFullYear() && candidate.getMonth() === nextMonthStart.getMonth();
+}
+
 interface RegisteredInfo {
   childName: string;
   startDateLine: string;
@@ -197,6 +223,25 @@ export default function RegisterPage() {
   const scheduleId = selectedSession?.scheduleId._id ?? '';
   const startDate = selectedSession?.date ?? '';
 
+  // Split the fetched sessions into "this month" (the picker) and "the
+  // earliest real session next month" (what "Enroll for next month"
+  // anchors to) — both derived purely from real session data already
+  // fetched, never a fabricated/computed date. `now` is read once per
+  // render, not memoized — this is a display window, not a value that
+  // needs to survive a re-render identically.
+  const now = new Date();
+  const windowEnd = thisMonthWindowEnd(now);
+  const thisMonthSessions = sessions.filter((session) => {
+    const date = new Date(session.date);
+    return date >= now && date <= windowEnd;
+  });
+  const nextMonthSession = sessions.find((session) => isNextCalendarMonth(new Date(session.date), now)) ?? null;
+  // True exactly when the currently-selected session IS that anchor — i.e.
+  // "Enroll for next month" was clicked, not a this-month pill. Purely
+  // derived from existing selection state, not a separate flag that could
+  // drift out of sync with it.
+  const isNextMonthEnrollment = Boolean(sessionId) && nextMonthSession !== null && sessionId === nextMonthSession._id;
+
   // Live sibling-discount + proration preview as soon as a child, level, and
   // start date are all picked — a non-critical estimate: a failure here is
   // swallowed silently (never a stepError) since the real charge is always
@@ -306,12 +351,21 @@ export default function RegisterPage() {
                 : []),
               // This month's charge was prorated to the class days
               // remaining — never a frontend day count, straight from the
-              // backend response.
-              ...(registered?.prorated
+              // backend response. Suppressed for a next-month enrollment:
+              // the real numbers there always come out to a full month (the
+              // anchor is that month's own first class day), so the
+              // day-count sentence would be true but confusing — see
+              // isNextMonthEnrollment's own comment above.
+              ...(registered?.prorated && !isNextMonthEnrollment
                 ? [{ label: 'Prorated', value: `${registered.remainingClassDays} of ${registered.totalClassDays} class days this month` }]
                 : []),
               ...(registered?.periodEnd
-                ? [{ label: registered?.prorated ? 'Full price starts' : 'Plan renews', value: formatDateLabel(registered.periodEnd) }]
+                ? [
+                    {
+                      label: isNextMonthEnrollment || !registered?.prorated ? 'Plan renews' : 'Full price starts',
+                      value: formatDateLabel(registered.periodEnd),
+                    },
+                  ]
                 : []),
             ]}
             links={
@@ -343,8 +397,9 @@ export default function RegisterPage() {
       : []),
     // This month's charge is prorated to the class days remaining — shown
     // right under "Monthly Fee" so it's clear the full list price above
-    // isn't what's actually being charged today.
-    ...(pricePreview?.prorated
+    // isn't what's actually being charged today. Suppressed for a
+    // next-month enrollment — see isNextMonthEnrollment's own comment.
+    ...(pricePreview?.prorated && !isNextMonthEnrollment
       ? [{ label: 'Prorated', value: `${pricePreview.remainingClassDays} of ${pricePreview.totalClassDays} class days this month` }]
       : []),
     // One-time fee, itemized separately — never folded into "Monthly Fee"
@@ -356,7 +411,12 @@ export default function RegisterPage() {
       ? [{ label: 'Due Today', value: `$${pricePreview.totalChargeAmount.toFixed(2)}` }]
       : []),
     ...(pricePreview?.periodEnd
-      ? [{ label: pricePreview.prorated ? 'Full price starts' : 'Plan renews', value: formatDateLabel(pricePreview.periodEnd) }]
+      ? [
+          {
+            label: isNextMonthEnrollment || !pricePreview.prorated ? 'Plan renews' : 'Full price starts',
+            value: formatDateLabel(pricePreview.periodEnd),
+          },
+        ]
       : []),
   ];
 
@@ -414,22 +474,53 @@ export default function RegisterPage() {
                 ) : sessions.length === 0 ? (
                   <Alert variant="error">No upcoming class dates are available for this level yet.</Alert>
                 ) : (
-                  <PillRow
-                    items={sessions}
-                    selectedKey={sessionId || null}
-                    onSelect={setSessionId}
-                    getKey={(session) => session._id}
-                    getLabel={(session) => formatSessionDate(session.date)}
-                    getSub={(session) => formatSessionTimeRange(session.scheduleId)}
-                    ariaLabel="Select a start date"
-                  />
+                  <>
+                    {thisMonthSessions.length > 0 ? (
+                      <PillRow
+                        items={thisMonthSessions}
+                        selectedKey={sessionId || null}
+                        onSelect={setSessionId}
+                        getKey={(session) => session._id}
+                        getLabel={(session) => formatSessionDate(session.date)}
+                        getSub={(session) => formatSessionTimeRange(session.scheduleId)}
+                        ariaLabel="Select a start date"
+                      />
+                    ) : (
+                      <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
+                        No class dates available in the next two weeks this month.
+                      </p>
+                    )}
+
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <Button
+                        type="button"
+                        variant={isNextMonthEnrollment ? 'primary' : 'secondary'}
+                        size="sm"
+                        disabled={!nextMonthSession}
+                        onClick={() => nextMonthSession && setSessionId(nextMonthSession._id)}
+                      >
+                        Enroll for next month
+                      </Button>
+                      {nextMonthSession ? (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
+                          First class: {formatSessionLine(nextMonthSession)}
+                        </p>
+                      ) : (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
+                          Next month's schedule isn't posted yet — check back soon.
+                        </p>
+                      )}
+                    </div>
+                  </>
                 )}
                 {pricePreview?.siblingDiscountApplied ? (
                   <p>10% sibling discount applied — ${pricePreview.chargeAmount.toFixed(2)}/month</p>
                 ) : pricePreview?.siblingDiscountReason ? (
                   <p>{pricePreview.siblingDiscountReason}</p>
                 ) : null}
-                {pricePreview?.prorated ? (
+                {pricePreview && isNextMonthEnrollment ? (
+                  <p>Full monthly price — ${pricePreview.totalChargeAmount.toFixed(2)} due today.</p>
+                ) : pricePreview?.prorated ? (
                   <p>
                     {pricePreview.remainingClassDays} of {pricePreview.totalClassDays} class days remain this
                     month — ${pricePreview.dailyRate?.toFixed(2)}/day → ${pricePreview.totalChargeAmount.toFixed(2)}{' '}

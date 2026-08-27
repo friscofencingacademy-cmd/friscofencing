@@ -248,3 +248,50 @@ clean before opening the PR.
 - Completion report: exact files touched per PR, real test counts, gates passed, and — critically —
   explicit confirmation that `prorationEnabled` defaults to `false` and was verified to leave
   today's behavior byte-identical when left off.
+
+## 8. Addendum (2026-08-27) — start-date window refinement, owner-directed
+
+Shipped after PR 2 above, as a frontend-only follow-up (no backend files touched — the
+`computeProration()`/`registration.service.js` math from §2–3 needed no change; verified the
+existing math already produces the full monthly price, to the cent, when the anchor date is a
+month's true first class day, since `remainingClassDays === totalClassDays` in that case).
+
+**The problem:** with every upcoming session listed as a pickable date (the original PR 2
+design), a parent could pick a date deep into next month, or one that produces the documented
+$0-remaining-class-days edge case (`docs/plans/registration-ledger-gap-analysis.md`'s "Related
+open items" — a $0 PaymentIntent Stripe rejects with a raw 500). Restricting the picker to a
+sane near-term window sidesteps that edge case by construction, without a backend fix.
+
+**The change**, entirely in `frontend/app/parent/register/page.tsx`:
+
+- The picker now only offers sessions from today through 14 days out, capped earlier at the
+  current month's last calendar day if 14 days would spill into next month
+  (`thisMonthWindowEnd()` — pure calendar-day arithmetic, not billing logic).
+- A single "Enroll for next month" button anchors to the earliest real session already present
+  in the fetched list that falls in the next calendar month (`isNextCalendarMonth()`) — found,
+  never fabricated or separately fetched. The backend's `GET /group-class-sessions/by-class/
+  :classId` endpoint's existing default window (30 days) is untouched; an earlier version of
+  this addendum considered widening it, which turned out to be solving a problem that didn't
+  exist — the fetch window was never the constraint, only how much of it the UI chose to show.
+- The button displays that session's real date/time read-only below it, and is disabled with an
+  honest "next month's schedule isn't posted yet" note on the rare occasion no next-month
+  session exists in the fetched data yet, rather than guessing a date.
+- Clicking it sets the same `sessionId` state a pill click would — `scheduleId`/`startDate`,
+  the preview fetch, and the submit payload are byte-identical to the existing mechanism.
+- The only new frontend decision is cosmetic: `isNextMonthEnrollment` (derived purely from
+  comparing the selected session id to the found next-month session, never a new piece of
+  state) decides whether to render the "X of Y class days" sentence or a plain full-price
+  line. No dollar amount is ever computed client-side either way.
+
+**Testing note:** `jest.useFakeTimers()` was tried first for the new today-relative filtering
+tests and reliably hung Testing Library's own `waitFor`/`findBy` polling against this repo's
+MSW/jsdom XHR stack — a known pairing issue, not fixed by `advanceTimers: true`. Replaced with a
+minimal `Date` subclass swapped onto `global.Date` for the suite's duration (`new Date()`/
+`Date.now()` return a frozen instant, `new Date(isoString)` parses normally, Jest's real timers
+are never touched) — see `frontend/app/parent/register/__tests__/page.test.tsx`'s own comment
+for the full reasoning, in case another suite needs today-relative fixtures later.
+
+Tests: 5 new (`start-date window` describe block) + all 20 pre-existing tests in the same file
+updated only where fixture dates needed to move into the new frozen "now"'s window (no test's
+actual assertions changed). Full suite: 47/47 frontend suites, 271/271 tests, `tsc --noEmit`
+clean, `npm run build` clean.
