@@ -1,5 +1,6 @@
 const User = require('../models/user.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
+const GroupClassSession = require('../models/groupClassSession.model');
 const GroupClass = require('../models/groupClass.model');
 const Level = require('../models/level.model');
 const Location = require('../models/location.model');
@@ -87,14 +88,47 @@ async function resolveStudentForSchedule(studentId, scheduleId, requestingUser) 
   return { student, schedule };
 }
 
+// The parent's chosen start date (a real GroupClassSession's date, picked
+// from the register wizard's upcoming-sessions list) — resolves proration's
+// registrationDate and the Subscription's currentPeriodStart/End to the day
+// the parent actually said they'd start, not the moment they happened to
+// click Pay. Optional: omitting it (no other caller passes it today) falls
+// back to `now`, byte-identical to this function's pre-existing behavior.
+// Never trusts the client's date/schedule pairing — re-validates it against
+// a real, currently-existing GroupClassSession every time.
+async function resolveStartDate(scheduleId, startDate) {
+  if (startDate === undefined || startDate === null || startDate === '') {
+    return null;
+  }
+
+  const parsed = new Date(startDate);
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw badRequestError('Invalid startDate');
+  }
+
+  if (parsed < todayAtMidnight()) {
+    throw badRequestError('startDate cannot be in the past');
+  }
+
+  const session = await GroupClassSession.findOne({ scheduleId, date: parsed });
+
+  if (!session) {
+    throw badRequestError('startDate is not an upcoming session for this schedule');
+  }
+
+  return parsed;
+}
+
 // Registers `studentId` for `scheduleId`: validates permission + pricing,
 // charges the parent's saved card for the first period off-session via a
 // Stripe PaymentIntent, and only then creates the Registration/Subscription
 // docs and mutates rosters. No 3DS/requires_action handling for MVP — a
 // non-'succeeded' PaymentIntent status is treated as a failed registration
 // and nothing below step 11 is created.
-async function create({ studentId, scheduleId }, requestingUser) {
+async function create({ studentId, scheduleId, startDate }, requestingUser) {
   const { student, schedule } = await resolveStudentForSchedule(studentId, scheduleId, requestingUser);
+  const requestedStartDate = await resolveStartDate(scheduleId, startDate);
 
   const existingSubscription = await Subscription.findOne({
     studentId,
@@ -135,8 +169,11 @@ async function create({ studentId, scheduleId }, requestingUser) {
 
   // Defined here (not later, at Subscription-creation time as before) so
   // both the proration calc below and currentPeriodStart/End further down
-  // use the exact same instant.
+  // use the exact same instant. anchorDate is the parent's chosen start
+  // date when one was given, otherwise `now` — same fallback resolveStartDate
+  // itself documents.
   const now = new Date();
+  const anchorDate = requestedStartDate ?? now;
 
   const { prorationEnabled } = await settingService.getSettings();
 
@@ -153,7 +190,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
     prorationInfo = await computeProration({
       levelId: groupClass.levelId,
       monthlyFee: price.monthlyFee,
-      registrationDate: now,
+      registrationDate: anchorDate,
     });
     feeForDiscountCalc = prorationInfo.proratedAmount;
   }
@@ -185,7 +222,11 @@ async function create({ studentId, scheduleId }, requestingUser) {
         off_session: true,
         confirm: true,
       },
-      { idempotencyKey: `initial-registration-${studentId}-${scheduleId}` }
+      // Keyed on anchorDate (not just studentId+scheduleId) — a retry that
+      // resolves to a genuinely different start date (e.g. the parent's
+      // first-picked date is no longer valid and they pick another) must be
+      // treated as a new attempt, not collide with an unrelated one.
+      { idempotencyKey: `initial-registration-${studentId}-${scheduleId}-${anchorDate.toISOString().slice(0, 10)}` }
     );
   } catch (error) {
     // A hard decline (e.g. card_declined) is a synchronous throw from the
@@ -212,8 +253,9 @@ async function create({ studentId, scheduleId }, requestingUser) {
 
   // A prorated first period ends at the end of THIS calendar month (short,
   // matching the smaller charge); otherwise the existing rolling one-month
-  // period, byte-identical to pre-proration behavior.
-  const currentPeriodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(now);
+  // period, byte-identical to pre-proration behavior. Both anchor off
+  // anchorDate (the parent's chosen start date), not the moment they paid.
+  const currentPeriodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(anchorDate);
 
   const subscription = await Subscription.create({
     studentId,
@@ -221,7 +263,7 @@ async function create({ studentId, scheduleId }, requestingUser) {
     parentId: requestingUser._id,
     status: 'active',
     cancelAtPeriodEnd: false,
-    currentPeriodStart: now,
+    currentPeriodStart: anchorDate,
     currentPeriodEnd,
     nextBillingDate: currentPeriodEnd,
     lastChargeAmount: chargeAmount,
@@ -295,12 +337,13 @@ async function create({ studentId, scheduleId }, requestingUser) {
 // two could differ is a real state change between preview and submit (e.g.
 // a sibling's subscription changing), which is expected and correct per
 // ADR 001's "re-verified every time" philosophy, not a bug.
-async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
+async function previewChargeAmount({ studentId, scheduleId, startDate }, requestingUser) {
   if (!studentId || !scheduleId) {
     throw badRequestError('studentId and scheduleId are required');
   }
 
   const { student, schedule } = await resolveStudentForSchedule(studentId, scheduleId, requestingUser);
+  const requestedStartDate = await resolveStartDate(scheduleId, startDate);
 
   const groupClass = await GroupClass.findById(schedule.classId);
 
@@ -315,11 +358,12 @@ async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
   }
 
   const now = new Date();
+  const anchorDate = requestedStartDate ?? now;
   const { prorationEnabled } = await settingService.getSettings();
 
   // Mirrors create() exactly (docs/plans/prorated-first-month-billing-plan
-  // .md, D3) — same function, same sequencing, same "now" role — so this
-  // preview can never structurally disagree with the real charge.
+  // .md, D3) — same function, same sequencing, same anchorDate role — so
+  // this preview can never structurally disagree with the real charge.
   let feeForDiscountCalc = price.monthlyFee;
   let prorationInfo = null;
 
@@ -327,7 +371,7 @@ async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
     prorationInfo = await computeProration({
       levelId: groupClass.levelId,
       monthlyFee: price.monthlyFee,
-      registrationDate: now,
+      registrationDate: anchorDate,
     });
     feeForDiscountCalc = prorationInfo.proratedAmount;
   }
@@ -341,7 +385,7 @@ async function previewChargeAmount({ studentId, scheduleId }, requestingUser) {
     reason: registrationFeeReason,
   } = await resolveRegistrationFee(studentId);
 
-  const periodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(now);
+  const periodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(anchorDate);
 
   return {
     monthlyFee: price.monthlyFee,

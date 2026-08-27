@@ -33,8 +33,19 @@ const LEVEL_ADVANCED = { _id: 'level-2', name: 'Advanced' };
 const CLASS_A = { _id: 'class-1', name: 'Beginner Foil', levelId: LEVEL_BEGINNER._id, locationId: 'loc-1', capacity: 10 };
 const CLASS_B = { _id: 'class-2', name: 'Advanced Epee', levelId: LEVEL_ADVANCED._id, locationId: 'loc-1', capacity: 10 };
 
-const SCHEDULE_A = { _id: 'sched-1', classId: 'class-1', coachId: 'coach-1', dayOfWeek: 3, startTime: '16:00', endTime: '17:00', students: [] };
-const SCHEDULE_B = { _id: 'sched-2', classId: 'class-2', coachId: 'coach-1', dayOfWeek: 4, startTime: '18:00', endTime: '19:00', students: [] };
+// A session carries its own schedule's day/time — no separate "choose your
+// preferred time" step any more. Picking one sets both the schedule AND the
+// start date at once.
+const SESSION_A = {
+  _id: 'session-a',
+  date: '2099-01-06T00:00:00.000Z',
+  scheduleId: { _id: 'sched-1', dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+};
+const SESSION_A_LATER = {
+  _id: 'session-a-later',
+  date: '2099-01-13T00:00:00.000Z',
+  scheduleId: { _id: 'sched-1', dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+};
 
 const PRICE_BEGINNER = { _id: 'price-1', levelId: LEVEL_BEGINNER._id, monthlyFee: 150 };
 
@@ -55,7 +66,7 @@ const DEFAULT_PREVIEW = {
   totalClassDays: null,
   remainingClassDays: null,
   dailyRate: null,
-  periodEnd: '2026-09-26T00:00:00.000Z',
+  periodEnd: '2099-01-31T00:00:00.000Z',
 };
 
 let postRegistrationPayload: unknown = null;
@@ -67,7 +78,12 @@ const server = setupServer(
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
   http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })),
   http.get('*/group-classes', () => HttpResponse.json({ groupClasses: [CLASS_A, CLASS_B] })),
-  http.get('*/group-class-schedules', () => HttpResponse.json({ schedules: [SCHEDULE_A, SCHEDULE_B] })),
+  http.get('*/group-class-sessions/by-class/:classId', ({ params }) => {
+    if (params.classId === CLASS_A._id) {
+      return HttpResponse.json({ sessions: [SESSION_A, SESSION_A_LATER] });
+    }
+    return HttpResponse.json({ sessions: [] });
+  }),
   http.get('*/prices', () => HttpResponse.json({ prices: [PRICE_BEGINNER] })),
   http.get('*/levels', () => HttpResponse.json({ levels: [LEVEL_BEGINNER, LEVEL_ADVANCED] })),
   http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: SAVED_PAYMENT_METHOD })),
@@ -88,7 +104,7 @@ const server = setupServer(
         totalClassDays: null,
         remainingClassDays: null,
         dailyRate: null,
-        periodEnd: '2026-09-26T00:00:00.000Z',
+        periodEnd: '2099-01-31T00:00:00.000Z',
       },
       { status: 201 }
     );
@@ -125,12 +141,17 @@ async function selectChildAndReachLevelStep() {
   await screen.findByRole('radiogroup', { name: /select a level/i });
 }
 
+// SESSION_A and SESSION_A_LATER share the same weekly time (two upcoming
+// occurrences of the same Wed 4pm class) — sorted soonest-first, so the
+// FIRST matching pill is always SESSION_A. Selecting by array position
+// rather than a date-formatted label keeps this independent of the test
+// runner's local timezone (toLocaleDateString renders differently per TZ).
 async function goToPayableState() {
   await selectChildAndReachLevelStep();
   fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
-  const timePill = await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i });
-  fireEvent.click(timePill);
-  await waitFor(() => expect(timePill).toHaveAttribute('aria-checked', 'true'));
+  const [sessionPill] = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
+  fireEvent.click(sessionPill);
+  await waitFor(() => expect(sessionPill).toHaveAttribute('aria-checked', 'true'));
 }
 
 describe('RegisterPage wizard', () => {
@@ -154,14 +175,16 @@ describe('RegisterPage wizard', () => {
     expect(await screen.findByRole('radiogroup', { name: /select a level/i })).toBeInTheDocument();
   });
 
-  it('no longer shows the old explanatory "you can attend any of its scheduled sessions" paragraph', async () => {
+  it('shows every upcoming session (start date) for the chosen level as pickable options, not just one time slot', async () => {
     renderRegisterPage();
-    await goToPayableState();
+    await selectChildAndReachLevelStep();
+    fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
 
-    expect(screen.queryByText(/you.re enrolling in the full/i)).not.toBeInTheDocument();
+    const pills = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
+    expect(pills).toHaveLength(2);
   });
 
-  it('walks Who -> Level -> Done and submits { studentId, scheduleId }, with an existing card on file', async () => {
+  it('walks Who -> Level -> Done and submits { studentId, scheduleId, startDate }, with an existing card on file', async () => {
     renderRegisterPage();
     await goToPayableState();
 
@@ -170,14 +193,18 @@ describe('RegisterPage wizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
 
     await waitFor(() => {
-      expect(postRegistrationPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+      expect(postRegistrationPayload).toEqual({
+        studentId: STUDENT._id,
+        scheduleId: SESSION_A.scheduleId._id,
+        startDate: SESSION_A.date,
+      });
     });
 
     expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
     expect(screen.getByText(/\$150\.00/)).toBeInTheDocument();
   });
 
-  it('the Register & Pay CTA is disabled until a level and time are both chosen', async () => {
+  it('the Register & Pay CTA is disabled until a level and start date are both chosen', async () => {
     renderRegisterPage();
     await selectChildAndReachLevelStep();
 
@@ -186,8 +213,8 @@ describe('RegisterPage wizard', () => {
     fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
     expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
 
-    const timePill = await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i });
-    fireEvent.click(timePill);
+    const [sessionPill] = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
+    fireEvent.click(sessionPill);
 
     await waitFor(() => expect(screen.getByRole('button', { name: /register & pay/i })).not.toBeDisabled());
   });
@@ -249,7 +276,11 @@ describe('RegisterPage wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
 
       await waitFor(() => {
-        expect(postRegistrationPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+        expect(postRegistrationPayload).toEqual({
+          studentId: STUDENT._id,
+          scheduleId: SESSION_A.scheduleId._id,
+          startDate: SESSION_A.date,
+        });
       });
       expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
     });
@@ -271,7 +302,7 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
     });
 
-    it('never shows the payment-method section before a time slot is chosen', async () => {
+    it('never shows the payment-method section before a start date is chosen', async () => {
       server.use(http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })));
 
       renderRegisterPage();
@@ -283,7 +314,7 @@ describe('RegisterPage wizard', () => {
   });
 
   describe('sibling discount', () => {
-    it('shows a live sibling-discount preview once a level and time are both selected', async () => {
+    it('shows a live sibling-discount preview once a level and start date are both selected', async () => {
       server.use(
         http.get('*/registrations/preview', () =>
           HttpResponse.json({
@@ -326,7 +357,11 @@ describe('RegisterPage wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
 
       await waitFor(() => {
-        expect(postRegistrationPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+        expect(postRegistrationPayload).toEqual({
+          studentId: STUDENT._id,
+          scheduleId: SESSION_A.scheduleId._id,
+          startDate: SESSION_A.date,
+        });
       });
       expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
     });
@@ -451,7 +486,7 @@ describe('RegisterPage wizard', () => {
   });
 
   describe('prorated first-month billing', () => {
-    it('shows the prorated class-day breakdown while choosing a time, and itemizes it in the Level step summary', async () => {
+    it('shows the prorated class-day breakdown while choosing a start date, and itemizes it in the Level step summary', async () => {
       server.use(
         http.get('*/registrations/preview', () =>
           HttpResponse.json({

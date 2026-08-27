@@ -59,6 +59,7 @@ export async function fetchMySubscriptions(): Promise<Subscription[]> {
 export async function createRegistration(data: {
   studentId: string;
   scheduleId: string;
+  startDate: string;
 }): Promise<MutationResult<RegistrationCreateResponse>> {
   try {
     const res = await api.post<RegistrationCreateResponse>('/registrations', data);
@@ -75,6 +76,7 @@ export async function createRegistration(data: {
 export async function fetchRegistrationPricePreview(data: {
   studentId: string;
   scheduleId: string;
+  startDate: string;
 }): Promise<RegistrationPricePreview> {
   const res = await api.get<RegistrationPricePreview>('/registrations/preview', { params: data });
   return res.data;

@@ -16,7 +16,7 @@ afterAll(() => server.close());
 describe('parent service — query contract (throws on failure)', () => {
   it('fetchRegistrationPricePreview resolves with the typed preview on success', async () => {
     await expect(
-      fetchRegistrationPricePreview({ studentId: 'student-1', scheduleId: 'sched-1' })
+      fetchRegistrationPricePreview({ studentId: 'student-1', scheduleId: 'sched-1', startDate: '2099-01-06T00:00:00.000Z' })
     ).resolves.toEqual(PREVIEW);
   });
 
@@ -26,7 +26,7 @@ describe('parent service — query contract (throws on failure)', () => {
     );
 
     await expect(
-      fetchRegistrationPricePreview({ studentId: 'student-1', scheduleId: 'sched-1' })
+      fetchRegistrationPricePreview({ studentId: 'student-1', scheduleId: 'sched-1', startDate: '2099-01-06T00:00:00.000Z' })
     ).rejects.toBeTruthy();
   });
 });
