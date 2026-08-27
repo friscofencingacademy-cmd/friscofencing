@@ -1,10 +1,9 @@
 # Implementation plan: Registration payment ledger + CKQ-style renewal/retry
 
-**Status:** PR 1 BUILT 2026-08-27, on `feature/registration-payment-ledger`, awaiting owner
-review of the diff before commit (Hard Rule 5/payment-critical-files gate) — nothing pushed,
-nothing merged. PR 2 and PR 3 not started. See "PR 1 completion notes" at the end of this doc for
-exactly what shipped, three deviations from this spec (each with its reason), and one real gap
-this spec missed that got fixed along the way.
+**Status:** PR 1 MERGED TO DEVELOP 2026-08-27 (`friscofencingacademy-cmd/friscofencing` PR #37).
+PR 2 and PR 3 not started. See "PR 1 completion notes" at the end of this doc for exactly what
+shipped, three deviations from this spec (each with its reason), and one real gap this spec
+missed that got fixed along the way.
 
 **Builder:** intended to be executed by a Sonnet implementation session. See §8 (Builder
 instructions) before touching any file.
@@ -545,7 +544,8 @@ PR 1 step 7.
 
 ## PR 1 completion notes (2026-08-27)
 
-Built on `feature/registration-payment-ledger`. Full backend suite: 410 tests, 409 pass — the one
+Built on `feature/registration-payment-ledger`, merged to `develop` via PR #37. Full backend
+suite: 410 tests, 409 pass — the one
 failure is `registration.routes.test.js`'s "prorates the real Stripe charge and anchors the
 period to calendar month-end" test, which fails identically on unmodified `develop` (verified via
 `git stash`): the pre-existing $0-end-of-month proration bug this doc's §3 already lists as out
