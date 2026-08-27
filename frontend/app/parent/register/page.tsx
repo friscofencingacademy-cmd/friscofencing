@@ -7,7 +7,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses, fetchLevels, fetchPrices } from '../../../lib/services/catalog';
-import { fetchSchedules } from '../../../lib/services/scheduling';
+import { fetchSessionsByClass } from '../../../lib/services/scheduling';
 import {
   createRegistration,
   fetchMyPaymentMethod,
@@ -17,7 +17,7 @@ import { formatTime } from '../../../lib/formatTime';
 import stripePromise from '../../../lib/stripe';
 import type {
   GroupClass,
-  GroupClassSchedule,
+  GroupClassSessionWithSchedule,
   Level,
   PaymentMethodInfo,
   Price,
@@ -38,17 +38,15 @@ import {
 } from '../../components/portal/flow';
 
 const STEPS = ['Who', 'Level', 'Done'];
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 async function fetchRegisterOptions() {
-  const [groupClasses, schedules, prices, levels, paymentMethod] = await Promise.all([
+  const [groupClasses, prices, levels, paymentMethod] = await Promise.all([
     fetchGroupClasses(),
-    fetchSchedules(),
     fetchPrices(),
     fetchLevels(),
     fetchMyPaymentMethod(),
   ]);
-  return { groupClasses, schedules, prices, levels, paymentMethod };
+  return { groupClasses, prices, levels, paymentMethod };
 }
 
 function levelName(levels: Level[], id: string): string {
@@ -61,8 +59,28 @@ function formatDateLabel(isoDate: string): string {
   return new Date(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// A session carries its own schedule's day/time — same helpers as
+// /parent/book-trial's session picker, so a date+time reads identically
+// everywhere a parent sees one.
+function formatSessionDate(dateIso: string): string {
+  return new Date(dateIso).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatSessionTimeRange(schedule: GroupClassSessionWithSchedule['scheduleId']): string {
+  return `${formatTime(schedule.startTime)}–${formatTime(schedule.endTime)}`;
+}
+
+function formatSessionLine(session: GroupClassSessionWithSchedule): string {
+  return `${formatSessionDate(session.date)} · ${formatSessionTimeRange(session.scheduleId)}`;
+}
+
 interface RegisteredInfo {
   childName: string;
+  startDateLine: string;
   chargeAmount: number;
   totalChargeAmount: number;
   siblingDiscountApplied?: boolean;
@@ -84,7 +102,6 @@ export default function RegisterPage() {
 
   const { data, error, isLoading, retry } = useLoadState(fetchRegisterOptions, []);
   const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
-  const [schedules, setSchedules] = useState<GroupClassSchedule[]>([]);
   const [prices, setPrices] = useState<Price[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodInfo | null>(null);
@@ -92,7 +109,6 @@ export default function RegisterPage() {
   useEffect(() => {
     if (data) {
       setGroupClasses(data.groupClasses);
-      setSchedules(data.schedules);
       setPrices(data.prices);
       setLevels(data.levels);
       setPaymentMethod(data.paymentMethod);
@@ -102,7 +118,9 @@ export default function RegisterPage() {
   const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
   const [levelId, setLevelId] = useState('');
-  const [scheduleId, setScheduleId] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [sessions, setSessions] = useState<GroupClassSessionWithSchedule[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [registered, setRegistered] = useState<RegisteredInfo | null>(null);
@@ -118,19 +136,81 @@ export default function RegisterPage() {
     }
   }, [searchParams]);
 
-  // Live sibling-discount preview as soon as both a child and a schedule are
-  // picked — a non-critical estimate: a failure here is swallowed silently
-  // (never a stepError) since the real charge is always correctly computed
-  // server-side at submit time regardless of whether this preview loaded.
+  // A level maps 1:1 to a GroupClass in practice (confirmed against real
+  // schedule data — className always equals levelName), but the data model
+  // doesn't strictly enforce that, so this resolves every class under the
+  // selected level (usually exactly one) rather than assuming a single id —
+  // the parent never sees "class" as a concept at all (see LevelPickerCards).
+  const classIdsForLevel = levelId
+    ? groupClasses.filter((groupClass) => groupClass.levelId === levelId).map((groupClass) => groupClass._id)
+    : [];
+
+  // Upcoming sessions across every class at the chosen level — the same
+  // server-filtered, roster-free endpoint /parent/book-trial's picker uses
+  // (backend/src/services/groupClassSession.service.js's listUpcomingByClass),
+  // just merged across classIdsForLevel since a level can span more than
+  // one class. Picking a session sets BOTH the schedule and the start date
+  // at once — there's no separate "choose your time" step any more.
   useEffect(() => {
-    if (!studentId || !scheduleId) {
+    if (classIdsForLevel.length === 0) {
+      setSessions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadSessions() {
+      setSessionsLoading(true);
+      try {
+        const results = await Promise.all(classIdsForLevel.map((id) => fetchSessionsByClass(id)));
+        if (cancelled) return;
+
+        const merged = results
+          .flat()
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        setSessions(merged);
+      } catch {
+        if (!cancelled) {
+          setStepError('Failed to load upcoming class dates.');
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionsLoading(false);
+        }
+      }
+    }
+
+    loadSessions();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- classIdsForLevel
+    // is recomputed fresh every render from levelId + the stable groupClasses
+    // array; depending on levelId + groupClasses directly is equivalent and
+    // avoids a new-array-every-render dependency.
+  }, [levelId, groupClasses]);
+
+  const selectedStudent = students.find((student) => student._id === studentId);
+  const selectedPrice = levelId ? prices.find((price) => price.levelId === levelId) ?? null : null;
+  const selectedSession = sessionId ? sessions.find((session) => session._id === sessionId) ?? null : null;
+  const scheduleId = selectedSession?.scheduleId._id ?? '';
+  const startDate = selectedSession?.date ?? '';
+
+  // Live sibling-discount + proration preview as soon as a child, level, and
+  // start date are all picked — a non-critical estimate: a failure here is
+  // swallowed silently (never a stepError) since the real charge is always
+  // correctly computed server-side at submit time regardless of whether this
+  // preview loaded.
+  useEffect(() => {
+    if (!studentId || !scheduleId || !startDate) {
       setPricePreview(null);
       return;
     }
 
     let cancelled = false;
 
-    fetchRegistrationPricePreview({ studentId, scheduleId })
+    fetchRegistrationPricePreview({ studentId, scheduleId, startDate })
       .then((preview) => {
         if (!cancelled) setPricePreview(preview);
       })
@@ -141,18 +221,7 @@ export default function RegisterPage() {
     return () => {
       cancelled = true;
     };
-  }, [studentId, scheduleId]);
-
-  // A level maps 1:1 to a GroupClass in practice (confirmed against real
-  // schedule data — className always equals levelName), but the data model
-  // doesn't strictly enforce that, so this resolves every class under the
-  // selected level (usually exactly one) rather than assuming a single id —
-  // robust either way, and the parent never sees "class" as a concept at
-  // all any more (see LevelPickerCards).
-  const classIdsForLevel = levelId
-    ? groupClasses.filter((groupClass) => groupClass.levelId === levelId).map((groupClass) => groupClass._id)
-    : [];
-  const filteredSchedules = schedules.filter((schedule) => classIdsForLevel.includes(schedule.classId));
+  }, [studentId, scheduleId, startDate]);
 
   // Selecting a child auto-advances straight to the Level step — no
   // separate "Continue" click needed for a step that's just one choice.
@@ -163,27 +232,21 @@ export default function RegisterPage() {
 
   const handleLevelChange = useCallback((value: string) => {
     setLevelId(value);
-    setScheduleId('');
+    setSessionId('');
   }, []);
-
-  const selectedStudent = students.find((student) => student._id === studentId);
-  const selectedPrice = levelId ? prices.find((price) => price.levelId === levelId) ?? null : null;
-  const selectedSchedule = scheduleId ? schedules.find((schedule) => schedule._id === scheduleId) ?? null : null;
 
   async function handleSubmit() {
     setStepError(null);
     setSubmitting(true);
 
-    // Payment-critical: request payload/sequencing stays byte-identical to
-    // the pre-wizard implementation — this is the exact same
-    // createRegistration({ studentId, scheduleId }) mutation call.
-    const result = await createRegistration({ studentId, scheduleId });
+    const result = await createRegistration({ studentId, scheduleId, startDate });
 
     setSubmitting(false);
 
     if (result.status === 'success') {
       setRegistered({
         childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
+        startDateLine: selectedSession ? formatSessionLine(selectedSession) : '',
         chargeAmount: result.data.chargeAmount,
         totalChargeAmount: result.data.totalChargeAmount,
         siblingDiscountApplied: result.data.siblingDiscountApplied,
@@ -222,6 +285,7 @@ export default function RegisterPage() {
             subtitle={`Your card was charged $${registered?.totalChargeAmount.toFixed(2)}.`}
             lines={[
               { label: 'Child', value: registered?.childName },
+              { label: 'Start Date', value: registered?.startDateLine },
               ...(registered?.siblingDiscountApplied
                 ? [{ label: 'Sibling Discount', value: `-$${registered.siblingDiscountAmount?.toFixed(2)}` }]
                 : []),
@@ -269,10 +333,7 @@ export default function RegisterPage() {
   const summaryLines = [
     { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
     { label: 'Level', value: levelId ? levelName(levels, levelId) : '—' },
-    {
-      label: 'Usual time',
-      value: selectedSchedule ? `${DAY_LABELS[selectedSchedule.dayOfWeek]} ${formatTime(selectedSchedule.startTime)}-${formatTime(selectedSchedule.endTime)}` : '—',
-    },
+    { label: 'Start Date', value: selectedSession ? formatSessionLine(selectedSession) : '—' },
     { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
     ...(pricePreview?.siblingDiscountApplied
       ? [
@@ -309,7 +370,7 @@ export default function RegisterPage() {
     onCta = () => setStep(1);
   } else {
     cta = 'Register & Pay';
-    ctaDisabled = !scheduleId || !selectedPrice || !paymentMethod;
+    ctaDisabled = !sessionId || !selectedPrice || !paymentMethod;
     onCta = handleSubmit;
   }
 
@@ -347,17 +408,20 @@ export default function RegisterPage() {
             </FlowSection>
 
             {levelId ? (
-              <FlowSection title="Choose your preferred time">
-                {filteredSchedules.length === 0 ? (
-                  <Alert variant="error">No time slots are available for this level yet.</Alert>
+              <FlowSection title="Choose your start date">
+                {sessionsLoading ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>Loading upcoming dates...</p>
+                ) : sessions.length === 0 ? (
+                  <Alert variant="error">No upcoming class dates are available for this level yet.</Alert>
                 ) : (
                   <PillRow
-                    items={filteredSchedules}
-                    selectedKey={scheduleId || null}
-                    onSelect={setScheduleId}
-                    getKey={(schedule) => schedule._id}
-                    getLabel={(schedule) => `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`}
-                    ariaLabel="Select a time"
+                    items={sessions}
+                    selectedKey={sessionId || null}
+                    onSelect={setSessionId}
+                    getKey={(session) => session._id}
+                    getLabel={(session) => formatSessionDate(session.date)}
+                    getSub={(session) => formatSessionTimeRange(session.scheduleId)}
+                    ariaLabel="Select a start date"
                   />
                 )}
                 {pricePreview?.siblingDiscountApplied ? (
@@ -375,7 +439,7 @@ export default function RegisterPage() {
               </FlowSection>
             ) : null}
 
-            {scheduleId ? (
+            {sessionId ? (
               <FlowSection title="Payment method">
                 {paymentMethod ? (
                   <p>

@@ -12,8 +12,8 @@ async function create(req, res) {
 
 async function preview(req, res) {
   try {
-    const { studentId, scheduleId } = req.query;
-    const result = await registrationService.previewChargeAmount({ studentId, scheduleId }, req.user);
+    const { studentId, scheduleId, startDate } = req.query;
+    const result = await registrationService.previewChargeAmount({ studentId, scheduleId, startDate }, req.user);
     return res.status(200).json(result);
   } catch (error) {
     const status = error.status || 500;

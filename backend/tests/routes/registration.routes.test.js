@@ -810,6 +810,119 @@ describe('Registration routes', () => {
     );
   });
 
+  describe('start date selection', () => {
+    it(
+      'anchors proration and the Subscription period to a real, parent-chosen future session date instead of today',
+      async () => {
+        await Setting.create({ prorationEnabled: true });
+
+        const { scheduleId, levelId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('startdate-future@example.com');
+        const parentAgent = await loginAgent('startdate-future@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        // seedSchedule's real create route generates 8 real weekly sessions —
+        // pick the second one (a genuine future date, not "today") so this
+        // test actually exercises anchoring off something other than `now`.
+        const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+        const chosenSession = sessions[1];
+
+        const expected = await computeProration({
+          levelId,
+          monthlyFee: MONTHLY_FEE,
+          registrationDate: chosenSession.date,
+        });
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+          startDate: chosenSession.date.toISOString(),
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.prorated).toBe(true);
+        expect(res.body.remainingClassDays).toBe(expected.remainingClassDays);
+        expect(res.body.chargeAmount).toBe(expected.proratedAmount);
+
+        const subscription = await Subscription.findOne({ studentId: student._id });
+        expect(subscription.currentPeriodStart.getTime()).toBe(chosenSession.date.getTime());
+        expect(subscription.currentPeriodEnd.getFullYear()).toBe(expected.periodEnd.getFullYear());
+        expect(subscription.currentPeriodEnd.getMonth()).toBe(expected.periodEnd.getMonth());
+        expect(subscription.currentPeriodEnd.getDate()).toBe(expected.periodEnd.getDate());
+      },
+      20000
+    );
+
+    it('returns 400 and creates/charges nothing when startDate does not match a real session for the schedule', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('startdate-fake@example.com');
+      const parentAgent = await loginAgent('startdate-fake@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      const farFuture = new Date();
+      farFuture.setFullYear(farFuture.getFullYear() + 1);
+
+      const res = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+        startDate: farFuture.toISOString(),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
+      expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+    });
+
+    it('returns 400 when startDate is a real session date but in the past', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('startdate-past@example.com');
+      const parentAgent = await loginAgent('startdate-past@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      const session = await GroupClassSession.findOne({ scheduleId });
+      await GroupClassSession.updateOne(
+        { _id: session._id },
+        { date: new Date('2020-01-01T00:00:00.000Z') }
+      );
+
+      const res = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+        startDate: '2020-01-01T00:00:00.000Z',
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('GET /preview anchors proration to a provided startDate the same way the real charge does', async () => {
+      await Setting.create({ prorationEnabled: true });
+
+      const { scheduleId, levelId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('startdate-preview@example.com');
+      const parentAgent = await loginAgent('startdate-preview@example.com');
+
+      const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+      const chosenSession = sessions[1];
+
+      const expected = await computeProration({
+        levelId,
+        monthlyFee: MONTHLY_FEE,
+        registrationDate: chosenSession.date,
+      });
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+        startDate: chosenSession.date.toISOString(),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.prorated).toBe(true);
+      expect(res.body.remainingClassDays).toBe(expected.remainingClassDays);
+      expect(res.body.chargeAmount).toBe(expected.proratedAmount);
+    });
+  });
+
   describe('GET /api/v1/registrations/preview', () => {
     it('returns the undiscounted monthly fee for an only child, and creates/charges nothing', async () => {
       const { scheduleId } = await seedSchedule();
