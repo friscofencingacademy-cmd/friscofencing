@@ -213,11 +213,27 @@ describe('Registration routes', () => {
         expect(res.status).toBe(201);
         expect(res.body.paymentIntentStatus).toBe('succeeded');
         expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
-        expect(res.body.registration.status).toBe('active');
+        expect(res.body.registration.status).toBe('completed');
         expect(res.body.subscription.status).toBe('active');
 
         const registrations = await Registration.find({ studentId: student._id });
         expect(registrations).toHaveLength(1);
+
+        // The ledger row itself — docs/plans/registration-ledger-plan.md D1/D3.
+        const [ledgerRow] = registrations;
+        const subscriptionForLedger = await Subscription.findOne({ studentId: student._id });
+        expect(String(ledgerRow.subscriptionId)).toBe(String(subscriptionForLedger._id));
+        expect(ledgerRow.eventType).toBe('initial');
+        expect(ledgerRow.status).toBe('completed');
+        expect(ledgerRow.amount).toBe(res.body.totalChargeAmount);
+        expect(ledgerRow.breakdown.monthlyFee).toBe(MONTHLY_FEE);
+        expect(ledgerRow.breakdown.prorated).toBe(false);
+        expect(ledgerRow.periodStart).toBeInstanceOf(Date);
+        expect(ledgerRow.periodEnd).toBeInstanceOf(Date);
+        expect(ledgerRow.periodEnd.getTime()).toBeGreaterThan(ledgerRow.periodStart.getTime());
+        expect(typeof ledgerRow.stripePaymentIntentId).toBe('string');
+        expect(ledgerRow.stripePaymentIntentId).not.toHaveLength(0);
+        expect(ledgerRow.paidAt).toBeInstanceOf(Date);
 
         const subscriptions = await Subscription.find({ studentId: student._id });
         expect(subscriptions).toHaveLength(1);
@@ -387,6 +403,88 @@ describe('Registration routes', () => {
         expect(secondRes.status).toBe(409);
 
         expect(await Subscription.countDocuments({ studentId: student._id })).toBe(1);
+        // The 409 loser must never have written a ledger row — only the one
+        // real charge (the winner's) has a Registration row to show for it.
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
+      },
+      30000
+    );
+
+    it(
+      'allows re-registering the same student + schedule after the first subscription was cancelled — Guard A (docs/plans/registration-ledger-plan.md D2) scopes uniqueness to ACTIVE subscriptions only',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-parent-recancel@example.com');
+        const parentAgent = await loginAgent('reg-parent-recancel@example.com');
+
+        await savePaymentMethodFor(parentAgent);
+
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+
+        await Subscription.updateOne(
+          { studentId: student._id, scheduleId },
+          { $set: { status: 'cancelled' } }
+        );
+
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+        expect(secondRes.status).toBe(201);
+
+        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(2);
+        expect(
+          await Subscription.countDocuments({ studentId: student._id, status: 'active' })
+        ).toBe(1);
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(2);
+      },
+      30000
+    );
+
+    it(
+      'closes the concurrent-registration race at the DB level: two simultaneous requests for the same student + schedule produce exactly one Subscription and one ledger row',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-parent-race@example.com');
+        const parentAgent = await loginAgent('reg-parent-race@example.com');
+
+        await savePaymentMethodFor(parentAgent);
+
+        // Fired via Promise.all (not awaited sequentially) so both requests'
+        // existingSubscription pre-checks run against the same
+        // pre-registration DB state — there is no way to guarantee this
+        // ordering, but Node's async I/O interleaving at the real Mongo/
+        // Stripe network calls means both pre-checks reliably see "no
+        // existing subscription" before either request's Subscription.create
+        // resolves. What actually decides the outcome deterministically is
+        // Guard A's unique index at the second create() call: exactly one of
+        // the two inserts can succeed, however the pre-checks landed. Both
+        // requests share the same registration date, so the shared Stripe
+        // idempotency key (`initial-registration-{student}-{schedule}-
+        // {date}`) means Stripe charges the card exactly once regardless of
+        // which request "wins" — this is a DB race, not a double-charge.
+        const [firstRes, secondRes] = await Promise.all([
+          parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId,
+          }),
+          parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId,
+          }),
+        ]);
+
+        const statuses = [firstRes.status, secondRes.status].sort();
+        expect(statuses).toEqual([201, 409]);
+
+        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(1);
+        // The 409 loser must never have written a ledger row — only the one
+        // real charge (the winner's) has a Registration row to show for it.
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
       },
       30000
     );
@@ -730,6 +828,18 @@ describe('Registration routes', () => {
         expect(subscription.currentPeriodEnd.getFullYear()).toBe(expected.periodEnd.getFullYear());
         expect(subscription.currentPeriodEnd.getMonth()).toBe(expected.periodEnd.getMonth());
         expect(subscription.currentPeriodEnd.getDate()).toBe(expected.periodEnd.getDate());
+
+        // The ledger row's own breakdown reflects the prorated amount too —
+        // the prorated counterpart to the non-prorated assertions in the
+        // happy-path test above.
+        const ledgerRow = await Registration.findOne({ studentId: student._id });
+        expect(ledgerRow.breakdown.prorated).toBe(true);
+        expect(ledgerRow.breakdown.proratedAmount).toBe(expected.proratedAmount);
+        expect(ledgerRow.breakdown.monthlyFee).toBe(MONTHLY_FEE);
+        expect(ledgerRow.amount).toBe(expected.proratedAmount);
+        expect(ledgerRow.periodEnd.getFullYear()).toBe(expected.periodEnd.getFullYear());
+        expect(ledgerRow.periodEnd.getMonth()).toBe(expected.periodEnd.getMonth());
+        expect(ledgerRow.periodEnd.getDate()).toBe(expected.periodEnd.getDate());
 
         // The real Stripe PaymentIntent reflects the prorated amount, not
         // the full monthly fee.

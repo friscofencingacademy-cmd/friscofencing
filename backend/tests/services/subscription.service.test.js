@@ -100,12 +100,6 @@ async function makeParentAndStudent(suffix) {
 async function enroll({ level, oldSchedule, groupClass, student, parent, isPremium = false }) {
   await addStudentToRoster(oldSchedule, student._id, todayAtMidnight());
 
-  const registration = await Registration.create({
-    studentId: student._id,
-    scheduleId: oldSchedule._id,
-    status: 'active',
-  });
-
   const subscription = await Subscription.create({
     studentId: student._id,
     scheduleId: oldSchedule._id,
@@ -118,11 +112,28 @@ async function enroll({ level, oldSchedule, groupClass, student, parent, isPremi
     isPremium,
   });
 
+  // A real ledger row for this enrollment (docs/plans/registration-ledger-
+  // plan.md D1) — scheduleId here is a charge-time SNAPSHOT and must stay
+  // exactly what it was at creation even after a later schedule change; see
+  // this file's changeSchedule test, which asserts on that immutability.
+  const registration = await Registration.create({
+    subscriptionId: subscription._id,
+    studentId: student._id,
+    scheduleId: oldSchedule._id,
+    parentId: parent._id,
+    eventType: 'initial',
+    status: 'completed',
+    amount: 150,
+    breakdown: { monthlyFee: 150 },
+    periodStart: new Date('2026-01-01T00:00:00.000Z'),
+    periodEnd: new Date('2026-02-01T00:00:00.000Z'),
+  });
+
   return { registration, subscription };
 }
 
 describe('subscription.service — changeSchedule', () => {
-  it('performs all four writes on a same-level schedule change: subscription pointer, registration pointer, old roster+sessions pulled, new roster+sessions pushed', async () => {
+  it('performs all three writes on a same-level schedule change: subscription pointer, old roster+sessions pulled, new roster+sessions pushed — and leaves the Registration ledger untouched (docs/plans/registration-ledger-plan.md D7)', async () => {
     const level = await Level.create({ name: 'SameLevel', order: 1 });
     const { schedule: oldSchedule, groupClass: oldClass } = await makeSchedule({
       levelId: level._id,
@@ -148,8 +159,10 @@ describe('subscription.service — changeSchedule', () => {
     const updatedSubscription = await Subscription.findById(subscription._id);
     expect(String(updatedSubscription.scheduleId)).toBe(String(newSchedule._id));
 
-    const updatedRegistration = await Registration.findById(registration._id);
-    expect(String(updatedRegistration.scheduleId)).toBe(String(newSchedule._id));
+    // Ledger rows are immutable history — a schedule change must NOT rewrite
+    // what schedule a past charge was actually for.
+    const registrationAfter = await Registration.findById(registration._id);
+    expect(String(registrationAfter.scheduleId)).toBe(String(oldSchedule._id));
 
     const oldScheduleAfter = await GroupClassSchedule.findById(oldSchedule._id);
     expect(oldScheduleAfter.students.map(String)).not.toContain(String(student._id));

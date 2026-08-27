@@ -1,5 +1,4 @@
 const User = require('../models/user.model');
-const Registration = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
 const TrialClass = require('../models/trialClass.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
@@ -248,12 +247,12 @@ async function remove(id, requesterRole, requesterId) {
   }
 
   if (target.role === 'student') {
-    const registrationCount = await Registration.countDocuments({ studentId: id });
-
-    if (registrationCount > 0) {
-      throw conflictError(`Cannot delete: ${registrationCount} registration(s) reference this student.`);
-    }
-
+    // Registration is a payment ledger now, not an enrollment fact — a
+    // deleted student's historical charges stay attributed to their
+    // subscriptionId, which this check already blocks deletion on (a
+    // Subscription is never itself deleted, so this count is a superset of
+    // "has any Registration row" for as long as that holds). See
+    // docs/plans/registration-ledger-plan.md D7.
     const subscriptionCount = await Subscription.countDocuments({ studentId: id });
 
     if (subscriptionCount > 0) {

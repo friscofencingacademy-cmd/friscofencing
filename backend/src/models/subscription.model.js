@@ -8,10 +8,13 @@ const SUBSCRIPTION_STATUSES = ['active', 'cancelled'];
 // docs/decisions/001-in-house-subscription-billing.md) — Stripe is only used
 // to charge a saved card, never its native Subscriptions object.
 //
-// Deliberately NOT unique on (studentId, scheduleId): a student can
-// legitimately re-register for the same schedule after a past cancellation,
-// which needs a second doc. "No currently active enrollment" is enforced in
-// registration.service.js, not the schema.
+// NOT unique on plain (studentId, scheduleId): a student can legitimately
+// re-register for the same schedule after a past cancellation, which needs a
+// second doc. What IS enforced at the DB level (Guard A, below) is that at
+// most one of those docs is ever ACTIVE at a time — the partial index scopes
+// out cancelled docs entirely, so this comment's original intent still
+// holds; only the previously-TOCTOU-racy "no currently active enrollment"
+// check in registration.service.js gained a real backstop.
 const subscriptionSchema = new Schema(
   {
     studentId: {
@@ -98,9 +101,43 @@ const subscriptionSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // Retry/dunning state (docs/plans/registration-ledger-plan.md D6) — 0
+    // means "not currently in retry," matching phase 1 (runRenewals)'s
+    // candidate filter. Bumped by renewal.service.js's retryOne on each
+    // failed retry attempt; reset to 0 (with nextRetryAt cleared) on any
+    // successful charge, whether that charge came from the normal renewal
+    // path or from a retry.
+    retryCount: {
+      type: Number,
+      default: 0,
+    },
+    // When the next retry attempt is due. null while retryCount is 0. Uses
+    // $unset (never a plain `undefined` write, which Mongoose silently
+    // strips) when clearing this field — see renewal.service.js's
+    // cancel-after-exhaustion handling for why that distinction is
+    // load-bearing.
+    nextRetryAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
+  }
+);
+
+// Guard A — closes the concurrent-registration race
+// (docs/plans/registration-ledger-plan.md D2). At most one ACTIVE
+// subscription per student+schedule, enforced by MongoDB itself, not just
+// the check-then-create in registration.service.js's create() (a real TOCTOU
+// race under two near-simultaneous requests). Cancelled docs are excluded on
+// purpose — re-registration after a past cancellation still needs a second
+// doc, per this schema's own comment above.
+subscriptionSchema.index(
+  { studentId: 1, scheduleId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'active' },
   }
 );
 

@@ -245,32 +245,71 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw paymentFailedError('Payment failed');
   }
 
-  const registration = await Registration.create({
-    studentId,
-    scheduleId,
-    status: 'active',
-  });
-
   // A prorated first period ends at the end of THIS calendar month (short,
   // matching the smaller charge); otherwise the existing rolling one-month
   // period, byte-identical to pre-proration behavior. Both anchor off
   // anchorDate (the parent's chosen start date), not the moment they paid.
   const currentPeriodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(anchorDate);
 
-  const subscription = await Subscription.create({
+  // Subscription created BEFORE the Registration ledger row (reverse of this
+  // function's pre-ledger order) so Guard A's unique index — the DB-level
+  // backstop behind the existingSubscription pre-check above — is the very
+  // next write after a real, already-succeeded Stripe charge. See the catch
+  // below for what happens when this write loses that race.
+  let subscription;
+
+  try {
+    subscription = await Subscription.create({
+      studentId,
+      scheduleId,
+      parentId: requestingUser._id,
+      status: 'active',
+      cancelAtPeriodEnd: false,
+      currentPeriodStart: anchorDate,
+      currentPeriodEnd,
+      nextBillingDate: currentPeriodEnd,
+      lastChargeAmount: chargeAmount,
+      lastSiblingDiscountApplied: siblingDiscountApplied,
+      isPremium: isPremiumRegistrationEnabled(),
+      registrationFeeCharged,
+      firstChargeProrated: prorationInfo?.prorated ?? false,
+    });
+  } catch (error) {
+    // Guard A's partial unique index (subscription.model.js) caught a race
+    // the pre-check above couldn't: two near-simultaneous requests for the
+    // same student+schedule. The parent's card was already charged ONCE —
+    // the Stripe idempotency key on the PaymentIntent above means a racing
+    // duplicate request shares that same charge, it never charges twice —
+    // but this request loses the race to create the Subscription doc. No
+    // Registration ledger row is written for the loser; the winning request
+    // already wrote the one true ledger row for this charge.
+    if (error.code === 11000) {
+      throw conflictError('This student is already registered for this schedule');
+    }
+
+    throw error;
+  }
+
+  const registration = await Registration.create({
+    subscriptionId: subscription._id,
     studentId,
     scheduleId,
     parentId: requestingUser._id,
-    status: 'active',
-    cancelAtPeriodEnd: false,
-    currentPeriodStart: anchorDate,
-    currentPeriodEnd,
-    nextBillingDate: currentPeriodEnd,
-    lastChargeAmount: chargeAmount,
-    lastSiblingDiscountApplied: siblingDiscountApplied,
-    isPremium: isPremiumRegistrationEnabled(),
-    registrationFeeCharged,
-    firstChargeProrated: prorationInfo?.prorated ?? false,
+    eventType: 'initial',
+    status: 'completed',
+    amount: totalChargeAmount,
+    breakdown: {
+      monthlyFee: price.monthlyFee,
+      prorated: prorationInfo?.prorated ?? false,
+      proratedAmount: prorationInfo?.prorated ? prorationInfo.proratedAmount : null,
+      siblingDiscountApplied,
+      siblingDiscountAmount,
+      registrationFeeCharged,
+    },
+    periodStart: anchorDate,
+    periodEnd: currentPeriodEnd,
+    stripePaymentIntentId: paymentIntent.id,
+    paidAt: new Date(),
   });
 
   await addStudentToRoster(schedule, studentId, todayAtMidnight());

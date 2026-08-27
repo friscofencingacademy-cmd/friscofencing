@@ -19,6 +19,16 @@ function todayAtMidnight() {
   return result;
 }
 
+// One calendar day later — the retry/dunning schedule's step size
+// (docs/plans/registration-ledger-plan.md D6: Day 0 -> 1 -> 2 -> 3). Plain
+// Date math, same idiom as this file's other helpers; this repo has no
+// moment/moment-timezone dependency, unlike CKQ.
+function addOneDay(date) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + 1);
+  return result;
+}
+
 // Same rollover semantics as addOneMonth, generalized to N months — used by
 // registrationFee.service.js's returning-student grace-period deadline.
 function addMonths(date, months) {
@@ -41,4 +51,4 @@ function endOfMonth(date) {
   return result;
 }
 
-module.exports = { addOneMonth, addMonths, daysInMonth, endOfMonth, todayAtMidnight };
+module.exports = { addOneMonth, addOneDay, addMonths, daysInMonth, endOfMonth, todayAtMidnight };

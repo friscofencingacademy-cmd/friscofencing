@@ -362,6 +362,18 @@ describe('Subscription routes', () => {
         lastName: 'List',
         parentId: parent._id,
       });
+      // A second, sibling student — two ACTIVE subscriptions on the SAME
+      // schedule can no longer belong to the SAME student (Guard A,
+      // subscription.model.js's partial unique index on {studentId,
+      // scheduleId, status:'active'} — docs/plans/registration-ledger-plan.md
+      // D2), so this fixture uses two students the way it would actually
+      // happen in production, rather than colliding on one.
+      const sibling = await User.create({
+        role: 'student',
+        firstName: 'Kid',
+        lastName: 'ListSibling',
+        parentId: parent._id,
+      });
 
       await Subscription.create({
         studentId: student._id,
@@ -374,7 +386,7 @@ describe('Subscription routes', () => {
         nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
       });
       await Subscription.create({
-        studentId: student._id,
+        studentId: sibling._id,
         scheduleId: schedule._id,
         parentId: parent._id,
         status: 'active',

@@ -218,11 +218,12 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
     const now = new Date();
     const currentPeriodEnd = addOneMonth(now);
 
-    const existingRegistration = await Registration.findOne({ studentId, scheduleId: primaryEntry.doc._id });
-    if (!existingRegistration) {
-      await Registration.create({ studentId, scheduleId: primaryEntry.doc._id, status: 'active' });
-    }
-
+    // Subscription created BEFORE the Registration ledger row — a ledger row
+    // requires a real subscriptionId (docs/plans/registration-ledger-plan.md
+    // D1), so this is the same ordering registration.service.js's create()
+    // uses for a live registration, just without a Stripe charge (see this
+    // function's own module comment for why: historical backfill, not a new
+    // self-service registration).
     subscription = await Subscription.create({
       studentId,
       scheduleId: primaryEntry.doc._id,
@@ -235,6 +236,37 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
       lastChargeAmount: amount,
       lastSiblingDiscountApplied: siblingDiscountApplied,
     });
+
+    // Idempotency check kept from before the ledger rework — guards a re-run
+    // after a process crash landed the Subscription create above but never
+    // reached this write (subscriptionId-scoped, not the pre-ledger
+    // studentId+scheduleId scoping, since a schedule can now have more than
+    // one historical subscriptionId over time).
+    const existingRegistration = await Registration.findOne({ subscriptionId: subscription._id });
+    if (!existingRegistration) {
+      // status: 'completed' — this represents a REAL historical charge that
+      // already happened in the legacy system being imported, not a fresh
+      // Stripe PaymentIntent (there is none; see this function's own module
+      // comment). paidAt is deliberately left null: unlike a live charge,
+      // the true historical charge date isn't known here, only that it
+      // happened before this import ran.
+      await Registration.create({
+        subscriptionId: subscription._id,
+        studentId,
+        scheduleId: primaryEntry.doc._id,
+        parentId,
+        eventType: 'initial',
+        status: 'completed',
+        amount,
+        breakdown: {
+          monthlyFee: resources.price.monthlyFee,
+          siblingDiscountApplied,
+          siblingDiscountAmount: siblingDiscountApplied ? resources.price.monthlyFee - amount : 0,
+        },
+        periodStart: now,
+        periodEnd: currentPeriodEnd,
+      });
+    }
   }
 
   const today = todayAtMidnight();

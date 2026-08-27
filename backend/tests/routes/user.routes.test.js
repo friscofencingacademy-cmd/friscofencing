@@ -326,17 +326,34 @@ describe('User routes', () => {
       expect(res.status).toBe(409);
     });
 
-    it('returns 409 when deleting a student referenced by a Registration', async () => {
+    // Registration is a payment ledger now, not an enrollment record
+    // (docs/plans/registration-ledger-plan.md D7) — deletion is guarded by
+    // Subscription alone (see the next test). A student referenced only by
+    // an orphaned ledger row, with no Subscription at all, is no longer
+    // blocked — service-level coverage of this exact case (with an
+    // assertion on the ledger row shape) lives in user.service.test.js.
+    it('does NOT return 409 when deleting a student whose only reference is a Registration ledger row with no Subscription', async () => {
       const Registration = require('../../src/models/registration.model');
       await seedUser({ email: 'admin16@example.com' });
       const parent = await seedUser({ role: 'parent', email: 'parent16@example.com' });
       const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
-      await Registration.create({ studentId: student._id, scheduleId: new mongoose.Types.ObjectId() });
+      await Registration.create({
+        subscriptionId: new mongoose.Types.ObjectId(),
+        studentId: student._id,
+        scheduleId: new mongoose.Types.ObjectId(),
+        parentId: parent._id,
+        eventType: 'initial',
+        status: 'completed',
+        amount: 150,
+        breakdown: { monthlyFee: 150 },
+        periodStart: new Date('2026-01-01T00:00:00.000Z'),
+        periodEnd: new Date('2026-02-01T00:00:00.000Z'),
+      });
       const agent = await loginAgent('admin16@example.com');
 
       const res = await agent.delete(`/api/v1/users/${student._id}`);
 
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(200);
     });
 
     it('returns 409 when deleting a student referenced by a Subscription', async () => {
