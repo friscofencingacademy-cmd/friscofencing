@@ -1,9 +1,23 @@
+import type { ReactNode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
 import RegisterPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+
+// Same Stripe-mocking approach as payment-method/__tests__/page.test.tsx —
+// CardElement renders into a cross-origin iframe jsdom can't simulate, so
+// the third-party SDK is stubbed directly. The real POST /payment-methods
+// call still goes through MSW as normal.
+const createPaymentMethodMock = jest.fn();
+
+jest.mock('@stripe/react-stripe-js', () => ({
+  Elements: ({ children }: { children: ReactNode }) => <>{children}</>,
+  CardElement: () => <div data-testid="card-element" />,
+  useStripe: () => ({ createPaymentMethod: createPaymentMethodMock }),
+  useElements: () => ({ getElement: () => ({}) }),
+}));
 
 let mockSearchParams = new URLSearchParams();
 
@@ -25,8 +39,27 @@ const SCHEDULE_B = { _id: 'sched-2', classId: 'class-2', coachId: 'coach-1', day
 const PRICE_BEGINNER = { _id: 'price-1', levelId: LEVEL_BEGINNER._id, monthlyFee: 150 };
 
 const SAVED_PAYMENT_METHOD = { _id: 'pm-1', cardBrand: 'visa', cardLast4: '4242', cardExpMonth: 8, cardExpYear: 2030 };
+const STRIPE_PAYMENT_METHOD = { id: 'pm_stripe_test_123' };
 
-let postPayload: unknown = null;
+const DEFAULT_PREVIEW = {
+  monthlyFee: 150,
+  chargeAmount: 150,
+  totalChargeAmount: 150,
+  siblingDiscountApplied: false,
+  siblingDiscountAmount: 0,
+  siblingDiscountReason: null,
+  registrationFeeCharged: 0,
+  registrationFeeWaived: false,
+  registrationFeeReason: null,
+  prorated: false,
+  totalClassDays: null,
+  remainingClassDays: null,
+  dailyRate: null,
+  periodEnd: '2026-09-26T00:00:00.000Z',
+};
+
+let postRegistrationPayload: unknown = null;
+let postPaymentMethodPayload: unknown = null;
 
 const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
@@ -38,30 +71,9 @@ const server = setupServer(
   http.get('*/prices', () => HttpResponse.json({ prices: [PRICE_BEGINNER] })),
   http.get('*/levels', () => HttpResponse.json({ levels: [LEVEL_BEGINNER, LEVEL_ADVANCED] })),
   http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: SAVED_PAYMENT_METHOD })),
-  // Default: no discount. Every test gets a real MSW-mocked response for
-  // this — without a handler here, MSW's default onUnhandledRequest:'warn'
-  // would let the request fall through toward a real (failing) network
-  // call in every test that doesn't care about the preview at all.
-  http.get('*/registrations/preview', () =>
-    HttpResponse.json({
-      monthlyFee: 150,
-      chargeAmount: 150,
-      totalChargeAmount: 150,
-      siblingDiscountApplied: false,
-      siblingDiscountAmount: 0,
-      siblingDiscountReason: null,
-      registrationFeeCharged: 0,
-      registrationFeeWaived: false,
-      registrationFeeReason: null,
-      prorated: false,
-      totalClassDays: null,
-      remainingClassDays: null,
-      dailyRate: null,
-      periodEnd: '2026-09-26T00:00:00.000Z',
-    })
-  ),
+  http.get('*/registrations/preview', () => HttpResponse.json(DEFAULT_PREVIEW)),
   http.post('*/registrations', async ({ request }) => {
-    postPayload = await request.json();
+    postRegistrationPayload = await request.json();
     return HttpResponse.json(
       {
         registration: { _id: 'reg-1' },
@@ -80,14 +92,20 @@ const server = setupServer(
       },
       { status: 201 }
     );
+  }),
+  http.post('*/payment-methods', async ({ request }) => {
+    postPaymentMethodPayload = await request.json();
+    return HttpResponse.json({ paymentMethod: SAVED_PAYMENT_METHOD }, { status: 201 });
   })
 );
 
 beforeAll(() => server.listen());
 afterEach(() => {
   server.resetHandlers();
-  postPayload = null;
+  postRegistrationPayload = null;
+  postPaymentMethodPayload = null;
   mockSearchParams = new URLSearchParams();
+  createPaymentMethodMock.mockReset();
 });
 afterAll(() => server.close());
 
@@ -99,59 +117,85 @@ function renderRegisterPage() {
   );
 }
 
-async function goToReviewStep() {
+// Selecting a child auto-advances straight to the Level step (no separate
+// "Continue" click) — this alone replaces what used to be a two-step
+// Who -> click Continue -> Class dance.
+async function selectChildAndReachLevelStep() {
   fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-  fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+  await screen.findByRole('radiogroup', { name: /select a level/i });
+}
 
-  fireEvent.click(await screen.findByRole('radio', { name: /beginner/i }));
+async function goToPayableState() {
+  await selectChildAndReachLevelStep();
+  fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
   const timePill = await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i });
   fireEvent.click(timePill);
   await waitFor(() => expect(timePill).toHaveAttribute('aria-checked', 'true'));
-
-  fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 }
 
 describe('RegisterPage wizard', () => {
-  it('walks Who -> Level -> Review & Pay -> Done and submits { studentId, scheduleId }', async () => {
+  it('selecting a child auto-advances to the Level step — no explicit "Continue" click needed', async () => {
     renderRegisterPage();
 
-    await goToReviewStep();
+    // Before selecting anyone, the Level picker isn't rendered at all.
+    expect(screen.queryByRole('radiogroup', { name: /select a level/i })).not.toBeInTheDocument();
 
-    await screen.findByText(/card on file: visa ending in 4242/i);
+    await selectChildAndReachLevelStep();
+
+    // Landed on Level without ever clicking a "Continue" button.
+    expect(screen.queryByRole('button', { name: /^continue$/i })).not.toBeInTheDocument();
+  });
+
+  it('a ?child= deep link skips straight to the Level step too', async () => {
+    mockSearchParams = new URLSearchParams({ child: STUDENT._id });
+
+    renderRegisterPage();
+
+    expect(await screen.findByRole('radiogroup', { name: /select a level/i })).toBeInTheDocument();
+  });
+
+  it('no longer shows the old explanatory "you can attend any of its scheduled sessions" paragraph', async () => {
+    renderRegisterPage();
+    await goToPayableState();
+
+    expect(screen.queryByText(/you.re enrolling in the full/i)).not.toBeInTheDocument();
+  });
+
+  it('walks Who -> Level -> Done and submits { studentId, scheduleId }, with an existing card on file', async () => {
+    renderRegisterPage();
+    await goToPayableState();
+
+    expect(await screen.findByText(/card on file: visa ending in 4242/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
 
     await waitFor(() => {
-      expect(postPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+      expect(postRegistrationPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
     });
 
     expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
     expect(screen.getByText(/\$150\.00/)).toBeInTheDocument();
   });
 
-  it('shows the saved-payment-method guard on the Review step and disables the CTA when no card is on file', async () => {
-    server.use(http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })));
-
+  it('the Register & Pay CTA is disabled until a level and time are both chosen', async () => {
     renderRegisterPage();
-    await goToReviewStep();
-
-    expect(
-      await screen.findByText(/you'll need to add a payment method before registering/i)
-    ).toBeInTheDocument();
-
-    const link = screen.getByRole('link', { name: /here/i });
-    expect(link).toHaveAttribute('href', '/parent/payment-method');
+    await selectChildAndReachLevelStep();
 
     expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+    expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
+
+    const timePill = await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i });
+    fireEvent.click(timePill);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /register & pay/i })).not.toBeDisabled());
   });
 
-  it('back-navigation from Class to Who preserves the selected child', async () => {
+  it('back-navigation from Level to Who preserves the selected child', async () => {
     renderRegisterPage();
+    await selectChildAndReachLevelStep();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
-
-    await screen.findByRole('radiogroup', { name: /select a level/i });
     fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
 
     const childCard = await screen.findByRole('radio', { name: /kid one/i });
@@ -160,7 +204,7 @@ describe('RegisterPage wizard', () => {
 
   it('shows an inline error when the student is already registered for the schedule (409), without crashing', async () => {
     renderRegisterPage();
-    await goToReviewStep();
+    await goToPayableState();
     await screen.findByText(/card on file/i);
 
     server.use(
@@ -175,285 +219,315 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('This student is already registered for this schedule');
     });
 
-    // Still on the Review step.
+    // Still on the same (Level) step — no dead-end navigation.
     expect(screen.getByText(/card on file/i)).toBeInTheDocument();
   });
 
-  it('shows a live sibling-discount preview once a child and schedule are both selected', async () => {
-    server.use(
-      http.get('*/registrations/preview', () =>
-        HttpResponse.json({
-          monthlyFee: 150,
-          chargeAmount: 135,
-          totalChargeAmount: 135,
-          siblingDiscountApplied: true,
-          siblingDiscountAmount: 15,
-          siblingDiscountReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
-          registrationFeeCharged: 0,
-          registrationFeeWaived: false,
-          registrationFeeReason: null,
-        })
-      )
-    );
+  describe('adding a card inline at checkout', () => {
+    it('shows the inline card form (not a dead-end link elsewhere) when no card is on file, and unblocks Register & Pay once one is added', async () => {
+      server.use(http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })));
+      createPaymentMethodMock.mockResolvedValue({ paymentMethod: STRIPE_PAYMENT_METHOD });
 
-    renderRegisterPage();
+      renderRegisterPage();
+      await goToPayableState();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+      expect(await screen.findByTestId('card-element')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /beginner/i }));
-    fireEvent.click(await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i }));
+      fireEvent.click(screen.getByRole('button', { name: /add card/i }));
 
-    expect(await screen.findByText(/10% sibling discount applied — \$135\.00\/month/)).toBeInTheDocument();
-    expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
-    expect(screen.getByText('-$15.00')).toBeInTheDocument();
-    expect(screen.getByText("You'll Pay")).toBeInTheDocument();
-    expect(screen.getByText('$135.00')).toBeInTheDocument();
-  });
+      await waitFor(() => {
+        expect(postPaymentMethodPayload).toEqual({ stripePaymentMethodId: STRIPE_PAYMENT_METHOD.id });
+      });
 
-  it('shows no discount lines when the preview reports none', async () => {
-    renderRegisterPage();
-    await goToReviewStep();
+      // The card just added is now shown as "on file" — same underlying
+      // PaymentMethod record /parent/payment-method would show — and
+      // Register & Pay unblocks without leaving this page.
+      expect(await screen.findByText(/card on file: visa ending in 4242/i)).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('button', { name: /register & pay/i })).not.toBeDisabled());
 
-    expect(screen.queryByText('Sibling Discount')).not.toBeInTheDocument();
-    expect(screen.queryByText("You'll Pay")).not.toBeInTheDocument();
-  });
+      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
 
-  it('still registers successfully when the discount-preview endpoint fails — the preview is best-effort only', async () => {
-    server.use(http.get('*/registrations/preview', () => HttpResponse.json({ message: 'boom' }, { status: 500 })));
-
-    renderRegisterPage();
-    await goToReviewStep();
-    await screen.findByText(/card on file: visa ending in 4242/i);
-
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
-
-    await waitFor(() => {
-      expect(postPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+      await waitFor(() => {
+        expect(postRegistrationPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+      });
+      expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
     });
-    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+
+    it("shows an inline error when Stripe's createPaymentMethod fails, and Register & Pay stays disabled", async () => {
+      server.use(http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })));
+      createPaymentMethodMock.mockResolvedValue({ error: { message: 'Your card number is invalid.' } });
+
+      renderRegisterPage();
+      await goToPayableState();
+
+      fireEvent.click(screen.getByRole('button', { name: /add card/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('Your card number is invalid.');
+      });
+
+      expect(postPaymentMethodPayload).toBeNull();
+      expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
+    });
+
+    it('never shows the payment-method section before a time slot is chosen', async () => {
+      server.use(http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })));
+
+      renderRegisterPage();
+      await selectChildAndReachLevelStep();
+      fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+
+      expect(screen.queryByTestId('card-element')).not.toBeInTheDocument();
+    });
   });
 
-  it('shows the real applied sibling discount and the backend-supplied reason on the confirmation screen, from the actual charge response', async () => {
-    server.use(
-      http.post('*/registrations', async ({ request }) => {
-        postPayload = await request.json();
-        return HttpResponse.json(
-          {
-            registration: { _id: 'reg-1' },
-            subscription: { _id: 'sub-1' },
+  describe('sibling discount', () => {
+    it('shows a live sibling-discount preview once a level and time are both selected', async () => {
+      server.use(
+        http.get('*/registrations/preview', () =>
+          HttpResponse.json({
+            ...DEFAULT_PREVIEW,
             chargeAmount: 135,
             totalChargeAmount: 135,
-            paymentIntentStatus: 'succeeded',
             siblingDiscountApplied: true,
             siblingDiscountAmount: 15,
-            siblingDiscountReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
-            registrationFeeCharged: 0,
-            registrationFeeWaived: false,
-            registrationFeeReason: null,
-          },
-          { status: 201 }
-        );
-      })
-    );
+            siblingDiscountReason:
+              'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+          })
+        )
+      );
 
-    renderRegisterPage();
-    await goToReviewStep();
-    await screen.findByText(/card on file/i);
+      renderRegisterPage();
+      await goToPayableState();
 
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      expect(await screen.findByText(/10% sibling discount applied — \$135\.00\/month/)).toBeInTheDocument();
+      expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
+      expect(screen.getByText('-$15.00')).toBeInTheDocument();
+      expect(screen.getByText("You'll Pay")).toBeInTheDocument();
+      expect(screen.getByText('$135.00')).toBeInTheDocument();
+    });
 
-    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
-    expect(screen.getByText(/\$135\.00/)).toBeInTheDocument();
-    expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
-    expect(screen.getByText('-$15.00')).toBeInTheDocument();
-    expect(
-      screen.getByText('This is the lower-priced plan among your active children, so the 10% sibling discount applies here.')
-    ).toBeInTheDocument();
-  });
+    it('shows no discount lines when the preview reports none', async () => {
+      renderRegisterPage();
+      await goToPayableState();
 
-  it('itemizes a configured registration fee separately from the monthly fee, in the Review step summary', async () => {
-    server.use(
-      http.get('*/registrations/preview', () =>
-        HttpResponse.json({
-          monthlyFee: 150,
-          chargeAmount: 150,
-          totalChargeAmount: 175,
-          siblingDiscountApplied: false,
-          siblingDiscountAmount: 0,
-          siblingDiscountReason: null,
-          registrationFeeCharged: 25,
-          registrationFeeWaived: false,
-          registrationFeeReason: null,
+      expect(screen.queryByText('Sibling Discount')).not.toBeInTheDocument();
+      expect(screen.queryByText("You'll Pay")).not.toBeInTheDocument();
+    });
+
+    it('still registers successfully when the discount-preview endpoint fails — the preview is best-effort only', async () => {
+      server.use(http.get('*/registrations/preview', () => HttpResponse.json({ message: 'boom' }, { status: 500 })));
+
+      renderRegisterPage();
+      await goToPayableState();
+      await screen.findByText(/card on file: visa ending in 4242/i);
+
+      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+      await waitFor(() => {
+        expect(postRegistrationPayload).toEqual({ studentId: STUDENT._id, scheduleId: SCHEDULE_A._id });
+      });
+      expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+    });
+
+    it('shows the real applied sibling discount and the backend-supplied reason on the confirmation screen', async () => {
+      server.use(
+        http.post('*/registrations', async ({ request }) => {
+          postRegistrationPayload = await request.json();
+          return HttpResponse.json(
+            {
+              registration: { _id: 'reg-1' },
+              subscription: { _id: 'sub-1' },
+              chargeAmount: 135,
+              totalChargeAmount: 135,
+              paymentIntentStatus: 'succeeded',
+              siblingDiscountApplied: true,
+              siblingDiscountAmount: 15,
+              siblingDiscountReason:
+                'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+            },
+            { status: 201 }
+          );
         })
-      )
-    );
+      );
 
-    renderRegisterPage();
-    await goToReviewStep();
+      renderRegisterPage();
+      await goToPayableState();
+      await screen.findByText(/card on file/i);
 
-    expect(screen.getByText('Registration Fee (one-time)')).toBeInTheDocument();
-    expect(screen.getByText('$25.00')).toBeInTheDocument();
-    expect(screen.getByText('Due Today')).toBeInTheDocument();
-    expect(screen.getByText('$175.00')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+      expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+      expect(screen.getByText(/\$135\.00/)).toBeInTheDocument();
+      expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
+      expect(screen.getByText('-$15.00')).toBeInTheDocument();
+      expect(
+        screen.getByText('This is the lower-priced plan among your active children, so the 10% sibling discount applies here.')
+      ).toBeInTheDocument();
+    });
   });
 
-  it('shows the registration fee on the confirmation screen and charges the true total including it', async () => {
-    server.use(
-      http.post('*/registrations', async ({ request }) => {
-        postPayload = await request.json();
-        return HttpResponse.json(
-          {
-            registration: { _id: 'reg-1' },
-            subscription: { _id: 'sub-1' },
-            chargeAmount: 150,
-            totalChargeAmount: 175,
-            paymentIntentStatus: 'succeeded',
-            registrationFeeCharged: 25,
-            registrationFeeWaived: false,
-            registrationFeeReason: null,
-          },
-          { status: 201 }
-        );
-      })
-    );
+  describe('registration fee', () => {
+    it('itemizes a configured registration fee separately from the monthly fee, in the Level step summary', async () => {
+      server.use(
+        http.get('*/registrations/preview', () =>
+          HttpResponse.json({ ...DEFAULT_PREVIEW, totalChargeAmount: 175, registrationFeeCharged: 25 })
+        )
+      );
 
-    renderRegisterPage();
-    await goToReviewStep();
-    await screen.findByText(/card on file/i);
+      renderRegisterPage();
+      await goToPayableState();
 
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      expect(await screen.findByText('Registration Fee (one-time)')).toBeInTheDocument();
+      expect(screen.getByText('$25.00')).toBeInTheDocument();
+      expect(screen.getByText('Due Today')).toBeInTheDocument();
+      expect(screen.getByText('$175.00')).toBeInTheDocument();
+    });
 
-    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
-    // The headline reflects the TRUE total charged (monthly + fee), not
-    // just the recurring monthly amount.
-    expect(screen.getByText(/your card was charged \$175\.00/i)).toBeInTheDocument();
-    expect(screen.getByText('Registration Fee (one-time)')).toBeInTheDocument();
-    expect(screen.getByText('$25.00')).toBeInTheDocument();
-  });
-
-  it('shows the registration fee as waived on the confirmation screen for a returning student, without an extra charge', async () => {
-    server.use(
-      http.post('*/registrations', async ({ request }) => {
-        postPayload = await request.json();
-        return HttpResponse.json(
-          {
-            registration: { _id: 'reg-1' },
-            subscription: { _id: 'sub-1' },
-            chargeAmount: 150,
-            totalChargeAmount: 150,
-            paymentIntentStatus: 'succeeded',
-            registrationFeeCharged: 0,
-            registrationFeeWaived: true,
-            registrationFeeReason: 'Registration fee waived — returning within 6 months of your last enrollment.',
-          },
-          { status: 201 }
-        );
-      })
-    );
-
-    renderRegisterPage();
-    await goToReviewStep();
-    await screen.findByText(/card on file/i);
-
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
-
-    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
-    expect(screen.getByText(/your card was charged \$150\.00/i)).toBeInTheDocument();
-    expect(screen.getByText('Registration Fee')).toBeInTheDocument();
-    expect(screen.getByText('Waived')).toBeInTheDocument();
-  });
-
-  it('shows the prorated class-day breakdown while choosing a level/time, and itemizes it in the Review step summary', async () => {
-    server.use(
-      http.get('*/registrations/preview', () =>
-        HttpResponse.json({
-          monthlyFee: 300,
-          chargeAmount: 160,
-          totalChargeAmount: 160,
-          siblingDiscountApplied: false,
-          siblingDiscountAmount: 0,
-          siblingDiscountReason: null,
-          registrationFeeCharged: 0,
-          registrationFeeWaived: false,
-          registrationFeeReason: null,
-          prorated: true,
-          totalClassDays: 15,
-          remainingClassDays: 8,
-          dailyRate: 20,
-          periodEnd: '2026-08-31T23:59:59.999Z',
+    it('shows the registration fee and the true total charged on the confirmation screen', async () => {
+      server.use(
+        http.post('*/registrations', async ({ request }) => {
+          postRegistrationPayload = await request.json();
+          return HttpResponse.json(
+            {
+              registration: { _id: 'reg-1' },
+              subscription: { _id: 'sub-1' },
+              chargeAmount: 150,
+              totalChargeAmount: 175,
+              paymentIntentStatus: 'succeeded',
+              registrationFeeCharged: 25,
+              registrationFeeWaived: false,
+              registrationFeeReason: null,
+            },
+            { status: 201 }
+          );
         })
-      )
-    );
+      );
 
-    renderRegisterPage();
+      renderRegisterPage();
+      await goToPayableState();
+      await screen.findByText(/card on file/i);
 
-    fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
 
-    fireEvent.click(await screen.findByRole('radio', { name: /beginner/i }));
-    fireEvent.click(await screen.findByRole('radio', { name: /wednesday 4:00 pm-5:00 pm/i }));
+      expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+      expect(screen.getByText(/your card was charged \$175\.00/i)).toBeInTheDocument();
+      expect(screen.getByText('Registration Fee (one-time)')).toBeInTheDocument();
+      expect(screen.getByText('$25.00')).toBeInTheDocument();
+    });
 
-    // Step 1's inline breakdown — backend numbers verbatim, no frontend math.
-    expect(
-      await screen.findByText(/8 of 15 class days remain this month — \$20\.00\/day → \$160\.00 due today/)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/full price starts aug 31, 2026/i)).toBeInTheDocument();
+    it('shows the registration fee as waived on the confirmation screen for a returning student', async () => {
+      server.use(
+        http.post('*/registrations', async ({ request }) => {
+          postRegistrationPayload = await request.json();
+          return HttpResponse.json(
+            {
+              registration: { _id: 'reg-1' },
+              subscription: { _id: 'sub-1' },
+              chargeAmount: 150,
+              totalChargeAmount: 150,
+              paymentIntentStatus: 'succeeded',
+              registrationFeeCharged: 0,
+              registrationFeeWaived: true,
+              registrationFeeReason: 'Registration fee waived — returning within 6 months of your last enrollment.',
+            },
+            { status: 201 }
+          );
+        })
+      );
 
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+      renderRegisterPage();
+      await goToPayableState();
+      await screen.findByText(/card on file/i);
 
-    // Review step's itemized summary rail.
-    expect(screen.getByText('Prorated')).toBeInTheDocument();
-    expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
-    expect(screen.getByText('Due Today')).toBeInTheDocument();
-    expect(screen.getByText('$160.00')).toBeInTheDocument();
-    expect(screen.getByText('Full price starts')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+      expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+      expect(screen.getByText(/your card was charged \$150\.00/i)).toBeInTheDocument();
+      expect(screen.getByText('Registration Fee')).toBeInTheDocument();
+      expect(screen.getByText('Waived')).toBeInTheDocument();
+    });
   });
 
-  it('itemizes the prorated charge and the full-price start date on the confirmation screen', async () => {
-    server.use(
-      http.post('*/registrations', async ({ request }) => {
-        postPayload = await request.json();
-        return HttpResponse.json(
-          {
-            registration: { _id: 'reg-1' },
-            subscription: { _id: 'sub-1' },
+  describe('prorated first-month billing', () => {
+    it('shows the prorated class-day breakdown while choosing a time, and itemizes it in the Level step summary', async () => {
+      server.use(
+        http.get('*/registrations/preview', () =>
+          HttpResponse.json({
+            ...DEFAULT_PREVIEW,
+            monthlyFee: 300,
             chargeAmount: 160,
             totalChargeAmount: 160,
-            paymentIntentStatus: 'succeeded',
-            registrationFeeCharged: 0,
-            registrationFeeWaived: false,
-            registrationFeeReason: null,
             prorated: true,
             totalClassDays: 15,
             remainingClassDays: 8,
             dailyRate: 20,
             periodEnd: '2026-08-31T23:59:59.999Z',
-          },
-          { status: 201 }
-        );
-      })
-    );
+          })
+        )
+      );
 
-    renderRegisterPage();
-    await goToReviewStep();
-    await screen.findByText(/card on file/i);
+      renderRegisterPage();
+      await goToPayableState();
 
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      expect(
+        await screen.findByText(/8 of 15 class days remain this month — \$20\.00\/day → \$160\.00 due today/)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/full price starts aug 31, 2026/i)).toBeInTheDocument();
 
-    expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
-    expect(screen.getByText(/your card was charged \$160\.00/i)).toBeInTheDocument();
-    expect(screen.getByText('Prorated')).toBeInTheDocument();
-    expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
-    expect(screen.getByText('Full price starts')).toBeInTheDocument();
-    expect(screen.getByText('Aug 31, 2026')).toBeInTheDocument();
-  });
+      expect(screen.getByText('Prorated')).toBeInTheDocument();
+      expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
+      expect(screen.getByText('Due Today')).toBeInTheDocument();
+      expect(screen.getByText('$160.00')).toBeInTheDocument();
+      expect(screen.getByText('Full price starts')).toBeInTheDocument();
+    });
 
-  it('renders exactly as before (no proration UI at all) when prorated is false — the non-prorated path is unaffected', async () => {
-    renderRegisterPage();
-    await goToReviewStep();
+    it('itemizes the prorated charge and the full-price start date on the confirmation screen', async () => {
+      server.use(
+        http.post('*/registrations', async ({ request }) => {
+          postRegistrationPayload = await request.json();
+          return HttpResponse.json(
+            {
+              registration: { _id: 'reg-1' },
+              subscription: { _id: 'sub-1' },
+              chargeAmount: 160,
+              totalChargeAmount: 160,
+              paymentIntentStatus: 'succeeded',
+              registrationFeeCharged: 0,
+              registrationFeeWaived: false,
+              registrationFeeReason: null,
+              prorated: true,
+              totalClassDays: 15,
+              remainingClassDays: 8,
+              dailyRate: 20,
+              periodEnd: '2026-08-31T23:59:59.999Z',
+            },
+            { status: 201 }
+          );
+        })
+      );
 
-    expect(screen.queryByText('Prorated')).not.toBeInTheDocument();
-    expect(screen.queryByText('Due Today')).not.toBeInTheDocument();
+      renderRegisterPage();
+      await goToPayableState();
+      await screen.findByText(/card on file/i);
+
+      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+      expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
+      expect(screen.getByText(/your card was charged \$160\.00/i)).toBeInTheDocument();
+      expect(screen.getByText('Prorated')).toBeInTheDocument();
+      expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
+      expect(screen.getByText('Full price starts')).toBeInTheDocument();
+      expect(screen.getByText('Aug 31, 2026')).toBeInTheDocument();
+    });
+
+    it('renders exactly as before (no proration UI at all) when prorated is false — the non-prorated path is unaffected', async () => {
+      renderRegisterPage();
+      await goToPayableState();
+
+      expect(screen.queryByText('Prorated')).not.toBeInTheDocument();
+      expect(screen.queryByText('Due Today')).not.toBeInTheDocument();
+    });
   });
 });

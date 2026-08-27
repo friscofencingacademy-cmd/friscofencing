@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { Elements } from '@stripe/react-stripe-js';
 
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
@@ -14,6 +14,7 @@ import {
   fetchRegistrationPricePreview,
 } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
+import stripePromise from '../../../lib/stripe';
 import type {
   GroupClass,
   GroupClassSchedule,
@@ -25,6 +26,7 @@ import type {
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import PaymentMethodCardForm from '../../components/portal/PaymentMethodCardForm';
 import {
   ChildPickerCards,
   FlowConfirmation,
@@ -35,7 +37,7 @@ import {
   PillRow,
 } from '../../components/portal/flow';
 
-const STEPS = ['Who', 'Level', 'Review & Pay', 'Done'];
+const STEPS = ['Who', 'Level', 'Done'];
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 async function fetchRegisterOptions() {
@@ -106,11 +108,13 @@ export default function RegisterPage() {
   const [registered, setRegistered] = useState<RegisteredInfo | null>(null);
   const [pricePreview, setPricePreview] = useState<RegistrationPricePreview | null>(null);
 
-  // Deep-link preselect: /parent/register?child=<studentId>
+  // Deep-link preselect: /parent/register?child=<studentId> — skips
+  // straight to the Level step, same as picking a child normally does.
   useEffect(() => {
     const preselect = searchParams.get('child');
     if (preselect) {
       setStudentId(preselect);
+      setStep(1);
     }
   }, [searchParams]);
 
@@ -150,6 +154,13 @@ export default function RegisterPage() {
     : [];
   const filteredSchedules = schedules.filter((schedule) => classIdsForLevel.includes(schedule.classId));
 
+  // Selecting a child auto-advances straight to the Level step — no
+  // separate "Continue" click needed for a step that's just one choice.
+  const handleStudentSelect = useCallback((id: string) => {
+    setStudentId(id);
+    setStep(1);
+  }, []);
+
   const handleLevelChange = useCallback((value: string) => {
     setLevelId(value);
     setScheduleId('');
@@ -187,7 +198,7 @@ export default function RegisterPage() {
         dailyRate: result.data.dailyRate,
         periodEnd: result.data.periodEnd,
       });
-      setStep(3);
+      setStep(2);
       reload();
     } else {
       setStepError(result.message);
@@ -202,10 +213,10 @@ export default function RegisterPage() {
     );
   }
 
-  if (step === 3) {
+  if (step === 2) {
     return (
       <main>
-        <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]} title="Register" steps={STEPS} current={3} singleColumn>
+        <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]} title="Register" steps={STEPS} current={2} singleColumn>
           <FlowConfirmation
             title="Registration complete!"
             subtitle={`Your card was charged $${registered?.totalChargeAmount.toFixed(2)}.`}
@@ -288,8 +299,6 @@ export default function RegisterPage() {
       : []),
   ];
 
-  const noPaymentMethod = step === 2 && !paymentMethod;
-
   let cta: string;
   let ctaDisabled: boolean;
   let onCta: () => void;
@@ -298,13 +307,9 @@ export default function RegisterPage() {
     cta = 'Continue';
     ctaDisabled = !studentId;
     onCta = () => setStep(1);
-  } else if (step === 1) {
-    cta = 'Continue';
-    ctaDisabled = !scheduleId || !selectedPrice;
-    onCta = () => setStep(2);
   } else {
     cta = 'Register & Pay';
-    ctaDisabled = noPaymentMethod;
+    ctaDisabled = !scheduleId || !selectedPrice || !paymentMethod;
     onCta = handleSubmit;
   }
 
@@ -333,9 +338,9 @@ export default function RegisterPage() {
           <p>Loading...</p>
         ) : step === 0 ? (
           <FlowSection title="Who is registering?">
-            <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
+            <ChildPickerCards students={students} selectedId={studentId} onSelect={handleStudentSelect} />
           </FlowSection>
-        ) : step === 1 ? (
+        ) : (
           <>
             <FlowSection title="Choose your level">
               <LevelPickerCards levels={levels} prices={prices} selectedId={levelId} onSelect={handleLevelChange} />
@@ -343,10 +348,6 @@ export default function RegisterPage() {
 
             {levelId ? (
               <FlowSection title="Choose your preferred time">
-                <p>
-                  You&apos;re enrolling in the full {levelName(levels, levelId)} program — you can attend any of
-                  its scheduled sessions. Pick one below as your usual time.
-                </p>
                 {filteredSchedules.length === 0 ? (
                   <Alert variant="error">No time slots are available for this level yet.</Alert>
                 ) : (
@@ -374,26 +375,22 @@ export default function RegisterPage() {
               </FlowSection>
             ) : null}
 
-            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
-              Back
-            </Button>
-          </>
-        ) : (
-          <>
-            <FlowSection title="Review">
-              {noPaymentMethod ? (
-                <Alert variant="error">
-                  You&apos;ll need to add a payment method before registering — do that{' '}
-                  <Link href="/parent/payment-method">here</Link>.
-                </Alert>
-              ) : (
-                <p>
-                  Card on file: {paymentMethod?.cardBrand} ending in {paymentMethod?.cardLast4}
-                </p>
-              )}
-            </FlowSection>
+            {scheduleId ? (
+              <FlowSection title="Payment method">
+                {paymentMethod ? (
+                  <p>
+                    Card on file: {paymentMethod.cardBrand} ending in {paymentMethod.cardLast4} — this card will
+                    be charged.
+                  </p>
+                ) : (
+                  <Elements stripe={stripePromise}>
+                    <PaymentMethodCardForm onSaved={setPaymentMethod} submitLabel="Add Card" />
+                  </Elements>
+                )}
+              </FlowSection>
+            ) : null}
 
-            <Button type="button" variant="secondary" onClick={() => setStep(1)}>
+            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
               Back
             </Button>
           </>
