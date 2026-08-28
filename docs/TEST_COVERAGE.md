@@ -6,15 +6,14 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 87.91% | 89.62% |
-| Branches | — (informational) | 68.78% | 79.48% |
-| Functions | — (informational) | 89.42% | 89.03% |
-| Lines | — (informational) | 87.98% | 90.87% |
+| Statements | 80% | 88.06% | 89.62% |
+| Branches | — (informational) | 68.99% | 79.48% |
+| Functions | — (informational) | 89.52% | 89.03% |
+| Lines | — (informational) | 88.14% | 90.87% |
 
 Backend re-measured 2026-08-28 via `TZ=UTC npm test -- --coverage` (`docs/plans/registration-
-ledger-plan.md` PR 2 — renewal create-pending-first sequencing + stale-pending recovery — backend-
-only). Frontend figure carried forward from 2026-08-23 (untouched since). Both clear the
-80%-statements target.
+ledger-plan.md` PR 3 — retry/dunning + cancel-after-exhaustion — backend-only). Frontend figure
+carried forward from 2026-08-23 (untouched since). Both clear the 80%-statements target.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331

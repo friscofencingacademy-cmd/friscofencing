@@ -24,7 +24,7 @@ const stripe = require('../../src/config/stripe');
 const paymentMethodService = require('../../src/services/paymentMethod.service');
 const { generateInitialSessions } = require('../../src/services/groupClassSession.service');
 const { addStudentToRoster } = require('../../src/services/roster.service');
-const { renewOne, runRenewals } = require('../../src/services/renewal.service');
+const { renewOne, runRenewals, retryOne, runRetries } = require('../../src/services/renewal.service');
 const { addOneMonth, addOneDay, todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const mailService = require('../../src/services/mail.service');
@@ -871,6 +871,435 @@ describe('runRenewals', () => {
       const noPmInDb = await Subscription.findById(noPmSub._id);
       expect(noPmInDb.status).toBe('active');
       expect(noPmInDb.lastChargeAmount).toBeNull();
+    },
+    40000
+  );
+});
+
+// Seeds a subscription already one (or more) failed attempts into dunning:
+// retryCount/nextRetryAt set, plus the failed ledger row retryOne looks
+// up. `lockedAmount` is what the row's `amount` (and therefore every
+// retry charge) is locked to — deliberately independent of the level's
+// LIVE Price, so tests can change the Price afterward and prove the
+// retry still charges the original, locked amount (D6 step 4).
+async function seedFailedRetrySubscription({
+  schedule,
+  groupClassesService,
+  studentId,
+  parentId,
+  currentPeriodStart,
+  currentPeriodEnd,
+  retryCount = 1,
+  lockedAmount = MONTHLY_FEE,
+}) {
+  const subscription = await buildActiveSubscription({
+    studentId,
+    scheduleId: schedule._id,
+    parentId,
+    currentPeriodStart,
+    currentPeriodEnd,
+    nextBillingDate: currentPeriodEnd,
+  });
+
+  await Subscription.findByIdAndUpdate(subscription._id, {
+    retryCount,
+    nextRetryAt: new Date('2020-01-02T00:00:00.000Z'), // always in the past
+  });
+
+  const failedRow = await SubscriptionCycleRegistration.create({
+    serviceId: groupClassesService._id,
+    subscriptionId: subscription._id,
+    scheduleId: schedule._id,
+    studentId,
+    parentId,
+    eventType: 'renewal',
+    status: 'failed',
+    amount: lockedAmount,
+    breakdown: { monthlyFee: lockedAmount, registrationFeeCharged: 0 },
+    periodStart: currentPeriodEnd,
+    periodEnd: addOneMonth(currentPeriodEnd),
+    failureMessage: 'a prior attempt failed',
+    attempt: retryCount,
+  });
+
+  return { subscription: await Subscription.findById(subscription._id), failedRow };
+}
+
+describe('retryOne', () => {
+  it(
+    'locked amount: retries at the ORIGINAL failed row amount, not a live-recalculated one, even after the Price changes',
+    async () => {
+      const { level, schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'RetryLocked',
+        order: 12,
+      });
+      const { parent, student } = await seedParentAndStudent('retry-locked-amount@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      const { subscription } = await seedFailedRetrySubscription({
+        schedule,
+        groupClassesService,
+        studentId: student._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        retryCount: 1,
+        lockedAmount: MONTHLY_FEE,
+      });
+
+      // The level's live price changes AFTER the failure, BEFORE the retry.
+      await Price.findOneAndUpdate({ levelId: level._id }, { monthlyFee: MONTHLY_FEE + 50 });
+
+      const result = await retryOne(subscription._id);
+
+      expect(result.outcome).toBe('charged');
+      expect(result.chargeAmount).toBe(MONTHLY_FEE); // NOT MONTHLY_FEE + 50
+
+      const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+      const intent = paymentIntents.data.find((i) => i.amount === Math.round(MONTHLY_FEE * 100));
+      expect(intent).toBeDefined();
+    },
+    30000
+  );
+
+  it(
+    'retry success: flips the SAME row completed with attempt: 2, rolls the period from the row\'s own dates, resets retry state',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'RetrySuccess',
+        order: 13,
+      });
+      const { parent, student } = await seedParentAndStudent('retry-success@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+      const expectedNewPeriodEnd = addOneMonth(currentPeriodEnd);
+
+      const { subscription, failedRow } = await seedFailedRetrySubscription({
+        schedule,
+        groupClassesService,
+        studentId: student._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        retryCount: 1,
+      });
+
+      const result = await retryOne(subscription._id);
+
+      expect(result.outcome).toBe('charged');
+
+      const updatedRow = await SubscriptionCycleRegistration.findById(failedRow._id);
+      expect(updatedRow.status).toBe('completed');
+      expect(updatedRow.attempt).toBe(2);
+      expect(updatedRow.stripePaymentIntentId).toBeTruthy();
+
+      // Still exactly one row — retry flips the SAME row, never creates a
+      // second one.
+      const rows = await SubscriptionCycleRegistration.find({ subscriptionId: subscription._id });
+      expect(rows).toHaveLength(1);
+
+      const after = await Subscription.findById(subscription._id);
+      expect(after.currentPeriodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
+      expect(after.currentPeriodEnd.toISOString()).toBe(expectedNewPeriodEnd.toISOString());
+      expect(after.retryCount).toBe(0);
+      expect(after.nextRetryAt).toBeNull();
+
+      expect(mailService.sendRenewalReceiptEmail).toHaveBeenCalled();
+    },
+    30000
+  );
+
+  it(
+    'retry failure: increments retryCount/attempt, re-bumps nextRetryAt, sends the Day-N email with the correct attempt number',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'RetryFailure',
+        order: 14,
+      });
+      const { parent, student } = await seedParentAndStudent('retry-failure@example.com');
+      await savePaymentMethodForParent(parent);
+      await PaymentMethod.findOneAndUpdate(
+        { parentId: parent._id },
+        { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+      );
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      const { subscription, failedRow } = await seedFailedRetrySubscription({
+        schedule,
+        groupClassesService,
+        studentId: student._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        retryCount: 1,
+      });
+
+      const result = await retryOne(subscription._id);
+
+      expect(result.outcome).toBe('failed_payment');
+
+      const updatedRow = await SubscriptionCycleRegistration.findById(failedRow._id);
+      expect(updatedRow.status).toBe('failed');
+      expect(updatedRow.attempt).toBe(2);
+
+      const after = await Subscription.findById(subscription._id);
+      expect(after.status).toBe('active'); // not yet exhausted (2 < 3)
+      expect(after.retryCount).toBe(2);
+      expect(after.nextRetryAt).not.toBeNull();
+      const expectedNextRetryAt = addOneDay(todayAtMidnight());
+      expect(after.nextRetryAt.toISOString()).toBe(expectedNextRetryAt.toISOString());
+
+      expect(mailService.sendPaymentFailureEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ attemptNumber: 2, isFinal: false })
+      );
+    },
+    30000
+  );
+
+  it(
+    'exhaustion: cancels the subscription, unsets nextRetryAt (not null — the zombie regression), removes the roster, sends the FINAL email exactly once',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'Exhaustion',
+        order: 15,
+      });
+      const { parent, student } = await seedParentAndStudent('retry-exhaustion@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      const { subscription } = await seedFailedRetrySubscription({
+        schedule,
+        groupClassesService,
+        studentId: student._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        retryCount: 3, // == MAX_PAYMENT_RETRIES
+      });
+
+      // Roster the student, same as the cancelled_finalized test — proves
+      // exhaustion removes the roster exactly like the other cancellation
+      // path does.
+      const sessions = generateInitialSessions(schedule);
+      await GroupClassSession.insertMany(sessions);
+      await addStudentToRoster(schedule, student._id, todayAtMidnight());
+
+      // Mock call counts accumulate across this whole test file (no
+      // clearAllMocks between tests) — measure the DELTA this test's own
+      // calls produce, not an absolute count.
+      const callsBefore = mailService.sendPaymentFailureEmail.mock.calls.length;
+
+      const result = await retryOne(subscription._id);
+
+      expect(result.outcome).toBe('cancelled_exhausted');
+
+      const after = await Subscription.findById(subscription._id);
+      expect(after.status).toBe('cancelled');
+      expect(after.retryCount).toBe(3);
+
+      // The zombie-loop regression: nextRetryAt must be genuinely ABSENT
+      // from the raw document ($unset), not merely null — a plain
+      // `{ nextRetryAt: null }`/`undefined` write would leave the OLD
+      // (still-in-the-past) date in place, since Mongoose silently strips
+      // an `undefined` value from an update.
+      const rawDoc = await Subscription.collection.findOne({ _id: subscription._id });
+      expect(Object.prototype.hasOwnProperty.call(rawDoc, 'nextRetryAt')).toBe(false);
+
+      const updatedSchedule = await GroupClassSchedule.findById(schedule._id);
+      expect(
+        updatedSchedule.students.some((id) => String(id) === String(student._id))
+      ).toBe(false);
+
+      expect(mailService.sendPaymentFailureEmail.mock.calls.length - callsBefore).toBe(1);
+      expect(mailService.sendPaymentFailureEmail).toHaveBeenLastCalledWith(
+        expect.objectContaining({ isFinal: true })
+      );
+
+      // Idempotent repeat call: no second cancellation, no second email —
+      // the `if (cancelled)` guard.
+      const secondResult = await retryOne(subscription._id);
+      expect(secondResult.outcome).toBe('skipped_inactive');
+      expect(mailService.sendPaymentFailureEmail.mock.calls.length - callsBefore).toBe(1);
+
+      // A cancelled subscription can never match runRetries' own candidate
+      // query again — status: 'active' alone already excludes it.
+      const retryCandidates = await Subscription.find({
+        status: 'active',
+        retryCount: { $gt: 0, $lte: 3 },
+        nextRetryAt: { $lte: todayAtMidnight() },
+      });
+      expect(retryCandidates.some((c) => String(c._id) === String(subscription._id))).toBe(false);
+    },
+    30000
+  );
+
+  it(
+    'cancel-then-retry race (line-45 mandate, new path): a subscription cancelled between listing and retryOne\'s fresh fetch is never charged',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'RetryRace',
+        order: 16,
+      });
+      const { parent, student } = await seedParentAndStudent('retry-race@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      const { subscription } = await seedFailedRetrySubscription({
+        schedule,
+        groupClassesService,
+        studentId: student._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        retryCount: 1,
+      });
+
+      // Simulate "something else cancelled it already" — flip status
+      // directly, bypassing subscription.service.js entirely, before
+      // retryOne ever looks at this id. A real payment method DOES exist,
+      // so if retryOne skipped its own fresh re-fetch, this would actually
+      // charge real Stripe test money.
+      await Subscription.findByIdAndUpdate(subscription._id, { status: 'cancelled' });
+
+      const paymentIntentsBefore = await stripe.paymentIntents.list({ limit: 10 });
+
+      const result = await retryOne(subscription._id);
+
+      expect(result).toEqual({ subscriptionId: subscription._id, outcome: 'skipped_inactive' });
+
+      const paymentIntentsAfter = await stripe.paymentIntents.list({ limit: 10 });
+      expect(paymentIntentsAfter.data.length).toBe(paymentIntentsBefore.data.length);
+    },
+    30000
+  );
+
+  it('returns skipped_no_failed_row and warns when retryCount > 0 but no failed ledger row exists', async () => {
+    const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+      name: 'NoFailedRow',
+      order: 17,
+    });
+    const { parent, student } = await seedParentAndStudent('retry-no-failed-row@example.com');
+
+    const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+    const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+    const subscription = await buildActiveSubscription({
+      studentId: student._id,
+      scheduleId: schedule._id,
+      parentId: parent._id,
+      currentPeriodStart,
+      currentPeriodEnd,
+      nextBillingDate: currentPeriodEnd,
+    });
+    // retryCount > 0 with no corresponding failed row at all — a
+    // data-integrity condition that should never happen via the real
+    // code paths, but retryOne must degrade safely rather than crash.
+    await Subscription.findByIdAndUpdate(subscription._id, {
+      retryCount: 1,
+      nextRetryAt: new Date('2020-01-02T00:00:00.000Z'),
+    });
+
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await retryOne(subscription._id);
+
+    expect(result).toEqual({ subscriptionId: subscription._id, outcome: 'skipped_no_failed_row' });
+    expect(consoleWarnSpy).toHaveBeenCalled();
+
+    consoleWarnSpy.mockRestore();
+  });
+});
+
+describe('two-phase: runRenewals then runRetries', () => {
+  it(
+    'an in-retry subscription is excluded from phase 1 and picked up by phase 2 in the same run',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'TwoPhase',
+        order: 18,
+      });
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const duePeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const duePeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      // A normal due subscription — phase 1 should charge it.
+      const { parent: dueParent, student: dueStudent } = await seedParentAndStudent(
+        'two-phase-due@example.com'
+      );
+      await savePaymentMethodForParent(dueParent);
+      const dueSub = await buildActiveSubscription({
+        studentId: dueStudent._id,
+        scheduleId: schedule._id,
+        parentId: dueParent._id,
+        currentPeriodStart: duePeriodStart,
+        currentPeriodEnd: duePeriodEnd,
+        nextBillingDate: duePeriodEnd,
+      });
+
+      // An in-retry subscription — phase 1 must skip it entirely (retryCount
+      // != 0), phase 2 must pick it up and retry it.
+      const { parent: retryParent, student: retryStudent } = await seedParentAndStudent(
+        'two-phase-retry@example.com'
+      );
+      await savePaymentMethodForParent(retryParent);
+      const { subscription: retrySub } = await seedFailedRetrySubscription({
+        schedule,
+        groupClassesService,
+        studentId: retryStudent._id,
+        parentId: retryParent._id,
+        currentPeriodStart: duePeriodStart,
+        currentPeriodEnd: duePeriodEnd,
+        retryCount: 1,
+      });
+
+      const renewalSummary = await runRenewals();
+
+      expect(renewalSummary.total).toBe(1); // only the due one — retrySub excluded
+      expect(renewalSummary.results[0].subscriptionId.toString()).toBe(dueSub._id.toString());
+      expect(renewalSummary.results[0].outcome).toBe('charged');
+
+      // retrySub is completely untouched by phase 1.
+      const retrySubAfterPhase1 = await Subscription.findById(retrySub._id);
+      expect(retrySubAfterPhase1.retryCount).toBe(1);
+      expect(retrySubAfterPhase1.lastChargeAmount).toBeNull();
+
+      const retrySummary = await runRetries();
+
+      expect(retrySummary.total).toBe(1); // only the in-retry one
+      expect(retrySummary.results[0].subscriptionId.toString()).toBe(retrySub._id.toString());
+      expect(retrySummary.results[0].outcome).toBe('charged');
+
+      const retrySubAfterPhase2 = await Subscription.findById(retrySub._id);
+      expect(retrySubAfterPhase2.retryCount).toBe(0);
+      expect(retrySubAfterPhase2.lastChargeAmount).toBe(MONTHLY_FEE);
     },
     40000
   );
