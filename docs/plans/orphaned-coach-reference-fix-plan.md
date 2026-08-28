@@ -1,8 +1,17 @@
 # Implementation plan: orphaned coach references crash multiple pages
 
 **Status:** Approved for implementation. Written 2026-08-27 after live-reproducing the reported
-`/private-classes` crash. **Builder: intended for a Sonnet implementation session.** See §7
-(Builder instructions) before touching any file.
+`/private-classes` crash; **AMENDED 2026-08-28 — read §8 (Amendment) after the base plan; it
+extends the scope to student/parent orphans, closes a student-delete-guard gap the base plan
+missed, adds `reset-customer-data.js` cleanup, and reconciles the plan with the unified-ledger
+restructure that shipped in between** (`docs/plans/service-registry-unified-ledger-plan.md` —
+`PrivateClassCharge` no longer exists; nothing in this plan referenced it, but §8 records the
+re-check). **Builder: intended for a Sonnet implementation session.** See §7 (Builder
+instructions) before touching any file, then §8.
+
+Execution sequencing relative to the other pending work: this plan is **Item 1** of
+`docs/plans/next-batch-execution-plan.md` — it fixes a live, currently-reproducing staging
+outage (re-confirmed 500 on 2026-08-28), so it ships before the renewal/retry PRs.
 
 ---
 
@@ -365,3 +374,121 @@ legitimately surfaced per D3.
   deviation from this spec with its reason, and the `find-orphaned-coach-references.js` report's
   output when run against staging (read-only — this is safe to run without asking, per D7) so the
   owner knows exactly what's still sitting in the database once the code fix ships.
+
+---
+
+## 8. Amendment (2026-08-28) — student/parent orphans, the student-delete-guard gap, reset-customer-data cleanup, and post-unified-ledger reconciliation
+
+Written after the base plan, before any implementation. Four extensions, each verified against
+current source (not assumed) on 2026-08-28. These are part of the executable spec — a builder
+implements the base plan AND this section as one PR.
+
+### 8a. The same orphan class exists for `studentId`/`parentId`, not just `coachId`
+
+The base plan's §1 audit covered `coachId` populates only. The same "populate a ref, then assume
+it's non-null" crash exists for student/parent refs on the private-class read paths:
+
+- `privateClassEnrollment.service.js`'s `populateEnrollment()` populates `studentId` and
+  `parentId` too; the admin Enrollments tab renders `enrollment.studentId.firstName` and
+  `enrollment.parentId.firstName`/`.email` unguarded (`app/admin/private-classes/page.tsx`
+  ~lines 230-236), and the parent billing page renders through the same response.
+- `privateClassSchedule.service.js`'s `listAll()` populates `studentId`; the admin Schedules
+  tab's occupied-slot cell handles a null-ish `studentId` by falling into the "Available" chip —
+  not a crash, but a display lie for an orphaned-but-occupied slot. Acceptable to leave: the D2
+  fallback-label treatment applies only where a crash exists; note it, don't redesign it here.
+
+**Fix:** extend D3's type-widening step to `PrivateClassEnrollmentRow.studentId` and
+`.parentId` (`| null` on each), then let `tsc --noEmit` surface every consumer, exactly as D3
+already prescribes for `coachId`. Same fallback string (`"Coach no longer available"` becomes
+the generic pattern — use `"No longer available"` for a student/parent name cell, keeping D2's
+one-consistent-string rule per role). Extend §4's admin-page tests with one
+enrollments-tab fixture where `studentId: null` and `parentId: null` render fallbacks without
+throwing.
+
+### 8b. The STUDENT delete guard has the same hole the coach guard has (verified 2026-08-28)
+
+`user.service.js`'s student branch counts `Subscription` and `TrialClass` — **not
+`PrivateClassEnrollment`**. A private-lessons-only student (real enrollment, real charge
+history, but no group Subscription and no trial) is deletable today, orphaning their enrollment,
+their sessions' denormalized `studentId`, and their `per_session` ledger rows' refs. This also
+transitively unblocks deleting their parent (the parent guard only counts children).
+
+**Fix:** add to the student branch, same count-then-`conflictError` shape as its existing
+checks:
+
+```js
+const privateEnrollmentCount = await PrivateClassEnrollment.countDocuments({ studentId: id });
+if (privateEnrollmentCount > 0) {
+  throw conflictError(`Cannot delete: ${privateEnrollmentCount} private class enrollment(s) reference this student.`);
+}
+```
+
+(Any status, including cancelled — history must keep its subject, same reasoning as the
+Subscription check.) New route test mirroring the existing guard tests: 409 with the exact
+count for a student referenced by a `PrivateClassEnrollment`.
+
+### 8c. `scripts/reset-customer-data.js` — the likely orphan VEHICLE — cleans up none of the private-class collections
+
+Its cleanup list (`Registration`, `Subscription`, `TrialClass`, `PaymentMethod`, roster pulls,
+`Visit`) predates private classes entirely. Extend both its dry-run report and its `--execute`
+path:
+
+- `PrivateClassEnrollment.deleteMany({ $or: [{ studentId: { $in: deleteIds } }, { parentId: { $in: deleteIds } }] })`
+- `PrivateClassSession.deleteMany({ $or: [{ studentId: { $in: deleteIds } }, { parentId: { $in: deleteIds } }, { coachId: { $in: deleteIds } }] })`
+- `PrivateClassSchedule`: for slots whose `studentId` is being deleted, free the slot
+  (`$set: { studentId: null, enrollmentId: null }`); for slots whose `coachId` is being deleted,
+  delete the slot document.
+- `CoachContract.deleteMany({ coachId: { $in: deleteIds } })`
+- `Evaluation.deleteMany({ $or: [{ studentId: { $in: deleteIds } }, { coachId: { $in: deleteIds } }] })`
+
+Note: per-session LEDGER rows need no new handling — post-unified-ledger they live in
+`registrations`, and the script's existing `Registration.deleteMany({ studentId: { $in:
+deleteIds } })` covers both shapes already. This script has no test file today (the pre-existing
+convention for bare `scripts/*.js` wrappers with no `lib/` module); keep the change minimal and
+report-symmetric rather than restructuring it into the lib+wrapper convention in this PR.
+
+### 8d. D7's diagnostic script scans student/parent orphans too
+
+`findOrphanedCoachReferences` becomes `findOrphanedReferences`
+(`scripts/lib/findOrphanedReferences.js` + wrapper `scripts/find-orphaned-references.js` —
+naming follows scope): still read-only, still never deletes. It scans, per collection, every ref
+that doesn't resolve to a real `User` of the right role:
+
+| Collection | Refs checked |
+|---|---|
+| `PrivateClassSchedule` | `coachId` (role coach), `studentId` when non-null (role student) |
+| `CoachContract` | `coachId` |
+| `PrivateClassEnrollment` | `coachId`, `studentId`, `parentId` |
+| `PrivateClassSession` | `coachId`, `studentId`, `parentId` |
+
+Report shape unchanged from D7 (model, doc id, which ref is orphaned, booked/free for
+schedules). The §4 test extends accordingly: seed one orphan of each ref type, assert each is
+individually identified and nothing is written.
+
+### 8e. Post-unified-ledger reconciliation (re-checked, no changes needed beyond naming)
+
+The unified-ledger restructure (`docs/plans/service-registry-unified-ledger-plan.md`, shipped
+2026-08-28, between this plan's writing and its execution) deleted `privateClassCharge.model.js`.
+Re-checked every file this plan touches against current source: none referenced
+`PrivateClassCharge`, `audit-reset.js` remains shape-agnostic (deletes `Registration` by
+`studentId`, which now covers per-session rows automatically), and the §1 audit table's row 5
+(`privateClassEnrollment.service.js`'s `create()`) is unchanged by the restructure. The only
+knock-on is additive: any new test this plan writes that creates enrollments through the real
+API must call `seedServices()` in suite setup (the restructure made contract/charge paths
+resolve the Service registry) — the affected suites already do this as of the unified-ledger PR,
+so only genuinely NEW test files need it.
+
+### 8f. Live verification step (added to the §7 report-back)
+
+After the fix merges to `develop` and Vercel redeploys staging, verify the original outage is
+actually gone, not just unit-tested:
+
+```
+curl -s -w "%{http_code}" https://friscofencing-backend-git-develop-frisco-fencing.vercel.app/api/v1/private-class-schedules/public
+```
+
+must return 200 (the orphaned coach's group simply absent), and
+https://friscofencing-git-develop-frisco-fencing.vercel.app/private-classes must render (slots
+or the empty-state card — either is correct depending on what data remains). Then run the §8d
+diagnostic (read-only) against staging and include its report, so the owner can decide the
+manual cleanup of whatever orphaned docs it finds.
