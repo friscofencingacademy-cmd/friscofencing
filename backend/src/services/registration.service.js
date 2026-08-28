@@ -5,7 +5,7 @@ const GroupClass = require('../models/groupClass.model');
 const Level = require('../models/level.model');
 const Location = require('../models/location.model');
 const Price = require('../models/price.model');
-const Registration = require('../models/registration.model');
+const { SubscriptionCycleRegistration } = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
 const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
@@ -13,6 +13,7 @@ const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
 const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { computeProration } = require('./billing/proration.service');
+const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const settingService = require('./setting.service');
 const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
@@ -159,6 +160,12 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw notFoundError("Pricing not configured for this class's level");
   }
 
+  // Resolved BEFORE the Stripe charge (docs/plans/service-registry-unified-
+  // ledger-plan.md D4) — a misconfigured/inactive service must never let a
+  // card get charged for a ledger row that can't then be written.
+  const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
+  assertBillingShape(groupClassesService, 'subscription_cycle');
+
   const paymentMethod = await paymentMethodService.getMine(requestingUser._id);
 
   if (!paymentMethod) {
@@ -290,7 +297,8 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw error;
   }
 
-  const registration = await Registration.create({
+  const registration = await SubscriptionCycleRegistration.create({
+    serviceId: groupClassesService._id,
     subscriptionId: subscription._id,
     studentId,
     scheduleId,

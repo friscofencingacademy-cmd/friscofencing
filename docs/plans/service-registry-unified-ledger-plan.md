@@ -1,9 +1,12 @@
 # Implementation plan: Service registry + unified two-dimension payment ledger
 
-**Status:** Approved for implementation. Written 2026-08-27 (owner-directed architecture
-decision, superseding the earlier "unified ledger via per-service discriminators" idea discussed
-the same day). **Builder: intended for a Sonnet implementation session.** Read §7 (Builder
-instructions) before touching any file.
+**Status:** PR A + PR B BUILT 2026-08-28, on `feature/service-registry` and
+`feature/unified-ledger` respectively (PR B branched from PR A's local commit), awaiting owner
+diff review before commit/ship — nothing pushed, nothing merged. Written 2026-08-27
+(owner-directed architecture decision, superseding the earlier "unified ledger via per-service
+discriminators" idea discussed the same day). See "Completion notes" at the end of this doc for
+exactly what shipped, the two real gaps this spec missed (surfaced and fixed during the build),
+and full verification results.
 
 **Testing strategy:** this repo HAS one — `docs/TESTING_STRATEGY.md`. It governs every test in
 this plan (layers, real `mongodb-memory-server`, real Stripe TEST-mode for billing suites, MSW on
@@ -474,3 +477,76 @@ Also re-measure coverage (`TZ=UTC npm test -- --coverage`, 80% statements floor)
 **Explicitly out of scope** (do not touch, even if adjacent): camps/meets features, coach
 `serviceEligibility`, admin Service CRUD, the orphaned-coach fix plan's changes, ledger PR 2/3
 (they come after), any pricing/discount/proration math, Stripe webhooks.
+
+---
+
+## Completion notes (2026-08-28)
+
+Both PRs built exactly per this doc's design, with two real gaps found and fixed during the
+build — this section documents them so the spec itself stays trustworthy for anyone reading it
+after the fact.
+
+**Verification:** backend 45 test suites, 428 tests — 426 pass; the 2 failures are the
+pre-existing, date-dependent $0-end-of-month proration bug (`registration-ledger-gap-analysis
+.md`'s "Related open items," out of scope for this plan same as it was for the ledger plan),
+confirmed unrelated by file scope — zero proration/`calculateChargeAmount` files touched by
+either PR. Frontend: 47/47 suites, 271/271 tests, `tsc --noEmit` clean with **zero frontend
+files changed** — confirming D5.6's compatibility claim exactly as predicted. Migration script
+(`migrateToUnifiedLedger.js`) fully covered including a genuine abort-path test (fault-injected
+via a scoped driver-prototype spy, since the copy-then-verify sequencing in one function call
+means no external input alone can trigger a real verification mismatch — see that test's own
+comment for the full reasoning).
+
+**Gap 1 — a sequencing hazard between the two migration scripts, not anticipated by D6.**
+`scripts/lib/migrateRegistrationsToLedger.js` (ledger PR 1's own script, for Frisco's original
+3-field pre-ledger docs) and this plan's `migrateToUnifiedLedger.js` both identify their targets
+by a missing top-level field on the same `registrations` collection. Running `migrateToUnified
+Ledger.js` first against an environment that still had genuinely ancient 3-field docs would have
+stamped `billingShape`/`serviceId` onto them without ever giving them the `amount`/`eventType`/
+`periodStart` content fields they still lack — a corrupted, partially-shaped row. Fixed by making
+the stamp step defensive: it only stamps a doc that already looks ledger-shaped (has those three
+fields), and reports (never touches) anything that doesn't, pointing the operator at
+`migrate-registrations-to-ledger.js --live` first. That script was itself updated in the same
+pass to also stamp `billingShape`/`serviceId` in its own write, so a doc it touches never needs a
+second script run at all. The two scripts are now safely composable in either order.
+
+**Gap 2 — `DATABASE_SCHEMA_DOCUMENTATION.md`'s `Registration` section predated even the
+registration-ledger-plan's PR 1**, still describing the original 3-field enrollment-stub shape
+from before that plan shipped (an existing doc-drift this plan's own §6 didn't flag, since it
+assumed the doc was current). Rewritten in full as part of this plan's doc updates rather than
+left further out of date.
+
+**File-by-file diff, for the owner's payment-critical-files review** (per Hard Rule 3):
+
+*PR A:* `backend/src/models/service.model.js` (new), `backend/scripts/lib/seedServices.js` +
+`backend/scripts/seed-services.js` (new) + `package.json`'s `seed:services` script,
+`backend/src/services/serviceCatalog.service.js` (new — `getServiceByCode`),
+`backend/scripts/lib/refreshStagingData.js` (seed wired in before the legacy import). Tests:
+`tests/scripts/lib/seedServices.test.js`, `tests/services/serviceCatalog.service.test.js`,
+`tests/scripts/lib/refreshStagingData.test.js` (extended). Plus
+`DATABASE_SCHEMA_DOCUMENTATION.md`'s new `Service` section.
+
+*PR B:* `backend/src/models/registration.model.js` (full restructure — base + 3 discriminators),
+`backend/src/models/coachContract.model.js` (+`serviceId`), `backend/src/models/
+privateClassCharge.model.js` (deleted), `backend/src/services/serviceCatalog.service.js`
+(+`assertBillingShape`), `backend/src/services/registration.service.js`,
+`privateClassSession.service.js`, `privateClassEnrollment.service.js`, `coachContract.service.js`
+(all rewired to the discriminators + service resolution), `backend/src/utils/
+privateClassPricing.js` (comment only), `backend/scripts/lib/runLegacyImport.js` (both its
+ledger write and its raw `CoachContract.create` rewired), `backend/scripts/lib/
+migrateRegistrationsToLedger.js` (rewritten — raw-collection writes, dual-mode reconstruct-or-
+stamp, per Gap 1), `backend/scripts/lib/migrateToUnifiedLedger.js` + `backend/scripts/
+migrate-to-unified-ledger.js` (new). Tests: `tests/scripts/lib/migrateToUnifiedLedger.test.js`
+(new), `tests/scripts/lib/migrateRegistrationsToLedger.test.js` (extended, +1 new test for the
+dual-mode stamp path), `tests/routes/{registration,privateClassSession,privateClassEnrollment,
+privateClassSchedule,coachContract,user}.routes.test.js`, `tests/services/{subscription,user}
+.service.test.js`, `tests/scripts/lib/runLegacyImport.test.js` (all seeded services in setup;
+some also gained new assertions). Plus `DATABASE_SCHEMA_DOCUMENTATION.md` (`Registration`/
+`Subscription`/`CoachContract`/`PrivateClassCharge` sections rewritten),
+`docs/features/private-class.md` (models table), `docs/decisions/004-service-registry-and-
+unified-ledger.md` (new ADR) + `docs/decisions/README.md` + a supersession note on ADR 003,
+`docs/plans/registration-ledger-plan.md` (status header), `CLAUDE.md` (Documentation Map).
+
+Not yet done: committing/pushing/shipping either PR (awaiting owner review), and
+`docs/plans/registration-ledger-plan.md`'s own PR 2/3 (renewal sequencing, retry/dunning),
+which build on top of this once shipped.

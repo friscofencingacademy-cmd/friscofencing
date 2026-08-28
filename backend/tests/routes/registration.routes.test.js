@@ -34,6 +34,8 @@ const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const mailService = require('../../src/services/mail.service');
+const { seedServices } = require('../../scripts/lib/seedServices');
+const Service = require('../../src/models/service.model');
 
 const TEST_PASSWORD = 'correct-password';
 const MONTHLY_FEE = 150;
@@ -46,6 +48,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+beforeEach(async () => {
+  // create() resolves the group-classes Service internally now
+  // (docs/plans/service-registry-unified-ledger-plan.md).
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -219,8 +227,14 @@ describe('Registration routes', () => {
         const registrations = await Registration.find({ studentId: student._id });
         expect(registrations).toHaveLength(1);
 
-        // The ledger row itself — docs/plans/registration-ledger-plan.md D1/D3.
+        // The ledger row itself — docs/plans/registration-ledger-plan.md D1/D3,
+        // restructured onto the unified ledger by docs/plans/service-registry-
+        // unified-ledger-plan.md (billingShape/serviceId are the new
+        // dimensions; everything else is unchanged).
         const [ledgerRow] = registrations;
+        const groupClassesService = await Service.findOne({ code: 'group-classes' });
+        expect(ledgerRow.billingShape).toBe('subscription_cycle');
+        expect(String(ledgerRow.serviceId)).toBe(String(groupClassesService._id));
         const subscriptionForLedger = await Subscription.findOne({ studentId: student._id });
         expect(String(ledgerRow.subscriptionId)).toBe(String(subscriptionForLedger._id));
         expect(ledgerRow.eventType).toBe('initial');

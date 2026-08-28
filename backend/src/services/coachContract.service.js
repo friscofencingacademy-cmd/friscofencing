@@ -1,5 +1,6 @@
 const CoachContract = require('../models/coachContract.model');
 const User = require('../models/user.model');
+const { getServiceByCode } = require('./serviceCatalog.service');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -25,7 +26,13 @@ async function create({ coachId, studentBillingRate, coachCompensationRate, sess
 
   await CoachContract.updateMany({ coachId, isActive: true }, { $set: { isActive: false } });
 
+  // CoachContract has exactly one consumer today — private lessons — so
+  // this is set internally, never accepted from the request body (see the
+  // model's own field comment for when that would change).
+  const privateLessonsService = await getServiceByCode('private-lessons');
+
   return CoachContract.create({
+    serviceId: privateLessonsService._id,
     coachId,
     studentBillingRate,
     coachCompensationRate,

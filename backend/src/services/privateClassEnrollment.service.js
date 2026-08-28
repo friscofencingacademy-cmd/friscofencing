@@ -2,7 +2,7 @@ const User = require('../models/user.model');
 const PrivateClassSchedule = require('../models/privateClassSchedule.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
-const PrivateClassCharge = require('../models/privateClassCharge.model');
+const { PerSessionRegistration } = require('../models/registration.model');
 const coachContractService = require('./coachContract.service');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
@@ -141,7 +141,7 @@ async function listMine(parentId) {
   const withSlotsAndCharges = await Promise.all(
     enrollments.map(async (enrollment) => {
       const slot = await PrivateClassSchedule.findOne({ enrollmentId: enrollment._id });
-      const charges = await PrivateClassCharge.find({ enrollmentId: enrollment._id })
+      const charges = await PerSessionRegistration.find({ enrollmentId: enrollment._id })
         .sort({ createdAt: -1 })
         .limit(10);
 

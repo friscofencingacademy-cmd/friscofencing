@@ -7,6 +7,16 @@ const { Schema } = mongoose;
 // coachContract.service.js, not here) — one active contract per coach.
 const coachContractSchema = new Schema(
   {
+    // Always the 'private-lessons' Service today — CoachContract has no
+    // other consumer yet. Set internally by coachContract.service.js's
+    // create(), never accepted from a client request; the day a second
+    // coach-facing service exists, the create() API can start accepting it
+    // (docs/plans/service-registry-unified-ledger-plan.md D5.5/D7).
+    serviceId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Service',
+      required: true,
+    },
     coachId: {
       type: Schema.Types.ObjectId,
       ref: 'User',

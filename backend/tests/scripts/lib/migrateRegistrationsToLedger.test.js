@@ -4,6 +4,7 @@ const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtil
 const User = require('../../../src/models/user.model');
 const Registration = require('../../../src/models/registration.model');
 const Subscription = require('../../../src/models/subscription.model');
+const Service = require('../../../src/models/service.model');
 
 const { migrateRegistrationsToLedger } = require('../../../scripts/lib/migrateRegistrationsToLedger');
 
@@ -119,6 +120,11 @@ describe('scripts/lib/migrateRegistrationsToLedger', () => {
     expect(report.orphaned).toHaveLength(0);
 
     const migrated = await Registration.findById(legacyId);
+    // Unified-ledger dimensions (docs/plans/service-registry-unified-
+    // ledger-plan.md) — stamped in the same pass as the reconstruction.
+    expect(migrated.billingShape).toBe('subscription_cycle');
+    const groupClassesService = await Service.findOne({ code: 'group-classes' });
+    expect(String(migrated.serviceId)).toBe(String(groupClassesService._id));
     expect(migrated.subscriptionId.toString()).toBe(subscription._id.toString());
     expect(migrated.parentId.toString()).toBe(parent._id.toString());
     expect(migrated.eventType).toBe('initial');
@@ -128,6 +134,57 @@ describe('scripts/lib/migrateRegistrationsToLedger', () => {
     expect(migrated.breakdown.registrationFeeCharged).toBe(25);
     expect(migrated.periodStart.toISOString()).toBe(createdAt.toISOString());
     expect(migrated.backfilled).toBe(true);
+  });
+
+  it('a doc already ledger-shaped (has amount/eventType/periodStart — PR1-shaped, just missing billingShape/serviceId) gets a light stamp, never a reconstruction', async () => {
+    const { parent, student } = await makeParentAndStudent();
+    const scheduleId = new mongoose.Types.ObjectId();
+    const subscription = await Subscription.create({
+      studentId: student._id,
+      scheduleId,
+      parentId: parent._id,
+      status: 'active',
+      cancelAtPeriodEnd: false,
+      currentPeriodStart: new Date('2026-05-01T00:00:00.000Z'),
+      currentPeriodEnd: new Date('2026-06-01T00:00:00.000Z'),
+      nextBillingDate: new Date('2026-06-01T00:00:00.000Z'),
+      // Deliberately mismatched from the ledger-shaped doc below — proves
+      // the light-stamp path never re-derives from the Subscription's own
+      // snapshot the way the reconstruction path does.
+      lastChargeAmount: 999,
+    });
+    const { insertedId } = await Registration.collection.insertOne({
+      subscriptionId: subscription._id,
+      studentId: student._id,
+      scheduleId,
+      parentId: parent._id,
+      eventType: 'renewal',
+      status: 'completed',
+      amount: 150,
+      breakdown: { monthlyFee: 150 },
+      periodStart: new Date('2026-05-01T00:00:00.000Z'),
+      periodEnd: new Date('2026-06-01T00:00:00.000Z'),
+      stripePaymentIntentId: 'pi_already_real',
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+      // No billingShape — the one thing this doc is actually missing.
+    });
+
+    const report = await migrateRegistrationsToLedger({ dryRun: false });
+
+    expect(report.migrated).toHaveLength(1);
+    expect(report.migrated[0].alreadyLedgerShaped).toBe(true);
+    expect(report.migrated[0].amount).toBe(150); // the doc's OWN amount, not re-derived
+
+    const stamped = await Registration.findById(insertedId);
+    expect(stamped.billingShape).toBe('subscription_cycle');
+    const groupClassesService = await Service.findOne({ code: 'group-classes' });
+    expect(String(stamped.serviceId)).toBe(String(groupClassesService._id));
+    // Everything else is untouched — charge-time truth, never overwritten.
+    expect(stamped.eventType).toBe('renewal');
+    expect(stamped.amount).toBe(150);
+    expect(stamped.stripePaymentIntentId).toBe('pi_already_real');
+    expect(stamped.backfilled).toBeFalsy();
   });
 
   it('marks a prorated subscription\'s backfilled row with periodEnd at calendar month-end instead of +1 month', async () => {

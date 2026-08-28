@@ -1,10 +1,11 @@
 // Pricing math for private-lesson sessions — pure functions only, no DB
 // access. Rates are stored HOURLY everywhere upstream (CoachContract.
 // studentBillingRate, PrivateClassEnrollment.agreedHourlyRate). The
-// per-session dollar amount is never stored anywhere except
-// PrivateClassCharge.amount (the audit trail of what was actually charged)
-// — it is always COMPUTED at the point of use from the hourly rate and the
-// session's own duration.
+// per-session dollar amount is never stored anywhere except a
+// PerSessionRegistration row's `amount` (the unified ledger's per_session
+// discriminator — docs/plans/service-registry-unified-ledger-plan.md; the
+// audit trail of what was actually charged) — it is always COMPUTED at the
+// point of use from the hourly rate and the session's own duration.
 //
 // This is the ONLY place this formula lives. Every consumer (session
 // charge, the public availability preview, confirmation/receipt emails)
