@@ -29,12 +29,12 @@ const settingSchema = new Schema(
       default: 0,
       min: 0,
     },
-    // Master switch for prorated first-month billing (docs/plans/prorated-
-    // first-month-billing-plan.md) — false (the default) leaves every
-    // registration byte-identical to today's behavior (full monthly fee,
-    // rolling one-month period). true makes a NEW registration's first
-    // charge/period reflect the class days remaining in the calendar month
-    // it's created in. Never affects an already-active subscription.
+    // DEPRECATED (docs/decisions/007-calendar-month-billing.md) — prorated
+    // first-month billing is now unconditional (registration.service.js no
+    // longer reads this field), since a full-month charge for a partial
+    // calendar month would be an overcharge under calendar-month billing.
+    // Field kept, not removed, so a pre-existing stored Setting doc doesn't
+    // need a migration; no code path reads or writes it anymore.
     prorationEnabled: {
       type: Boolean,
       default: false,

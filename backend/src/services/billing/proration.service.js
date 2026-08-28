@@ -1,6 +1,6 @@
 const GroupClass = require('../../models/groupClass.model');
 const GroupClassSchedule = require('../../models/groupClassSchedule.model');
-const { daysInMonth, endOfMonth, addOneMonth } = require('../../utils/billingDates');
+const { daysInMonth, firstOfNextMonth } = require('../../utils/billingDates');
 
 // Every distinct weekday (0=Sun..6=Sat) at least one schedule at `levelId`
 // meets on — a level can have several schedules on different days (a
@@ -34,12 +34,19 @@ function countClassDays(weekdays, year, month, fromDay, toDay) {
 }
 
 // Single source of truth for prorating a first charge (docs/plans/prorated-
-// first-month-billing-plan.md) — called identically by registration.service
-// .js's create() and previewChargeAmount(), and nowhere else. No caching,
-// re-derived live from the current schedule roster every call, matching
-// calculateChargeAmount's "never cached" principle. The frontend never
-// reimplements any of this math — it only ever displays what this function
-// returned.
+// first-month-billing-plan.md, docs/decisions/007-calendar-month-billing.md)
+// — called identically by registration.service.js's create() and
+// previewChargeAmount(), and nowhere else. No caching, re-derived live from
+// the current schedule roster every call, matching calculateChargeAmount's
+// "never cached" principle. The frontend never reimplements any of this
+// math — it only ever displays what this function returned.
+//
+// `periodEnd` is always the calendar-month boundary (firstOfNextMonth of
+// registrationDate) — every subscription's period ends on the 1st (ADR
+// 007), whether this particular registration was proratable or not. This
+// function is the single source of that boundary too, not just the amount:
+// registration.service.js uses this returned periodEnd directly rather than
+// computing its own, so the two can never structurally disagree.
 //
 // @param {string} levelId
 // @param {number} monthlyFee      - the RAW list price, before proration
@@ -57,16 +64,16 @@ async function computeProration({ levelId, monthlyFee, registrationDate }) {
 
   if (weekdays.size === 0) {
     // No schedules configured for this level at all — can't meaningfully
-    // prorate; fall back to exactly today's pre-proration behavior (a full
-    // fee, a rolling one-month period) rather than dividing by zero or
-    // blocking registration over a data gap.
+    // prorate; fall back to the full fee rather than dividing by zero or
+    // blocking registration over a data gap. The period boundary is still
+    // the calendar month (ADR 007) even in this fallback.
     return {
       prorated: false,
       totalClassDays: 0,
       remainingClassDays: 0,
       dailyRate: 0,
       proratedAmount: monthlyFee,
-      periodEnd: addOneMonth(registrationDate),
+      periodEnd: firstOfNextMonth(registrationDate),
     };
   }
 
@@ -91,7 +98,7 @@ async function computeProration({ levelId, monthlyFee, registrationDate }) {
     remainingClassDays,
     dailyRate: Number(dailyRate.toFixed(2)), // rounded for display only
     proratedAmount,
-    periodEnd: endOfMonth(registrationDate),
+    periodEnd: firstOfNextMonth(registrationDate),
   };
 }
 

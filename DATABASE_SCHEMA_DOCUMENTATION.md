@@ -107,7 +107,7 @@ The charge-amount calculation lives in its own file, `backend/src/services/billi
 ## `Setting` — implemented (registration-fee plan)
 | Collection | Key fields |
 |---|---|
-| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`). |
+| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below). |
 
 Superadmin-only (`GET`/`PATCH /api/v1/settings`) — same trust bar as `/audit-runs`, since these values change the charge on every future registration immediately, with no confirmation step. No caching — read fresh on every call, consistent with `calculateChargeAmount`'s "never cached" principle.
 
@@ -115,18 +115,20 @@ Superadmin-only (`GET`/`PATCH /api/v1/settings`) — same trust bar as `/audit-r
 
 **Returning-student waiver**: if a student has a prior `Subscription` with `status: 'cancelled'`, and `now` is within `returningStudentGracePeriodMonths` of that subscription's `currentPeriodEnd` (when their access actually ended, not when cancellation was requested — see the two-stage cancellation note above), the fee is waived for this registration. `returningStudentGracePeriodMonths: 0` (the default) means the fee always applies, even to a returning student.
 
-**Prorated first-month billing** (`backend/src/services/billing/proration.service.js`, full plan
-`docs/plans/prorated-first-month-billing-plan.md`): when `prorationEnabled` is `true`, a
-registration's first charge is prorated to the class days remaining, this calendar month, at the
-student's level. `computeProration()` is the single function this math ever runs in — resolves every
+**Prorated first-month billing** (`backend/src/services/billing/proration.service.js`, originally
+`docs/plans/prorated-first-month-billing-plan.md`, made unconditional by `docs/decisions/007-
+calendar-month-billing.md`): every registration's first charge is prorated to the class days
+remaining, this calendar month, at the student's level — `Setting.prorationEnabled` is deprecated;
+proration is no longer optional, since a full-month charge for a partial calendar month would be an
+overcharge under calendar-month billing (every subscription period now ends on the 1st).
+`computeProration()` is the single function this math ever runs in — resolves every
 `GroupClassSchedule` at the level, dedupes their `dayOfWeek` values, counts matching calendar days in
 the registration month vs. remaining from the registration date, and returns a daily rate + prorated
-amount + the calendar-month-end date that becomes the first `Subscription.currentPeriodEnd`. That
-*result* (not the raw list price) is what feeds into `calculateChargeAmount()`, unmodified — sibling-
-discount eligibility compares the prorated amount against a sibling's own current rate. A level with
-zero configured schedules falls back to the full, unprorated fee rather than dividing by zero.
-`prorationEnabled: false` (the default) leaves every registration byte-identical to pre-proration
-behavior.
+amount + the calendar-month boundary (`firstOfNextMonth` of the registration date) that becomes the
+first `Subscription.currentPeriodEnd`. That *result* (not the raw list price) is what feeds into
+`calculateChargeAmount()`, unmodified — sibling-discount eligibility compares the prorated amount
+against a sibling's own current rate. A level with zero configured schedules falls back to the full,
+unprorated fee rather than dividing by zero, still anchored to the calendar-month boundary.
 
 ## `WebhookEvent` — implemented (Phase 11, scoped)
 | Field | Type | Notes |

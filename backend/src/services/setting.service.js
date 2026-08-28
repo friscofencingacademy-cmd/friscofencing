@@ -15,18 +15,19 @@ function badRequestError(message) {
 
 // Always returns a usable object, even before any admin has ever saved one
 // — an empty settings collection means "the defaults," never an error, so
-// callers (registration.service.js) never need a null-check.
+// callers never need a null-check. prorationEnabled is deliberately not
+// exposed here — it's deprecated (docs/decisions/007-calendar-month-
+// billing.md), no code path reads it anymore.
 async function getSettings() {
   const doc = await Setting.findOne();
 
   if (!doc) {
-    return { registrationFee: 0, returningStudentGracePeriodMonths: 0, prorationEnabled: false };
+    return { registrationFee: 0, returningStudentGracePeriodMonths: 0 };
   }
 
   return {
     registrationFee: doc.registrationFee,
     returningStudentGracePeriodMonths: doc.returningStudentGracePeriodMonths,
-    prorationEnabled: doc.prorationEnabled,
   };
 }
 
@@ -52,13 +53,6 @@ async function updateSettings(patch) {
       throw badRequestError('returningStudentGracePeriodMonths must be a number >= 0');
     }
     setFields.returningStudentGracePeriodMonths = patch.returningStudentGracePeriodMonths;
-  }
-
-  if (patch.prorationEnabled !== undefined) {
-    if (typeof patch.prorationEnabled !== 'boolean') {
-      throw badRequestError('prorationEnabled must be a boolean');
-    }
-    setFields.prorationEnabled = patch.prorationEnabled;
   }
 
   await Setting.findOneAndUpdate(

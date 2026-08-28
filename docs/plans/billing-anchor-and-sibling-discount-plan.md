@@ -160,6 +160,38 @@ Run the full backend suite; the only tolerated failures are ones REPRODUCED as p
 
 ---
 
+## PR 1 completion notes (2026-08-28)
+
+**Built, tests passing, NOT YET COMMITTED** — awaiting owner local testing per Hard Rule 5 before `write`-triggered commit.
+
+**Verified against source before building (§1 claims held, with one correction):** `listMine`'s `currentCharge` caller is named `listMine` in code, not `getMine` as an earlier draft of this plan said — trivial naming slip, no behavioral impact. Everything else in §1 matched source exactly.
+
+**What shipped, matching D1/D2 as written:**
+- `backend/src/utils/billingDates.js` — added `firstOfNextMonth(date)` (sets day to 1 before incrementing month, avoiding `addOneMonth`'s day-preserving rollover quirk on month-end dates).
+- `backend/src/services/billing/proration.service.js` — `periodEnd` is now `firstOfNextMonth(registrationDate)` in BOTH branches (real proration and the zero-schedules fallback), replacing `endOfMonth`. `computeProration()` remains the single source of the period boundary, not just the amount — `registration.service.js` uses its returned `periodEnd` directly rather than recomputing.
+- `backend/src/services/registration.service.js` — `create()` and `previewChargeAmount()` both call `computeProration()` unconditionally now; the `Setting.prorationEnabled` read/branch is removed from both. `currentPeriodEnd`/`periodEnd` come straight from `prorationInfo.periodEnd`. Dead `addOneMonth` re-export removed (nothing depended on it — verified via grep). `settingService` import removed entirely (nothing else in the file used it).
+- `Setting.prorationEnabled` deprecated per plan: field kept on the Mongoose schema (no migration needed for existing docs) but no longer read/written by `setting.service.js`, no longer part of the frontend `Setting` type or the admin settings page UI.
+- `backend/scripts/lib/realignBillingAnchors.js` + `backend/scripts/realign-billing-anchors.js` (+ `npm run realign-billing-anchors`) — dry-run-by-default migration, `--live` to apply, always extends (never shortens) per sign-off item 2.
+
+**One deviation from the plan, decided during the build, not deferred to the owner:** §0 sign-off item 1 said "the first-charge is ALWAYS prorated" — implemented exactly as stated. No change from what was proposed.
+
+**Test coverage added/updated:**
+- `backend/tests/utils/billingDates.test.js` — 6 new `firstOfNextMonth` cases (mid-month, on-the-1st, year boundary, month-end day-preservation bug avoidance, non-leap Feb, DST-adjacent sentinel).
+- `backend/tests/services/billing/proration.service.test.js` — 2 existing tests updated for the `periodEnd` shape change (now asserts day-1-of-next-month instead of end-of-this-month).
+- `backend/tests/scripts/lib/realignBillingAnchors.test.js` — new, 5 tests (dry-run reports without writing, `--live` extends both fields and only forward, already-aligned subscriptions untouched, cancelled subscriptions never touched, mixed batch only touches what needs it).
+- `backend/tests/routes/registration.routes.test.js` — the suite now runs under a global `beforeEach`/`afterEach` fake-timer freeze to a fixed 1st-of-month instant (`2026-10-01T15:00:00.000Z`), so registering-on-the-1st tests get a full month at the flat fee (proratedAmount == monthlyFee exactly when `remainingClassDays === totalClassDays`) without needing every existing money assertion rewritten. Two tests were deleted (`prorationEnabled` OFF / explicit-OFF — the toggle no longer exists) and folded into a renamed "registering exactly on the 1st" test; the mid-month proration test and the proration-before-sibling-discount test each now do their own `jest.setSystemTime()` shift to a genuine mid-month instant so they still prove a REAL partial charge rather than coincidentally testing the same on-the-1st case. `Setting.create({ prorationEnabled: true })` removed from 5 tests (dead now). The two `GET /preview` full-object `toEqual` tests now assert `prorated`/`totalClassDays`/`remainingClassDays`/`dailyRate` via a new `expectedProrationFor()` test helper (real `computeProration()` call) instead of hardcoded `false`/`null`.
+- `backend/tests/routes/setting.routes.test.js` — `prorationEnabled` removed from every fixture/assertion; the two tests solely about that field (independent toggle, non-boolean 400) deleted.
+- `frontend/lib/types.ts`, `frontend/app/admin/settings/page.tsx` — `prorationEnabled` removed from the `Setting` type, the form state, and the page (checkbox + hint text deleted).
+- `frontend/app/admin/settings/__tests__/page.test.tsx` — proration-checkbox test deleted; remaining tests' fixtures/payloads updated.
+
+**Verification run (this session, not a re-derivation of stale notes):**
+- Backend: `TZ=UTC npx jest` — **49 suites / 485 tests, all passing.** Notably, the plan's own note anticipated the pre-existing "$0-proration flakiness" might disappear with this change — it did: zero failures, not even the previously-documented flaky one. Freezing the registration test suite's clock likely removed the real-wall-clock-month-end timing dependency that caused that flakiness in the first place; worth confirming on a second run before treating this as fully proven, but nothing reproduced here.
+- Frontend: `npx jest` — **47 suites / 275 tests, all passing.** `npx tsc --noEmit` — clean, no errors.
+
+**Docs updated in this PR's diff:** ADR 007 status flipped to "BUILT, pending owner review"; `docs/decisions/README.md` row updated; `CLAUDE.md` active-plan row updated; `DATABASE_SCHEMA_DOCUMENTATION.md`'s `Setting`/proration section updated to describe the deprecation and the new unconditional behavior.
+
+**Not yet done (correctly out of scope for PR 1):** the realignment migration has not been run against staging — that happens after this PR merges to `develop`, per the plan's own sequencing (dry-run first, then `--live`). PR 2 (ADR 005) and PR 3 (ADR 006) have not been started.
+
 ## 6. Builder instructions (Sonnet session)
 
 1. **CLAUDE.md hard rules apply in full**: discuss-then-`write` per the owner's workflow, tests before commit, owner tests locally before every commit/merge, explicit-file staging only, read every file before editing.
