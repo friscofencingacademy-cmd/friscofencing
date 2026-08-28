@@ -81,6 +81,50 @@ correction made mid-implementation after the first draft of the fix got that dis
 No change to the three safeguards themselves, or to any other business rule — this addendum is
 about resolving "today" correctly, not about what happens once it's resolved.
 
+## Addendum — 2026-08-28 (2): payment ledger, create-pending-first sequencing, and dunning
+
+Full plan: `docs/plans/registration-ledger-plan.md` (PR 1 merged 2026-08-27; PR 2 and PR 3 both
+merged 2026-08-28). This is the fourth safeguard layer this ADR's original three didn't yet have —
+CKQ's own durable renewal dedup, ported here as a real `Registration` ledger rather than the
+3-field enrollment-status doc `Registration` used to be.
+
+**The ledger, and why sequencing matters.** Every charge — initial registration, renewal, retry —
+is one immutable row in the unified `Registration` ledger
+(`docs/plans/service-registry-unified-ledger-plan.md`), on the `SubscriptionCycleRegistration`
+discriminator for group classes. A renewal/retry charge creates its ledger row `pending`
+**before** Stripe is ever charged, not after — the DB-level partial unique index on
+`{subscriptionId, periodStart}` (scoped to `pending`/`completed`, `failed` excluded so a retry is
+never blocked by its own prior failure) is what turns "two racing renewal-job runs for the same
+subscription" into a guaranteed single charge: the loser's insert fails with `E11000` before it
+ever reaches Stripe, not after. This is genuinely a fourth, independent layer — it survives even
+if the application-level checks (safeguards #1/#2 above) were ever bypassed or buggy, the same way
+the per-period idempotency key (#3) already does for Stripe's own side.
+
+**Stale-pending recovery.** A `pending` row with no resolution (the process died between insert
+and the Stripe response) is not itself a bug — it's recovered on the next run by searching Stripe
+for a PaymentIntent carrying the row's own id in `metadata.registrationId` before ever charging
+again: found-and-succeeded is adopted with no new charge; nothing found is re-driven under the
+same idempotency key. This ports the fix for a real incident CKQ hit in production (2026-07-01) —
+a died process leaving a family stranded, permanently unchargeable, because a new attempt was
+blocked by the very dedup guard meant to prevent double-charging. The lesson generalized: a
+dedup guard needs a recovery path, not just a block.
+
+**Dunning policy — adopted, replacing the pre-ledger "retry forever, silently, at a
+re-calculated price."** A failed charge enters `retryCount`/`nextRetryAt` state instead. Retry
+cadence is daily, fixed (not exponential) — Day 0 fails, Day 1/2/3 retry, Day 3's failure cancels
+the subscription. Every retry charges the **locked** amount from the original failed row, never a
+live recalculation — a price change mid-dunning cannot silently change what the parent is charged
+after being emailed a specific amount. `MAX_PAYMENT_RETRIES = 3` (`config/billing.js`, matching
+CKQ's own `config/payment.js` value). Parents now get a failure email on every attempt (Day 0
+through the final cancellation notice) — previously, none was sent at all.
+
+**Cancel-after-exhaustion — the CKQ zombie-loop fix, ported verbatim.** Exhausting retries cancels
+the subscription with `$unset: { nextRetryAt: '' }`, never a plain `null`/`undefined` write —
+Mongoose silently strips an `undefined` value from an update, which would leave the OLD
+(still-due) `nextRetryAt` in place on an otherwise-cancelled subscription. Combined with the retry
+candidate query's own `status: 'active'` filter, this is two independent layers keeping a
+cancelled subscription from ever being picked up again, not one.
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.

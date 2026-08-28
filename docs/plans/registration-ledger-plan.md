@@ -1,14 +1,15 @@
 # Implementation plan: Registration payment ledger + CKQ-style renewal/retry
 
-**Status:** PR 1 MERGED TO DEVELOP 2026-08-27 (`friscofencingacademy-cmd/friscofencing` PR #37).
-`docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27) then
+**Status:** ALL 3 PRs MERGED TO DEVELOP. PR 1: 2026-08-27 (`friscofencingacademy-cmd/friscofencing`
+PR #37). `docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27) then
 restructured PR 1's schema onto the `SubscriptionCycleRegistration` discriminator (shipped
 2026-08-28), and `docs/plans/timezone-consistency-plan.md` (owner-sequenced, also 2026-08-28)
 fixed `todayAtMidnight()`/`addOneDay()` to resolve real Central time before PR 2 built on them.
-**PR 2 BUILT 2026-08-28** on `feature/registration-ledger-pr2`, per §5 below executed against the
-discriminated shape exactly as this status note originally specified — see "PR 2 completion
-notes" at the end of this doc. PR 3 not started. See "PR 1 completion notes" further down for
-what PR 1 shipped, its deviations, and one gap fixed along the way.
+PR 2: 2026-08-28 (PR #46) — create-pending-first sequencing + stale-pending recovery, see "PR 2
+completion notes". PR 3: 2026-08-28 (retry/dunning + cancel-after-exhaustion) — see "PR 3
+completion notes" at the very end of this doc, which also closes out §7's doc updates. See "PR 1
+completion notes" further down for what PR 1 shipped, its deviations, and one gap fixed along
+the way.
 
 **Builder:** intended to be executed by a Sonnet implementation session. See §8 (Builder
 instructions) before touching any file.
@@ -678,6 +679,51 @@ stale-pending recovery cases, failed-row-doesn't-block-retry), `tests/services/m
 its `describe.each(TEMPLATES...)` picked up `paymentFailure` automatically). Plus this doc and
 `docs/TEST_COVERAGE.md`.
 
-Not yet done: PR 3 (retry/dunning + cancel-after-exhaustion), and the §7 doc updates that close
-out with PR 3 (`docs/decisions/001-in-house-subscription-billing.md` addendum,
-`docs/TESTING_STRATEGY.md`'s line-45 mandate extension, `docs/decisions/README.md`).
+Not yet done (at PR 2 merge time): PR 3, and the §7 doc updates that close out with it.
+
+## PR 3 completion notes (2026-08-28)
+
+Built on `feature/registration-ledger-pr3`, per D6 exactly — `retryOne` (fresh-fetch, most-recent-
+failed-row lookup, exhaustion check, locked-amount charge under a distinct idempotency key),
+`cancelAfterExhaustion` (the CKQ zombie-loop `$unset` fix, ported verbatim), `runRetries()` (phase
+2's candidate query), `scripts/run-renewals.js` now two-phase.
+
+**Design choice, not in the original spec but a natural extension of it:** rather than duplicate
+PR 2's charge/finalize logic, `chargeLedgerRow`/`finalizeSuccessfulCharge`/`finalizeFailedCharge`
+were extended with an optional `attemptNumber` parameter (defaulting to 1, so every PR 2 call site
+needed zero changes) so `retryOne` reuses the exact same charge path `renewOne` and stale-pending
+recovery already exercise — the idempotency key and metadata shape change based on
+`attemptNumber`, everything else (Stripe call, success/failure branching, email dispatch) is one
+code path, not two. Flagged here because it's a real design decision, not because it deviates from
+the spec's intent — D5's stale-pending recovery already established the same "share code, not
+just intent" reasoning for reusing D4's charge logic.
+
+Full backend suite: 475 tests, 473 pass — the 2 failures are `registration.routes.test.js`'s two
+proration tests, the same pre-existing $0-remaining-class-days bug this doc's §3 lists as out of
+scope (unrelated files, untouched by this PR).
+
+**One real test-infrastructure gap found and fixed during the build, not a spec issue:** the
+exhaustion test's first draft asserted `sendPaymentFailureEmail` was called exactly once via
+`toHaveBeenCalledTimes(1)` — but `jest.mock('../../src/services/mail.service')`'s call history
+accumulates across every test in the file (no `clearAllMocks` between them, an existing property
+of this suite, not something PR 3 introduced), so by the time the exhaustion test ran, two earlier
+tests' calls were already counted. Fixed by measuring the delta (`calls.length` before/after)
+instead of asserting an absolute count — a narrower fix than adding file-wide mock-clearing, which
+risked changing behavior for tests written before this PR that were never designed against a
+clean-per-test mock state.
+
+**File-by-file diff, for the owner's payment-critical-files review** (per Hard Rule 3):
+`backend/src/services/renewal.service.js` (new `retryOne`/`cancelAfterExhaustion`/`runRetries`,
+`chargeLedgerRow`/`finalizeSuccessfulCharge`/`finalizeFailedCharge` extended with `attemptNumber`),
+`backend/scripts/run-renewals.js` (two-phase). Docs: this file, `docs/decisions/001-in-house-
+subscription-billing.md` (new addendum — ledger sequencing, stale-pending recovery, dunning
+policy, zombie-loop fix), `docs/TESTING_STRATEGY.md` (line-45 mandate extended to name both
+charging paths), `docs/plans/registration-ledger-gap-analysis.md` (status flipped to
+decided-and-implemented), `docs/TEST_COVERAGE.md`. Plus test file:
+`tests/services/renewal.service.test.js` (new `describe('retryOne', ...)` — 7 tests: locked
+amount, retry success, retry failure, exhaustion with the `$unset` zombie-regression assertion,
+the cancel-then-retry race, `skipped_no_failed_row`; new `describe('two-phase', ...)` — 1
+integration test proving phase-1 exclusion + phase-2 pickup in one run).
+
+Nothing remaining from this plan. `docs/decisions/README.md` was checked — ADR 001 is already
+"Implemented" (its status label doesn't change for an addendum), so no edit was needed there.
