@@ -1,6 +1,6 @@
 # Implementation plan: Calendar-month billing + one-sub-per-student guard + family sibling discount
 
-**Status:** ALL 3 PRs BUILT — PR 1 + PR 2 merged to `develop` (PR #50, #51); PR 3 built, pending owner local testing + commit. See each PR's completion notes below for what actually shipped vs. this original design.
+**Status:** SHIPPED — all 3 PRs merged to `develop` (PR #50, #51, #52). See each PR's completion notes below for what actually shipped vs. this original design.
 **Builder:** Sonnet session, following §8 builder instructions exactly.
 **Executes:** [ADR 005](../decisions/005-one-active-subscription-per-student.md) · [ADR 006](../decisions/006-sibling-discount-family-rule.md) · [ADR 007](../decisions/007-calendar-month-billing.md) · [ADR 008](../decisions/008-registration-create-pending-first.md) (found mid-PR-2, not in the original plan)
 

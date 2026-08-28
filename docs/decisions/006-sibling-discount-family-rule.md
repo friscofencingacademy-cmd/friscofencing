@@ -1,6 +1,6 @@
 # ADR 006: Sibling discount is a family discount — highest payer excluded, applied immediately
 
-**Status:** Built — 2026-08-28 (PR 3 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`; supersedes the "dynamic lower-payer, 2-child only" rule in ADR 001), pending owner local testing + commit.
+**Status:** Implemented — 2026-08-28 (PR 3 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`, merged to `develop` via PR #52; supersedes the "dynamic lower-payer, 2-child only" rule in ADR 001).
 
 ## Context
 
