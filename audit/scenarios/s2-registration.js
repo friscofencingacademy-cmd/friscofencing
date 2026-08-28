@@ -1,5 +1,6 @@
 const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
+const { selectStartDate } = require('../lib/select-start-date');
 
 // S2 — add a payment method (real Stripe CardElement, success card), then
 // complete a group-class registration. Frisco always uses a pre-saved card
@@ -31,13 +32,9 @@ async function run(context, config) {
 
     // Level-cards + date-pills, not the old Class/Schedule <select>s — the
     // register wizard no longer exposes "class" as a separate concept
-    // (docs/features/parent-portal.md's Register wizard section). The
-    // picker's accessible group name is "Select a start date" (renamed from
-    // "Select a time" by frontend commit e3403d4).
+    // (docs/features/parent-portal.md's Register wizard section).
     await page.getByRole('radio', { name: /audit level a/i }).click();
-    const datePill = page.getByRole('radiogroup', { name: 'Select a start date' }).getByRole('radio').first();
-    await datePill.waitFor({ timeout: 10000 }); // the one schedule audit-seed.js created
-    await datePill.click();
+    await selectStartDate(page);
 
     await page.getByText(/card on file/i).waitFor({ timeout: 45000 });
     await page.getByRole('button', { name: /register & pay/i }).click();

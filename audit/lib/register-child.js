@@ -1,3 +1,5 @@
+const { selectStartDate } = require('./select-start-date');
+
 // Shared by s3-sibling-discount.js (own-fee case) and
 // s5-sibling-discount-bridge.js (bridge case) — docs/plans/
 // audit-skills-refresh-plan.md D3. Registers one child into one level and
@@ -17,14 +19,9 @@ async function registerChild(page, config, childNameRegex, levelName, expectDisc
   // any more; the level/date step's CTA goes directly to "Register & Pay".
   await page.getByRole('radio', { name: childNameRegex }).click();
 
-  // Level-cards + date-pills, not the old Class/Schedule <select>s. The
-  // picker's accessible group name is "Select a start date" (renamed from
-  // "Select a time" by frontend commit e3403d4 — parents now pick a real
-  // calendar date, not a recurring weekly time slot).
+  // Level-cards + date-pills, not the old Class/Schedule <select>s.
   await page.getByRole('radio', { name: new RegExp(levelName, 'i') }).click();
-  const datePill = page.getByRole('radiogroup', { name: 'Select a start date' }).getByRole('radio').first();
-  await datePill.waitFor({ timeout: 10000 });
-  await datePill.click();
+  await selectStartDate(page);
 
   // Found on the first real run against staging, not assumed: Locator
   // .isVisible() checks the DOM state immediately — it doesn't actually
