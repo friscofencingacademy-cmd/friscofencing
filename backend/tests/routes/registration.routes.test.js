@@ -505,8 +505,14 @@ describe('Registration routes', () => {
     );
 
     it(
-      'returns 409 and charges nothing when the schedule is already at capacity',
+      'registers successfully even when the schedule is already at capacity, in premium mode (the live default)',
       async () => {
+        // ENABLE_SCHEDULE_BASED_REGISTRATION is unset in this suite — the
+        // live default is premium (docs/plans/premium-registration-and-
+        // attendance-plan.md §0/§4). Premium students attend any session of
+        // their level, so one schedule's roster filling up doesn't mean the
+        // level has no room — registration.service.js's create() no longer
+        // enforces per-schedule capacity in this mode.
         const { scheduleId } = await seedSchedule(); // capacity: 10
         const { student } = await seedParentAndStudent('reg-full@example.com');
         const parentAgent = await loginAgent('reg-full@example.com');
@@ -524,14 +530,47 @@ describe('Registration routes', () => {
           scheduleId,
         });
 
-        expect(res.status).toBe(409);
-        expect(res.body.message).toBe('This class is full');
+        expect(res.status).toBe(201);
 
-        expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
-        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
+        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(1);
 
         const schedule = await GroupClassSchedule.findById(scheduleId);
-        expect(schedule.students).toHaveLength(10);
+        expect(schedule.students).toHaveLength(11);
+      },
+      20000
+    );
+
+    it(
+      'returns 409 and charges nothing when the schedule is already at capacity, in schedule-based mode',
+      async () => {
+        process.env.ENABLE_SCHEDULE_BASED_REGISTRATION = 'true';
+        try {
+          const { scheduleId } = await seedSchedule(); // capacity: 10
+          const { student } = await seedParentAndStudent('reg-full-legacy@example.com');
+          const parentAgent = await loginAgent('reg-full-legacy@example.com');
+
+          await savePaymentMethodFor(parentAgent);
+
+          const fillerIds = Array.from({ length: 10 }, () => new mongoose.Types.ObjectId());
+          await GroupClassSchedule.findByIdAndUpdate(scheduleId, { students: fillerIds });
+
+          const res = await parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId,
+          });
+
+          expect(res.status).toBe(409);
+          expect(res.body.message).toBe('This class is full');
+
+          expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
+          expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+
+          const schedule = await GroupClassSchedule.findById(scheduleId);
+          expect(schedule.students).toHaveLength(10);
+        } finally {
+          delete process.env.ENABLE_SCHEDULE_BASED_REGISTRATION;
+        }
       },
       20000
     );

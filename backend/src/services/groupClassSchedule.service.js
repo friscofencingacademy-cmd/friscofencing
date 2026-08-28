@@ -3,6 +3,7 @@ const GroupClass = require('../models/groupClass.model');
 const GroupClassSession = require('../models/groupClassSession.model');
 const User = require('../models/user.model');
 const { generateInitialSessions } = require('./groupClassSession.service');
+const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -105,6 +106,14 @@ async function remove(id) {
 // roster) over classId/coachId, excluding any schedule whose class, level,
 // location, or coach reference is missing so a broken reference never
 // surfaces as a half-populated row.
+//
+// `availability` is only included in schedule-based mode. Premium students
+// (the live default — docs/plans/premium-registration-and-attendance-plan.md
+// §0/§4) attend any session of their level once registered, so one
+// schedule's roster filling up doesn't mean that level has no room —
+// advertising a per-slot 'full' state here would be misleading, and
+// registration.service.js's create() no longer enforces it either in this
+// mode.
 async function listPublic() {
   const schedules = await GroupClassSchedule.find()
     .populate({
@@ -112,6 +121,8 @@ async function listPublic() {
       populate: [{ path: 'levelId' }, { path: 'locationId' }],
     })
     .populate('coachId', 'firstName lastName');
+
+  const showAvailability = !isPremiumRegistrationEnabled();
 
   return schedules
     .filter(
@@ -129,7 +140,7 @@ async function listPublic() {
       dayOfWeek: schedule.dayOfWeek,
       startTime: schedule.startTime,
       endTime: schedule.endTime,
-      availability: computeAvailability(schedule, schedule.classId),
+      ...(showAvailability && { availability: computeAvailability(schedule, schedule.classId) }),
     }));
 }
 

@@ -18,6 +18,7 @@ const settingService = require('./setting.service');
 const { addOneMonth, todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
+const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
 const mailService = require('./mail.service');
 
 function notFoundError(message) {
@@ -48,16 +49,6 @@ function paymentFailedError(message) {
   const error = new Error(message);
   error.status = 402;
   return error;
-}
-
-// The premium-vs-schedule-based flag (docs/plans/premium-registration-and-
-// attendance-plan.md §0/§4) — unset or 'false' (the live default) means
-// premium: one flat fee, attend any scheduled session of the level. Read at
-// call time, never captured at module load, matching mail.service.js's own
-// isEmailBlocked() convention — this codebase's established pattern for an
-// env-var-driven behavioral gate.
-function isPremiumRegistrationEnabled() {
-  return process.env.ENABLE_SCHEDULE_BASED_REGISTRATION !== 'true';
 }
 
 // Shared by create() and previewChargeAmount() — the auth-critical,
@@ -147,10 +138,14 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw notFoundError('Group class not found');
   }
 
-  // Enforced here, not just displayed publicly (`GET
-  // /group-class-schedules/public`'s `availability` field) — without this,
-  // a schedule shown as "full" could still be charged into.
-  if (computeAvailability(schedule, groupClass) === 'full') {
+  // Capacity is only a real constraint in schedule-based mode, where a
+  // student's home schedule is the only session they ever attend. Premium
+  // students (the live default) attend any session of their level once
+  // registered, so one schedule's roster filling up doesn't mean they have
+  // nowhere to go — GET /group-class-schedules/public no longer advertises
+  // a 'full' state for this reason either (see groupClassSchedule.service.js's
+  // listPublic()).
+  if (!isPremiumRegistrationEnabled() && computeAvailability(schedule, groupClass) === 'full') {
     throw conflictError('This class is full');
   }
 

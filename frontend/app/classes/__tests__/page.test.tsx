@@ -6,6 +6,9 @@ import { setupServer } from 'msw/node';
 import ClassesPage from '../page';
 import { AuthProvider } from '../../context/AuthContext';
 
+// No `availability` field — matches the live default (premium mode), where
+// the backend omits it entirely (docs/plans/premium-registration-and-
+// attendance-plan.md §0/§4; groupClassSchedule.service.js's listPublic()).
 const OPEN_SCHEDULE = {
   className: 'Beginner Foil',
   levelName: 'Beginner',
@@ -14,10 +17,9 @@ const OPEN_SCHEDULE = {
   dayOfWeek: 3,
   startTime: '16:00',
   endTime: '17:00',
-  availability: 'open',
 };
 
-const FULL_SCHEDULE = {
+const ADVANCED_SCHEDULE = {
   className: 'Advanced Foil',
   levelName: 'Advanced',
   locationName: 'Frisco HQ',
@@ -25,7 +27,6 @@ const FULL_SCHEDULE = {
   dayOfWeek: 3,
   startTime: '18:00',
   endTime: '19:00',
-  availability: 'full',
 };
 
 const LOCATION = { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' };
@@ -33,7 +34,7 @@ const LOCATION = { name: 'Frisco HQ', address: '123 Main St', timezone: 'America
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ message: 'unauthorized' }, { status: 401 })),
   http.get('*/group-class-schedules/public', () =>
-    HttpResponse.json({ schedules: [OPEN_SCHEDULE, FULL_SCHEDULE] })
+    HttpResponse.json({ schedules: [OPEN_SCHEDULE, ADVANCED_SCHEDULE] })
   ),
   http.get('*/locations/public', () => HttpResponse.json({ locations: [LOCATION] }))
 );
@@ -51,27 +52,49 @@ function renderPage() {
 }
 
 describe('ClassesPage', () => {
-  it('groups schedules by day, shows the timezone, and renders an enabled Book link for an open class', async () => {
+  it('groups schedules by day, shows the timezone, and renders an enabled Book link with no availability pill in premium mode (the live default)', async () => {
     renderPage();
 
     expect(await screen.findByText(/all times shown in america\/chicago/i)).toBeInTheDocument();
     expect(screen.getByText('Wednesday')).toBeInTheDocument();
     expect(screen.getByText(/beginner foil · beginner/i)).toBeInTheDocument();
     expect(screen.getByText(/4:00 pm–5:00 pm · frisco hq · coach jane smith/i)).toBeInTheDocument();
-    expect(screen.getByText('Open')).toBeInTheDocument();
 
+    // No `availability` field on the wire (premium mode) → no pill at all,
+    // for either row — not even "Open".
+    expect(screen.queryByText('Open')).not.toBeInTheDocument();
+    expect(screen.queryByText('Class full')).not.toBeInTheDocument();
+
+    // Every row books freely: two schedules in, two enabled links out.
     // AppShell's own public-nav CTA shares this accessible name, so this
-    // finds the row's link by its distinct href rather than by position.
+    // finds the rows' links by their distinct href rather than by position.
     const bookLinks = screen.getAllByRole('link', { name: /book a free trial/i });
-    expect(
-      bookLinks.some((link) => link.getAttribute('href') === '/register?next=/parent/book-trial')
-    ).toBe(true);
+    const registerLinks = bookLinks.filter(
+      (link) => link.getAttribute('href') === '/register?next=/parent/book-trial'
+    );
+    expect(registerLinks).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /book a free trial/i })).not.toBeInTheDocument();
   });
 
-  it('renders a disabled Book button and a "Class full" pill for a full class, with no link', async () => {
+  it('renders a disabled Book button and a "Class full" pill for a full class in schedule-based mode', async () => {
+    // The only mode where the backend still sends `availability` at all
+    // (ENABLE_SCHEDULE_BASED_REGISTRATION=true) — see groupClassSchedule.
+    // service.js's listPublic().
+    server.use(
+      http.get('*/group-class-schedules/public', () =>
+        HttpResponse.json({
+          schedules: [
+            { ...OPEN_SCHEDULE, availability: 'open' },
+            { ...ADVANCED_SCHEDULE, availability: 'full' },
+          ],
+        })
+      )
+    );
+
     renderPage();
 
-    expect(await screen.findByText('Class full')).toBeInTheDocument();
+    expect(await screen.findByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('Class full')).toBeInTheDocument();
 
     const bookButtons = screen.getAllByRole('button', { name: /book a free trial/i });
     expect(bookButtons).toHaveLength(1);

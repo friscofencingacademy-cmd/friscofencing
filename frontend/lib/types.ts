@@ -65,8 +65,10 @@ export interface PublicLevel {
   monthlyFee: number;
 }
 
-// GET /group-class-schedules/public — no auth, no ids/roster; `availability`
-// is a server-derived 'open' | 'full' string only (see
+// GET /group-class-schedules/public — no auth, no ids/roster. `availability`
+// is a server-derived 'open' | 'full' string, present only in schedule-based
+// mode; premium (the live default) omits it entirely since one schedule's
+// roster filling up doesn't mean the level has no room (see
 // groupClassSchedule.service.js's listPublic/computeAvailability).
 export interface PublicGroupClassSchedule {
   className: string;
@@ -76,7 +78,7 @@ export interface PublicGroupClassSchedule {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
-  availability: 'open' | 'full';
+  availability?: 'open' | 'full';
 }
 
 export interface SessionStudentEntry {
