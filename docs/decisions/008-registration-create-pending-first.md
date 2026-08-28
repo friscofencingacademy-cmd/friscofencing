@@ -1,6 +1,6 @@
 # ADR 008: Initial registration reserves the Subscription and creates a pending ledger row BEFORE charging Stripe
 
-**Status:** Built — 2026-08-28 (PR 2 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`, alongside ADR 005), pending owner local testing + commit.
+**Status:** Implemented — 2026-08-28 (PR 2 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`, alongside ADR 005, merged to `develop` via PR #51).
 
 ## Context
 

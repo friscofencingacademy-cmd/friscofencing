@@ -8,10 +8,10 @@ Index of every ADR in this directory, newest first isn't required — kept in nu
 | 002 | [CKQ UI adoption — structure/patterns from CKQ, Frisco brand tokens](./002-ckq-ui-adoption.md) | Implemented | 2026-08-20 |
 | 003 | [Premium (flat-fee, any-session) group class billing](./003-premium-group-class-billing.md) | Implemented (§Decision point 1 partially superseded by 004) | 2026-08-24 |
 | 004 | [Service registry + unified two-dimension payment ledger](./004-service-registry-and-unified-ledger.md) | Implemented | 2026-08-28 |
-| 005 | [One active group-class subscription per student](./005-one-active-subscription-per-student.md) | Built, pending owner review | 2026-08-28 |
-| 006 | [Sibling discount is a family discount — highest payer excluded, applied immediately](./006-sibling-discount-family-rule.md) | Proposed | 2026-08-28 |
+| 005 | [One active group-class subscription per student](./005-one-active-subscription-per-student.md) | Implemented | 2026-08-28 |
+| 006 | [Sibling discount is a family discount — highest payer excluded, applied immediately](./006-sibling-discount-family-rule.md) | Built, pending owner review | 2026-08-28 |
 | 007 | [Calendar-month billing — all renewals on the 1st (CKQ model)](./007-calendar-month-billing.md) | Implemented | 2026-08-28 |
-| 008 | [Initial registration reserves the Subscription and creates a pending ledger row BEFORE charging Stripe](./008-registration-create-pending-first.md) | Built, pending owner review | 2026-08-28 |
+| 008 | [Initial registration reserves the Subscription and creates a pending ledger row BEFORE charging Stripe](./008-registration-create-pending-first.md) | Implemented | 2026-08-28 |
 
 ## Status definitions
 

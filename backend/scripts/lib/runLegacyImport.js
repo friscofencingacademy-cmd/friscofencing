@@ -219,7 +219,14 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
   const alreadySubscribed = Boolean(subscription);
 
   if (!subscription) {
-    const { amount, siblingDiscountApplied } = await calculateChargeAmount(student, resources.price.monthlyFee);
+    // 'registration' mode: this is a brand-new Subscription being created
+    // for this student (a historical backfill of an already-real
+    // enrollment, but structurally the same "first subscription" case
+    // registration.service.js's create() handles) — docs/decisions/006-
+    // sibling-discount-family-rule.md.
+    const { amount, siblingDiscountApplied } = await calculateChargeAmount(student, resources.price.monthlyFee, {
+      mode: 'registration',
+    });
     const now = new Date();
     const currentPeriodEnd = addOneMonth(now);
 

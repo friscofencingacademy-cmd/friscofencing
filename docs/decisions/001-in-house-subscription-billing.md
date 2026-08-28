@@ -17,6 +17,8 @@ Cancellation takes effect at the end of the already-paid period — `cancelAtPer
 
 Sibling discount (10%, dynamic lower-payer rule, 2-child case only for MVP) is re-verified at every renewal using the same charge-time-verification principle — it is derived fresh at each billing cycle, never locked in permanently.
 
+**Superseded 2026-08-28** by `docs/decisions/006-sibling-discount-family-rule.md` — the rule itself changed (highest payer excluded rather than lowest payer included — equivalent for 2 children, but not for 3+), it now applies immediately at registration even when the newly-registering child is the higher payer (the "bridge" case), and the 2-child-only MVP scoping is lifted. The "re-verified fresh every cycle, never locked in" principle stated here is unchanged and still governs the new rule.
+
 ## Implementation notes
 Built as `renewOne(subscriptionId)` (its own fresh fetch + live re-check, never trusting a value from the caller) called sequentially by `runRenewals()` for each candidate — this is what makes safeguard #1 a directly testable property of one function rather than something only provable by racing real concurrency. Safeguard #2 above is refined slightly from how it first reads: cancellation is two-stage, not a single atomic block. `cancelAtPeriodEnd` is set immediately on cancel, but `status` and roster access are untouched until the renewal job actually reaches that subscription's `nextBillingDate` — at that point it *finalizes* the cancellation (flips `status` to `'cancelled'`, removes the student from the schedule roster and future sessions) instead of charging. No dunning/auto-cancel-after-N-failed-charges — a declined card leaves the period untouched for a natural retry next run; disclosed MVP limitation, not built.
 

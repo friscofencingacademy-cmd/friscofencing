@@ -195,7 +195,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   const feeForDiscountCalc = prorationInfo.proratedAmount;
 
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
-    await calculateChargeAmount(student, feeForDiscountCalc);
+    await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration' });
 
   // One-time fee, on top of the monthly charge above — never discounted by
   // the sibling rule (a flat enrollment fee, not recurring tuition) and
@@ -427,7 +427,7 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
   const feeForDiscountCalc = prorationInfo.proratedAmount;
 
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
-    await calculateChargeAmount(student, feeForDiscountCalc);
+    await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration' });
 
   const {
     amount: registrationFeeCharged,
@@ -489,8 +489,12 @@ async function listMine(parentId) {
       }
 
       const student = { _id: subscription.studentId._id, parentId };
+      // 'renewal' mode — this displays what the NEXT renewal will charge
+      // (docs/decisions/006-sibling-discount-family-rule.md's top-payer-
+      // excluded rule), using this subscription's own createdAt for the
+      // tiebreak if it's tied with a sibling at the family's top fee.
       const { amount, siblingDiscountApplied, siblingDiscountAmount, reason } =
-        await calculateChargeAmount(student, currentFee);
+        await calculateChargeAmount(student, currentFee, { mode: 'renewal', subscription });
 
       return {
         ...subscription,
