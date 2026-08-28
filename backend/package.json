@@ -10,6 +10,7 @@
     "test": "jest",
     "seed:superadmin": "node scripts/seed-superadmin.js",
     "seed:coach": "node scripts/seed-coach.js",
+    "seed:services": "node scripts/seed-services.js",
     "renewals": "node scripts/run-renewals.js",
     "preview-emails": "node scripts/preview-emails.js",
     "extend-private-sessions": "node scripts/extend-private-sessions.js",
