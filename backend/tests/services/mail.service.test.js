@@ -242,6 +242,98 @@ describe('mail.service', () => {
     });
   });
 
+  // docs/plans/registration-ledger-plan.md D4/D6 §6 PR 2 test row: renders
+  // Day-0 / Day-N / final variants — recipient, amount, nextRetryDate
+  // presence, final-copy differences.
+  describe('sendPaymentFailureEmail', () => {
+    it('Day 0 (attemptNumber 1, isFinal false): cc lists ADMIN_EMAIL only, subject says "Payment failed", body carries the amount and next retry date', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendPaymentFailureEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        schedule: {},
+        groupClass: { name: 'Beginner Foil' },
+        amountDue: 150,
+        attemptNumber: 1,
+        isFinal: false,
+        nextRetryDate: new Date('2026-08-29T12:00:00.000Z'),
+      });
+
+      expect(result).not.toBe(false);
+      const call = sendMail.mock.calls[0][0];
+      expect(call.to).toBe('pat@example.com');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
+      expect(call.subject).toContain('Payment failed');
+      expect(call.subject).toContain('Jamie');
+      expect(call.text).toContain('150.00');
+      expect(call.text).toContain('Aug 29, 2026'); // next retry date present
+      // Day-0 copy never mentions cancellation.
+      expect(call.text).not.toMatch(/cancelled/i);
+    });
+
+    it('Day N (attemptNumber 2, isFinal false): subject still "Payment failed", body notes the attempt count', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendPaymentFailureEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        groupClass: { name: 'Beginner Foil' },
+        amountDue: 150,
+        attemptNumber: 2,
+        isFinal: false,
+        nextRetryDate: new Date('2026-08-30T12:00:00.000Z'),
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.subject).toContain('Payment failed');
+      expect(call.text).toContain('attempt 2 of 3');
+      expect(call.text).toContain('Aug 30, 2026');
+    });
+
+    it('Final (isFinal true): subject/body say the subscription was cancelled, no next-retry-date row, no attempt-count copy', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendPaymentFailureEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        groupClass: { name: 'Beginner Foil' },
+        amountDue: 150,
+        attemptNumber: 3,
+        isFinal: true,
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.subject).toContain('Subscription cancelled');
+      expect(call.text).toMatch(/cancelled/i);
+      expect(call.text).not.toContain('Next retry');
+      expect(call.text).not.toContain('attempt 3 of 3');
+    });
+
+    it('catches a sendMail rejection, logs it, and returns false without throwing', async () => {
+      sendMail.mockRejectedValue(new Error('SMTP exploded'));
+      const mailService = loadMailService();
+
+      await expect(
+        mailService.sendPaymentFailureEmail({
+          parent: { firstName: 'Pat', email: 'pat@example.com' },
+          student: { firstName: 'Jamie' },
+          amountDue: 150,
+          attemptNumber: 1,
+          isFinal: false,
+        })
+      ).resolves.toBe(false);
+
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+
+    it('never throws when passed nothing at all', async () => {
+      const mailService = loadMailService();
+
+      await expect(mailService.sendPaymentFailureEmail({})).resolves.toBe(false);
+    });
+  });
+
   describe('new Phase 2 send functions never throw even when renderEmail-building data is missing', () => {
     it('sendCancellationConfirmationEmail cc lists only the coach (no admin) and never throws', async () => {
       const mailService = loadMailService();

@@ -19,14 +19,16 @@ const Visit = require('../../src/models/visit.model');
 const Price = require('../../src/models/price.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
+const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
 const stripe = require('../../src/config/stripe');
 const paymentMethodService = require('../../src/services/paymentMethod.service');
 const { generateInitialSessions } = require('../../src/services/groupClassSession.service');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { renewOne, runRenewals } = require('../../src/services/renewal.service');
-const { addOneMonth, todayAtMidnight } = require('../../src/utils/billingDates');
+const { addOneMonth, addOneDay, todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const mailService = require('../../src/services/mail.service');
+const { seedServices } = require('../../scripts/lib/seedServices');
 
 const MONTHLY_FEE = 150;
 // Fixed historical/far-future instants, never "now + N days" — see
@@ -43,6 +45,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+beforeEach(async () => {
+  // renewOne now resolves the Service registry (getServiceByCode) before
+  // writing any ledger row — every test in this file would otherwise die on
+  // the catalog's fail-closed "not seeded" error before reaching what it
+  // actually tests. Same one-line setup every suite touched by the
+  // unified-ledger restructure already uses (docs/plans/next-batch-
+  // execution-plan.md Item 2 delta #4).
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -190,6 +202,27 @@ describe('renewOne', () => {
       expect(updated.nextBillingDate.toISOString()).toBe(expectedNewPeriodEnd.toISOString());
       expect(updated.lastChargeAmount).toBe(MONTHLY_FEE);
       expect(updated.lastSiblingDiscountApplied).toBe(false);
+      // retry/dunning state stays clean on a straightforward success.
+      expect(updated.retryCount).toBe(0);
+      expect(updated.nextRetryAt).toBeNull();
+
+      // The ledger row itself — docs/plans/registration-ledger-plan.md D4:
+      // completed, locked amount, correct period, real Stripe PI id, keyed
+      // on the row's own id (not the old renewal-{subId}-{periodEnd}
+      // string).
+      const ledgerRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
+      expect(ledgerRow).not.toBeNull();
+      expect(ledgerRow.eventType).toBe('renewal');
+      expect(ledgerRow.status).toBe('completed');
+      expect(ledgerRow.amount).toBe(MONTHLY_FEE);
+      expect(ledgerRow.breakdown.registrationFeeCharged).toBe(0);
+      expect(ledgerRow.periodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
+      expect(ledgerRow.periodEnd.toISOString()).toBe(expectedNewPeriodEnd.toISOString());
+      expect(ledgerRow.stripePaymentIntentId).toBeTruthy();
+      expect(ledgerRow.paidAt).not.toBeNull();
+
+      const paymentIntent = await stripe.paymentIntents.retrieve(ledgerRow.stripePaymentIntentId);
+      expect(paymentIntent.metadata.registrationId).toBe(String(ledgerRow._id));
 
       // Confirms the mail wiring actually fires on the 'charged' branch with
       // the right participants — proving it fires, not just that mocking it
@@ -386,14 +419,368 @@ describe('renewOne', () => {
 
       expect(result.subscriptionId).toEqual(subscription._id);
       expect(result.outcome).toBe('failed_payment');
-      expect(result.paymentIntentStatus).toBeTruthy();
+      expect(result.failureMessage).toBeTruthy();
 
       const after = await Subscription.findById(subscription._id);
       expect(after.status).toBe('active');
+      // Period fields NOT rolled — the failed period stays "due" until a
+      // retry (PR 3) succeeds or exhausts.
       expect(after.currentPeriodStart.toISOString()).toBe(currentPeriodStart.toISOString());
       expect(after.currentPeriodEnd.toISOString()).toBe(currentPeriodEnd.toISOString());
       expect(after.nextBillingDate.toISOString()).toBe(currentPeriodEnd.toISOString());
       expect(after.lastChargeAmount).toBeNull();
+
+      // Retry/dunning state entered (D6: Day 0 -> +1 day).
+      expect(after.retryCount).toBe(1);
+      expect(after.nextRetryAt).not.toBeNull();
+      const expectedNextRetryAt = addOneDay(todayAtMidnight());
+      expect(after.nextRetryAt.toISOString()).toBe(expectedNextRetryAt.toISOString());
+
+      // The ledger row this attempt created — failed, locked amount, not
+      // blocking a future retry (Guard B excludes 'failed' from its
+      // uniqueness scope).
+      const ledgerRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
+      expect(ledgerRow).not.toBeNull();
+      expect(ledgerRow.status).toBe('failed');
+      expect(ledgerRow.amount).toBe(MONTHLY_FEE);
+      expect(ledgerRow.failureMessage).toBeTruthy();
+      expect(ledgerRow.periodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
+
+      // Day-0 failure email fires with the right participants and amount.
+      expect(mailService.sendPaymentFailureEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parent: expect.objectContaining({ email: 'renew-decline@example.com' }),
+          student: expect.objectContaining({ firstName: student.firstName }),
+          amountDue: MONTHLY_FEE,
+          attemptNumber: 1,
+          isFinal: false,
+        })
+      );
+    },
+    30000
+  );
+
+  // docs/plans/registration-ledger-plan.md D4 step 2 — Guard B behaviorally:
+  // a concurrent renewOne double-call for the same period yields exactly
+  // one charged outcome and one skip, never two ledger rows.
+  it(
+    'ledger dedup: a concurrent double-call for the same subscription yields one charged outcome and one skipped_concurrent — exactly one non-failed row exists',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'Concurrent',
+        order: 7,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-concurrent@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      const [resultA, resultB] = await Promise.all([
+        renewOne(subscription._id),
+        renewOne(subscription._id),
+      ]);
+
+      const outcomes = [resultA.outcome, resultB.outcome].sort();
+      // One racer wins ('charged'); the other loses the Guard B insert
+      // race ('skipped_concurrent') — the two calls started from the same
+      // pre-charge state (no existing ledger row yet for either), so this
+      // is the E11000-catch path (D4 step 4), not the dedup pre-check
+      // (D4 step 2, exercised by the "already charged" test below).
+      expect(outcomes).toEqual(['charged', 'skipped_concurrent']);
+
+      const rows = await SubscriptionCycleRegistration.find({ subscriptionId: subscription._id });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe('completed');
+    },
+    30000
+  );
+
+  // D4 step 2's dedup pre-check — a row already 'completed' for this exact
+  // period (e.g. a prior run died after charging but before the period
+  // rolled) must self-heal the subscription without a second charge.
+  it(
+    'skips and un-sticks the subscription when a completed ledger row already exists for this period, with no new Stripe charge',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'AlreadyCharged',
+        order: 8,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-already-charged@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+      const nextPeriodEnd = addOneMonth(currentPeriodEnd);
+
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      // A prior run's already-completed row for this exact period — no
+      // Subscription roll-forward happened for it (the "died after
+      // charging" scenario).
+      await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: subscription._id,
+        scheduleId: schedule._id,
+        studentId: student._id,
+        parentId: parent._id,
+        eventType: 'renewal',
+        status: 'completed',
+        amount: MONTHLY_FEE,
+        breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0 },
+        periodStart: currentPeriodEnd,
+        periodEnd: nextPeriodEnd,
+        stripePaymentIntentId: 'pi_prior_run_already_charged',
+        paidAt: new Date(),
+      });
+
+      const paymentIntentsBefore = await stripe.paymentIntents.list({ limit: 10 });
+
+      const result = await renewOne(subscription._id);
+
+      expect(result).toEqual({ subscriptionId: subscription._id, outcome: 'skipped_already_charged' });
+
+      const after = await Subscription.findById(subscription._id);
+      expect(after.currentPeriodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
+      expect(after.currentPeriodEnd.toISOString()).toBe(nextPeriodEnd.toISOString());
+      expect(after.nextBillingDate.toISOString()).toBe(nextPeriodEnd.toISOString());
+      expect(after.retryCount).toBe(0);
+
+      // No new PaymentIntent was created.
+      const paymentIntentsAfter = await stripe.paymentIntents.list({ limit: 10 });
+      expect(paymentIntentsAfter.data.length).toBe(paymentIntentsBefore.data.length);
+
+      // Still exactly one ledger row for this subscription.
+      const rows = await SubscriptionCycleRegistration.find({ subscriptionId: subscription._id });
+      expect(rows).toHaveLength(1);
+    },
+    30000
+  );
+
+  // D5 — stale-pending recovery, case (a): a pending row whose PaymentIntent
+  // actually succeeded (the process died between the Stripe response and
+  // updating the row) must be adopted, not re-charged.
+  it(
+    'stale-pending recovery: adopts a succeeded PaymentIntent found via metadata search, with NO second charge',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'StaleAdopt',
+        order: 9,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-stale-adopt@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+      const nextPeriodEnd = addOneMonth(currentPeriodEnd);
+
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      // Insert the pending row FIRST (as renewOne itself would, D4 step 4),
+      // then charge it directly via Stripe carrying the SAME metadata
+      // renewOne's own chargeLedgerRow would use — simulating "the process
+      // died right after Stripe confirmed success, before the row/
+      // Subscription were updated."
+      const pendingRow = await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: subscription._id,
+        scheduleId: schedule._id,
+        studentId: student._id,
+        parentId: parent._id,
+        eventType: 'renewal',
+        status: 'pending',
+        amount: MONTHLY_FEE,
+        breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0 },
+        periodStart: currentPeriodEnd,
+        periodEnd: nextPeriodEnd,
+      });
+
+      const paymentMethod = await PaymentMethod.findOne({ parentId: parent._id });
+      const stripeCustomer = await stripe.customers.list({ email: parent.email, limit: 1 });
+      const succeededPI = await stripe.paymentIntents.create(
+        {
+          amount: Math.round(MONTHLY_FEE * 100),
+          currency: 'usd',
+          customer: stripeCustomer.data[0].id,
+          payment_method: paymentMethod.stripePaymentMethodId,
+          off_session: true,
+          confirm: true,
+          metadata: { registrationId: String(pendingRow._id) },
+        },
+        { idempotencyKey: `payment_${pendingRow._id}` }
+      );
+      expect(succeededPI.status).toBe('succeeded');
+
+      const paymentIntentsBefore = await stripe.paymentIntents.list({ limit: 10 });
+
+      const result = await renewOne(subscription._id);
+
+      expect(result.outcome).toBe('charged');
+      expect(result.chargeAmount).toBe(MONTHLY_FEE);
+
+      // No second charge — same count as before renewOne ran.
+      const paymentIntentsAfter = await stripe.paymentIntents.list({ limit: 10 });
+      expect(paymentIntentsAfter.data.length).toBe(paymentIntentsBefore.data.length);
+
+      const updatedRow = await SubscriptionCycleRegistration.findById(pendingRow._id);
+      expect(updatedRow.status).toBe('completed');
+      expect(updatedRow.stripePaymentIntentId).toBe(succeededPI.id);
+
+      const after = await Subscription.findById(subscription._id);
+      expect(after.currentPeriodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
+      expect(after.currentPeriodEnd.toISOString()).toBe(nextPeriodEnd.toISOString());
+      expect(after.retryCount).toBe(0);
+    },
+    30000
+  );
+
+  // D5 — stale-pending recovery, case (b): a pending row with no matching
+  // PaymentIntent at all must be re-driven under the SAME idempotency key.
+  it(
+    'stale-pending recovery: re-drives the charge under the same idempotency key when no matching PaymentIntent is found',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'StaleRedrive',
+        order: 10,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-stale-redrive@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+      const nextPeriodEnd = addOneMonth(currentPeriodEnd);
+
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      // A pending row that never actually reached Stripe (the process died
+      // right after the insert, before the charge call) — no PaymentIntent
+      // anywhere carries its id.
+      const pendingRow = await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: subscription._id,
+        scheduleId: schedule._id,
+        studentId: student._id,
+        parentId: parent._id,
+        eventType: 'renewal',
+        status: 'pending',
+        amount: MONTHLY_FEE,
+        breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0 },
+        periodStart: currentPeriodEnd,
+        periodEnd: nextPeriodEnd,
+      });
+
+      const result = await renewOne(subscription._id);
+
+      expect(result.outcome).toBe('charged');
+      expect(result.chargeAmount).toBe(MONTHLY_FEE);
+
+      const updatedRow = await SubscriptionCycleRegistration.findById(pendingRow._id);
+      expect(updatedRow.status).toBe('completed');
+      expect(updatedRow.stripePaymentIntentId).toBeTruthy();
+
+      const paymentIntent = await stripe.paymentIntents.retrieve(updatedRow.stripePaymentIntentId);
+      expect(paymentIntent.metadata.registrationId).toBe(String(pendingRow._id));
+
+      const after = await Subscription.findById(subscription._id);
+      expect(after.currentPeriodEnd.toISOString()).toBe(nextPeriodEnd.toISOString());
+    },
+    30000
+  );
+
+  // Failed row does NOT block a later attempt — Guard B's index excludes
+  // 'failed' from its uniqueness scope, expressed as behavior rather than
+  // asserted against the raw index directly (TESTING_STRATEGY.md's "no raw
+  // index tests" rule).
+  it(
+    'a failed row for this period does not block a later successful renewOne call for the same period',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'FailedThenRetry',
+        order: 11,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-failed-then-ok@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const Service = require('../../src/models/service.model');
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+      const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart,
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      // A failed row already exists for this exact period (e.g. from an
+      // earlier retry attempt scenario) — Guard B must not block a fresh
+      // insert for the same {subscriptionId, periodStart}.
+      await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: subscription._id,
+        scheduleId: schedule._id,
+        studentId: student._id,
+        parentId: parent._id,
+        eventType: 'renewal',
+        status: 'failed',
+        amount: MONTHLY_FEE,
+        breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0 },
+        periodStart: currentPeriodEnd,
+        periodEnd: addOneMonth(currentPeriodEnd),
+        failureMessage: 'a prior attempt failed',
+      });
+
+      const result = await renewOne(subscription._id);
+
+      expect(result.outcome).toBe('charged');
+
+      const rows = await SubscriptionCycleRegistration.find({ subscriptionId: subscription._id });
+      expect(rows).toHaveLength(2);
+      expect(rows.filter((row) => row.status === 'completed')).toHaveLength(1);
+      expect(rows.filter((row) => row.status === 'failed')).toHaveLength(1);
     },
     30000
   );
