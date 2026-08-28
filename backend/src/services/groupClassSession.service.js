@@ -1,8 +1,11 @@
+const moment = require('moment-timezone');
 const GroupClassSession = require('../models/groupClassSession.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const Subscription = require('../models/subscription.model');
 const Visit = require('../models/visit.model');
 const visitService = require('./visit.service');
+const { DEFAULT_TIMEZONE } = require('../config/timezone');
+const { todayAtMidnight } = require('../utils/billingDates');
 
 const SESSION_COUNT = 8;
 const DAYS_PER_WEEK = 7;
@@ -34,14 +37,18 @@ function conflictError(message) {
 // Returns the next date on/after `fromDate` that falls on `dayOfWeek`
 // (0=Sunday...6=Saturday, Date.getDay() convention). If `fromDate` itself
 // already falls on `dayOfWeek`, it is returned (diff 0) — "on or after".
-function nextOccurrenceOnOrAfter(fromDate, dayOfWeek) {
-  const result = new Date(fromDate);
-  result.setHours(0, 0, 0, 0);
+//
+// `fromDate` is always a real instant (the only current caller passes
+// `new Date()`) — resolved via real IANA timezone math in `tz` (default
+// Central; ready for a per-location `tz` once more than one location
+// exists — docs/plans/timezone-consistency-plan.md D5). Same "real instant,
+// not a date-only sentinel" input contract as scheduleOccurrence.js's
+// sibling function.
+function nextOccurrenceOnOrAfter(fromDate, dayOfWeek, tz = DEFAULT_TIMEZONE) {
+  const start = moment(fromDate).tz(tz).startOf('day');
+  const diff = (dayOfWeek - start.day() + 7) % 7;
 
-  const diff = (dayOfWeek - result.getDay() + 7) % 7;
-  result.setDate(result.getDate() + diff);
-
-  return result;
+  return start.add(diff, 'days').toDate();
 }
 
 // Pure-ish: the only non-deterministic input is `new Date()` at call time,
@@ -123,9 +130,18 @@ const DEFAULT_UPCOMING_WINDOW_DAYS = 30;
 async function listUpcomingByClass(classId, days = DEFAULT_UPCOMING_WINDOW_DAYS) {
   const scheduleIds = await GroupClassSchedule.find({ classId }).distinct('_id');
 
-  const rangeStart = new Date();
-  rangeStart.setHours(0, 0, 0, 0);
+  // Reuses the shared primitive (docs/plans/timezone-consistency-plan.md
+  // D5) instead of hand-rolling a third independent copy of the same
+  // "today at midnight" math this file and billingDates.js each used to
+  // have their own version of.
+  const rangeStart = todayAtMidnight();
 
+  // Raw +days on a real instant (rangeStart) is NOT itself DST-safe in
+  // general (billingDates.js's docblock) — reviewed, not an oversight: this
+  // is only ever compared against day-granularity GroupClassSession.date
+  // sentinels, so a sub-day drift here can never flip which calendar day's
+  // sentinel is included/excluded (the drift is always far smaller than the
+  // 24h gap between adjacent sentinel values).
   const rangeEnd = new Date(rangeStart);
   rangeEnd.setDate(rangeEnd.getDate() + days);
 

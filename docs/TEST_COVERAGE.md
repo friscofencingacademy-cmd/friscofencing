@@ -6,16 +6,15 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 86.98% | 89.62% |
-| Branches | — (informational) | 66.99% | 79.48% |
-| Functions | — (informational) | 88.45% | 89.03% |
-| Lines | — (informational) | 87.02% | 90.87% |
+| Statements | 80% | 87.94% | 89.62% |
+| Branches | — (informational) | 68.57% | 79.48% |
+| Functions | — (informational) | 89.40% | 89.03% |
+| Lines | — (informational) | 87.99% | 90.87% |
 
-Backend re-measured 2026-08-27 via `TZ=UTC npm test -- --coverage` (PR 1 of
-`docs/plans/registration-ledger-plan.md` — the Registration payment-ledger rebuild); frontend
-figure carried forward from 2026-08-23 (untouched by that PR beyond a type-only change to
-`lib/types.ts`, verified by a full frontend suite run — 47/47 suites green). Both clear the
-80%-statements target.
+Backend re-measured 2026-08-28 via `TZ=UTC npm test -- --coverage` (`docs/plans/timezone-
+consistency-plan.md`, plus the orphaned-reference fix that shipped the same day — both backend-
+only). Frontend figure carried forward from 2026-08-23 (neither of that day's PRs touched
+frontend logic). Both clear the 80%-statements target.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
@@ -109,6 +108,6 @@ cd frontend && TZ=UTC npm test
 
 ## Improvement plan (short)
 
-1. Add a standalone `backend/tests/utils/billingDates.test.js` for `addOneMonth`/`todayAtMidnight`.
+1. ~~Add a standalone `backend/tests/utils/billingDates.test.js` for `addOneMonth`/`todayAtMidnight`.~~ Done 2026-08-28 — `docs/plans/timezone-consistency-plan.md`, plus a new `scheduleOccurrence.test.js` sibling.
 2. Retrofit the frontend suite from `fireEvent` to `userEvent.setup()` per the interaction rule codified in `docs/TESTING_STRATEGY.md` — sizable, tracked here rather than done ad hoc inside a docs-organization phase.
 3. Consider splitting `scheduling.ts`/`parent.ts`/`privateClass*.ts`/`coachContracts.ts` service-level tests out from their consuming pages once any of them grows past what its current pages exercise.
