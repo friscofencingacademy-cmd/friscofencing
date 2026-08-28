@@ -202,6 +202,27 @@ describe('Private class enrollment routes', () => {
       expect(res.status).toBe(409);
     });
 
+    // orphaned-coach-reference-fix-plan D4 — a stale bookmarked slot link
+    // whose coach was hard-deleted (bypassing the D5 delete-guard,
+    // simulating a pre-existing orphan) must 404, not crash on the null
+    // populate.
+    it('returns 404 when the schedule\'s coach was deleted', async () => {
+      const { coach, schedule } = await seedCoachWithSlot({ suffix: 'orphan' });
+      const { student } = await seedParentAndStudent('orphan');
+      const parentAgent = await loginAgent('pce-parent-orphan@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      await User.deleteOne({ _id: coach._id });
+
+      const res = await parentAgent.post('/api/v1/private-class-enrollments').send({
+        studentId: student._id.toString(),
+        scheduleId: schedule._id,
+      });
+
+      expect(res.status).toBe(404);
+      expect(await PrivateClassEnrollment.countDocuments({ studentId: student._id })).toBe(0);
+    });
+
     it(
       'slot race regression: pre-claiming the slot returns 409 and leaves no orphan enrollment',
       async () => {

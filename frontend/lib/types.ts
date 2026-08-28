@@ -319,7 +319,9 @@ export interface AdminSubscriptionClassRef {
 export interface AdminSubscriptionScheduleRef {
   _id: string;
   classId: AdminSubscriptionClassRef;
-  coachId: AdminSubscriptionPersonRef;
+  // null when the coach was deleted without a delete-guard blocking it
+  // (orphaned-coach-reference-fix-plan D3) — never assume it's populated.
+  coachId: AdminSubscriptionPersonRef | null;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
@@ -397,7 +399,9 @@ export type PrivateChargeStatus = 'pending' | 'completed' | 'failed';
 // GET /coach-contracts populates coachId -> {firstName,lastName,email}.
 export interface CoachContract {
   _id: string;
-  coachId: AdminSubscriptionPersonRef;
+  // null when the coach was deleted without a delete-guard blocking it
+  // (orphaned-coach-reference-fix-plan D3) — never assume it's populated.
+  coachId: AdminSubscriptionPersonRef | null;
   studentBillingRate: number;
   coachCompensationRate: number;
   sessionDurationMinutes: number;
@@ -412,7 +416,9 @@ export interface CoachContract {
 // covers both by making the populated fields a union of ref-or-id.
 export interface PrivateClassScheduleRow {
   _id: string;
-  coachId: AdminSubscriptionPersonRef | string;
+  // null when the coach was deleted without a delete-guard blocking it
+  // (orphaned-coach-reference-fix-plan D3) — never assume it's populated.
+  coachId: AdminSubscriptionPersonRef | string | null;
   dayOfWeek: number;
   startTime: string;
   durationMinutes: number;
@@ -442,9 +448,12 @@ export interface PublicPrivateClassCoach {
 
 export interface PrivateClassEnrollmentRow {
   _id: string;
-  studentId: { _id: string; firstName: string; lastName: string };
-  parentId: AdminSubscriptionPersonRef;
-  coachId: AdminSubscriptionPersonRef;
+  // All three can be null when the referenced user was deleted without a
+  // delete-guard blocking it (orphaned-coach-reference-fix-plan D3/§8a) —
+  // never assume any of them is populated.
+  studentId: { _id: string; firstName: string; lastName: string } | null;
+  parentId: AdminSubscriptionPersonRef | null;
+  coachId: AdminSubscriptionPersonRef | null;
   coachContractId: string;
   agreedHourlyRate: number;
   status: PrivateEnrollmentStatus;

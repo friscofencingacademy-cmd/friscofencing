@@ -98,6 +98,17 @@ describe('AdminSubscriptionsPage', () => {
     expect(within(table).getByText('Active')).toBeInTheDocument();
   });
 
+  // orphaned-coach-reference-fix-plan D2/D3 — a schedule whose coach was
+  // deleted without a delete-guard blocking it must render a fallback
+  // label, not crash.
+  it('renders a fallback coach label when the schedule\'s coach was deleted', async () => {
+    rows = [makeRow({ scheduleId: { ...makeRow().scheduleId, coachId: null } })];
+    render(<AdminSubscriptionsPage />);
+
+    await screen.findByText('Sam Rivera');
+    expect(screen.getByText('Coach no longer available')).toBeInTheDocument();
+  });
+
   it('shows the one-time registration fee as a note under Last Charge when the subscription has one', async () => {
     rows = [makeRow({ registrationFeeCharged: 25 })];
     render(<AdminSubscriptionsPage />);

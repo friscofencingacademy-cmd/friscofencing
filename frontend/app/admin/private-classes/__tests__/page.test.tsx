@@ -105,6 +105,32 @@ describe('AdminPrivateClassesPage', () => {
     expect(screen.getByText('$65.00/hr')).toBeInTheDocument();
   });
 
+  // orphaned-coach-reference-fix-plan D2/D3/§8a — a student/parent/coach
+  // deleted without a delete-guard blocking it leaves a null ref on the
+  // enrollment; the row must render a fallback label, not crash.
+  it('renders fallback labels for an enrollment whose student/parent/coach were deleted', async () => {
+    enrollments = [
+      { ...ENROLLMENT, _id: 'penroll-orphan', studentId: null, parentId: null, coachId: null },
+    ];
+    render(<AdminPrivateClassesPage />);
+
+    await screen.findByText('Student no longer available');
+    expect(screen.getByText('Parent no longer available')).toBeInTheDocument();
+    expect(screen.getByText('Coach no longer available')).toBeInTheDocument();
+  });
+
+  it('cancel-confirmation dialog falls back gracefully when the enrollment\'s student was deleted', async () => {
+    enrollments = [{ ...ENROLLMENT, studentId: null }];
+    const user = userEvent.setup();
+    render(<AdminPrivateClassesPage />);
+
+    await screen.findByText('Student no longer available');
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/Student no longer available/)).toBeInTheDocument();
+  });
+
   it('cancels an enrollment with the same confirm copy as the parent side', async () => {
     const user = userEvent.setup();
     render(<AdminPrivateClassesPage />);

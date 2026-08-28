@@ -90,10 +90,14 @@ function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessons
               {entries.map(({ enrollment, slot, charges }) => (
                 <tr key={enrollment._id}>
                   <td>
-                    {enrollment.studentId.firstName} {enrollment.studentId.lastName}
+                    {enrollment.studentId
+                      ? `${enrollment.studentId.firstName} ${enrollment.studentId.lastName}`
+                      : 'Student no longer available'}
                   </td>
                   <td>
-                    {enrollment.coachId.firstName} {enrollment.coachId.lastName}
+                    {enrollment.coachId
+                      ? `${enrollment.coachId.firstName} ${enrollment.coachId.lastName}`
+                      : 'Coach no longer available'}
                   </td>
                   <td>{slot ? `${DAY_LABELS[slot.dayOfWeek]} ${formatTime(slot.startTime)}` : '—'}</td>
                   <td>${enrollment.agreedHourlyRate.toFixed(2)}/hr</td>

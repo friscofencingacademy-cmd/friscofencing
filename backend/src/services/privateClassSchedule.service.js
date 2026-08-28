@@ -109,10 +109,15 @@ async function remove(id, requestingUser) {
 // AND >=1 available slot. No student/parent data leaks: only coach name +
 // slot/price/date facts.
 async function listPublic() {
-  const schedules = await PrivateClassSchedule.find({ studentId: null, isActive: true }).populate(
+  const allSchedules = await PrivateClassSchedule.find({ studentId: null, isActive: true }).populate(
     'coachId',
     'firstName lastName'
   );
+
+  // Excludes slots whose coach was deleted without a delete-guard blocking
+  // it (orphaned-coach-reference-fix-plan D1) — mirrors
+  // groupClassSchedule.service.js's own listPublic() precedent.
+  const schedules = allSchedules.filter((schedule) => schedule.coachId);
 
   const coachIds = [...new Set(schedules.map((schedule) => String(schedule.coachId._id)))];
   const contracts = await Promise.all(

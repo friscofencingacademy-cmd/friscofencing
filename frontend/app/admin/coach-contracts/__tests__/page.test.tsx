@@ -99,4 +99,13 @@ describe('AdminCoachContractsPage', () => {
 
     await waitFor(() => expect(deactivatedId).toBe('contract-1'));
   });
+
+  // orphaned-coach-reference-fix-plan D2/D3 — a contract whose coach was
+  // deleted must render a fallback label, not crash.
+  it('renders a fallback label when the contract\'s coach was deleted', async () => {
+    contracts = [{ ...CONTRACT, _id: 'contract-orphan', coachId: null }];
+    render(<AdminCoachContractsPage />);
+
+    await screen.findByText('Coach no longer available');
+  });
 });

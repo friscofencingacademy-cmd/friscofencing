@@ -395,6 +395,29 @@ describe('SubscriptionsPage', () => {
       await waitFor(() => expect(cancelledPrivateEnrollmentId).toBe('penroll-1'));
     });
 
+    // orphaned-coach-reference-fix-plan D2/D3/§8a — a private-lesson
+    // enrollment whose student/coach was deleted without a delete-guard
+    // blocking it must render a fallback label, not crash.
+    it('renders fallback labels when the enrollment\'s student/coach were deleted', async () => {
+      server.use(
+        http.get('*/private-class-enrollments/mine', () =>
+          HttpResponse.json({
+            enrollments: [
+              {
+                ...PRIVATE_ENTRY,
+                enrollment: { ...PRIVATE_ENTRY.enrollment, studentId: null, coachId: null },
+              },
+            ],
+          })
+        )
+      );
+
+      renderSubscriptionsPage();
+
+      expect(await screen.findByText('Student no longer available')).toBeInTheDocument();
+      expect(screen.getByText('Coach no longer available')).toBeInTheDocument();
+    });
+
     it('shows a message when the parent has no private lessons yet', async () => {
       server.use(http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })));
 

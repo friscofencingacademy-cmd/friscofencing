@@ -59,7 +59,10 @@ async function create({ studentId, scheduleId }, requestingUser) {
     'firstName lastName email'
   );
 
-  if (!schedule || !schedule.isActive) {
+  // schedule.coachId is null when the coach was deleted without a
+  // delete-guard blocking it (orphaned-coach-reference-fix-plan D4) — a
+  // stale bookmarked slot link must 404, not crash on a null populate.
+  if (!schedule || !schedule.isActive || !schedule.coachId) {
     throw notFoundError('Private class schedule not found');
   }
 

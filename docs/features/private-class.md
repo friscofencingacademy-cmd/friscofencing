@@ -43,6 +43,41 @@ Parent (or admin) cancels the enrollment
 
 Full field tables + index rationale also live in `DATABASE_SCHEMA_DOCUMENTATION.md`.
 
+## Orphaned-reference handling (orphaned-coach-reference-fix-plan)
+
+Frisco hard-deletes users (no soft-delete `isDeleted` flag, unlike CKQ) — a User `_id`
+referenced by another collection can go missing the moment a delete-guard is incomplete. This
+caused a live production/staging incident: two orphaned free `PrivateClassSchedule` docs (their
+coach hard-deleted before a guard blocked it) 500'd the public `/private-classes` page on an
+unconditional `.coachId._id` read after a null populate. Two layers now guard against a repeat:
+
+- **Delete guards (`user.service.js` `remove()`).** Deleting a **coach** is blocked (409) by any
+  `PrivateClassSchedule`, `CoachContract`, or `PrivateClassEnrollment` still referencing them
+  (alongside the pre-existing `GroupClassSchedule` check). Deleting a **student** is blocked by any
+  `PrivateClassEnrollment` referencing them (alongside the pre-existing `Subscription`/`TrialClass`
+  checks) — this student-side check was the gap that let the live incident's orphans form.
+- **Read-path degradation (D1/D2, asymmetric by purpose).** A read path that already existed before
+  a delete-guard closed the gap above can still encounter an orphan from before the fix. Two
+  different correct behaviors, by what the listing is for:
+  - **Booking-availability listings exclude the orphaned row** — `listPublic()` filters out any
+    slot whose `coachId` didn't populate before grouping (mirrors `groupClassSchedule.service.js`'s
+    own `listPublic()`), and `privateClassEnrollment.service.js create()` 404s a stale bookmarked
+    slot link whose coach is gone, on top of its existing `isActive` check.
+  - **Historical/management/financial listings keep the row and show a fallback label** instead of
+    crashing — every admin/parent page that renders a possibly-null `coachId`/`studentId`/`parentId`
+    (`admin/coach-contracts`, `admin/private-classes`, `admin/subscriptions`,
+    `parent/subscriptions`) does `person ? \`${person.firstName} ${person.lastName}\` : 'Coach no
+    longer available'` (or the student/parent equivalent) rather than assuming the ref is populated.
+    `frontend/lib/types.ts` widens every one of those ref fields to `| null` so `tsc --noEmit`
+    catches the next unguarded read.
+- **Diagnostics, read-only.** `backend/scripts/find-orphaned-references.js` (lib:
+  `scripts/lib/findOrphanedReferences.js`) scans `PrivateClassSchedule`/`CoachContract`/
+  `PrivateClassEnrollment`/`PrivateClassSession` for any `coachId`/`studentId`/`parentId` that no
+  longer resolves to a `User`, and reports only — no writes. `backend/scripts/reset-customer-data.js`
+  (the staging reset tool) was extended so it can never itself become a source of new orphans: it
+  cleans up `PrivateClassEnrollment`/`PrivateClassSession`/`Evaluation` rows and frees or deletes
+  `PrivateClassSchedule`/`CoachContract` rows for every user it deletes.
+
 ## Pricing — `backend/src/utils/privateClassPricing.js`
 
 The **only** place the per-session price formula lives (Hard Rule 7 — no pricing math anywhere
