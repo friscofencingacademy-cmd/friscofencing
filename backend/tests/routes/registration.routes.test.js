@@ -203,7 +203,54 @@ async function seedScheduleWithFee(monthlyFee, { levelName = 'Level', levelOrder
   return scheduleRes.body.schedule._id;
 }
 
+// Every real-Stripe registration test in this suite runs with `now` frozen
+// to the 1st of a month (docs/decisions/007-calendar-month-billing.md).
+// Under always-on proration (the Setting.prorationEnabled toggle is
+// retired — docs/plans/billing-anchor-and-sibling-discount-plan.md D1),
+// registering exactly on the 1st means remainingClassDays === totalClassDays
+// for computeProration(), so proratedAmount always equals the raw
+// monthlyFee — every pre-existing flat-fee assertion below (MONTHLY_FEE,
+// MONTHLY_FEE * 2, etc.) stays numerically correct. Only the
+// prorated/totalClassDays/remainingClassDays/dailyRate fields themselves
+// flip from the old false/null shape to real computed values — asserted via
+// expectedProrationFor() below (the real computeProration() function, never
+// a hardcoded day count that could drift). A fixed literal instant, not
+// "now + N days" (docs/TESTING_STRATEGY.md's no-time-bomb-dates rule).
+const FROZEN_NOW = new Date('2026-10-01T15:00:00.000Z'); // Oct 1, 2026, 10am
+// Central (CDT, UTC-5) — the 1st of the month in both UTC and Central, so
+// todayDateOnly() resolves to the same calendar day regardless of which
+// zone a reader mentally checks it against.
+
+// Real computeProration() for `levelId`, anchored to FROZEN_NOW's calendar
+// day — the single source of what "prorated / totalClassDays /
+// remainingClassDays / dailyRate" SHOULD be for a registration/preview
+// happening right now in this suite, so an assertion can never hardcode a
+// day count that silently drifts if FROZEN_NOW or a schedule's weekday ever
+// changes.
+async function expectedProrationFor(levelId, monthlyFee = MONTHLY_FEE) {
+  return computeProration({ levelId, monthlyFee, registrationDate: todayDateOnly() });
+}
+
 describe('Registration routes', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({
+      now: FROZEN_NOW,
+      doNotFake: [
+        'setTimeout',
+        'clearTimeout',
+        'setInterval',
+        'clearInterval',
+        'setImmediate',
+        'clearImmediate',
+        'nextTick',
+      ],
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   describe('POST /api/v1/registrations', () => {
     it(
       'lets a parent register their child, charges the saved card, creates Registration + Subscription, and backfills the roster into schedule + every future session',
@@ -242,7 +289,11 @@ describe('Registration routes', () => {
         expect(ledgerRow.status).toBe('completed');
         expect(ledgerRow.amount).toBe(res.body.totalChargeAmount);
         expect(ledgerRow.breakdown.monthlyFee).toBe(MONTHLY_FEE);
-        expect(ledgerRow.breakdown.prorated).toBe(false);
+        // Always true now — proration is unconditional (ADR 007); this
+        // registration happens to land exactly on the 1st (FROZEN_NOW), so
+        // the prorated amount equals the full monthly fee.
+        expect(ledgerRow.breakdown.prorated).toBe(true);
+        expect(ledgerRow.breakdown.proratedAmount).toBe(MONTHLY_FEE);
         expect(ledgerRow.periodStart).toBeInstanceOf(Date);
         expect(ledgerRow.periodEnd).toBeInstanceOf(Date);
         expect(ledgerRow.periodEnd.getTime()).toBeGreaterThan(ledgerRow.periodStart.getTime());
@@ -792,12 +843,14 @@ describe('Registration routes', () => {
 
   describe('prorated first-month billing', () => {
     it(
-      'charges nothing extra and keeps the existing rolling period when prorationEnabled is OFF (the default) — byte-identical to pre-proration behavior',
+      'charges the full monthly fee and anchors the period to the next 1st when registering exactly on the 1st (proration is unconditional — ADR 007)',
       async () => {
-        const { scheduleId } = await seedSchedule();
-        const { student } = await seedParentAndStudent('proration-off@example.com');
-        const parentAgent = await loginAgent('proration-off@example.com');
+        const { scheduleId, levelId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('proration-on-the-1st@example.com');
+        const parentAgent = await loginAgent('proration-on-the-1st@example.com');
         await savePaymentMethodFor(parentAgent);
+
+        const expected = await expectedProrationFor(levelId);
 
         const res = await parentAgent.post('/api/v1/registrations').send({
           studentId: student._id.toString(),
@@ -806,48 +859,35 @@ describe('Registration routes', () => {
 
         expect(res.status).toBe(201);
         expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
-        expect(res.body.prorated).toBe(false);
-        expect(res.body.totalClassDays).toBeNull();
-        expect(res.body.remainingClassDays).toBeNull();
-        expect(res.body.dailyRate).toBeNull();
+        expect(res.body.prorated).toBe(true);
+        expect(res.body.totalClassDays).toBe(expected.totalClassDays);
+        expect(res.body.remainingClassDays).toBe(expected.totalClassDays); // on the 1st, nothing has passed yet
+        expect(res.body.dailyRate).toBe(expected.dailyRate);
 
         const subscription = await Subscription.findOne({ studentId: student._id });
-        expect(subscription.firstChargeProrated).toBe(false);
-        // Rolling one-month period, not a calendar-month boundary.
-        const daysUntilPeriodEnd =
-          (subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime()) /
-          (1000 * 60 * 60 * 24);
-        expect(daysUntilPeriodEnd).toBeGreaterThan(27); // ~a full month out, not "days left this month"
+        expect(subscription.firstChargeProrated).toBe(true);
+        // Calendar-month boundary (ADR 007), not a rolling month from
+        // anchorDate — registering on the 1st, both would coincidentally
+        // land on the same date, so this asserts the actual boundary
+        // shape (getDate() === 1) rather than relying on that coincidence.
+        expect(subscription.currentPeriodEnd.getUTCDate()).toBe(1);
+        expect(subscription.currentPeriodEnd.getTime()).toBeGreaterThan(
+          subscription.currentPeriodStart.getTime()
+        );
       },
       20000
     );
 
     it(
-      'explicitly toggling prorationEnabled OFF (a Setting doc exists but disabled) is the same as no Setting at all',
+      'prorates the real Stripe charge and anchors the period to the calendar-month boundary for a mid-month registration',
       async () => {
-        await Setting.create({ prorationEnabled: false });
-
-        const { scheduleId } = await seedSchedule();
-        const { student } = await seedParentAndStudent('proration-explicit-off@example.com');
-        const parentAgent = await loginAgent('proration-explicit-off@example.com');
-        await savePaymentMethodFor(parentAgent);
-
-        const res = await parentAgent.post('/api/v1/registrations').send({
-          studentId: student._id.toString(),
-          scheduleId,
-        });
-
-        expect(res.status).toBe(201);
-        expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
-        expect(res.body.prorated).toBe(false);
-      },
-      20000
-    );
-
-    it(
-      'prorates the real Stripe charge and anchors the period to calendar month-end when prorationEnabled is ON',
-      async () => {
-        await Setting.create({ prorationEnabled: true });
+        // The suite's default FROZEN_NOW is deliberately the 1st (so the
+        // OTHER tests' flat-fee assertions stay simple) — this specific
+        // test needs a genuine partial month, so it moves the clock forward
+        // mid-month before registering. Fake timers stay active throughout
+        // (the outer beforeEach already set them up); this only changes
+        // what "now" reads as.
+        jest.setSystemTime(new Date('2026-10-15T15:00:00.000Z'));
 
         const { scheduleId, levelId } = await seedSchedule();
         const { student } = await seedParentAndStudent('proration-on@example.com');
@@ -869,6 +909,12 @@ describe('Registration routes', () => {
           // sync with reality.
           registrationDate: todayDateOnly(),
         });
+
+        // Prove this is a REAL partial-month charge, not a coincidental
+        // full month — the point of this test, now that every registration
+        // is prorated (a bug here would silently pass if this test also
+        // landed on the 1st, same as the "on the 1st" test above it).
+        expect(expected.remainingClassDays).toBeLessThan(expected.totalClassDays);
 
         const res = await parentAgent.post('/api/v1/registrations').send({
           studentId: student._id.toString(),
@@ -922,8 +968,6 @@ describe('Registration routes', () => {
     it(
       'anchors proration to the correct Central calendar day for an immediate registration inside the UTC/Central gap window',
       async () => {
-        await Setting.create({ prorationEnabled: true });
-
         // 2026-01-16T04:30:00.000Z is 2026-01-15 10:30pm Central (CST) but
         // already Jan 16 in UTC — the exact daily gap window this plan
         // closes.
@@ -975,7 +1019,11 @@ describe('Registration routes', () => {
     it(
       'applies proration BEFORE the sibling discount (owner-directed sequencing) — the 10% is computed on the prorated amount, not the raw list price',
       async () => {
-        await Setting.create({ prorationEnabled: true });
+        // Mid-month, same reasoning as the mid-month proration test above —
+        // on the 1st, proratedAmount === monthlyFee exactly, which would
+        // make this test pass without actually proving the sibling
+        // comparison uses the PRORATED figure rather than the raw one.
+        jest.setSystemTime(new Date('2026-10-15T15:00:00.000Z'));
 
         const parent = await seedUser({ role: 'parent', email: 'proration-sibling@example.com' });
         const firstChild = await User.create({
@@ -1048,8 +1096,6 @@ describe('Registration routes', () => {
     it(
       'anchors proration and the Subscription period to a real, parent-chosen future session date instead of today',
       async () => {
-        await Setting.create({ prorationEnabled: true });
-
         const { scheduleId, levelId } = await seedSchedule();
         const { student } = await seedParentAndStudent('startdate-future@example.com');
         const parentAgent = await loginAgent('startdate-future@example.com');
@@ -1129,8 +1175,6 @@ describe('Registration routes', () => {
     });
 
     it('GET /preview anchors proration to a provided startDate the same way the real charge does', async () => {
-      await Setting.create({ prorationEnabled: true });
-
       const { scheduleId, levelId } = await seedSchedule();
       const { student } = await seedParentAndStudent('startdate-preview@example.com');
       const parentAgent = await loginAgent('startdate-preview@example.com');
@@ -1159,9 +1203,11 @@ describe('Registration routes', () => {
 
   describe('GET /api/v1/registrations/preview', () => {
     it('returns the undiscounted monthly fee for an only child, and creates/charges nothing', async () => {
-      const { scheduleId } = await seedSchedule();
+      const { scheduleId, levelId } = await seedSchedule();
       const { student } = await seedParentAndStudent('reg-preview1@example.com');
       const parentAgent = await loginAgent('reg-preview1@example.com');
+
+      const expected = await expectedProrationFor(levelId);
 
       const res = await parentAgent.get('/api/v1/registrations/preview').query({
         studentId: student._id.toString(),
@@ -1180,12 +1226,15 @@ describe('Registration routes', () => {
         registrationFeeCharged: 0,
         registrationFeeWaived: false,
         registrationFeeReason: null,
-        // Proration defaults to OFF — byte-identical to pre-proration
-        // behavior — until an admin explicitly enables it.
-        prorated: false,
-        totalClassDays: null,
-        remainingClassDays: null,
-        dailyRate: null,
+        // Proration is unconditional now (ADR 007) — this preview happens
+        // to land on the 1st (FROZEN_NOW), so the prorated amount equals
+        // the full monthly fee, but prorated/totalClassDays/
+        // remainingClassDays/dailyRate are real computed values now, never
+        // false/null.
+        prorated: expected.prorated,
+        totalClassDays: expected.totalClassDays,
+        remainingClassDays: expected.remainingClassDays,
+        dailyRate: expected.dailyRate,
       });
       // periodEnd is always present (even when not prorated) so the wizard
       // can always show a "renews on" date — asserted loosely since it's
@@ -1236,6 +1285,10 @@ describe('Registration routes', () => {
           levelOrder: 21,
         });
 
+        const cheaperSchedule = await GroupClassSchedule.findById(cheaperScheduleId);
+        const cheaperGroupClass = await GroupClass.findById(cheaperSchedule.classId);
+        const expected = await expectedProrationFor(cheaperGroupClass.levelId);
+
         const firstRes = await parentAgent.post('/api/v1/registrations').send({
           studentId: firstChild._id.toString(),
           scheduleId: pricierScheduleId,
@@ -1261,10 +1314,10 @@ describe('Registration routes', () => {
           registrationFeeCharged: 0,
           registrationFeeWaived: false,
           registrationFeeReason: null,
-          prorated: false,
-          totalClassDays: null,
-          remainingClassDays: null,
-          dailyRate: null,
+          prorated: expected.prorated,
+          totalClassDays: expected.totalClassDays,
+          remainingClassDays: expected.remainingClassDays,
+          dailyRate: expected.dailyRate,
         });
         expect(new Date(siblingPreviewPeriodEnd).getTime()).toBeGreaterThan(Date.now());
 

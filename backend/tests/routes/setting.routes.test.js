@@ -56,12 +56,11 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 0,
         returningStudentGracePeriodMonths: 0,
-        prorationEnabled: false,
       });
     });
 
     it('returns the saved values once a Setting doc exists', async () => {
-      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6, prorationEnabled: true });
+      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
       await seedUser({ role: 'superadmin', email: 'setting-super2@example.com' });
       const superAgent = await loginAgent('setting-super2@example.com');
 
@@ -71,7 +70,6 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 25,
         returningStudentGracePeriodMonths: 6,
-        prorationEnabled: true,
       });
     });
 
@@ -95,19 +93,18 @@ describe('Setting routes', () => {
 
       const res = await superAgent
         .patch('/api/v1/settings')
-        .send({ registrationFee: 25, returningStudentGracePeriodMonths: 6, prorationEnabled: true });
+        .send({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
 
       expect(res.status).toBe(200);
       expect(res.body.settings).toEqual({
         registrationFee: 25,
         returningStudentGracePeriodMonths: 6,
-        prorationEnabled: true,
       });
       expect(await Setting.countDocuments()).toBe(1);
     });
 
     it('a partial update touches only the field sent, never resetting the others', async () => {
-      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6, prorationEnabled: true });
+      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
       await seedUser({ role: 'superadmin', email: 'setting-super4@example.com' });
       const superAgent = await loginAgent('setting-super4@example.com');
 
@@ -117,33 +114,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 40,
         returningStudentGracePeriodMonths: 6,
-        prorationEnabled: true,
       });
-    });
-
-    it('toggles prorationEnabled independently of the other two fields', async () => {
-      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6, prorationEnabled: false });
-      await seedUser({ role: 'superadmin', email: 'setting-super4b@example.com' });
-      const superAgent = await loginAgent('setting-super4b@example.com');
-
-      const res = await superAgent.patch('/api/v1/settings').send({ prorationEnabled: true });
-
-      expect(res.status).toBe(200);
-      expect(res.body.settings).toEqual({
-        registrationFee: 25,
-        returningStudentGracePeriodMonths: 6,
-        prorationEnabled: true,
-      });
-    });
-
-    it('returns 400 for a non-boolean prorationEnabled, without writing anything', async () => {
-      await seedUser({ role: 'superadmin', email: 'setting-super4c@example.com' });
-      const superAgent = await loginAgent('setting-super4c@example.com');
-
-      const res = await superAgent.patch('/api/v1/settings').send({ prorationEnabled: 'yes' });
-
-      expect(res.status).toBe(400);
-      expect(await Setting.countDocuments()).toBe(0);
     });
 
     it('returns 400 for a negative registrationFee, without writing anything', async () => {

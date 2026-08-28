@@ -3,6 +3,7 @@ const {
   todayDateOnly,
   addOneDay,
   addOneMonth,
+  firstOfNextMonth,
   addMonths,
   daysInMonth,
   endOfMonth,
@@ -108,6 +109,56 @@ describe('billingDates', () => {
       const result = addMonths(sentinel, 1);
 
       expect(result.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+      expect(result.getUTCDate()).toBe(1);
+    });
+  });
+
+  describe('firstOfNextMonth — the calendar-month billing boundary (docs/decisions/007-calendar-month-billing.md)', () => {
+    it('returns the 1st of the FOLLOWING month for a mid-month sentinel', () => {
+      const sentinel = new Date('2026-03-15');
+      const result = firstOfNextMonth(sentinel);
+
+      expect(result.toISOString()).toBe('2026-04-01T00:00:00.000Z');
+    });
+
+    it('registering exactly on the 1st still rolls to the NEXT month\'s 1st — a full month, not a zero-length period', () => {
+      const sentinel = new Date('2026-03-01');
+      const result = firstOfNextMonth(sentinel);
+
+      expect(result.toISOString()).toBe('2026-04-01T00:00:00.000Z');
+    });
+
+    it('rolls over a calendar year boundary', () => {
+      const sentinel = new Date('2026-12-15');
+      const result = firstOfNextMonth(sentinel);
+
+      expect(result.toISOString()).toBe('2027-01-01T00:00:00.000Z');
+    });
+
+    it('handles the last day of a long month correctly (never the addOneMonth day-preserving rollover bug)', () => {
+      // addOneMonth on Jan 31 would land on Mar 3 (JS Date's own setMonth
+      // day-preserving rollover, since February has no 31st) — this is
+      // exactly the quirk firstOfNextMonth avoids by setting the day to 1
+      // BEFORE incrementing the month, so it always lands on exactly the
+      // 1st regardless of which day of the month the input is.
+      const sentinel = new Date('2026-01-31');
+      const result = firstOfNextMonth(sentinel);
+
+      expect(result.toISOString()).toBe('2026-02-01T00:00:00.000Z');
+    });
+
+    it('handles the last day of February in a non-leap year', () => {
+      const sentinel = new Date('2026-02-28'); // 2026 is not a leap year
+      const result = firstOfNextMonth(sentinel);
+
+      expect(result.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+    });
+
+    it('is deliberately NOT tz-aware, same as addOneMonth — a date-only sentinel across a DST transition rolls by calendar component, not real time', () => {
+      const sentinel = new Date('2026-03-08'); // spans the spring-forward boundary
+      const result = firstOfNextMonth(sentinel);
+
+      expect(result.toISOString()).toBe('2026-04-01T00:00:00.000Z');
       expect(result.getUTCDate()).toBe(1);
     });
   });

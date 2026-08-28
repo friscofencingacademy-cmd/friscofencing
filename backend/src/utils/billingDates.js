@@ -37,6 +37,23 @@ function addOneMonth(date) {
   return result;
 }
 
+// The first calendar day of the month AFTER `date`'s month — the
+// calendar-month billing boundary (docs/decisions/007-calendar-month-
+// billing.md: every subscription period ends on the 1st, not a rolling
+// month from the registration date). Deliberately NOT tz-aware, same
+// reasoning as addOneMonth above: every real caller passes a date-only
+// sentinel, zero DST exposure by construction. Sets the day to 1 BEFORE
+// incrementing the month specifically so a month-end date (e.g. Jan 31)
+// can never hit addOneMonth's day-preserving rollover quirk (Jan 31 ->
+// Mar 3) — this always lands on exactly the 1st, regardless of which day
+// of the month `date` itself is.
+function firstOfNextMonth(date) {
+  const result = new Date(date);
+  result.setDate(1);
+  result.setMonth(result.getMonth() + 1);
+  return result;
+}
+
 // Start of "today" as a real instant, resolved in `tz` (default Central) —
 // e.g. 2026-03-09T05:00:00.000Z, NOT a UTC-midnight sentinel. Use this
 // anywhere "today" gates a real-time decision (a renewal/retry due-check
@@ -100,6 +117,7 @@ function endOfMonth(date) {
 
 module.exports = {
   addOneMonth,
+  firstOfNextMonth,
   addOneDay,
   addMonths,
   daysInMonth,

@@ -278,10 +278,12 @@ export interface RegistrationPricePreview extends ProrationInfo {
 }
 
 // GET/PATCH /api/v1/settings — superadmin-only (setting.model.js). Singleton.
+// prorationEnabled is deprecated (docs/decisions/007-calendar-month-
+// billing.md) and no longer part of the API contract — proration always
+// runs now.
 export interface Setting {
   registrationFee: number;
   returningStudentGracePeriodMonths: number;
-  prorationEnabled: boolean;
 }
 
 // Shared by RegistrationPricePreview and RegistrationCreateResponse —

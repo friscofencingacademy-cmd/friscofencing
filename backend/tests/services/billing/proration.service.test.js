@@ -68,9 +68,12 @@ describe('computeProration', () => {
     expect(result.remainingClassDays).toBe(3);
     expect(result.dailyRate).toBe(75); // 300 / 4
     expect(result.proratedAmount).toBe(225); // 75 * 3
+    // The calendar-month boundary (docs/decisions/007-calendar-month-
+    // billing.md) — the 1st of the FOLLOWING month, not the last day of
+    // this one.
     expect(result.periodEnd.getFullYear()).toBe(2026);
-    expect(result.periodEnd.getMonth()).toBe(7);
-    expect(result.periodEnd.getDate()).toBe(31);
+    expect(result.periodEnd.getMonth()).toBe(8); // September
+    expect(result.periodEnd.getDate()).toBe(1);
   });
 
   it('charges the full fee (remaining == total) when registering before the first class day of the month', async () => {
@@ -163,9 +166,11 @@ describe('computeProration', () => {
       proratedAmount: 150,
       periodEnd: result.periodEnd, // asserted separately below
     });
-    // Falls back to the pre-proration rolling-month behavior, not a
-    // calendar-month boundary — there's nothing to anchor a calendar period
-    // to when this level has no class days at all.
-    expect(result.periodEnd.getMonth()).toBe(8); // one month after August (7) is September (8)
+    // Even this fallback (no schedules configured at all — can't compute a
+    // real proration) still anchors to the calendar-month boundary (ADR
+    // 007) — there's no such thing as a non-calendar period any more, only
+    // "prorated" vs. "not prorated."
+    expect(result.periodEnd.getMonth()).toBe(8); // September
+    expect(result.periodEnd.getDate()).toBe(1);
   });
 });

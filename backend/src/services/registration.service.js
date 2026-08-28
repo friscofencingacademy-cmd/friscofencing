@@ -14,8 +14,7 @@ const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculat
 const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { computeProration } = require('./billing/proration.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
-const settingService = require('./setting.service');
-const { addOneMonth, todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
+const { todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
@@ -182,25 +181,22 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   // docs/plans/timezone-consistency-plan.md D10 for both worked out.
   const anchorDate = requestedStartDate ?? todayDateOnly();
 
-  const { prorationEnabled } = await settingService.getSettings();
-
   // Prorate the RAW list price FIRST (owner-directed sequencing, docs/plans/
-  // prorated-first-month-billing-plan.md) — the RESULT is what feeds into
-  // calculateChargeAmount() below, unmodified. Sibling-discount eligibility
-  // therefore compares "what this student actually owes this cycle"
-  // (possibly prorated) against siblings' own current standard rates, never
-  // the raw unprorated list price.
-  let feeForDiscountCalc = price.monthlyFee;
-  let prorationInfo = null;
-
-  if (prorationEnabled) {
-    prorationInfo = await computeProration({
-      levelId: groupClass.levelId,
-      monthlyFee: price.monthlyFee,
-      registrationDate: anchorDate,
-    });
-    feeForDiscountCalc = prorationInfo.proratedAmount;
-  }
+  // prorated-first-month-billing-plan.md), unconditionally — every
+  // registration's first charge/period is calendar-month-anchored now
+  // (docs/decisions/007-calendar-month-billing.md; the old prorationEnabled
+  // toggle is retired, since a full-month charge for a partial calendar
+  // month would be an overcharge under calendar billing). The RESULT feeds
+  // into calculateChargeAmount() below, unmodified. Sibling-discount
+  // eligibility therefore compares "what this student actually owes this
+  // cycle" (possibly prorated) against siblings' own current standard
+  // rates, never the raw unprorated list price.
+  const prorationInfo = await computeProration({
+    levelId: groupClass.levelId,
+    monthlyFee: price.monthlyFee,
+    registrationDate: anchorDate,
+  });
+  const feeForDiscountCalc = prorationInfo.proratedAmount;
 
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
     await calculateChargeAmount(student, feeForDiscountCalc);
@@ -252,11 +248,12 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw paymentFailedError('Payment failed');
   }
 
-  // A prorated first period ends at the end of THIS calendar month (short,
-  // matching the smaller charge); otherwise the existing rolling one-month
-  // period, byte-identical to pre-proration behavior. Both anchor off
-  // anchorDate (the parent's chosen start date), not the moment they paid.
-  const currentPeriodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(anchorDate);
+  // Always the calendar-month boundary (ADR 007) — computeProration() is
+  // the single source of this period math too, not just the amount (see
+  // its own docblock), so this can never structurally disagree with what
+  // it returned. Anchors off anchorDate (the parent's chosen start date),
+  // not the moment they paid.
+  const currentPeriodEnd = prorationInfo.periodEnd;
 
   // Subscription created BEFORE the Registration ledger row (reverse of this
   // function's pre-ledger order) so Guard A's unique index — the DB-level
@@ -279,7 +276,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
       lastSiblingDiscountApplied: siblingDiscountApplied,
       isPremium: isPremiumRegistrationEnabled(),
       registrationFeeCharged,
-      firstChargeProrated: prorationInfo?.prorated ?? false,
+      firstChargeProrated: prorationInfo.prorated,
     });
   } catch (error) {
     // Guard A's partial unique index (subscription.model.js) caught a race
@@ -308,8 +305,8 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     amount: totalChargeAmount,
     breakdown: {
       monthlyFee: price.monthlyFee,
-      prorated: prorationInfo?.prorated ?? false,
-      proratedAmount: prorationInfo?.prorated ? prorationInfo.proratedAmount : null,
+      prorated: prorationInfo.prorated,
+      proratedAmount: prorationInfo.prorated ? prorationInfo.proratedAmount : null,
       siblingDiscountApplied,
       siblingDiscountAmount,
       registrationFeeCharged,
@@ -345,9 +342,9 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
       monthlyFee: price.monthlyFee,
       siblingDiscountAmount,
       registrationFeeCharged,
-      prorated: prorationInfo?.prorated ?? false,
-      totalClassDays: prorationInfo?.totalClassDays ?? null,
-      remainingClassDays: prorationInfo?.remainingClassDays ?? null,
+      prorated: prorationInfo.prorated,
+      totalClassDays: prorationInfo.totalClassDays,
+      remainingClassDays: prorationInfo.remainingClassDays,
     });
   } catch (error) {
     // eslint-disable-next-line no-console -- operational logging for a
@@ -367,10 +364,10 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     registrationFeeCharged,
     registrationFeeWaived,
     registrationFeeReason,
-    prorated: prorationInfo?.prorated ?? false,
-    totalClassDays: prorationInfo?.totalClassDays ?? null,
-    remainingClassDays: prorationInfo?.remainingClassDays ?? null,
-    dailyRate: prorationInfo?.dailyRate ?? null,
+    prorated: prorationInfo.prorated,
+    totalClassDays: prorationInfo.totalClassDays,
+    remainingClassDays: prorationInfo.remainingClassDays,
+    dailyRate: prorationInfo.dailyRate,
     periodEnd: currentPeriodEnd,
   };
 }
@@ -408,22 +405,17 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
   // docs/plans/timezone-consistency-plan.md D10) for why this is
   // todayDateOnly(), not `new Date()`.
   const anchorDate = requestedStartDate ?? todayDateOnly();
-  const { prorationEnabled } = await settingService.getSettings();
 
   // Mirrors create() exactly (docs/plans/prorated-first-month-billing-plan
-  // .md, D3) — same function, same sequencing, same anchorDate role — so
-  // this preview can never structurally disagree with the real charge.
-  let feeForDiscountCalc = price.monthlyFee;
-  let prorationInfo = null;
-
-  if (prorationEnabled) {
-    prorationInfo = await computeProration({
-      levelId: groupClass.levelId,
-      monthlyFee: price.monthlyFee,
-      registrationDate: anchorDate,
-    });
-    feeForDiscountCalc = prorationInfo.proratedAmount;
-  }
+  // .md, D3; unconditional per docs/decisions/007-calendar-month-billing.md)
+  // — same function, same sequencing, same anchorDate role — so this
+  // preview can never structurally disagree with the real charge.
+  const prorationInfo = await computeProration({
+    levelId: groupClass.levelId,
+    monthlyFee: price.monthlyFee,
+    registrationDate: anchorDate,
+  });
+  const feeForDiscountCalc = prorationInfo.proratedAmount;
 
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
     await calculateChargeAmount(student, feeForDiscountCalc);
@@ -433,8 +425,6 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     waived: registrationFeeWaived,
     reason: registrationFeeReason,
   } = await resolveRegistrationFee(studentId);
-
-  const periodEnd = prorationInfo?.prorated ? prorationInfo.periodEnd : addOneMonth(anchorDate);
 
   return {
     monthlyFee: price.monthlyFee,
@@ -446,11 +436,11 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     registrationFeeCharged,
     registrationFeeWaived,
     registrationFeeReason,
-    prorated: prorationInfo?.prorated ?? false,
-    totalClassDays: prorationInfo?.totalClassDays ?? null,
-    remainingClassDays: prorationInfo?.remainingClassDays ?? null,
-    dailyRate: prorationInfo?.dailyRate ?? null,
-    periodEnd,
+    prorated: prorationInfo.prorated,
+    totalClassDays: prorationInfo.totalClassDays,
+    remainingClassDays: prorationInfo.remainingClassDays,
+    dailyRate: prorationInfo.dailyRate,
+    periodEnd: prorationInfo.periodEnd,
   };
 }
 
@@ -501,4 +491,4 @@ async function listMine(parentId) {
   );
 }
 
-module.exports = { create, previewChargeAmount, listMine, addOneMonth };
+module.exports = { create, previewChargeAmount, listMine };

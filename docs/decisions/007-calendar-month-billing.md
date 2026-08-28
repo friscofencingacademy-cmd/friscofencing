@@ -1,6 +1,6 @@
 # ADR 007: Calendar-month billing — all renewals on the 1st (CKQ model)
 
-**Status:** Proposed — 2026-08-28 (owner-decided business rule; current implementation DIVERGES and needs a correction plan)
+**Status:** BUILT 2026-08-28 (PR 1 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`), pending owner local testing + commit. PR 2 (ADR 005) and PR 3 (ADR 006) not yet started.
 
 ## Context
 

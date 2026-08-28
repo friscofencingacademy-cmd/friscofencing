@@ -14,14 +14,12 @@ import styles from '../../components/admin/admin.module.css';
 interface FormState {
   registrationFee: string;
   returningStudentGracePeriodMonths: string;
-  prorationEnabled: boolean;
 }
 
 function toForm(settings: Setting): FormState {
   return {
     registrationFee: String(settings.registrationFee),
     returningStudentGracePeriodMonths: String(settings.returningStudentGracePeriodMonths),
-    prorationEnabled: settings.prorationEnabled,
   };
 }
 
@@ -68,7 +66,6 @@ export default function AdminSettingsPage() {
     const result = await updateSettings({
       registrationFee,
       returningStudentGracePeriodMonths,
-      prorationEnabled: form.prorationEnabled,
     });
 
     setSaving(false);
@@ -147,24 +144,6 @@ export default function AdminSettingsPage() {
             <p className={styles.formHint}>
               A student who re-registers within this many months of a prior enrollment ending pays no
               registration fee. 0 means the fee always applies, even to a returning student.
-            </p>
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label} htmlFor="proration-enabled">
-              <input
-                id="proration-enabled"
-                type="checkbox"
-                checked={form.prorationEnabled}
-                onChange={(e) => setField('prorationEnabled', e.target.checked)}
-                style={{ marginRight: 'var(--space-2)' }}
-              />
-              Enable prorated first-month billing
-            </label>
-            <p className={styles.formHint}>
-              When on, a new registration&apos;s first charge is prorated to the class days remaining
-              this month, and the first billing period ends at month-end instead of a full month out.
-              Off by default — turning this on does not change any already-active subscription.
             </p>
           </div>
 
