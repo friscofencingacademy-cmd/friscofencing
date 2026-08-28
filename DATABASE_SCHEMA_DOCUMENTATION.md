@@ -49,6 +49,23 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 
 `User.stripeCustomerId` (String, unique + sparse — same null-collision-safe pattern as `email`) is created lazily on first card save. Replacing a saved card detaches the old Stripe PaymentMethod first — nothing orphaned is left attached to the Stripe customer.
 
+## `Service` — implemented (`docs/plans/service-registry-unified-ledger-plan.md`)
+| Field | Type | Notes |
+|---|---|---|
+| `code` | String | required, unique, lowercase-kebab (`/^[a-z0-9]+(-[a-z0-9]+)*$/`) — the ONLY thing any code branches on or looks up by; never the display name |
+| `name` | String | required — display only, freely renameable with zero data migration |
+| `billingShape` | String enum | required — `subscription_cycle` \| `per_session` \| `one_time_event`; which `Registration` discriminator this service's charges are written as |
+| `isActive` | Boolean | default true — owner/admin state, never touched by the seed script on an existing row |
+
+Seeded (idempotent, `npm run seed:services` / `scripts/lib/seedServices.js`, also run as the
+first step of every `refreshStagingData` sequence, before the legacy import): `group-classes`
+(subscription_cycle), `private-lessons` (per_session), `camps` and `meets` (both
+one_time_event, both `isActive: false` until those features are built). No admin CRUD UI —
+four near-static rows managed by seed script; see the plan doc's D7 for the trigger that would
+change that. Read via `serviceCatalog.service.js`'s `getServiceByCode(code, {requireActive})` —
+no caching (re-verified every call, same principle as `Setting`, below), fails closed (500) if
+the code isn't seeded at all, 409 if `requireActive` is set and the service is inactive.
+
 ## `Registration`, `Subscription` — implemented (Phase 7b)
 | Collection | Key fields |
 |---|---|

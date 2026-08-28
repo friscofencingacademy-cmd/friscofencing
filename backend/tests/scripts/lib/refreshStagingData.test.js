@@ -2,6 +2,7 @@ const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtil
 const User = require('../../../src/models/user.model');
 const Level = require('../../../src/models/level.model');
 const GroupClass = require('../../../src/models/groupClass.model');
+const Service = require('../../../src/models/service.model');
 
 const { refreshStagingData } = require('../../../scripts/lib/refreshStagingData');
 
@@ -59,6 +60,14 @@ describe('scripts/lib/refreshStagingData', () => {
     expect(result.superadminCreated).toBe(true);
     const superadmin = await User.findOne({ role: 'superadmin' });
     expect(superadmin.email).toBe('admin@friscofencing.local');
+
+    // Services seeded as part of the refresh (docs/plans/service-registry-
+    // unified-ledger-plan.md) — the source's own ordering comment documents
+    // WHY seeding runs before the import (a future PR's ledger writes will
+    // depend on it); this test proves the observable PR A behavior, that a
+    // refresh always leaves a fully-seeded registry.
+    expect(await Service.countDocuments()).toBe(4);
+    expect(result.serviceSeedResults.results.every((r) => r.action === 'created')).toBe(true);
   });
 
   it('is safe to run twice in a row: the second run wipes the first run\'s own data and rebuilds it identically', async () => {
