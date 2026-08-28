@@ -24,7 +24,18 @@ async function fillCardElement(page, { number, expiry = '12/34', cvc = '123', po
 
 const STRIPE_TEST_CARDS = {
   success: '4242424242424242',
+  // Declines even at stripe.paymentMethods.attach() itself — see
+  // s4-decline.js's comment for the real finding behind this.
   decline: '4000000000000002',
+  // Stripe's documented test number for "attaches to a Customer
+  // successfully, but a subsequent charge attempt with it fails" — used by
+  // s6-charge-decline-retry.js to isolate a charge-time-only decline from
+  // a save-time decline (which `decline` above already covers via S4).
+  // Flagged for verification on the first real run, same discipline as
+  // `decline` above: confirm this card actually saves via POST
+  // /payment-methods before relying on it — docs/plans/
+  // audit-skills-refresh-plan.md D4.
+  chargeDeclineOnly: '4000000000000341',
 };
 
 module.exports = { fillCardElement, STRIPE_TEST_CARDS };

@@ -9,19 +9,23 @@
 // before every audit re-run: a stale TrialClass blocks S1 via its
 // unique-per-student index.
 //
-// DELETES the student documents themselves, not just their activity — found
-// necessary on the first real run, not assumed up front: registration.
-// service.js's Stripe idempotency key is deliberately `initial-registration-
-// ${studentId}-${scheduleId}` (a correct, tested anti-double-charge
-// safeguard for real users, per ADR 001 — not touched here). Stripe caches
-// that key for 24h independent of our own MongoDB, so clearing the Mongo
-// Registration doc alone doesn't free it — any second attempt with the same
-// studentId+scheduleId pair collides with "Keys for idempotent requests can
-// only be used with the same parameters they were first used with," even
-// after a full DB reset. Deleting the student (audit-seed.js recreates it
-// with a fresh _id on the next seed run) is what actually gives the audit a
-// genuinely reusable identity — this is audit-only tooling, not a change to
-// how idempotency works for real registrations.
+// Does NOT delete the student documents (it used to — see
+// docs/plans/audit-skills-refresh-plan.md D1/F1 for why that changed). The
+// old justification was that registration.service.js's Stripe idempotency
+// key was `initial-registration-${studentId}-${scheduleId}`, so reusing the
+// same studentId+scheduleId pair after a reset would collide with Stripe's
+// 24h idempotency cache. That key format no longer exists: PR 2
+// (docs/decisions/008-registration-create-pending-first.md) replaced it
+// with `payment_${row._id}` (chargeFinalization.service.js), generated
+// fresh from a brand-new SubscriptionCycleRegistration row created every
+// time create() runs. Since this script already deletes the Registration/
+// Subscription docs below, the next registration attempt creates a fresh
+// ledger row with a fresh _id — there is no possible collision with an old
+// Stripe key tied to a deleted row. Deleting-and-recreating the student was
+// solving a problem that no longer exists, and cost the owner an
+// `audit:seed` re-run after every reset. The student accounts now persist
+// across resets; `audit:seed`'s findOrCreateUser check just confirms they
+// still exist.
 
 require('dotenv/config');
 
@@ -36,13 +40,27 @@ const Visit = require('../src/models/visit.model');
 const PaymentMethod = require('../src/models/paymentMethod.model');
 const stripe = require('../src/config/stripe');
 
-const AUDIT_STUDENT_LAST_NAMES = ['ChildOne', 'FirstSibling', 'SecondSibling', 'DeclineChild'];
+const AUDIT_STUDENT_LAST_NAMES = [
+  'ChildOne',
+  'FirstSibling',
+  'SecondSibling',
+  'DeclineChild',
+  'BridgeFirst',
+  'BridgeSecond',
+  'RetryChild',
+];
 // Found necessary on the first real run, not assumed up front: S4's decline
 // scenario needs a guaranteed-unsaved card every run, and S2/S3 saving a
 // fresh one each run (rather than reusing a stale one) is itself a fine,
 // cheap thing to re-exercise. Clearing PaymentMethod for the fixed audit
 // PARENTS (not just students) closes that gap.
-const AUDIT_PARENT_EMAILS = ['audit-parent-1@example.com', 'audit-sibling-parent@example.com', 'audit-decline-parent@example.com'];
+const AUDIT_PARENT_EMAILS = [
+  'audit-parent-1@example.com',
+  'audit-sibling-parent@example.com',
+  'audit-decline-parent@example.com',
+  'audit-bridge-parent@example.com',
+  'audit-retry-parent@example.com',
+];
 
 function assertStagingUri(uri) {
   if (!uri || !uri.includes('friscofencing-staging')) {
@@ -99,8 +117,6 @@ async function main() {
     // deleted outright too, not just cancelled.
     const visitResult = await Visit.deleteMany({ studentId: { $in: studentIds } });
 
-    const studentDeleteResult = await User.deleteMany({ _id: { $in: studentIds } });
-
     const parents = await User.find({ role: 'parent', email: { $in: AUDIT_PARENT_EMAILS } });
     let paymentMethodsCleared = 0;
     for (const parent of parents) {
@@ -130,9 +146,8 @@ async function main() {
     console.log(`  Subscription deleted: ${subscriptionResult.deletedCount}`);
     console.log(`  Schedules cleaned: ${scheduleResult.modifiedCount}`);
     console.log(`  Visits deleted: ${visitResult.deletedCount}`);
-    console.log(`  Student docs deleted (fresh Stripe idempotency identity next seed): ${studentDeleteResult.deletedCount}`);
     console.log(`  PaymentMethods cleared: ${paymentMethodsCleared}`);
-    console.log('  Run `npm run audit:seed` again before the next audit run.');
+    console.log('  Student accounts were NOT deleted — they persist across resets. No need to re-run `npm run audit:seed`.');
     process.exitCode = 0;
   } catch (error) {
     console.error('Audit reset failed:', error.message);

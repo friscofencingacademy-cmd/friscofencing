@@ -8,6 +8,8 @@ const s1 = require('./scenarios/s1-trial-booking');
 const s2 = require('./scenarios/s2-registration');
 const s3 = require('./scenarios/s3-sibling-discount');
 const s4 = require('./scenarios/s4-decline');
+const s5 = require('./scenarios/s5-sibling-discount-bridge');
+const s6 = require('./scenarios/s6-charge-decline-retry');
 
 const REQUIRED_ENV_VARS = [
   'AUDIT_STAGING_URL',
@@ -16,7 +18,7 @@ const REQUIRED_ENV_VARS = [
   'AUDIT_SUPERADMIN_PASSWORD',
 ];
 
-const SCENARIOS = [s1, s2, s3, s4];
+const SCENARIOS = [s1, s2, s3, s4, s5, s6];
 
 function overallFrom(results) {
   if (results.some((r) => r.result === 'fail')) return 'fail';

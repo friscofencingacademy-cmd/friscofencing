@@ -5,10 +5,12 @@ disable-model-invocation: true
 ---
 
 Resets the staging data `/audit-live-registration` creates, so it can be re-run cleanly. Targets
-**only** the 4 fixed audit student accounts seeded by `backend/scripts/audit-seed.js`
-(`audit-parent-1`, `audit-sibling-parent`'s 2 children, `audit-decline-parent`) — never anything
-else on staging, so it can never touch real manual-QA data. See `docs/plans/audit-system-plan.md`
-(D5) for the full design.
+**only** the 7 fixed audit student accounts seeded by `backend/scripts/audit-seed.js`
+(`audit-parent-1`'s child, `audit-sibling-parent`'s 2 children, `audit-decline-parent`'s child,
+`audit-bridge-parent`'s 2 children, `audit-retry-parent`'s child) — never anything else on
+staging, so it can never touch real manual-QA data. See `docs/plans/audit-system-plan.md` (D5)
+for the original design and `docs/plans/audit-skills-refresh-plan.md` (D1) for why the student-
+delete step below was removed.
 
 ## Run it
 
@@ -28,21 +30,26 @@ Per fixed audit student:
 - Their `Registration` and `Subscription` documents
 - Their entry in every `GroupClassSchedule.students` and `GroupClassSession.students` roster
   array they were added to
-- **The student document itself.** Found necessary on the first real run, not designed in up
-  front: `registration.service.js`'s Stripe idempotency key is `initial-registration-
-  ${studentId}-${scheduleId}` — correct and deliberate for real users (an anti-double-charge
-  safeguard, ADR 001), but Stripe caches that key for 24h independent of our own MongoDB, so
-  clearing the `Registration` doc alone doesn't free it — a second attempt with the same pair
-  collides with "Keys for idempotent requests can only be used with the same parameters they
-  were first used with." Deleting the student and letting `audit-seed.js` recreate it (fresh
-  `_id`) is what actually makes the audit re-runnable. **Run `npm run audit:seed` again after
-  this, before the next audit run** — the accounts won't exist until you do.
+- Their `Visit` documents
 
-Per fixed audit parent (`audit-parent-1`, `audit-sibling-parent`, `audit-decline-parent`):
+**The student documents themselves are NOT deleted.** They used to be — found necessary on the
+first real run, or so it seemed at the time: the old reasoning was that `registration.service.js`'s
+Stripe idempotency key was `initial-registration-${studentId}-${scheduleId}`, cached by Stripe for
+24h independent of our own MongoDB, so reusing the same studentId+scheduleId pair after a reset
+would collide even after a full DB reset. That key format no longer exists — PR 2
+(`docs/decisions/008-registration-create-pending-first.md`) replaced it with `payment_${row._id}`,
+generated fresh from a brand-new `SubscriptionCycleRegistration` row created every time `create()`
+runs. Since this script already deletes the `Registration`/`Subscription` docs above, the next
+registration attempt creates a fresh ledger row with a fresh `_id` — there is no possible collision
+with an old Stripe key tied to a deleted document. **The student accounts now persist across
+resets — `npm run audit:seed` does not need to run again after a reset.**
+
+Per fixed audit parent (`audit-parent-1`, `audit-sibling-parent`, `audit-decline-parent`,
+`audit-bridge-parent`, `audit-retry-parent`):
 - Their `PaymentMethod` document, and the corresponding Stripe `PaymentMethod` detached. Found
-  necessary on the first real run: S4's decline scenario needs a guaranteed-unsaved card every
-  time, and S2/S3 re-saving a fresh card each run (rather than silently reusing a stale one) is
-  itself a cheap, fine thing to re-exercise.
+  necessary on the first real run: S4/S6's decline scenarios need a guaranteed-unsaved card every
+  time, and the other scenarios re-saving a fresh card each run (rather than silently reusing a
+  stale one) is itself a cheap, fine thing to re-exercise.
 
 ## Notes
 
@@ -51,7 +58,8 @@ Per fixed audit parent (`audit-parent-1`, `audit-sibling-parent`, `audit-decline
   every audit re-run.
 - **Idempotent-safe** — if the audit accounts don't exist yet (first run, or already clean), this
   reports "nothing to do" rather than erroring.
-- **The parent accounts, coach, classes, schedules, and prices are untouched and stay permanent**
-  — only the 4 student documents and the parents' payment methods are cleared (see above, and
-  why). Run `npm run audit:seed` immediately after this — it's idempotent, so it's safe to just
-  always run seed-then-audit as one habit rather than tracking whether a reset happened first.
+- **The parent accounts, students, coach, classes, schedules, and prices are untouched and stay
+  permanent** — only each student's activity (trial, registration, subscription, roster entries,
+  visits) and the parents' payment methods are cleared (see above, and why). Running
+  `npm run audit:seed` afterward is optional (idempotent, safe either way) but no longer required
+  for the accounts to exist.
