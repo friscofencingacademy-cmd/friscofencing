@@ -29,6 +29,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   await clearTestDB();
+  delete process.env.ENABLE_SCHEDULE_BASED_REGISTRATION;
 });
 
 async function seedUser(overrides = {}) {
@@ -240,7 +241,7 @@ describe('GroupClassSchedule routes', () => {
   });
 
   describe('GET /api/v1/group-class-schedules/public', () => {
-    it('requires no auth and returns a thin projection with a server-derived open/full availability', async () => {
+    async function seedFullAndOpenSchedules() {
       await seedUser();
       const adminAgent = await loginAgent('test-admin@example.com');
 
@@ -277,6 +278,10 @@ describe('GroupClassSchedule routes', () => {
         endTime: '18:00',
       });
       expect(openScheduleRes.status).toBe(201);
+    }
+
+    it('requires no auth and returns a thin projection with no availability field in premium mode (the live default)', async () => {
+      await seedFullAndOpenSchedules();
 
       // No Authorization/cookie at all.
       const res = await request(app).get('/api/v1/group-class-schedules/public');
@@ -287,6 +292,9 @@ describe('GroupClassSchedule routes', () => {
       const full = res.body.schedules.find((s) => s.dayOfWeek === 3);
       const open = res.body.schedules.find((s) => s.dayOfWeek === 4);
 
+      // A schedule at its roster capacity is still just a normal row —
+      // premium students attend any session of the level, so one schedule
+      // filling up doesn't mean the level has no room.
       expect(full).toEqual({
         className: 'Beginner Foil',
         levelName: 'Beginner',
@@ -295,12 +303,27 @@ describe('GroupClassSchedule routes', () => {
         dayOfWeek: 3,
         startTime: '16:00',
         endTime: '17:00',
-        availability: 'full',
       });
-      expect(open.availability).toBe('open');
-      // No roster/capacity numbers leak — only the derived string.
+      expect(open.availability).toBeUndefined();
+      // No roster/capacity numbers leak — and no derived string either.
       expect(JSON.stringify(res.body)).not.toContain('capacity');
       expect(JSON.stringify(res.body)).not.toContain('students');
+      expect(JSON.stringify(res.body)).not.toContain('availability');
+    });
+
+    it('returns a server-derived open/full availability in schedule-based mode', async () => {
+      process.env.ENABLE_SCHEDULE_BASED_REGISTRATION = 'true';
+
+      await seedFullAndOpenSchedules();
+
+      const res = await request(app).get('/api/v1/group-class-schedules/public');
+
+      expect(res.status).toBe(200);
+      const full = res.body.schedules.find((s) => s.dayOfWeek === 3);
+      const open = res.body.schedules.find((s) => s.dayOfWeek === 4);
+
+      expect(full.availability).toBe('full');
+      expect(open.availability).toBe('open');
     });
   });
 });

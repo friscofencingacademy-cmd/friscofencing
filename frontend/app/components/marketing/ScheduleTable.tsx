@@ -10,7 +10,11 @@ interface ScheduleTableProps {
 }
 
 function ScheduleRow({ schedule }: { schedule: PublicGroupClassSchedule }) {
-  const isOpen = schedule.availability === 'open';
+  // `availability` is only present in schedule-based mode (see
+  // PublicGroupClassSchedule) — no pill at all in premium, the live
+  // default, since one schedule's roster filling up doesn't mean the level
+  // has no room; every row just books.
+  const isOpen = schedule.availability !== 'full';
 
   return (
     <div
@@ -34,13 +38,15 @@ function ScheduleRow({ schedule }: { schedule: PublicGroupClassSchedule }) {
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-        <span
-          className={`${styles.availabilityPill} ${
-            isOpen ? styles.availabilityOpen : styles.availabilityFull
-          }`}
-        >
-          {isOpen ? 'Open' : 'Class full'}
-        </span>
+        {schedule.availability !== undefined && (
+          <span
+            className={`${styles.availabilityPill} ${
+              isOpen ? styles.availabilityOpen : styles.availabilityFull
+            }`}
+          >
+            {isOpen ? 'Open' : 'Class full'}
+          </span>
+        )}
         {isOpen ? (
           <Button as="a" href="/register?next=/parent/book-trial" size="sm">
             Book a Free Trial
