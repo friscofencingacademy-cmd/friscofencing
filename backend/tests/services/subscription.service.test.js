@@ -21,11 +21,14 @@ const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
 const Visit = require('../../src/models/visit.model');
 const Registration = require('../../src/models/registration.model');
+const { SubscriptionCycleRegistration } = Registration;
 const Subscription = require('../../src/models/subscription.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
+const Service = require('../../src/models/service.model');
 
 let mongod;
 
@@ -35,6 +38,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+beforeEach(async () => {
+  // Every Registration write in this file goes through the unified ledger
+  // now (docs/plans/service-registry-unified-ledger-plan.md), which
+  // requires a resolvable serviceId.
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -116,7 +126,9 @@ async function enroll({ level, oldSchedule, groupClass, student, parent, isPremi
   // plan.md D1) — scheduleId here is a charge-time SNAPSHOT and must stay
   // exactly what it was at creation even after a later schedule change; see
   // this file's changeSchedule test, which asserts on that immutability.
-  const registration = await Registration.create({
+  const groupClassesService = await Service.findOne({ code: 'group-classes' });
+  const registration = await SubscriptionCycleRegistration.create({
+    serviceId: groupClassesService._id,
     subscriptionId: subscription._id,
     studentId: student._id,
     scheduleId: oldSchedule._id,

@@ -1,11 +1,12 @@
 const PrivateClassSchedule = require('../models/privateClassSchedule.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
-const PrivateClassCharge = require('../models/privateClassCharge.model');
+const { PerSessionRegistration } = require('../models/registration.model');
 const User = require('../models/user.model');
 const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
+const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const { computeSessionPrice, sessionDurationMinutes } = require('../utils/privateClassPricing');
 const { nextOccurrenceStrictlyAfter } = require('../utils/scheduleOccurrence');
 const mailService = require('./mail.service');
@@ -150,7 +151,7 @@ async function chargeSession(session) {
     return { charged: false, reason: 'enrollment_cancelled', charge: null };
   }
 
-  const existingCharge = await PrivateClassCharge.findOne({
+  const existingCharge = await PerSessionRegistration.findOne({
     sessionId: session._id,
     status: { $in: ['pending', 'completed'] },
   });
@@ -166,16 +167,24 @@ async function chargeSession(session) {
     sessionDurationMinutes(session.startDate, session.endDate)
   );
 
-  const failedCount = await PrivateClassCharge.countDocuments({
+  const failedCount = await PerSessionRegistration.countDocuments({
     sessionId: session._id,
     status: 'failed',
   });
   const attempt = failedCount + 1;
 
+  // Resolved BEFORE creating the pending ledger row — a misconfigured/
+  // inactive service must never let this session end up "charged" without a
+  // resolvable serviceId (docs/plans/service-registry-unified-ledger-plan
+  // .md D4).
+  const privateLessonsService = await getServiceByCode('private-lessons', { requireActive: true });
+  assertBillingShape(privateLessonsService, 'per_session');
+
   let charge;
 
   try {
-    charge = await PrivateClassCharge.create({
+    charge = await PerSessionRegistration.create({
+      serviceId: privateLessonsService._id,
       sessionId: session._id,
       enrollmentId: enrollment._id,
       parentId: enrollment.parentId,
@@ -186,7 +195,7 @@ async function chargeSession(session) {
     });
   } catch (error) {
     if (error.code === 11000) {
-      const existing = await PrivateClassCharge.findOne({
+      const existing = await PerSessionRegistration.findOne({
         sessionId: session._id,
         status: { $in: ['pending', 'completed'] },
       });
@@ -325,7 +334,7 @@ async function markAttendance(sessionId, status, requestingUser) {
     throw badRequestError("Attendance status must be 'attended' or 'missed'");
   }
 
-  const completedCharge = await PrivateClassCharge.findOne({ sessionId, status: 'completed' });
+  const completedCharge = await PerSessionRegistration.findOne({ sessionId, status: 'completed' });
 
   if (completedCharge && status !== 'attended') {
     throw conflictError('This session has already been charged');
@@ -363,7 +372,7 @@ async function retryCharge(sessionId, requestingUser) {
     throw forbiddenError('You are not the coach for this session');
   }
 
-  const latestCharge = await PrivateClassCharge.findOne({ sessionId }).sort({ createdAt: -1 });
+  const latestCharge = await PerSessionRegistration.findOne({ sessionId }).sort({ createdAt: -1 });
 
   if (!latestCharge || latestCharge.status !== 'failed') {
     throw conflictError('This session does not have a failed charge to retry');

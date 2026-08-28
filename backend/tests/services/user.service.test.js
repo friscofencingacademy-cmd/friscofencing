@@ -2,9 +2,11 @@ const mongoose = require('mongoose');
 
 const User = require('../../src/models/user.model');
 const Subscription = require('../../src/models/subscription.model');
-const Registration = require('../../src/models/registration.model');
+const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
+const Service = require('../../src/models/service.model');
 const userService = require('../../src/services/user.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 
 let mongod;
 
@@ -176,7 +178,10 @@ describe('user.service', () => {
       // An orphaned ledger row (its subscriptionId points at nothing real) —
       // exactly the kind of doc the old Registration-count check would have
       // blocked on, and the new Subscription-count check correctly ignores.
-      await Registration.create({
+      await seedServices();
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+      await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
         subscriptionId: new mongoose.Types.ObjectId(),
         studentId: student._id,
         scheduleId,

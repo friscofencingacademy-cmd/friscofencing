@@ -17,13 +17,14 @@ const User = require('../../src/models/user.model');
 const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
 const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
 const PrivateClassSession = require('../../src/models/privateClassSession.model');
-const PrivateClassCharge = require('../../src/models/privateClassCharge.model');
+const { PerSessionRegistration } = require('../../src/models/registration.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { computeSessionPrice } = require('../../src/utils/privateClassPricing');
 const privateClassSessionService = require('../../src/services/privateClassSession.service');
+const { seedServices } = require('../../scripts/lib/seedServices');
 
 const TEST_PASSWORD = 'correct-password';
 const HOURLY_RATE = 60;
@@ -36,6 +37,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+beforeEach(async () => {
+  // Coach contract setup + chargeSession() itself both resolve the
+  // private-lessons Service now (docs/plans/service-registry-unified-
+  // ledger-plan.md).
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -137,7 +145,7 @@ describe('Private class session routes', () => {
         expect(res.body.charge.status).toBe('completed');
         expect(res.body.charge.amount).toBe(computeSessionPrice(HOURLY_RATE, 60));
 
-        const chargeInDb = await PrivateClassCharge.findOne({ sessionId });
+        const chargeInDb = await PerSessionRegistration.findOne({ sessionId });
         expect(chargeInDb.status).toBe('completed');
         expect(chargeInDb.stripePaymentIntentId).toBeTruthy();
 
@@ -191,7 +199,7 @@ describe('Private class session routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.session.attendance).toBe('missed');
       expect(res.body.charged).toBe(false);
-      expect(await PrivateClassCharge.countDocuments({ sessionId })).toBe(0);
+      expect(await PerSessionRegistration.countDocuments({ sessionId })).toBe(0);
     }, 20000);
 
     it('idempotency: marking attended twice results in exactly one non-failed charge', async () => {
@@ -209,7 +217,7 @@ describe('Private class session routes', () => {
       expect(secondRes.status).toBe(200);
       expect(secondRes.body.charged).toBe(true);
 
-      const charges = await PrivateClassCharge.find({ sessionId, status: { $in: ['pending', 'completed'] } });
+      const charges = await PerSessionRegistration.find({ sessionId, status: { $in: ['pending', 'completed'] } });
       expect(charges).toHaveLength(1);
     }, 30000);
 
@@ -225,7 +233,7 @@ describe('Private class session routes', () => {
 
       expect([first.charged, second.charged]).toContain(true);
 
-      const nonFailedCharges = await PrivateClassCharge.find({
+      const nonFailedCharges = await PerSessionRegistration.find({
         sessionId,
         status: { $in: ['pending', 'completed'] },
       });
@@ -258,7 +266,7 @@ describe('Private class session routes', () => {
       expect(res.body.charged).toBe(false);
       expect(res.body.reason).toBe('enrollment_cancelled');
       expect(createSpy).not.toHaveBeenCalled();
-      expect(await PrivateClassCharge.countDocuments({ sessionId })).toBe(0);
+      expect(await PerSessionRegistration.countDocuments({ sessionId })).toBe(0);
     }, 20000);
 
     it('delivered-before-cancellation: session start is before the cancellation endDate -> still charges', async () => {
@@ -309,7 +317,7 @@ describe('Private class session routes', () => {
         const mailService = require('../../src/services/mail.service');
         expect(mailService.sendPrivateClassPaymentFailedEmail).toHaveBeenCalled();
 
-        const failedCharge = await PrivateClassCharge.findOne({ sessionId });
+        const failedCharge = await PerSessionRegistration.findOne({ sessionId });
         expect(failedCharge.attempt).toBe(1);
 
         // Fix the card, then retry.

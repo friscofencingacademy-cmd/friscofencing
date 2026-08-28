@@ -1,16 +1,17 @@
 # Implementation plan: Registration payment ledger + CKQ-style renewal/retry
 
 **Status:** PR 1 MERGED TO DEVELOP 2026-08-27 (`friscofencingacademy-cmd/friscofencing` PR #37).
-PR 2 and PR 3 not started — **and now BLOCKED on
-`docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27)**, which
-restructures PR 1's Registration schema into a shared base + billing-shape discriminators (the
-group fields move into a `SubscriptionCycleRegistration` discriminator and every row gains a
-required `serviceId`). Build that plan's PR A + PR B first, then execute this doc's PR 2/3
-against the discriminated shape: wherever this doc says "create a Registration row," read
-"create a `SubscriptionCycleRegistration` row with `serviceId`" — all field names, indexes, and
-dedup semantics in D4-D6 below are otherwise unchanged. See "PR 1 completion notes" at the end
-of this doc for exactly what PR 1 shipped, three deviations from this spec (each with its
-reason), and one real gap this spec missed that got fixed along the way.
+`docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27) has since
+restructured PR 1's schema — every group-specific field from D4-D6 below now lives on the
+`SubscriptionCycleRegistration` discriminator, and every row requires a `serviceId` — built and
+verified 2026-08-28 (PR A + PR B of that plan, awaiting owner diff review before ship). PR 2 and
+PR 3 of THIS doc are still not started; execute them against the discriminated shape: wherever
+this doc says "create a Registration row," read "create a `SubscriptionCycleRegistration` row
+with `serviceId: (await getServiceByCode('group-classes', {requireActive:true}))._id`" — all
+field names, indexes, and dedup semantics in D4-D6 are otherwise byte-identical to what's
+written below, just living on the discriminator instead of the base schema. See "PR 1 completion
+notes" at the end of this doc for exactly what PR 1 shipped, three deviations from this spec
+(each with its reason), and one real gap this spec missed that got fixed along the way.
 
 **Builder:** intended to be executed by a Sonnet implementation session. See §8 (Builder
 instructions) before touching any file.

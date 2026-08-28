@@ -6,6 +6,7 @@ const Subscription = require('../../../src/models/subscription.model');
 const Registration = require('../../../src/models/registration.model');
 const PrivateClassEnrollment = require('../../../src/models/privateClassEnrollment.model');
 const CoachContract = require('../../../src/models/coachContract.model');
+const { seedServices } = require('../../../scripts/lib/seedServices');
 
 const { runLegacyImport } = require('../../../scripts/lib/runLegacyImport');
 
@@ -17,6 +18,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+beforeEach(async () => {
+  // The import resolves both group-classes and private-lessons Services
+  // internally now (docs/plans/service-registry-unified-ledger-plan.md).
+  await seedServices();
 });
 
 afterEach(async () => {

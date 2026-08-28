@@ -39,4 +39,20 @@ async function getServiceByCode(code, { requireActive = false } = {}) {
   return service;
 }
 
-module.exports = { getServiceByCode };
+// Write-time pairing check (docs/plans/service-registry-unified-ledger-plan
+// .md D4) — every ledger write resolves its service, then asserts the
+// service's declared billingShape matches the Registration discriminator
+// actually being written, BEFORE any insert. This is what keeps the two
+// ledger dimensions (serviceId, billingShape) from silently drifting apart;
+// a mismatch here means a caller wired the wrong discriminator model to the
+// wrong service — a code defect, never a real runtime condition, hence a
+// plain thrown Error rather than a typed 4xx.
+function assertBillingShape(service, expectedShape) {
+  if (service.billingShape !== expectedShape) {
+    throw new Error(
+      `Service "${service.code}" has billingShape "${service.billingShape}", expected "${expectedShape}" for this ledger write.`
+    );
+  }
+}
+
+module.exports = { getServiceByCode, assertBillingShape };

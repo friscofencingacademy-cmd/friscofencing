@@ -333,11 +333,17 @@ describe('User routes', () => {
     // blocked — service-level coverage of this exact case (with an
     // assertion on the ledger row shape) lives in user.service.test.js.
     it('does NOT return 409 when deleting a student whose only reference is a Registration ledger row with no Subscription', async () => {
-      const Registration = require('../../src/models/registration.model');
+      const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
+      const Service = require('../../src/models/service.model');
+      const { seedServices } = require('../../scripts/lib/seedServices');
+      await seedServices();
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
       await seedUser({ email: 'admin16@example.com' });
       const parent = await seedUser({ role: 'parent', email: 'parent16@example.com' });
       const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
-      await Registration.create({
+      await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
         subscriptionId: new mongoose.Types.ObjectId(),
         studentId: student._id,
         scheduleId: new mongoose.Types.ObjectId(),

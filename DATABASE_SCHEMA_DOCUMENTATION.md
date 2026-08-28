@@ -66,11 +66,35 @@ change that. Read via `serviceCatalog.service.js`'s `getServiceByCode(code, {req
 no caching (re-verified every call, same principle as `Setting`, below), fails closed (500) if
 the code isn't seeded at all, 409 if `requireActive` is set and the service is inactive.
 
-## `Registration`, `Subscription` — implemented (Phase 7b)
+## `Registration` — the unified payment ledger (implemented; restructured by `docs/plans/service-registry-unified-ledger-plan.md`, superseding Phase 7b's original 3-field shape and `docs/plans/registration-ledger-plan.md`'s PR 1 group-only schema)
+
+ONE collection for every charge in the business — see ADR `docs/decisions/004-service-registry-and-unified-ledger.md` for the full design. Factored on two independent dimensions, never conflated:
+
+| Base field (every row, every shape) | Type | Notes |
+|---|---|---|
+| `serviceId` | ObjectId ref `Service` | required, indexed — the BUSINESS dimension (which offering this money belongs to) |
+| `billingShape` | String (Mongoose discriminator key) | required — `subscription_cycle` \| `per_session` \| `one_time_event` — the STRUCTURAL dimension (which fields/dedup index apply) |
+| `studentId`, `parentId` | ObjectId ref `User` | required |
+| `status` | String enum | `pending`/`completed`/`failed` — required |
+| `amount` | Number | required — dollars, what was actually charged (or attempted) |
+| `stripePaymentIntentId` | String | default null |
+| `failureMessage` | String | default null |
+| `attempt` | Number | default 1 — bumped on retry; the SAME row is updated in place, never duplicated |
+| `paidAt` | Date | default null |
+| `backfilled` | Boolean | default false — set only by a migration script reconstructing a row from another collection's snapshot, never by a normal charge path |
+
+**Mutation contract**, every row regardless of shape: immutable after insert except the `pending -> completed|failed` transition and retry's own updates to `attempt`/`stripePaymentIntentId`/`failureMessage`/`paidAt`/`status`.
+
+**Discriminator: `subscription_cycle`** (group classes) — `subscriptionId` ref `Subscription` (required); `scheduleId` ref `GroupClassSchedule` (required, a charge-time snapshot, never rewritten by a later schedule change); `eventType` enum `initial`/`renewal`/`legacy` (required); `breakdown` (`monthlyFee` required, `prorated`, `proratedAmount`, `siblingDiscountApplied`, `siblingDiscountAmount`, `registrationFeeCharged`); `periodStart`/`periodEnd` (required). Query index `{subscriptionId, createdAt: -1}`. **Guard B** — unique partial index `{subscriptionId, periodStart}`, scoped to `status ∈ {pending, completed}` AND `subscriptionId: {$exists: true}` (the `$exists` scoping is what keeps this index from colliding with rows of a different shape, which have no `subscriptionId` field at all) — at most one non-failed charge per subscription per period, CKQ's fourth double-charge protection layer.
+
+**Discriminator: `per_session`** (private lessons — absorbs the former standalone `PrivateClassCharge` collection) — `sessionId` ref `PrivateClassSession` (required); `enrollmentId` ref `PrivateClassEnrollment` (required). Unique partial index on `sessionId`, scoped to `status ∈ {pending, completed}` AND `sessionId: {$exists: true}` — a session may have at most one non-failed charge at a time; `failed` deliberately excluded so a retry is never blocked.
+
+**Discriminator: `one_time_event`** (camps/meets — schema-only today, no consumer yet; both Services seeded `isActive: false`) — `eventId` (ObjectId, `refPath: 'eventModel'` — standard Mongoose polymorphism); `eventModel` enum `Camp`/`Meet`. Unique partial index on `{eventId, studentId}`, scoped to `status ∈ {pending, completed}` AND `eventId: {$exists: true}` — one non-failed payment per student per event.
+
+## `Subscription` — implemented (Phase 7b)
 | Collection | Key fields |
 |---|---|
-| `Registration` | `studentId` ref, `scheduleId` ref, `status` (`active`/`cancelled`) — the enrollment fact |
-| `Subscription` | `studentId`, `scheduleId`, `parentId` refs; `status`; `cancelAtPeriodEnd`; `currentPeriodStart/End`; `nextBillingDate`; `lastChargeAmount`/`lastSiblingDiscountApplied` (record-keeping only — never read back as a source of truth); `registrationFeeCharged` (one-time fee actually charged at creation, `0` default — captured once, never re-read/re-charged by renewals or a later change to the fee setting); `firstChargeProrated` (Boolean, default `false` — permanent audit record of whether *this* subscription's first charge was prorated, see `Setting.prorationEnabled` below; never touched again, including by renewals) — the billing lifecycle, kept as a separate concern from `Registration` even though 1:1 today. **No unique index on `(studentId, scheduleId)`** — a student can legitimately re-register after a past cancellation; "no currently active enrollment" is a service-layer check, not a schema constraint. |
+| `Subscription` | `studentId`, `scheduleId`, `parentId` refs; `status`; `cancelAtPeriodEnd`; `currentPeriodStart/End`; `nextBillingDate`; `lastChargeAmount`/`lastSiblingDiscountApplied` (record-keeping only — never read back as a source of truth); `registrationFeeCharged` (one-time fee actually charged at creation, `0` default — captured once, never re-read/re-charged by renewals or a later change to the fee setting); `firstChargeProrated` (Boolean, default `false` — permanent audit record of whether *this* subscription's first charge was prorated, see `Setting.prorationEnabled` below; never touched again, including by renewals) — the enrollment fact, kept as a separate collection/concern from `Registration` (the money fact) even though 1:1 today. **No unique index on `(studentId, scheduleId)`** — a student can legitimately re-register after a past cancellation; "no currently active enrollment" is a service-layer check, not a schema constraint. |
 
 **Renewal + cancellation (Phase 9):** `POST /subscriptions/:id/cancel` sets `cancelAtPeriodEnd` only — `status` and roster access are untouched, access continues through the paid period. `backend/scripts/run-renewals.js` (`npm run renewals`, no real scheduler yet) processes due subscriptions one at a time via `renewOne`, which does its own fresh fetch before charging or finalizing. See `docs/decisions/001-in-house-subscription-billing.md` for the full design.
 
@@ -116,6 +140,7 @@ behavior.
 ## `CoachContract` — implemented (CKQ parity Phase 4, `backend/src/models/coachContract.model.js`)
 | Field | Type | Notes |
 |---|---|---|
+| `serviceId` | ObjectId ref `Service` | required — always the 'private-lessons' Service today (CoachContract has no other consumer yet); set internally by `coachContract.service.js`'s `create()`, never accepted from the client |
 | `coachId` | ObjectId ref `User` | required |
 | `studentBillingRate` | Number | required, min 0 — $/HOUR billed to the parent |
 | `coachCompensationRate` | Number | required, min 0 — $/hour paid to the coach; stored for audit/future payroll only, **no payout UI** (D11) |
@@ -160,19 +185,14 @@ Indexes: `{ coachId: 1, isActive: 1 }`, `{ studentId: 1 }`. Duplicate rule (same
 
 **Unique index `{ scheduleId: 1, startDate: 1 }`** — generator idempotency: one session per schedule per start instant, so re-running `generateSessions`/`extend-private-sessions.js` can never create a duplicate.
 
-## `PrivateClassCharge` — implemented (CKQ parity Phase 4)
-| Field | Type | Notes |
-|---|---|---|
-| `sessionId` | ObjectId ref `PrivateClassSession` | required |
-| `enrollmentId`, `parentId`, `studentId` | ObjectId | required |
-| `amount` | Number | required — dollars, what was actually charged (or attempted) |
-| `status` | String enum | `pending`, `completed`, `failed` — required |
-| `stripePaymentIntentId` | String | default null |
-| `attempt` | Number | default 1 — bumped on each retry; feeds the Stripe idempotency key `pcs_${sessionId}_${attempt}` |
-| `failureMessage` | String | default null |
-| `paidAt` | Date | default null |
+## `PrivateClassCharge` — RETIRED (`docs/plans/service-registry-unified-ledger-plan.md`)
 
-**Unique PARTIAL index** on `sessionId`, restricted to `status: { $in: ['pending', 'completed'] }` — a session may have at most one non-failed charge at a time, so a double-save of the same attendance can never double-charge. `failed` is deliberately excluded from the partial filter — a failed charge must never block a retry from creating a new charge doc. Full charge-pipeline walkthrough (three idempotency layers, the cancel-then-charge race guard, the four CKQ-BUG-FIXes): `docs/features/private-class.md`.
+Absorbed into the unified `Registration` ledger as the `per_session` discriminator — see the
+`Registration` section above for the current field list and index. The standalone collection
+was dropped by `scripts/lib/migrateToUnifiedLedger.js` after verifying every row copied across
+(preserving `_id`, so a charge's identity never changes). Full charge-pipeline walkthrough
+(three idempotency layers, the cancel-then-charge race guard, the four CKQ-BUG-FIXes) is
+unchanged and still lives in `docs/features/private-class.md` — only the storage moved.
 
 ## `Spotlight` — implemented (public-site plan, GAP-2)
 | Field | Type | Notes |

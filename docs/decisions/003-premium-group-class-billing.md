@@ -1,6 +1,6 @@
 # ADR 003: Premium (flat-fee, any-session) group class billing
 
-**Status:** Implemented — 2026-08-24 (`docs/plans/premium-registration-and-attendance-plan.md`, Phases 1–4)
+**Status:** Implemented — 2026-08-24 (`docs/plans/premium-registration-and-attendance-plan.md`, Phases 1–4). **§Decision point 1's "no `Service` abstraction" premise partially superseded by [ADR 004](./004-service-registry-and-unified-ledger.md) — correct when written (two hardcoded services, nothing to abstract), no longer correct once camps/meets became real near-term work. Everything else in this ADR stands.**
 
 ## Context
 

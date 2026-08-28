@@ -9,6 +9,7 @@ const User = require('../../src/models/user.model');
 const CoachContract = require('../../src/models/coachContract.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 
 const TEST_PASSWORD = 'correct-password';
 
@@ -20,6 +21,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+beforeEach(async () => {
+  // Contract creation resolves the private-lessons Service internally now
+  // (docs/plans/service-registry-unified-ledger-plan.md).
+  await seedServices();
 });
 
 afterEach(async () => {

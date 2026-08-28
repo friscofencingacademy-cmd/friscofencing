@@ -21,12 +21,13 @@ const Price = require('../../src/models/price.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const CoachContract = require('../../src/models/coachContract.model');
 const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
-const Registration = require('../../src/models/registration.model');
+const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
 
 const groupClassScheduleService = require('../../src/services/groupClassSchedule.service');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { calculateChargeAmount } = require('../../src/services/billing/calculateChargeAmount.service');
+const { getServiceByCode } = require('../../src/services/serviceCatalog.service');
 const { addOneMonth, todayAtMidnight } = require('../../src/utils/billingDates');
 const { hashPassword } = require('../../src/utils/password');
 
@@ -81,7 +82,11 @@ async function findOrCreateSchedule(classId, coachId, dayOfWeek, startTime, endT
 async function findOrCreateCoachContract(coachId, terms) {
   const existing = await CoachContract.findOne({ coachId, isActive: true });
   if (existing) return existing;
+
+  const privateLessonsService = await getServiceByCode('private-lessons');
+
   return CoachContract.create({
+    serviceId: privateLessonsService._id,
     coachId,
     studentBillingRate: terms.studentBillingRate,
     coachCompensationRate: terms.coachCompensationRate,
@@ -242,7 +247,7 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
     // reached this write (subscriptionId-scoped, not the pre-ledger
     // studentId+scheduleId scoping, since a schedule can now have more than
     // one historical subscriptionId over time).
-    const existingRegistration = await Registration.findOne({ subscriptionId: subscription._id });
+    const existingRegistration = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
     if (!existingRegistration) {
       // status: 'completed' — this represents a REAL historical charge that
       // already happened in the legacy system being imported, not a fresh
@@ -250,7 +255,10 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
       // comment). paidAt is deliberately left null: unlike a live charge,
       // the true historical charge date isn't known here, only that it
       // happened before this import ran.
-      await Registration.create({
+      const groupClassesService = await getServiceByCode('group-classes');
+
+      await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
         subscriptionId: subscription._id,
         studentId,
         scheduleId: primaryEntry.doc._id,
