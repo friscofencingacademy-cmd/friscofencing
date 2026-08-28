@@ -70,6 +70,18 @@ const SAMPLE_DATA = {
     newCoachName: 'Coach Dana',
   },
 
+  paymentFailure: {
+    studentName: 'Sam Rivera',
+    className: 'Beginner Foil',
+    amountDueLabel: '$150.00',
+    nextRetryDateLabel: 'Saturday, Aug 29, 2026',
+    attemptNumber: 1,
+    maxAttempts: 3,
+    isFinal: false,
+    subjectPrefix: 'Payment failed',
+    preheaderLine: "We couldn't charge your saved card — please update your payment method.",
+  },
+
   privateClassConfirmation: {
     studentName: 'Sam Rivera',
     coachName: 'Dana Cole',

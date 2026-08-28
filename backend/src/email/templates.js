@@ -303,6 +303,70 @@ const TEMPLATES = [
     ],
   },
 
+  // Renewal/retry payment failure (docs/plans/registration-ledger-plan.md
+  // D4/D6) — one template, three renderings driven by `isFinal`/
+  // `attemptNumber`: Day 0 (attemptNumber 1, isFinal false), Day 1/2
+  // (attemptNumber 2/3, isFinal false), and the final cancellation notice
+  // (isFinal true). mail.service.js's sendPaymentFailureEmail computes
+  // subjectPrefix/preheaderLine from those same two fields — no conditional
+  // logic in the subject/preheader template strings themselves, matching
+  // every other template's plain-string convention; the branching lives
+  // here in build(), a pure function, same as the rest of this file.
+  {
+    key: 'paymentFailure',
+    subject: "{{subjectPrefix}} — {{studentName}}'s classes",
+    preheader: '{{preheaderLine}}',
+    build: (v) => {
+      const blocks = [
+        { t: 'badge', tone: 'red', glyph: '!' },
+        { t: 'eyebrow', text: v.isFinal ? 'Subscription cancelled' : 'Payment failed', tone: 'red' },
+        {
+          t: 'heading',
+          text: v.isFinal
+            ? 'Subscription cancelled after repeated payment failures'
+            : 'Action needed — payment failed',
+        },
+        {
+          t: 'card',
+          tone: 'red',
+          children: [
+            {
+              t: 'detailList',
+              rows: [
+                ['Student', esc(v.studentName)],
+                ['Class', esc(v.className)],
+                ['Amount due', esc(v.amountDueLabel)],
+                ...(v.isFinal ? [] : [['Next retry', esc(v.nextRetryDateLabel)]]),
+              ],
+            },
+          ],
+        },
+      ];
+
+      if (v.isFinal) {
+        blocks.push(
+          {
+            t: 'text',
+            html: "We were unable to charge your saved card after several attempts, so this subscription has been cancelled. No further charges will be made.",
+          },
+          { t: 'text', html: 'You can re-register any time from your parent portal.' },
+          { t: 'button', label: 'Re-register', href: ORG().portalUrl, variant: 'primary' }
+        );
+      } else {
+        const attemptNote = v.attemptNumber > 1 ? ` (attempt ${v.attemptNumber} of ${v.maxAttempts})` : '';
+        blocks.push(
+          {
+            t: 'text',
+            html: `We couldn't charge your saved card${attemptNote}. Please update your payment method before the next retry.`,
+          },
+          { t: 'button', label: 'Update payment method', href: ORG().portalUrl, variant: 'primary' }
+        );
+      }
+
+      return blocks;
+    },
+  },
+
   // ── Private class ─────────────────────────────────────────────────────
   {
     key: 'privateClassConfirmation',

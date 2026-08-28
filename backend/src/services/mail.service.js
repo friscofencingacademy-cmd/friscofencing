@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const { renderEmail } = require('../email');
 const { dateFull, timeOfDay, dayOfWeekLabel } = require('../email/dates');
+const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 
 // Lazy, memoized module-level cache — created once per process. If
 // SMTP_HOST is configured, we build a real transporter from the SMTP_*
@@ -269,6 +270,36 @@ async function sendRenewalReceiptEmail({
   }
 }
 
+// Renewal/retry payment failure (docs/plans/registration-ledger-plan.md
+// D4/D6). Same template, three renderings driven by isFinal/attemptNumber —
+// see templates.js's own comment on the 'paymentFailure' entry. Admin-only
+// CC (no coach) — matches sendPrivateClassPaymentFailedEmail's precedent: a
+// billing/parent-account matter, not the coach's concern.
+async function sendPaymentFailureEmail({ parent, student, schedule, groupClass, amountDue, attemptNumber, isFinal, nextRetryDate }) {
+  try {
+    const data = {
+      studentName: fullName(student),
+      className: groupClass ? groupClass.name : '',
+      amountDueLabel: amountDue != null ? `$${Number(amountDue).toFixed(2)}` : '',
+      attemptNumber: attemptNumber || 1,
+      maxAttempts: MAX_PAYMENT_RETRIES,
+      isFinal: Boolean(isFinal),
+      nextRetryDateLabel: nextRetryDate ? dateFull(nextRetryDate) : '',
+      subjectPrefix: isFinal ? 'Subscription cancelled' : 'Payment failed',
+      preheaderLine: isFinal
+        ? 'Your subscription has been cancelled after repeated payment failures.'
+        : "We couldn't charge your saved card — please update your payment method.",
+    };
+
+    const { subject, html, text } = renderEmail('paymentFailure', data);
+
+    return sendMailSafely({ to: parent.email, cc: [ADMIN_EMAIL()], subject, text, html });
+  } catch (error) {
+    console.error('mail.service: failed to build paymentFailure email:', error.message);
+    return false;
+  }
+}
+
 async function sendCancellationConfirmationEmail({ parent, student, groupClass, schedule, coach, endDate }) {
   try {
     const data = {
@@ -441,6 +472,7 @@ module.exports = {
   sendTrialEvaluationEmail,
   sendRegistrationConfirmationEmail,
   sendRenewalReceiptEmail,
+  sendPaymentFailureEmail,
   sendCancellationConfirmationEmail,
   sendReactivationConfirmationEmail,
   sendScheduleChangeConfirmationEmail,

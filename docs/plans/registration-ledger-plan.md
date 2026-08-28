@@ -1,17 +1,14 @@
 # Implementation plan: Registration payment ledger + CKQ-style renewal/retry
 
 **Status:** PR 1 MERGED TO DEVELOP 2026-08-27 (`friscofencingacademy-cmd/friscofencing` PR #37).
-`docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27) has since
-restructured PR 1's schema — every group-specific field from D4-D6 below now lives on the
-`SubscriptionCycleRegistration` discriminator, and every row requires a `serviceId` — built and
-verified 2026-08-28 (PR A + PR B of that plan, awaiting owner diff review before ship). PR 2 and
-PR 3 of THIS doc are still not started; execute them against the discriminated shape: wherever
-this doc says "create a Registration row," read "create a `SubscriptionCycleRegistration` row
-with `serviceId: (await getServiceByCode('group-classes', {requireActive:true}))._id`" — all
-field names, indexes, and dedup semantics in D4-D6 are otherwise byte-identical to what's
-written below, just living on the discriminator instead of the base schema. See "PR 1 completion
-notes" at the end of this doc for exactly what PR 1 shipped, three deviations from this spec
-(each with its reason), and one real gap this spec missed that got fixed along the way.
+`docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27) then
+restructured PR 1's schema onto the `SubscriptionCycleRegistration` discriminator (shipped
+2026-08-28), and `docs/plans/timezone-consistency-plan.md` (owner-sequenced, also 2026-08-28)
+fixed `todayAtMidnight()`/`addOneDay()` to resolve real Central time before PR 2 built on them.
+**PR 2 BUILT 2026-08-28** on `feature/registration-ledger-pr2`, per §5 below executed against the
+discriminated shape exactly as this status note originally specified — see "PR 2 completion
+notes" at the end of this doc. PR 3 not started. See "PR 1 completion notes" further down for
+what PR 1 shipped, its deviations, and one gap fixed along the way.
 
 **Builder:** intended to be executed by a Sonnet implementation session. See §8 (Builder
 instructions) before touching any file.
@@ -625,6 +622,62 @@ that could never happen in real production. Fixed by giving the second subscript
 student on the same schedule instead of colliding — same filter behavior under test, now on data
 shaped like reality.
 
-Not yet done: PR 2 (renewal sequencing + stale-pending recovery), PR 3 (retry/dunning), and the
-§7 doc updates that close out with PR 3 (`docs/decisions/001-in-house-subscription-billing.md`
-addendum, `docs/TESTING_STRATEGY.md`'s line-45 mandate extension, `docs/decisions/README.md`).
+Not yet done (at PR 1 merge time): PR 2, PR 3, and the §7 doc updates that close out with PR 3.
+
+## PR 2 completion notes (2026-08-28)
+
+Built on `feature/registration-ledger-pr2`, executed against the discriminated
+`SubscriptionCycleRegistration` shape exactly as this doc's status note specified — `serviceId`
+resolved via `getServiceByCode('group-classes', {requireActive:true})` + `assertBillingShape`
+before any ledger write, same fail-closed placement `registration.service.js`'s `create()`
+already uses. `renewOne()` rewritten per D4 (ledger-row-first sequencing, `payment_${row._id}`
+idempotency key + `metadata.registrationId`, retry-state entry on failure) + `recoverStalePending`
+per D5 (both cases — succeeded-PI adoption and no-PI re-drive). `runRenewals()`'s phase-1
+candidate query gained the `retryCount: 0` filter. New `sendPaymentFailureEmail` (one template,
+three data-driven renderings — Day 0/Day N/final, the last two inert until PR 3's `retryOne`/
+cancel-after-exhaustion actually produce them).
+
+Full backend suite: 468 tests, 466 pass — the 2 failures are `registration.routes.test.js`'s
+two proration tests, the same pre-existing $0-remaining-class-days bug this doc's §3 already
+lists as out of scope (unrelated files — `renewal.service.js`, `mail.service.js`, `templates.js`,
+`sampleData.js` — none of which this PR's changes touch). Not investigated further, per that
+existing exclusion.
+
+**One real implementation bug found and fixed during the build, not in the original spec:**
+D4/D5's Stripe `paymentIntents.create()` call initially placed `metadata` in the SDK's
+request-*options* argument (alongside `idempotencyKey`) instead of the *params* argument —
+metadata is a real field on the PaymentIntent object itself, not a request-level option. This
+silently dropped the metadata entirely (Stripe accepted the call without error), which would have
+made D5's stale-pending recovery permanently unable to find anything via its own metadata search
+— caught immediately by the new tests asserting `paymentIntent.metadata.registrationId` (both the
+happy-path charge test and the stale-pending re-drive test failed identically until fixed), not
+discovered later. The same misplacement existed in one test's own manually-constructed
+PaymentIntent (the stale-pending-adopt fixture) and was fixed the same way.
+
+**Deviations from D4/D5's literal wording, both driven by return-shape consistency, not spec
+ambiguity:** (1) the failed-charge outcome returns `failureMessage` instead of the old
+`paymentIntentStatus` — no production consumer read the old field (grepped), and `failureMessage`
+is strictly more informative, matching what's now also stored on the ledger row itself. (2) The
+success/failure "finalize" logic (`finalizeSuccessfulCharge`/`finalizeFailedCharge`) is factored
+into two shared functions used by both the main charge path and stale-pending recovery's re-drive
+branch, rather than being inlined twice — not a spec requirement, but D5's re-drive explicitly
+needs "the same succeeded/failed handling as D4 steps 6–7," which is easiest to guarantee by
+literally sharing the code, not just the intent.
+
+**File-by-file diff, for the owner's payment-critical-files review** (per Hard Rule 3):
+`backend/src/services/renewal.service.js` (full rewrite of `renewOne`, new `recoverStalePending`/
+`chargeLedgerRow`/`finalizeSuccessfulCharge`/`finalizeFailedCharge`/`advanceSubscriptionPeriod`/
+`sendFailureEmail` helpers, `runRenewals`'s candidate query), `backend/src/services/mail.service.js`
+(new `sendPaymentFailureEmail`), `backend/src/email/templates.js` (new `paymentFailure` entry),
+`backend/src/email/sampleData.js` (new `paymentFailure` fixture — `scripts/preview-emails.js`
+needed no direct edit, it already iterates the template registry automatically). Plus test files:
+`tests/services/renewal.service.test.js` (2 existing tests extended with ledger/retry-state
+assertions, 5 new tests — ledger dedup concurrent-race, already-charged self-heal, both
+stale-pending recovery cases, failed-row-doesn't-block-retry), `tests/services/mail.service.test.js`
+(5 new tests for `sendPaymentFailureEmail`), `tests/email/renderEmail.test.js` (no edit needed —
+its `describe.each(TEMPLATES...)` picked up `paymentFailure` automatically). Plus this doc and
+`docs/TEST_COVERAGE.md`.
+
+Not yet done: PR 3 (retry/dunning + cancel-after-exhaustion), and the §7 doc updates that close
+out with PR 3 (`docs/decisions/001-in-house-subscription-billing.md` addendum,
+`docs/TESTING_STRATEGY.md`'s line-45 mandate extension, `docs/decisions/README.md`).
