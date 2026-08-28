@@ -276,16 +276,12 @@ async function changeSchedule(subscriptionId, newScheduleId) {
     throw conflictError('The new schedule is at capacity');
   }
 
-  const duplicate = await Subscription.findOne({
-    studentId: subscription.studentId,
-    scheduleId: newScheduleId,
-    status: 'active',
-    _id: { $ne: subscription._id },
-  });
-
-  if (duplicate) {
-    throw conflictError('This student is already registered for the new schedule');
-  }
+  // No "does the student already have another active subscription at the
+  // target schedule" check here on purpose: Guard A (docs/decisions/005-
+  // one-active-subscription-per-student.md) now guarantees at most ONE
+  // active subscription per student, period — `subscription` above IS that
+  // one subscription, so no other active doc for this student can exist to
+  // collide with. A check here would be permanently unreachable dead code.
 
   const today = todayAtMidnight();
 

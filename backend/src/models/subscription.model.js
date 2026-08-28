@@ -8,13 +8,13 @@ const SUBSCRIPTION_STATUSES = ['active', 'cancelled'];
 // docs/decisions/001-in-house-subscription-billing.md) — Stripe is only used
 // to charge a saved card, never its native Subscriptions object.
 //
-// NOT unique on plain (studentId, scheduleId): a student can legitimately
-// re-register for the same schedule after a past cancellation, which needs a
-// second doc. What IS enforced at the DB level (Guard A, below) is that at
-// most one of those docs is ever ACTIVE at a time — the partial index scopes
-// out cancelled docs entirely, so this comment's original intent still
-// holds; only the previously-TOCTOU-racy "no currently active enrollment"
-// check in registration.service.js gained a real backstop.
+// NOT unique on plain studentId: a student can legitimately re-register
+// (for the same schedule, or any other) after a past cancellation, which
+// needs a second doc. What IS enforced at the DB level (Guard A, below) is
+// that at most one of those docs is ever ACTIVE at a time — the partial
+// index scopes out cancelled docs entirely, so this comment's original
+// intent still holds; only the previously-TOCTOU-racy "no currently active
+// enrollment" check in registration.service.js gained a real backstop.
 const subscriptionSchema = new Schema(
   {
     studentId: {
@@ -127,14 +127,20 @@ const subscriptionSchema = new Schema(
 );
 
 // Guard A — closes the concurrent-registration race
-// (docs/plans/registration-ledger-plan.md D2). At most one ACTIVE
-// subscription per student+schedule, enforced by MongoDB itself, not just
-// the check-then-create in registration.service.js's create() (a real TOCTOU
-// race under two near-simultaneous requests). Cancelled docs are excluded on
-// purpose — re-registration after a past cancellation still needs a second
-// doc, per this schema's own comment above.
+// (originally docs/plans/registration-ledger-plan.md D2; tightened from
+// {studentId, scheduleId} to {studentId} alone by docs/decisions/005-one-
+// active-subscription-per-student.md — "each student can only have 1 group
+// class subscription," owner-decided 2026-08-28). At most one ACTIVE
+// subscription per student, period, enforced by MongoDB itself, not just
+// the check-then-create in registration.service.js's create() (a real
+// TOCTOU race under two near-simultaneous requests). Cancelled docs are
+// excluded on purpose — re-registration after a past cancellation still
+// needs a second doc, per this schema's own comment above. This is also
+// what makes the sibling-discount calculation unambiguous (ADR 006): one
+// student can never have two active subscriptions for
+// calculateChargeAmount's per-sibling lookup to pick between.
 subscriptionSchema.index(
-  { studentId: 1, scheduleId: 1 },
+  { studentId: 1 },
   {
     unique: true,
     partialFilterExpression: { status: 'active' },

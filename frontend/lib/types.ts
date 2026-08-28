@@ -251,7 +251,15 @@ export interface RegistrationCreateResponse extends ProrationInfo {
   // chargeAmount alone stays the recurring monthly amount, unchanged
   // meaning — use this for "your card was charged" copy.
   totalChargeAmount: number;
-  paymentIntentStatus: string;
+  // 'completed' | 'pending' (docs/decisions/008-registration-create-
+  // pending-first.md) — a 201 no longer means "your card was charged"
+  // unconditionally: the Subscription is reserved and the registration is
+  // ACCEPTED before the first charge attempt runs. 'pending' means that
+  // first attempt failed and it's now retrying automatically over the next
+  // few days (the same dunning a renewal failure already uses) — render a
+  // distinct "we're processing your payment" state, never the success
+  // screen and never an error.
+  paymentStatus: 'completed' | 'pending';
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
   siblingDiscountReason?: string | null;

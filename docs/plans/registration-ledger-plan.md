@@ -119,6 +119,13 @@ insert fine. Two guards are needed, on two different collections:
   on (studentId, scheduleId)"); update that comment to explain the partial index rather
   than deleting the reasoning.
 
+  **Superseded 2026-08-28** by `docs/decisions/005-one-active-subscription-per-student.md`
+  — the index is tightened further, from `{studentId, scheduleId}` to `{studentId}` alone
+  (a student may hold at most ONE active group-class subscription at all, on any
+  schedule, not just this one). Tightening it exposed a real cross-schedule double-charge
+  race under this section's own D3 (charge-first ordering) — see
+  `docs/decisions/008-registration-create-pending-first.md`, which supersedes D3 below.
+
 - **Guard B — durable renewal dedup (CKQ's fourth protection layer).** On `Registration`:
 
   ```js
@@ -133,6 +140,12 @@ insert fine. Two guards are needed, on two different collections:
   outlives Stripe's ~24h idempotency-key window.
 
 ### D3 — Initial registration: charge-first ordering is KEPT
+
+**Superseded 2026-08-28** by `docs/decisions/008-registration-create-pending-first.md` —
+`create()` now RESERVES the Subscription and a `pending` ledger row BEFORE charging
+Stripe (the opposite of this section), and a failed first charge enters the same
+retry/dunning cycle a failed renewal already uses instead of being rejected outright.
+Kept below for history; do not build against this section.
 
 `registration.service.js`'s `create()` keeps its current order (validate → charge → create
 docs; a decline is a 402 with **nothing persisted** — no orphan rows for a signup that

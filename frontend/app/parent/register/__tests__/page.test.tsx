@@ -133,7 +133,7 @@ const server = setupServer(
         subscription: { _id: 'sub-1' },
         chargeAmount: 150,
         totalChargeAmount: 150,
-        paymentIntentStatus: 'succeeded',
+        paymentStatus: 'completed',
         registrationFeeCharged: 0,
         registrationFeeWaived: false,
         registrationFeeReason: null,
@@ -244,6 +244,40 @@ describe('RegisterPage wizard', () => {
 
     expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
     expect(screen.getByText(/\$150\.00/)).toBeInTheDocument();
+  });
+
+  it('shows a distinct "processing" state, not the success screen, when paymentStatus is "pending" (docs/decisions/008-registration-create-pending-first.md)', async () => {
+    server.use(
+      http.post('*/registrations', () =>
+        HttpResponse.json(
+          {
+            registration: { _id: 'reg-1' },
+            subscription: { _id: 'sub-1' },
+            chargeAmount: 150,
+            totalChargeAmount: 150,
+            paymentStatus: 'pending',
+            registrationFeeCharged: 0,
+            registrationFeeWaived: false,
+            registrationFeeReason: null,
+            prorated: false,
+            totalClassDays: null,
+            remainingClassDays: null,
+            dailyRate: null,
+            periodEnd: '2099-01-31T00:00:00.000Z',
+          },
+          { status: 201 }
+        )
+      )
+    );
+
+    renderRegisterPage();
+    await goToPayableState();
+
+    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+
+    expect(await screen.findByText('Registration received')).toBeInTheDocument();
+    expect(screen.queryByText('Registration complete!')).not.toBeInTheDocument();
+    expect(screen.getByText(/we couldn't charge your card just now/i)).toBeInTheDocument();
   });
 
   it('the Register & Pay CTA is disabled until a level and start date are both chosen', async () => {
@@ -418,7 +452,7 @@ describe('RegisterPage wizard', () => {
               subscription: { _id: 'sub-1' },
               chargeAmount: 135,
               totalChargeAmount: 135,
-              paymentIntentStatus: 'succeeded',
+              paymentStatus: 'completed',
               siblingDiscountApplied: true,
               siblingDiscountAmount: 15,
               siblingDiscountReason:
@@ -472,7 +506,7 @@ describe('RegisterPage wizard', () => {
               subscription: { _id: 'sub-1' },
               chargeAmount: 150,
               totalChargeAmount: 175,
-              paymentIntentStatus: 'succeeded',
+              paymentStatus: 'completed',
               registrationFeeCharged: 25,
               registrationFeeWaived: false,
               registrationFeeReason: null,
@@ -504,7 +538,7 @@ describe('RegisterPage wizard', () => {
               subscription: { _id: 'sub-1' },
               chargeAmount: 150,
               totalChargeAmount: 150,
-              paymentIntentStatus: 'succeeded',
+              paymentStatus: 'completed',
               registrationFeeCharged: 0,
               registrationFeeWaived: true,
               registrationFeeReason: 'Registration fee waived — returning within 6 months of your last enrollment.',
@@ -570,7 +604,7 @@ describe('RegisterPage wizard', () => {
               subscription: { _id: 'sub-1' },
               chargeAmount: 160,
               totalChargeAmount: 160,
-              paymentIntentStatus: 'succeeded',
+              paymentStatus: 'completed',
               registrationFeeCharged: 0,
               registrationFeeWaived: false,
               registrationFeeReason: null,

@@ -30,6 +30,7 @@ const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const Setting = require('../../src/models/setting.model');
 const { computeProration } = require('../../src/services/billing/proration.service');
+const { retryOne } = require('../../src/services/renewal.service');
 const { todayDateOnly } = require('../../src/utils/billingDates');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
@@ -267,7 +268,7 @@ describe('Registration routes', () => {
         });
 
         expect(res.status).toBe(201);
-        expect(res.body.paymentIntentStatus).toBe('succeeded');
+        expect(res.body.paymentStatus).toBe('completed');
         expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
         expect(res.body.registration.status).toBe('completed');
         expect(res.body.subscription.status).toBe('active');
@@ -389,7 +390,7 @@ describe('Registration routes', () => {
     );
 
     it(
-      'returns 402 and creates nothing on a real Stripe TEST-mode card decline',
+      'accepts the registration (201, paymentStatus: pending) on a real Stripe TEST-mode card decline, enters retry/dunning, and grants no roster access — docs/decisions/008-registration-create-pending-first.md',
       async () => {
         const { scheduleId } = await seedSchedule();
         const { student } = await seedParentAndStudent('reg-decline@example.com');
@@ -412,17 +413,105 @@ describe('Registration routes', () => {
           scheduleId,
         });
 
-        expect(res.status).toBe(402);
+        // The registration itself is accepted — only the FIRST charge
+        // attempt failed. Not a 402: a brand-new signup's failed first
+        // charge is no longer rejected outright, it enters the same
+        // retry/dunning renewals already use.
+        expect(res.status).toBe(201);
+        expect(res.body.paymentStatus).toBe('pending');
 
-        expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
-        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+        // The Subscription was reserved (Guard A's whole point) even though
+        // no charge has ever succeeded — lastChargeAmount stays null, the
+        // correct "never successfully charged" signal.
+        const subscription = await Subscription.findOne({ studentId: student._id });
+        expect(subscription).not.toBeNull();
+        expect(subscription.status).toBe('active');
+        expect(subscription.lastChargeAmount).toBeNull();
+        expect(subscription.retryCount).toBe(1);
+        expect(subscription.nextRetryAt).toBeInstanceOf(Date);
+
+        // The ledger row records the failed attempt — kept permanently,
+        // never deleted, same as a failed renewal's row.
+        const registrations = await Registration.find({ studentId: student._id });
+        expect(registrations).toHaveLength(1);
+        expect(registrations[0].status).toBe('failed');
+        expect(typeof registrations[0].failureMessage).toBe('string');
+
+        // No roster/session access until a charge actually succeeds.
+        const schedule = await GroupClassSchedule.findById(scheduleId);
+        expect(
+          schedule.students.some((id) => String(id) === String(student._id))
+        ).toBe(false);
+
+        // The payment-failure email fired for THIS parent — the parent must
+        // be told to expect a retry, not a welcome. (This mock's call
+        // history accumulates across the whole test file — no
+        // clearAllMocks configured — so this asserts on THIS parent's own
+        // call rather than an absolute "never called" across every test.)
+        expect(mailService.sendPaymentFailureEmail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            parent: expect.objectContaining({ email: 'reg-decline@example.com' }),
+            student: expect.objectContaining({ firstName: student.firstName }),
+            isFinal: false,
+            attemptNumber: 1,
+          })
+        );
+        expect(mailService.sendRegistrationConfirmationEmail).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            parent: expect.objectContaining({ email: 'reg-decline@example.com' }),
+          })
+        );
+      },
+      30000
+    );
+
+    it(
+      'cancels a subscription whose first-ever charge exhausts all retries — never granted roster access at any point',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-decline-exhaust@example.com');
+        const parentAgent = await loginAgent('reg-decline-exhaust@example.com');
+
+        await savePaymentMethodFor(parentAgent);
+
+        const parent = await User.findOne({ email: 'reg-decline-exhaust@example.com' });
+        await PaymentMethod.updateOne(
+          { parentId: parent._id },
+          { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+        );
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+        expect(res.status).toBe(201);
+        expect(res.body.paymentStatus).toBe('pending');
+
+        const subscription = await Subscription.findOne({ studentId: student._id });
+
+        // Runs the exact same retry machinery a failed RENEWAL uses — no
+        // separate code path exists for a never-successfully-paid
+        // subscription. Force each retry due now (real dates, not mocked
+        // time) so this test doesn't need to wait real days.
+        await Subscription.updateOne({ _id: subscription._id }, { $set: { nextRetryAt: new Date() } });
+        await retryOne(subscription._id); // attempt 2, still declines
+        await Subscription.updateOne({ _id: subscription._id }, { $set: { nextRetryAt: new Date() } });
+        await retryOne(subscription._id); // attempt 3, still declines
+        await Subscription.updateOne({ _id: subscription._id }, { $set: { nextRetryAt: new Date() } });
+        const finalResult = await retryOne(subscription._id); // exhausted -> cancelled
+
+        expect(finalResult.outcome).toBe('cancelled_exhausted');
+
+        const cancelled = await Subscription.findById(subscription._id);
+        expect(cancelled.status).toBe('cancelled');
+        expect(cancelled.lastChargeAmount).toBeNull();
 
         const schedule = await GroupClassSchedule.findById(scheduleId);
         expect(
           schedule.students.some((id) => String(id) === String(student._id))
         ).toBe(false);
       },
-      30000
+      40000
     );
 
     it(
@@ -528,11 +617,12 @@ describe('Registration routes', () => {
         // existing subscription" before either request's Subscription.create
         // resolves. What actually decides the outcome deterministically is
         // Guard A's unique index at the second create() call: exactly one of
-        // the two inserts can succeed, however the pre-checks landed. Both
-        // requests share the same registration date, so the shared Stripe
-        // idempotency key (`initial-registration-{student}-{schedule}-
-        // {date}`) means Stripe charges the card exactly once regardless of
-        // which request "wins" — this is a DB race, not a double-charge.
+        // the two inserts can succeed, however the pre-checks landed. Since
+        // the Subscription is now RESERVED before either request ever
+        // touches Stripe (docs/decisions/008-registration-create-pending-
+        // first.md), the loser's card is never charged at all — see the
+        // dedicated cross-schedule race test below for the direct assertion
+        // of that (the actual bug this ADR closes).
         const [firstRes, secondRes] = await Promise.all([
           parentAgent.post('/api/v1/registrations').send({
             studentId: student._id.toString(),
@@ -551,6 +641,54 @@ describe('Registration routes', () => {
         // The 409 loser must never have written a ledger row — only the one
         // real charge (the winner's) has a Registration row to show for it.
         expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
+      },
+      30000
+    );
+
+    it(
+      "closes the CROSS-schedule double-charge race (docs/decisions/008-registration-create-pending-first.md — the actual bug found while building the one-active-subscription guard): two simultaneous requests for the SAME student on TWO DIFFERENT schedules produce exactly one Subscription, one ledger row, and ONE real Stripe charge — the loser's card is never touched",
+      async () => {
+        const { scheduleId: scheduleA } = await seedSchedule();
+        const scheduleBId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'RaceCrossSchedule',
+          levelOrder: 50,
+        });
+        const { student } = await seedParentAndStudent('reg-parent-cross-race@example.com');
+        const parentAgent = await loginAgent('reg-parent-cross-race@example.com');
+
+        await savePaymentMethodFor(parentAgent);
+
+        // Under the OLD charge-first create(), this race would let BOTH
+        // requests charge Stripe for real (different schedules -> different
+        // idempotency keys), with only one able to win the Subscription
+        // write — leaving the loser's real charge with nothing to attach
+        // to. Reserving the Subscription BEFORE charging closes this: the
+        // loser's request never reaches Stripe at all.
+        const [firstRes, secondRes] = await Promise.all([
+          parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId: scheduleA,
+          }),
+          parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId: scheduleBId,
+          }),
+        ]);
+
+        const statuses = [firstRes.status, secondRes.status].sort();
+        expect(statuses).toEqual([201, 409]);
+
+        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(1);
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
+
+        // The direct assertion this test exists for: exactly ONE real
+        // Stripe PaymentIntent was ever created for this parent's charge —
+        // not two. (This is a real, shared Stripe TEST-mode account, but
+        // this parent/customer is unique to this test, so its own
+        // PaymentIntent count is a meaningful, isolated signal.)
+        const parent = await User.findOne({ email: 'reg-parent-cross-race@example.com' });
+        const paymentIntents = await stripe.paymentIntents.list({ customer: parent.stripeCustomerId, limit: 10 });
+        expect(paymentIntents.data).toHaveLength(1);
       },
       30000
     );

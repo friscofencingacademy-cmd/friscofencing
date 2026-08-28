@@ -1,6 +1,6 @@
 # ADR 005: One active group-class subscription per student
 
-**Status:** Proposed — 2026-08-28 (owner-decided in conversation; implementation lands with the sibling-discount hardening plan)
+**Status:** Built — 2026-08-28 (PR 2 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`), pending owner local testing + commit.
 
 ## Context
 

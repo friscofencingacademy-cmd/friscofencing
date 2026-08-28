@@ -9,8 +9,13 @@ const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
+const {
+  chargeAndFinalize,
+  finalizeSuccessfulCharge,
+  advanceSubscriptionPeriod,
+} = require('./billing/chargeFinalization.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
-const { addOneMonth, addOneDay, todayAtMidnight } = require('../utils/billingDates');
+const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 const { removeStudentFromRoster } = require('./roster.service');
 const mailService = require('./mail.service');
@@ -40,39 +45,6 @@ async function resolveMonthlyFee(subscription) {
   }
 
   return price.monthlyFee;
-}
-
-// Rolls the Subscription's period fields forward and resets retry/dunning
-// state — the ONE place that happens, shared by every path that ends in
-// "this period is now paid for" (a fresh successful charge, the ledger-dedup
-// recovery when a prior run already completed this period, and stale-
-// pending adoption when a prior run's PaymentIntent is found to have
-// actually succeeded). Same atomic-conditional-update shape the pre-ledger
-// code used (docs/decisions/001-in-house-subscription-billing.md safeguard
-// #2) — `status: 'active'` in the filter is defense-in-depth, not the
-// primary guard; the primary guard is renewOne's own fresh-fetch re-check
-// before any of this runs.
-async function advanceSubscriptionPeriod(
-  subscriptionId,
-  newPeriodStart,
-  newPeriodEnd,
-  chargeAmount,
-  siblingDiscountApplied
-) {
-  await Subscription.findOneAndUpdate(
-    { _id: subscriptionId, status: 'active' },
-    {
-      $set: {
-        currentPeriodStart: newPeriodStart,
-        currentPeriodEnd: newPeriodEnd,
-        nextBillingDate: newPeriodEnd,
-        lastChargeAmount: chargeAmount,
-        lastSiblingDiscountApplied: siblingDiscountApplied,
-        retryCount: 0,
-      },
-      $unset: { nextRetryAt: '' },
-    }
-  );
 }
 
 // Fire-and-forget receipt email — never throws, never affects the outcome
@@ -126,19 +98,13 @@ async function sendFailureEmail(subscription, parent, student, amountDue, nextRe
   }
 }
 
-// Charges `row`'s LOCKED amount via Stripe, keyed on the row's own id
-// (`payment_${row._id}`, or `payment_${row._id}_retry${attemptNumber}` for
-// a retry attempt — D6 step 4) so this is safe to call twice for the same
-// row (a stale-pending re-drive within 24h replays the original Stripe
-// outcome; beyond 24h the caller has already proven via search that no
-// charge exists, so a fresh charge under the same key is correct —
-// docs/plans/registration-ledger-plan.md D5). Handles both outcomes in
-// place: completes/fails the SAME row, rolls the period or enters retry
-// state, and sends the appropriate email. Returns the renewOne/retryOne-
-// shaped result. `attemptNumber` defaults to 1 (the initial charge, from
-// renewOne or stale-pending recovery); retryOne passes its own
-// `subscription.retryCount + 1`.
-async function chargeLedgerRow({
+// Charges `row` via the shared chargeFinalization module (docs/decisions/
+// 008-registration-create-pending-first.md — the same charge/ledger/period
+// mechanics registration.service.js's create() now uses for the initial
+// charge), then sends the RENEWAL-specific email for whichever outcome
+// resulted. Kept as its own function so every renewal call site (fresh
+// charge, retry, stale-pending re-drive) sends its email the same way.
+async function chargeAndEmail({
   row,
   subscription,
   student,
@@ -149,145 +115,35 @@ async function chargeLedgerRow({
   siblingDiscountApplied,
   attemptNumber = 1,
 }) {
-  let paymentIntent;
-
-  const idempotencyKey =
-    attemptNumber > 1 ? `payment_${row._id}_retry${attemptNumber}` : `payment_${row._id}`;
-  // In the params object, not the request-options object below — metadata
-  // is a real field on the PaymentIntent itself (what D5's stale-pending
-  // recovery searches on), not a request-level option like idempotencyKey.
-  const metadata =
-    attemptNumber > 1
-      ? { registrationId: String(row._id), retry: String(attemptNumber) }
-      : { registrationId: String(row._id) };
-
-  try {
-    paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: Math.round(row.amount * 100),
-        currency: 'usd',
-        customer: stripeCustomerId,
-        payment_method: paymentMethod.stripePaymentMethodId,
-        off_session: true,
-        confirm: true,
-        metadata,
-      },
-      { idempotencyKey }
-    );
-  } catch (error) {
-    if (error.type === 'StripeCardError') {
-      return finalizeFailedCharge({
-        row,
-        subscription,
-        student,
-        parent,
-        failureMessage: error.message,
-        paymentIntentId: error.payment_intent ? error.payment_intent.id : null,
-        attemptNumber,
-      });
-    }
-
-    throw error;
-  }
-
-  if (paymentIntent.status !== 'succeeded') {
-    return finalizeFailedCharge({
-      row,
-      subscription,
-      student,
-      parent,
-      failureMessage: `PaymentIntent status: ${paymentIntent.status}`,
-      paymentIntentId: paymentIntent.id,
-      attemptNumber,
-    });
-  }
-
-  return finalizeSuccessfulCharge({
+  const result = await chargeAndFinalize({
     row,
     subscription,
-    student,
-    parent,
-    paymentIntentId: paymentIntent.id,
-    monthlyFee,
+    paymentMethod,
+    stripeCustomerId,
     siblingDiscountApplied,
     attemptNumber,
   });
+
+  if (result.outcome === 'charged') {
+    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, siblingDiscountApplied, monthlyFee, row.periodStart);
+  } else {
+    // Never the final email here — exhaustion (retryCount >= MAX) is checked
+    // at the START of the NEXT retryOne call, not inline with the failure
+    // that pushed retryCount up to MAX. This attempt's own failure is
+    // always a Day-N "we'll retry again" notice.
+    await sendFailureEmail(subscription, parent, student, row.amount, result.nextRetryAt, result.attemptNumber, false);
+  }
+
+  return result;
 }
 
-async function finalizeSuccessfulCharge({
-  row,
-  subscription,
-  student,
-  parent,
-  paymentIntentId,
-  monthlyFee,
-  siblingDiscountApplied,
-  attemptNumber = 1,
-}) {
-  await SubscriptionCycleRegistration.findByIdAndUpdate(row._id, {
-    $set: {
-      status: 'completed',
-      stripePaymentIntentId: paymentIntentId,
-      paidAt: new Date(),
-      attempt: attemptNumber,
-    },
-  });
-
-  await advanceSubscriptionPeriod(subscription._id, row.periodStart, row.periodEnd, row.amount, siblingDiscountApplied);
-
-  await sendReceiptEmail(subscription, parent, student, row.amount, siblingDiscountApplied, monthlyFee, row.periodStart);
-
-  return {
-    subscriptionId: subscription._id,
-    outcome: 'charged',
-    chargeAmount: row.amount,
-    siblingDiscountApplied,
-  };
-}
-
-async function finalizeFailedCharge({ row, subscription, student, parent, failureMessage, paymentIntentId, attemptNumber = 1 }) {
-  await SubscriptionCycleRegistration.findByIdAndUpdate(row._id, {
-    $set: {
-      status: 'failed',
-      failureMessage,
-      stripePaymentIntentId: paymentIntentId,
-      attempt: attemptNumber,
-    },
-  });
-
-  // Do NOT roll the period — leave currentPeriodEnd/nextBillingDate
-  // untouched so the failed period stays "due" until a retry succeeds or
-  // exhausts. Enter/advance retry state (D6): retryCount tracks the attempt
-  // that just failed, nextRetryAt is always +1 day from today regardless of
-  // which attempt this was — the retry cadence is fixed daily, not
-  // exponential (D6's adopted decision: Day 0 -> 1 -> 2 -> 3-then-cancel).
-  const nextRetryAt = addOneDay(todayAtMidnight());
-
-  await Subscription.findOneAndUpdate(
-    { _id: subscription._id, status: 'active' },
-    { $set: { retryCount: attemptNumber, nextRetryAt } }
-  );
-
-  // Never the final email here — exhaustion (retryCount >= MAX) is checked
-  // at the START of the NEXT retryOne call (D6 step 3), not inline with
-  // the failure that pushed retryCount up to MAX. This attempt's own
-  // failure is always a Day-N "we'll retry again" notice.
-  await sendFailureEmail(subscription, parent, student, row.amount, nextRetryAt, attemptNumber, false);
-
-  return {
-    subscriptionId: subscription._id,
-    outcome: 'failed_payment',
-    failureMessage,
-  };
-}
-
-// Stale-pending recovery (D5) — a `pending` row means a previous run died
+// Stale-pending recovery — a `pending` row means a previous run died
 // between insert and charge-resolution. Search Stripe for a PaymentIntent
 // carrying this row's id in its metadata BEFORE ever charging again:
 //   - a succeeded PI found -> adopt it (row completed, period rolled,
 //     retry state reset) — NO new charge.
 //   - none found, or only a terminal-failed one -> re-drive the charge
-//     under the SAME idempotency key via chargeLedgerRow.
+//     under the SAME idempotency key via chargeAndEmail.
 async function recoverStalePending({ row, subscription, student, parent, paymentMethod, stripeCustomerId, monthlyFee }) {
   const searchResult = await stripe.paymentIntents.search({
     query: `metadata['registrationId']:'${row._id}'`,
@@ -296,18 +152,19 @@ async function recoverStalePending({ row, subscription, student, parent, payment
   const succeededPI = searchResult.data.find((pi) => pi.status === 'succeeded');
 
   if (succeededPI) {
-    return finalizeSuccessfulCharge({
+    const result = await finalizeSuccessfulCharge({
       row,
       subscription,
-      student,
-      parent,
       paymentIntentId: succeededPI.id,
-      monthlyFee,
       siblingDiscountApplied: row.breakdown.siblingDiscountApplied,
     });
+
+    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, result.siblingDiscountApplied, monthlyFee, row.periodStart);
+
+    return result;
   }
 
-  return chargeLedgerRow({
+  return chargeAndEmail({
     row,
     subscription,
     student,
@@ -324,7 +181,7 @@ async function recoverStalePending({ row, subscription, student, parent, payment
 // candidate list in runRenewals). This is what makes "a subscription
 // cancelled between being listed as a candidate and being processed here
 // must not be charged" a directly testable property of this function alone,
-// not something only provable by racing concurrent requests.
+// not something only provable by racing real concurrency.
 async function renewOne(subscriptionId) {
   const subscription = await Subscription.findById(subscriptionId);
 
@@ -475,7 +332,7 @@ async function renewOne(subscriptionId) {
     throw error;
   }
 
-  return chargeLedgerRow({
+  return chargeAndEmail({
     row: registration,
     subscription,
     student,
@@ -535,7 +392,11 @@ async function cancelAfterExhaustion(subscription, failedRow) {
 // its OWN fresh fetch — same re-verification discipline renewOne documents
 // (docs/decisions/001-in-house-subscription-billing.md safeguard #1),
 // applied to the retry path too (the line-45 mandate,
-// docs/TESTING_STRATEGY.md).
+// docs/TESTING_STRATEGY.md). This same path now also handles a NEVER-
+// successfully-paid subscription (a brand-new registration whose first
+// charge failed — docs/decisions/008-registration-create-pending-first.md)
+// exactly like a renewal's failed charge; no separate logic exists or is
+// needed for that case.
 async function retryOne(subscriptionId) {
   const subscription = await Subscription.findById(subscriptionId);
 
@@ -585,7 +446,7 @@ async function retryOne(subscriptionId) {
 
   const stripeCustomerId = await ensureStripeCustomer(parent);
 
-  return chargeLedgerRow({
+  return chargeAndEmail({
     row: failedRow,
     subscription,
     student,

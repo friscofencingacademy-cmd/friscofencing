@@ -109,6 +109,10 @@ interface RegisteredInfo {
   startDateLine: string;
   chargeAmount: number;
   totalChargeAmount: number;
+  // 'completed' | 'pending' (docs/decisions/008-registration-create-
+  // pending-first.md) — 'pending' means the registration was accepted but
+  // the first charge attempt failed and is now retrying automatically.
+  paymentStatus: 'completed' | 'pending';
   siblingDiscountApplied?: boolean;
   siblingDiscountAmount?: number;
   siblingDiscountReason?: string | null;
@@ -294,6 +298,7 @@ export default function RegisterPage() {
         startDateLine: selectedSession ? formatSessionLine(selectedSession) : '',
         chargeAmount: result.data.chargeAmount,
         totalChargeAmount: result.data.totalChargeAmount,
+        paymentStatus: result.data.paymentStatus,
         siblingDiscountApplied: result.data.siblingDiscountApplied,
         siblingDiscountAmount: result.data.siblingDiscountAmount,
         siblingDiscountReason: result.data.siblingDiscountReason,
@@ -326,8 +331,12 @@ export default function RegisterPage() {
       <main>
         <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]} title="Register" steps={STEPS} current={2} singleColumn>
           <FlowConfirmation
-            title="Registration complete!"
-            subtitle={`Your card was charged $${registered?.totalChargeAmount.toFixed(2)}.`}
+            title={registered?.paymentStatus === 'pending' ? 'Registration received' : 'Registration complete!'}
+            subtitle={
+              registered?.paymentStatus === 'pending'
+                ? "We couldn't charge your card just now — we'll automatically retry over the next few days, and email you if we need anything from you."
+                : `Your card was charged $${registered?.totalChargeAmount.toFixed(2)}.`
+            }
             lines={[
               { label: 'Child', value: registered?.childName },
               { label: 'Start Date', value: registered?.startDateLine },

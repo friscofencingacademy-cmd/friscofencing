@@ -7,12 +7,12 @@ const Location = require('../models/location.model');
 const Price = require('../models/price.model');
 const { SubscriptionCycleRegistration } = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
-const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
 const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { computeProration } = require('./billing/proration.service');
+const { chargeAndFinalize } = require('./billing/chargeFinalization.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const { todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
@@ -41,12 +41,6 @@ function badRequestError(message) {
 function conflictError(message) {
   const error = new Error(message);
   error.status = 409;
-  return error;
-}
-
-function paymentFailedError(message) {
-  const error = new Error(message);
-  error.status = 402;
   return error;
 }
 
@@ -112,23 +106,33 @@ async function resolveStartDate(scheduleId, startDate) {
 }
 
 // Registers `studentId` for `scheduleId`: validates permission + pricing,
-// charges the parent's saved card for the first period off-session via a
-// Stripe PaymentIntent, and only then creates the Registration/Subscription
-// docs and mutates rosters. No 3DS/requires_action handling for MVP — a
-// non-'succeeded' PaymentIntent status is treated as a failed registration
-// and nothing below step 11 is created.
+// then RESERVES the Subscription (docs/decisions/008-registration-create-
+// pending-first.md) before ever calling Stripe — Guard A's unique index
+// (subscription.model.js, docs/decisions/005-one-active-subscription-per-
+// student.md) fires atomically right there, so a racing duplicate request
+// for the same student (any schedule) never reaches Stripe at all. Only
+// then is a `pending` ledger row created and charged via the same shared
+// chargeFinalization module renewals use. A failed first charge is NOT
+// rejected outright — it enters the identical retry/dunning cycle a failed
+// renewal already goes through (runRetries/retryOne/cancelAfterExhaustion,
+// unchanged), and no roster access is granted until a charge actually
+// succeeds.
 async function create({ studentId, scheduleId, startDate }, requestingUser) {
   const { student, schedule } = await resolveStudentForSchedule(studentId, scheduleId, requestingUser);
   const requestedStartDate = await resolveStartDate(scheduleId, startDate);
 
+  // Not scoped to this scheduleId — a student may hold at most ONE active
+  // group-class subscription at all, on any schedule (docs/decisions/005-
+  // one-active-subscription-per-student.md). This friendly 409 is the UX
+  // layer in front of Guard A's DB-level backstop below, which is what
+  // actually closes the TOCTOU race between this check and the write.
   const existingSubscription = await Subscription.findOne({
     studentId,
-    scheduleId,
     status: 'active',
   });
 
   if (existingSubscription) {
-    throw conflictError('This student is already registered for this schedule');
+    throw conflictError('This student already has an active class registration');
   }
 
   const groupClass = await GroupClass.findById(schedule.classId);
@@ -154,9 +158,9 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw notFoundError("Pricing not configured for this class's level");
   }
 
-  // Resolved BEFORE the Stripe charge (docs/plans/service-registry-unified-
-  // ledger-plan.md D4) — a misconfigured/inactive service must never let a
-  // card get charged for a ledger row that can't then be written.
+  // Resolved BEFORE any write (docs/plans/service-registry-unified-ledger-
+  // plan.md D4) — a misconfigured/inactive service must never let a
+  // reservation happen for a ledger row that can't then be written.
   const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
   assertBillingShape(groupClassesService, 'subscription_cycle');
 
@@ -168,29 +172,21 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
 
   const stripeCustomerId = await ensureStripeCustomer(requestingUser);
 
-  // Defined here (not later, at Subscription-creation time as before) so
-  // both the proration calc below and currentPeriodStart/End further down
-  // use the exact same value. anchorDate is the parent's chosen start date
-  // when one was given, otherwise today's Central calendar date — a
-  // date-only value (same UTC-midnight-sentinel shape as requestedStartDate
-  // itself, matching GroupClassSession.date's own convention), NOT the
-  // exact current instant. Using todayAtMidnight() here instead would make
-  // anchorDate inconsistently shaped depending on which branch ran, and
-  // would resolve "today" via a raw instant rather than the intended
-  // Central calendar day for an immediate registration — see
-  // docs/plans/timezone-consistency-plan.md D10 for both worked out.
+  // anchorDate is the parent's chosen start date when one was given,
+  // otherwise today's Central calendar date — a date-only value (same
+  // UTC-midnight-sentinel shape as requestedStartDate itself, matching
+  // GroupClassSession.date's own convention), NOT the exact current
+  // instant. See docs/plans/timezone-consistency-plan.md D10.
   const anchorDate = requestedStartDate ?? todayDateOnly();
 
   // Prorate the RAW list price FIRST (owner-directed sequencing, docs/plans/
   // prorated-first-month-billing-plan.md), unconditionally — every
   // registration's first charge/period is calendar-month-anchored now
-  // (docs/decisions/007-calendar-month-billing.md; the old prorationEnabled
-  // toggle is retired, since a full-month charge for a partial calendar
-  // month would be an overcharge under calendar billing). The RESULT feeds
-  // into calculateChargeAmount() below, unmodified. Sibling-discount
-  // eligibility therefore compares "what this student actually owes this
-  // cycle" (possibly prorated) against siblings' own current standard
-  // rates, never the raw unprorated list price.
+  // (docs/decisions/007-calendar-month-billing.md). The RESULT feeds into
+  // calculateChargeAmount() below, unmodified. Sibling-discount eligibility
+  // therefore compares "what this student actually owes this cycle"
+  // (possibly prorated) against siblings' own current standard rates, never
+  // the raw unprorated list price.
   const prorationInfo = await computeProration({
     levelId: groupClass.levelId,
     monthlyFee: price.monthlyFee,
@@ -213,53 +209,22 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
 
   const totalChargeAmount = chargeAmount + registrationFeeCharged;
 
-  let paymentIntent;
-
-  try {
-    paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: Math.round(totalChargeAmount * 100),
-        currency: 'usd',
-        customer: stripeCustomerId,
-        payment_method: paymentMethod.stripePaymentMethodId,
-        off_session: true,
-        confirm: true,
-      },
-      // Keyed on anchorDate (not just studentId+scheduleId) — a retry that
-      // resolves to a genuinely different start date (e.g. the parent's
-      // first-picked date is no longer valid and they pick another) must be
-      // treated as a new attempt, not collide with an unrelated one.
-      { idempotencyKey: `initial-registration-${studentId}-${scheduleId}-${anchorDate.toISOString().slice(0, 10)}` }
-    );
-  } catch (error) {
-    // A hard decline (e.g. card_declined) is a synchronous throw from the
-    // Stripe SDK, not a resolved PaymentIntent with a non-'succeeded'
-    // status — same distinction renewal.service.js's renewOne makes. Without
-    // this catch, a declined card here would surface as a 500 instead of the
-    // 402 used for every other payment-failure case in this function.
-    if (error.type === 'StripeCardError') {
-      throw paymentFailedError(error.message);
-    }
-
-    throw error;
-  }
-
-  if (paymentIntent.status !== 'succeeded') {
-    throw paymentFailedError('Payment failed');
-  }
-
   // Always the calendar-month boundary (ADR 007) — computeProration() is
   // the single source of this period math too, not just the amount (see
   // its own docblock), so this can never structurally disagree with what
   // it returned. Anchors off anchorDate (the parent's chosen start date),
-  // not the moment they paid.
+  // not the moment they paid — these fields don't depend on whether the
+  // charge below succeeds.
   const currentPeriodEnd = prorationInfo.periodEnd;
 
-  // Subscription created BEFORE the Registration ledger row (reverse of this
-  // function's pre-ledger order) so Guard A's unique index — the DB-level
-  // backstop behind the existingSubscription pre-check above — is the very
-  // next write after a real, already-succeeded Stripe charge. See the catch
-  // below for what happens when this write loses that race.
+  // RESERVE the Subscription BEFORE any Stripe call — this is the actual
+  // hard block (docs/decisions/008-registration-create-pending-first.md):
+  // Guard A's partial unique index rejects a duplicate for ANY schedule
+  // combination right here, so a racing request never gets far enough to
+  // charge a card that would otherwise have nothing to attach to.
+  // lastChargeAmount stays null until a charge actually succeeds — the
+  // correct "never successfully charged yet" signal distinct from a
+  // renewal's dunning (where it reflects the last SUCCESSFUL period).
   let subscription;
 
   try {
@@ -272,28 +237,22 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
       currentPeriodStart: anchorDate,
       currentPeriodEnd,
       nextBillingDate: currentPeriodEnd,
-      lastChargeAmount: chargeAmount,
-      lastSiblingDiscountApplied: siblingDiscountApplied,
+      lastChargeAmount: null,
+      lastSiblingDiscountApplied: false,
       isPremium: isPremiumRegistrationEnabled(),
       registrationFeeCharged,
       firstChargeProrated: prorationInfo.prorated,
     });
   } catch (error) {
-    // Guard A's partial unique index (subscription.model.js) caught a race
-    // the pre-check above couldn't: two near-simultaneous requests for the
-    // same student+schedule. The parent's card was already charged ONCE —
-    // the Stripe idempotency key on the PaymentIntent above means a racing
-    // duplicate request shares that same charge, it never charges twice —
-    // but this request loses the race to create the Subscription doc. No
-    // Registration ledger row is written for the loser; the winning request
-    // already wrote the one true ledger row for this charge.
     if (error.code === 11000) {
-      throw conflictError('This student is already registered for this schedule');
+      throw conflictError('This student already has an active class registration');
     }
 
     throw error;
   }
 
+  // Pending ledger row BEFORE charging — the same shape renewOne() already
+  // creates for a renewal's pending row (registration-ledger plan D4).
   const registration = await SubscriptionCycleRegistration.create({
     serviceId: groupClassesService._id,
     subscriptionId: subscription._id,
@@ -301,7 +260,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     scheduleId,
     parentId: requestingUser._id,
     eventType: 'initial',
-    status: 'completed',
+    status: 'pending',
     amount: totalChargeAmount,
     breakdown: {
       monthlyFee: price.monthlyFee,
@@ -313,51 +272,101 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     },
     periodStart: anchorDate,
     periodEnd: currentPeriodEnd,
-    stripePaymentIntentId: paymentIntent.id,
-    paidAt: new Date(),
   });
 
-  await addStudentToRoster(schedule, studentId, todayAtMidnight());
+  const result = await chargeAndFinalize({
+    row: registration,
+    subscription,
+    paymentMethod,
+    stripeCustomerId,
+    // The recurring monthly-only amount, NOT totalChargeAmount — the
+    // ledger row's own `amount` includes the one-time registration fee for
+    // an 'initial' row (registration.model.js's breakdown doc), but
+    // Subscription.lastChargeAmount must stay fee-free (see
+    // chargeFinalization.service.js's finalizeSuccessfulCharge comment).
+    chargeAmount,
+    siblingDiscountApplied,
+    attemptNumber: 1,
+  });
 
-  // Fire-and-forget confirmation email — never throws, never affects this
-  // response (see mail.service.js's send-function contract). The extra
-  // level/location/coach lookups for the richer email are deliberately kept
-  // inside this try/catch, alongside the send itself, so a populate failure
-  // here can never fail an otherwise-successful (and already-charged!)
-  // registration.
-  try {
-    const level = await Level.findById(groupClass.levelId);
-    const location = await Location.findById(groupClass.locationId);
-    const coach = await User.findById(schedule.coachId);
+  // chargeAndFinalize() updated both documents in the DB via their own
+  // findByIdAndUpdate calls — it does NOT mutate these in-memory Mongoose
+  // objects. Re-fetch so the response (and every field read below) reflects
+  // the real, current state (status/stripePaymentIntentId/paidAt on the
+  // ledger row; retryCount/nextRetryAt/lastChargeAmount on the
+  // subscription) rather than what they looked like before charging.
+  const [updatedRegistration, updatedSubscription] = await Promise.all([
+    SubscriptionCycleRegistration.findById(registration._id),
+    Subscription.findById(subscription._id),
+  ]);
 
-    await mailService.sendRegistrationConfirmationEmail({
-      parent: requestingUser,
-      student,
-      schedule,
-      groupClass,
-      level,
-      location,
-      coach,
-      chargeAmount: totalChargeAmount,
-      monthlyFee: price.monthlyFee,
-      siblingDiscountAmount,
-      registrationFeeCharged,
-      prorated: prorationInfo.prorated,
-      totalClassDays: prorationInfo.totalClassDays,
-      remainingClassDays: prorationInfo.remainingClassDays,
-    });
-  } catch (error) {
-    // eslint-disable-next-line no-console -- operational logging for a
-    // fire-and-forget email side effect, not debug output.
-    console.error('registration.service: failed to assemble confirmation email:', error.message);
+  if (result.outcome === 'charged') {
+    await addStudentToRoster(schedule, studentId, todayAtMidnight());
+
+    // Fire-and-forget confirmation email — never throws, never affects this
+    // response (see mail.service.js's send-function contract). The extra
+    // level/location/coach lookups for the richer email are deliberately
+    // kept inside this try/catch, alongside the send itself, so a populate
+    // failure here can never fail an otherwise-successful (and
+    // already-charged!) registration.
+    try {
+      const level = await Level.findById(groupClass.levelId);
+      const location = await Location.findById(groupClass.locationId);
+      const coach = await User.findById(schedule.coachId);
+
+      await mailService.sendRegistrationConfirmationEmail({
+        parent: requestingUser,
+        student,
+        schedule,
+        groupClass,
+        level,
+        location,
+        coach,
+        chargeAmount: totalChargeAmount,
+        monthlyFee: price.monthlyFee,
+        siblingDiscountAmount,
+        registrationFeeCharged,
+        prorated: prorationInfo.prorated,
+        totalClassDays: prorationInfo.totalClassDays,
+        remainingClassDays: prorationInfo.remainingClassDays,
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console -- operational logging for a
+      // fire-and-forget email side effect, not debug output.
+      console.error('registration.service: failed to assemble confirmation email:', error.message);
+    }
+  } else {
+    // Failed first charge — accepted, not rejected. No roster access is
+    // granted; runRetries()/retryOne() (unchanged) pick this subscription
+    // up daily exactly like a renewal's dunning, and cancelAfterExhaustion
+    // cancels it if all attempts fail.
+    try {
+      await mailService.sendPaymentFailureEmail({
+        parent: requestingUser,
+        student,
+        schedule,
+        groupClass,
+        amountDue: totalChargeAmount,
+        attemptNumber: 1,
+        isFinal: false,
+        nextRetryDate: result.nextRetryAt,
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console -- operational logging for a
+      // fire-and-forget email side effect, not debug output.
+      console.error('registration.service: failed to assemble payment-failure email:', error.message);
+    }
   }
 
   return {
-    registration,
-    subscription,
+    registration: updatedRegistration,
+    subscription: updatedSubscription,
     chargeAmount,
     totalChargeAmount,
-    paymentIntentStatus: paymentIntent.status,
+    // 'completed' | 'pending' (docs/decisions/008-registration-create-
+    // pending-first.md D3d) — a 201 no longer means "your card was
+    // charged" unconditionally; the frontend must branch on this field.
+    paymentStatus: result.outcome === 'charged' ? 'completed' : 'pending',
     siblingDiscountApplied,
     siblingDiscountAmount,
     siblingDiscountReason,

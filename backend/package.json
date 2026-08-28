@@ -13,6 +13,8 @@
     "seed:services": "node scripts/seed-services.js",
     "renewals": "node scripts/run-renewals.js",
     "realign-billing-anchors": "node scripts/realign-billing-anchors.js",
+    "find-duplicate-active-subscriptions": "node scripts/find-duplicate-active-subscriptions.js",
+    "drop-old-subscription-index": "node scripts/drop-old-subscription-index.js",
     "preview-emails": "node scripts/preview-emails.js",
     "extend-private-sessions": "node scripts/extend-private-sessions.js",
     "audit:seed": "node scripts/audit-seed.js",
