@@ -31,6 +31,13 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// coachId is null when the coach was deleted without a delete-guard
+// blocking it (orphaned-coach-reference-fix-plan D2) — never assume it's
+// populated.
+function coachLabel(coachId: CoachContract['coachId']): string {
+  return coachId ? `${coachId.firstName} ${coachId.lastName}` : 'Coach no longer available';
+}
+
 async function fetchCoachContractsPageData() {
   const [contracts, coaches] = await Promise.all([fetchCoachContracts(), fetchUsers('coach')]);
   return { contracts, coaches };
@@ -161,9 +168,7 @@ export default function AdminCoachContractsPage() {
               ) : (
                 contracts.map((contract) => (
                   <tr key={contract._id} className={styles.trHover}>
-                    <td className={styles.td}>
-                      {contract.coachId.firstName} {contract.coachId.lastName}
-                    </td>
+                    <td className={styles.td}>{coachLabel(contract.coachId)}</td>
                     <td className={styles.td}>${contract.studentBillingRate.toFixed(2)}</td>
                     <td className={styles.td}>${contract.coachCompensationRate.toFixed(2)}</td>
                     <td className={styles.td}>{contract.sessionDurationMinutes} min</td>
@@ -299,7 +304,7 @@ export default function AdminCoachContractsPage() {
             <div className={styles.dialogBody}>
               {deactivateError ? <Alert variant="error">{deactivateError}</Alert> : null}
               <p style={{ margin: 0 }}>
-                Deactivate {deactivateTarget.coachId.firstName} {deactivateTarget.coachId.lastName}&apos;s
+                Deactivate {coachLabel(deactivateTarget.coachId)}&apos;s
                 contract? They will no longer be able to publish new private-lesson slots.
               </p>
             </div>

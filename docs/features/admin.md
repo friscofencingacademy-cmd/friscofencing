@@ -81,7 +81,21 @@ Pattern A plus two new sub-patterns: role tabs above the table, and a third "cha
 - **Row actions**: Edit, Change Password (only for a login-capable role: parent/coach/admin/superadmin — a student never gets the Key icon since it has no password), Delete. All three are omitted (replaced with a muted `—`) on any row where `row.role === 'superadmin'` and the viewer is not a superadmin — frontend defense-in-depth matching the backend's 403.
 - **Create/Edit dialog**: the role `<select>` (options: student/parent/coach/admin, plus superadmin only for a superadmin viewer) is shown **only on create**; on edit, role renders as plain read-only text — role is immutable once created, and the update endpoint silently drops a `role` field even if sent directly to the API. Conditional fields: role `student` → Parent picker (`<select>` populated from `fetchUsers('parent')`, required), Skill Level (optional), Email (optional), no password field ever. Any other role on create → Email (required) + Password (required, client-side min-8 hint). On **edit**, only firstName/lastName (+ Email, but only when the target's role is login-capable) are shown/submitted — the Parent picker and Skill Level are create-only, since the backend's `update()` never accepts `parentId` changes (out of scope — see the plan doc) and a student's email can't be changed through this endpoint either (`updateUser` payload is always exactly `{firstName, lastName, email?}`).
 - **Change Password dialog**: separate small dialog, one "New Password" field (client-side min-8 check), `PUT /users/:id/password` — distinct from the profile-edit endpoint. Closes on success; no list refetch needed since it doesn't change displayed columns.
-- **Delete dialog**: identical Pattern A shape. Backend guards (409): `parent` blocked if any `User.parentId` points at them; `student` blocked if referenced by a `Registration`, `Subscription`, or `TrialClass`; `coach` blocked if referenced by a `GroupClassSchedule.coachId`; `admin`/`superadmin` have no entity guard. A user can never delete their own account (400), and a non-superadmin can never view, edit, password-reset, or delete a `superadmin` row (403), even via a direct API call — see `docs/plans/admin-user-management-plan.md` for the full backend-enforced rule set (deliberately stricter than the CKQ reference this was adapted from).
+- **Delete dialog**: identical Pattern A shape. Backend guards (409, `user.service.js` `remove()`,
+  corrected 2026-08-28 by orphaned-coach-reference-fix-plan D5/§8b — the private-class checks below
+  were missing before then, which is how the live orphaned-coachId incident happened): `parent`
+  blocked if any `User.parentId` points at them; `student` blocked if referenced by a `Subscription`,
+  `TrialClass`, or `PrivateClassEnrollment` (a Registration ledger row alone does NOT block —
+  Registration is a payment ledger, not an enrollment fact, and every ledger row has a live
+  Subscription behind it for as long as one exists, so the Subscription check is a superset — see
+  `docs/plans/registration-ledger-plan.md` D7); `coach` blocked if referenced by a
+  `GroupClassSchedule`, `PrivateClassSchedule`, `CoachContract`, or `PrivateClassEnrollment`;
+  `admin`/`superadmin` have no entity guard. A user can never delete their own account (400), and a
+  non-superadmin can never view, edit, password-reset, or delete a `superadmin` row (403), even via a
+  direct API call — see `docs/plans/admin-user-management-plan.md` for the full backend-enforced rule
+  set (deliberately stricter than the CKQ reference this was adapted from). Read paths that predate a
+  guard can still meet a pre-existing orphan — see `docs/features/private-class.md`'s
+  "Orphaned-reference handling" section for how those degrade instead of crashing.
 
 ## Spotlights (`/admin/spotlights`)
 

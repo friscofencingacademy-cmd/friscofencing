@@ -413,6 +413,87 @@ describe('User routes', () => {
       expect(res.status).toBe(409);
     });
 
+    // orphaned-coach-reference-fix-plan D5: the three checks below are what
+    // was missing and let a coach hard-delete leave PrivateClassSchedule/
+    // CoachContract/PrivateClassEnrollment docs pointing at a User that no
+    // longer exists — the exact bug class behind the live /private-classes
+    // 500 (§8's live incident).
+    it('returns 409 when deleting a coach referenced by a PrivateClassSchedule', async () => {
+      const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
+      await seedUser({ email: 'admin24@example.com' });
+      const coach = await seedUser({ role: 'coach', email: 'coach24@example.com' });
+      await PrivateClassSchedule.create({ coachId: coach._id, dayOfWeek: 1, startTime: '16:00' });
+      const agent = await loginAgent('admin24@example.com');
+
+      const res = await agent.delete(`/api/v1/users/${coach._id}`);
+
+      expect(res.status).toBe(409);
+    });
+
+    it('returns 409 when deleting a coach referenced by a CoachContract', async () => {
+      const CoachContract = require('../../src/models/coachContract.model');
+      const Service = require('../../src/models/service.model');
+      const { seedServices } = require('../../scripts/lib/seedServices');
+      await seedServices();
+      const privateLessonsService = await Service.findOne({ code: 'private-lessons' });
+
+      await seedUser({ email: 'admin25@example.com' });
+      const coach = await seedUser({ role: 'coach', email: 'coach25@example.com' });
+      await CoachContract.create({
+        serviceId: privateLessonsService._id,
+        coachId: coach._id,
+        studentBillingRate: 60,
+        coachCompensationRate: 40,
+      });
+      const agent = await loginAgent('admin25@example.com');
+
+      const res = await agent.delete(`/api/v1/users/${coach._id}`);
+
+      expect(res.status).toBe(409);
+    });
+
+    it('returns 409 when deleting a coach referenced by a PrivateClassEnrollment', async () => {
+      const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
+      await seedUser({ email: 'admin26@example.com' });
+      const coach = await seedUser({ role: 'coach', email: 'coach26@example.com' });
+      const parent = await seedUser({ role: 'parent', email: 'parent26@example.com' });
+      const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
+      await PrivateClassEnrollment.create({
+        studentId: student._id,
+        parentId: parent._id,
+        coachId: coach._id,
+        coachContractId: new mongoose.Types.ObjectId(),
+        agreedHourlyRate: 60,
+      });
+      const agent = await loginAgent('admin26@example.com');
+
+      const res = await agent.delete(`/api/v1/users/${coach._id}`);
+
+      expect(res.status).toBe(409);
+    });
+
+    // orphaned-coach-reference-fix-plan §8b: the student branch had no
+    // PrivateClassEnrollment check at all before this fix.
+    it('returns 409 when deleting a student referenced by a PrivateClassEnrollment', async () => {
+      const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
+      await seedUser({ email: 'admin27@example.com' });
+      const coach = await seedUser({ role: 'coach', email: 'coach27@example.com' });
+      const parent = await seedUser({ role: 'parent', email: 'parent27@example.com' });
+      const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
+      await PrivateClassEnrollment.create({
+        studentId: student._id,
+        parentId: parent._id,
+        coachId: coach._id,
+        coachContractId: new mongoose.Types.ObjectId(),
+        agreedHourlyRate: 60,
+      });
+      const agent = await loginAgent('admin27@example.com');
+
+      const res = await agent.delete(`/api/v1/users/${student._id}`);
+
+      expect(res.status).toBe(409);
+    });
+
     it('returns 403 when an admin deletes a superadmin', async () => {
       await seedUser({ email: 'admin20@example.com' });
       const target = await seedUser({ role: 'superadmin', email: 'super20@example.com' });

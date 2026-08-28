@@ -2,6 +2,9 @@ const User = require('../models/user.model');
 const Subscription = require('../models/subscription.model');
 const TrialClass = require('../models/trialClass.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
+const PrivateClassSchedule = require('../models/privateClassSchedule.model');
+const CoachContract = require('../models/coachContract.model');
+const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const { hashPassword } = require('../utils/password');
 
 // Roles that get a passwordHash and can log in. Students never get one in
@@ -264,6 +267,17 @@ async function remove(id, requesterRole, requesterId) {
     if (trialCount > 0) {
       throw conflictError(`Cannot delete: ${trialCount} trial class(es) reference this student.`);
     }
+
+    // orphaned-coach-reference-fix-plan §8b: a student can also be
+    // referenced by a private-class enrollment, not just a group-class
+    // Subscription/TrialClass — this check was missing.
+    const enrollmentCount = await PrivateClassEnrollment.countDocuments({ studentId: id });
+
+    if (enrollmentCount > 0) {
+      throw conflictError(
+        `Cannot delete: ${enrollmentCount} private class enrollment(s) reference this student.`
+      );
+    }
   }
 
   if (target.role === 'coach') {
@@ -271,6 +285,31 @@ async function remove(id, requesterRole, requesterId) {
 
     if (scheduleCount > 0) {
       throw conflictError(`Cannot delete: ${scheduleCount} schedule(s) reference this coach.`);
+    }
+
+    // orphaned-coach-reference-fix-plan D5: a coach can also be referenced
+    // by private-class schedules/contracts/enrollments — these checks were
+    // missing, which is how the live orphaned-coachId outage happened.
+    const privateScheduleCount = await PrivateClassSchedule.countDocuments({ coachId: id });
+
+    if (privateScheduleCount > 0) {
+      throw conflictError(
+        `Cannot delete: ${privateScheduleCount} private class schedule(s) reference this coach.`
+      );
+    }
+
+    const coachContractCount = await CoachContract.countDocuments({ coachId: id });
+
+    if (coachContractCount > 0) {
+      throw conflictError(`Cannot delete: ${coachContractCount} coach contract(s) reference this coach.`);
+    }
+
+    const privateEnrollmentCount = await PrivateClassEnrollment.countDocuments({ coachId: id });
+
+    if (privateEnrollmentCount > 0) {
+      throw conflictError(
+        `Cannot delete: ${privateEnrollmentCount} private class enrollment(s) reference this coach.`
+      );
     }
   }
 

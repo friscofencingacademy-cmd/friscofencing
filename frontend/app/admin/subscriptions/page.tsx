@@ -40,8 +40,13 @@ function scheduleLine(schedule: Pick<GroupClassSchedule, 'dayOfWeek' | 'startTim
   return `${DAY_LABELS[schedule.dayOfWeek]} · ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
 }
 
+// coachId is null when the coach was deleted without a delete-guard
+// blocking it (orphaned-coach-reference-fix-plan D2) — never assume it's
+// populated.
 function coachLine(schedule: AdminSubscriptionRow['scheduleId']): string {
-  return `${schedule.coachId.firstName} ${schedule.coachId.lastName}`;
+  return schedule.coachId
+    ? `${schedule.coachId.firstName} ${schedule.coachId.lastName}`
+    : 'Coach no longer available';
 }
 
 interface ChangeScheduleDialogState {

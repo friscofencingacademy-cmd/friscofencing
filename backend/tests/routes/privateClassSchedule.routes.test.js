@@ -250,6 +250,27 @@ describe('Private class schedule routes', () => {
       expect(JSON.stringify(res.body)).not.toContain('email');
     });
 
+    // orphaned-coach-reference-fix-plan D1 — reproduces the live
+    // /private-classes 500: a coach hard-deleted (bypassing the D5
+    // delete-guard, simulating a pre-existing orphan from before that guard
+    // shipped) leaves a free PrivateClassSchedule with a coachId that no
+    // longer resolves. The endpoint must degrade (exclude the slot), not
+    // crash on the null populate.
+    it('excludes a slot whose coach was deleted, instead of crashing', async () => {
+      const coach = await seedCoachWithContract({ email: 'pcs-orphan@example.com' });
+      const coachAgent = await loginAgent('pcs-orphan@example.com');
+      await coachAgent
+        .post('/api/v1/private-class-schedules')
+        .send({ dayOfWeek: 2, startTime: '16:00', durationMinutes: 60 });
+
+      await User.deleteOne({ _id: coach._id });
+
+      const res = await request(app).get('/api/v1/private-class-schedules/public');
+
+      expect(res.status).toBe(200);
+      expect(res.body.coaches).toHaveLength(0);
+    });
+
     it('firstSessionDate is strictly after "today", never today itself', async () => {
       // Fakes ONLY Date (via `now`) and explicitly leaves every timer
       // function real — faking setTimeout/setImmediate/nextTick here would

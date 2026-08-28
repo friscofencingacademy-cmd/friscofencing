@@ -164,11 +164,25 @@ export default function AdminPrivateClassesPage() {
   }
 
   function coachLabel(coachId: PrivateClassScheduleRow['coachId']): string {
+    // null when the coach was deleted without a delete-guard blocking it
+    // (orphaned-coach-reference-fix-plan D2) — never assume it's populated.
+    if (!coachId) {
+      return 'Coach no longer available';
+    }
     if (typeof coachId === 'string') {
       const coach = coaches.find((c) => c._id === coachId);
       return coach ? `${coach.firstName} ${coach.lastName}` : coachId;
     }
     return `${coachId.firstName} ${coachId.lastName}`;
+  }
+
+  // Same null case as coachLabel above, for a student/parent ref
+  // (orphaned-coach-reference-fix-plan §8a).
+  function personLabel(
+    person: { firstName: string; lastName: string } | null,
+    fallback: string
+  ): string {
+    return person ? `${person.firstName} ${person.lastName}` : fallback;
   }
 
   return (
@@ -228,15 +242,15 @@ export default function AdminPrivateClassesPage() {
                   return (
                     <tr key={enrollment._id} className={styles.trHover}>
                       <td className={styles.td}>
-                        {enrollment.studentId.firstName} {enrollment.studentId.lastName}
+                        {personLabel(enrollment.studentId, 'Student no longer available')}
                       </td>
                       <td className={styles.td}>
-                        {enrollment.parentId.firstName} {enrollment.parentId.lastName}
-                        <div className={styles.cellMuted}>{enrollment.parentId.email}</div>
+                        {personLabel(enrollment.parentId, 'Parent no longer available')}
+                        {enrollment.parentId ? (
+                          <div className={styles.cellMuted}>{enrollment.parentId.email}</div>
+                        ) : null}
                       </td>
-                      <td className={styles.td}>
-                        {enrollment.coachId.firstName} {enrollment.coachId.lastName}
-                      </td>
+                      <td className={styles.td}>{coachLabel(enrollment.coachId)}</td>
                       <td className={styles.td}>
                         {slot ? `${DAY_LABELS[slot.dayOfWeek]} ${formatTime(slot.startTime)}` : '—'}
                       </td>
@@ -439,7 +453,7 @@ export default function AdminPrivateClassesPage() {
             <div className={styles.dialogBody}>
               {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
               <p style={{ margin: 0 }}>
-                Cancel {cancelTarget.studentId.firstName}&apos;s private lessons? All upcoming sessions
+                Cancel {personLabel(cancelTarget.studentId, 'Student no longer available')}&apos;s private lessons? All upcoming sessions
                 will be removed and the weekly slot released. Completed sessions already charged are
                 unaffected.
               </p>
