@@ -3,6 +3,7 @@ const Subscription = require('../../models/subscription.model');
 const GroupClassSchedule = require('../../models/groupClassSchedule.model');
 const GroupClass = require('../../models/groupClass.model');
 const Price = require('../../models/price.model');
+const { todayAtMidnight } = require('../../utils/billingDates');
 
 // Resolves a subscription's CURRENT fee live — schedule -> class -> level ->
 // Price, every call. Never cached, never read from a stored field on the
@@ -33,29 +34,30 @@ async function resolveCurrentFee(subscription) {
   return price.monthlyFee;
 }
 
-// Isolated on purpose: Phase 8 (this file) edits this function in place, and
-// Phase 9 (renewal job) reuses it as-is.
-//
-// Sibling discount (10%, dynamic lower-payer rule): whichever of two
-// siblings has the (currently) lower price gets 10% off their own price.
-// With 3+ active siblings (not expected in practice yet), the comparison is
-// against whichever one has the lowest current fee among them — a disclosed
-// MVP simplification, not a crash.
-//
-// Known, accepted MVP limitation: if two siblings' very first registrations
-// happen at the exact same instant, each one's read of "does my sibling have
-// an active subscription yet" could both see "no" (neither document exists
-// yet), so neither gets the discount one of them should get. Fully closing
-// this needs a multi-document Mongo transaction — accepted as out of scope
-// for MVP since real-world registration is always serial.
-async function calculateChargeAmount(student, monthlyFee) {
+// Round once, at the final dollar amount — never by first rounding a
+// smaller figure and multiplying, which compounds rounding error (same
+// discipline proration.service.js's computeProration already established).
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
+// Every counted sibling's { studentId, fee, createdAt } — shared by both
+// modes below. A sibling counts only if they hold an active subscription
+// (Guard A, docs/decisions/005-one-active-subscription-per-student.md,
+// guarantees at most one, so this is deterministic — no more picking an
+// arbitrary one of several). F3 (docs/decisions/006-sibling-discount-
+// family-rule.md): a pending-cancel sibling whose paid period has already
+// ended is excluded — they're only awaiting the renewal cron's
+// finalization pass, not really "active" for discount purposes anymore.
+async function gatherSiblingFees(student) {
   const siblings = await User.find({
     role: 'student',
     parentId: student.parentId,
     _id: { $ne: student._id },
   });
 
-  const activeSiblingFees = [];
+  const today = todayAtMidnight();
+  const entries = [];
 
   for (const sibling of siblings) {
     // eslint-disable-next-line no-await-in-loop -- sequential by design, low
@@ -69,53 +71,130 @@ async function calculateChargeAmount(student, monthlyFee) {
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop
-    const currentFee = await resolveCurrentFee(subscription);
-
-    if (currentFee === null) {
+    if (subscription.cancelAtPeriodEnd === true && subscription.currentPeriodEnd <= today) {
       continue;
     }
 
-    activeSiblingFees.push({ studentId: sibling._id, fee: currentFee });
+    // eslint-disable-next-line no-await-in-loop
+    const fee = await resolveCurrentFee(subscription);
+
+    if (fee === null) {
+      continue;
+    }
+
+    entries.push({ studentId: sibling._id, fee, createdAt: subscription.createdAt });
   }
 
-  if (activeSiblingFees.length === 0) {
-    return { amount: monthlyFee, siblingDiscountApplied: false, siblingDiscountAmount: 0, reason: null };
+  return entries;
+}
+
+// Single source of truth for the sibling discount (docs/decisions/006-
+// sibling-discount-family-rule.md — supersedes the old "dynamic lower-payer,
+// 2-child only" rule, ADR 001). Two modes, both required — every caller
+// states its intent explicitly, there is no default:
+//
+//   'renewal' — pure top-payer-excluded rule. Among the family's active
+//   children (this student + siblings), the one with the highest current
+//   fee pays full price; everyone else gets 10% off their own fee. Ties at
+//   the family maximum are broken by earliest-enrolled-pays-full (CKQ ADR
+//   backend-002), falling back to the smaller studentId on an exact
+//   createdAt tie. Requires `subscription` (this student's own, active
+//   subscription — its createdAt feeds the tiebreak).
+//
+//   'registration' — the family discount always applies (ADR 006's bridge):
+//   10% of min(this registration's fee, the family's current top fee)
+//   comes off THIS bill, whenever at least one active sibling exists —
+//   even when this newly-registering child is the new top payer. This is
+//   deliberately NOT symmetric with 'renewal': it is what makes the family
+//   discount start the moment the family qualifies, instead of waiting for
+//   an existing sibling's next renewal (owner-decided, ADR 006).
+async function calculateChargeAmount(student, feeNow, options) {
+  if (!options || (options.mode !== 'registration' && options.mode !== 'renewal')) {
+    throw new Error("calculateChargeAmount: options.mode must be 'registration' or 'renewal'");
   }
 
-  const comparisonSibling = activeSiblingFees.reduce((lowest, current) =>
-    current.fee < lowest.fee ? current : lowest
-  );
+  const { mode, subscription } = options;
 
-  let thisStudentWins;
+  if (mode === 'renewal' && !subscription) {
+    throw new Error("calculateChargeAmount: mode 'renewal' requires the student's own active subscription");
+  }
 
-  if (monthlyFee < comparisonSibling.fee) {
-    thisStudentWins = true;
-  } else if (monthlyFee > comparisonSibling.fee) {
-    thisStudentWins = false;
+  const siblingEntries = await gatherSiblingFees(student);
+
+  if (siblingEntries.length === 0) {
+    return { amount: feeNow, siblingDiscountApplied: false, siblingDiscountAmount: 0, reason: null };
+  }
+
+  if (mode === 'registration') {
+    const topSiblingFee = siblingEntries.reduce((max, entry) => Math.max(max, entry.fee), -Infinity);
+    const base = Math.min(feeNow, topSiblingFee);
+    const siblingDiscountAmount = round2(base * 0.1);
+    const amount = round2(feeNow - siblingDiscountAmount);
+
+    // Two distinguishable reasons — the "mark" that a family discount was
+    // applied, and which rate it was based on, per the owner's ask.
+    const reason =
+      base === feeNow
+        ? 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.'
+        : "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.";
+
+    return { amount, siblingDiscountApplied: true, siblingDiscountAmount, reason };
+  }
+
+  // mode === 'renewal' — is THIS student the family's top payer?
+  const familyMax = siblingEntries.reduce((max, entry) => Math.max(max, entry.fee), feeNow);
+  let isTopPayer;
+
+  if (feeNow < familyMax) {
+    // Someone else in the family has a strictly higher fee — not the top
+    // payer, no tiebreak needed.
+    isTopPayer = false;
   } else {
-    // Exact tie: the sibling with the lexicographically smaller studentId
-    // wins, deterministically, regardless of which sibling's perspective
-    // this function is being called from. Without this, calling this same
-    // function independently for both siblings' own charges would let both
-    // conclude "my price is <= theirs" simultaneously and BOTH apply the
-    // discount to themselves — a real double-discount bug.
-    thisStudentWins = String(student._id) < String(comparisonSibling.studentId);
+    // feeNow === familyMax: this student is AT the family's highest fee,
+    // possibly tied with one or more siblings there.
+    const tiedAtMax = siblingEntries.filter((entry) => entry.fee === familyMax);
+
+    if (tiedAtMax.length === 0) {
+      // Uniquely the highest — no sibling reaches this fee.
+      isTopPayer = true;
+    } else {
+      // Deterministic tiebreak (CKQ ADR backend-002): earliest-enrolled
+      // among everyone tied at the max pays full. Exact createdAt tie
+      // (should not happen in practice) falls back to the smaller
+      // studentId, same discipline as the pre-existing exact-price-tie
+      // guarantee this replaces.
+      let winner = { studentId: student._id, createdAt: subscription.createdAt };
+
+      for (const entry of tiedAtMax) {
+        const entryIsEarlier = entry.createdAt.getTime() < winner.createdAt.getTime();
+        const entryIsExactTieButSmallerId =
+          entry.createdAt.getTime() === winner.createdAt.getTime() && String(entry.studentId) < String(winner.studentId);
+
+        if (entryIsEarlier || entryIsExactTieButSmallerId) {
+          winner = entry;
+        }
+      }
+
+      isTopPayer = String(winner.studentId) === String(student._id);
+    }
   }
 
-  if (!thisStudentWins) {
+  if (isTopPayer) {
     return {
-      amount: monthlyFee,
+      amount: feeNow,
       siblingDiscountApplied: false,
       siblingDiscountAmount: 0,
       reason: 'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
     };
   }
 
+  const siblingDiscountAmount = round2(feeNow * 0.1);
+  const amount = round2(feeNow - siblingDiscountAmount);
+
   return {
-    amount: monthlyFee * 0.9,
+    amount,
     siblingDiscountApplied: true,
-    siblingDiscountAmount: monthlyFee * 0.1,
+    siblingDiscountAmount,
     reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
   };
 }

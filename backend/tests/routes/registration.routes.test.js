@@ -794,16 +794,16 @@ describe('Registration routes', () => {
     });
 
     // Sibling discount E2E case. NOTE ON PRICING DIRECTION: the algorithm
-    // (calculateChargeAmount.service.js) implements the "dynamic
-    // lower-payer rule" from ADR 001 — whichever sibling has the strictly
-    // LOWER price gets 10% off THEIR OWN price. So for the second child's
-    // registration to actually receive the discount, their class must be
-    // priced LOWER than the already-active first child's class, not
-    // higher. (A "higher-priced second child" would make the FIRST child
-    // the winner instead, and the second child's own charge — the one this
-    // test is asserting on — would be full price.)
+    // (calculateChargeAmount.service.js, docs/decisions/006-sibling-
+    // discount-family-rule.md) applies the 10% discount to whichever
+    // active child has the LOWER fee. At registration time specifically,
+    // this test covers the "own-fee" case — the second child IS the lower
+    // payer, so their own bill gets the discount. The other direction (the
+    // NEW child being the HIGHER payer, getting the bridge discount off
+    // the family's already-lower fee) is covered by the dedicated bridge
+    // test right after this one.
     it(
-      "applies the 10% sibling discount to the second child's real Stripe charge when their class is priced lower than the first child's (the sibling discount's lower-payer rule, per ADR 001)",
+      "applies the 10% sibling discount to the second child's real Stripe charge when their class is priced lower than the first child's (own-fee case)",
       async () => {
         const parent = await seedUser({ role: 'parent', email: 'reg-sibling-parent@example.com' });
         const firstChild = await User.create({
@@ -872,6 +872,78 @@ describe('Registration routes', () => {
         );
         expect(secondChildIntent).toBeDefined();
         expect(secondChildIntent.status).toBe('succeeded');
+      },
+      40000
+    );
+
+    it(
+      "applies the family sibling discount's BRIDGE case when the NEW child is the HIGHER payer — 10% off the EXISTING sibling's lower fee comes off THIS bill immediately, with a distinct reason (docs/decisions/006-sibling-discount-family-rule.md)",
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'reg-sibling-bridge-parent@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'Bridge',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'Bridge',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('reg-sibling-bridge-parent@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'BridgeCheap',
+          levelOrder: 12,
+        });
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'BridgePricier',
+          levelOrder: 13,
+        });
+
+        // First child registers into the CHEAPER class first.
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+        expect(firstRes.body.siblingDiscountApplied).toBe(false);
+
+        // Second child registers into the PRICIER class — under the old
+        // "lower-payer-only" rule this would get NO discount at all. Under
+        // the family rule, the family discount applies immediately: 10% of
+        // the family's current lower fee (the first child's MONTHLY_FEE)
+        // comes off the SECOND child's own bill.
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+
+        expect(secondRes.status).toBe(201);
+        expect(secondRes.body.siblingDiscountApplied).toBe(true);
+        expect(secondRes.body.siblingDiscountAmount).toBe(MONTHLY_FEE * 0.1);
+        expect(secondRes.body.chargeAmount).toBe(MONTHLY_FEE * 2 - MONTHLY_FEE * 0.1);
+        expect(secondRes.body.siblingDiscountReason).toBe(
+          "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan."
+        );
+
+        // The real Stripe charge reflects the bridge-discounted amount.
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const secondChildIntent = paymentIntents.data.find(
+          (intent) => intent.amount === Math.round((MONTHLY_FEE * 2 - MONTHLY_FEE * 0.1) * 100)
+        );
+        expect(secondChildIntent).toBeDefined();
+        expect(secondChildIntent.status).toBe('succeeded');
+
+        // The ledger row carries the same fields — the audit "mark" the
+        // owner asked for.
+        const ledgerRow = await Registration.findOne({ studentId: secondChild._id });
+        expect(ledgerRow.breakdown.siblingDiscountApplied).toBe(true);
+        expect(ledgerRow.breakdown.siblingDiscountAmount).toBe(MONTHLY_FEE * 0.1);
       },
       40000
     );
@@ -1472,6 +1544,68 @@ describe('Registration routes', () => {
         expect(secondRes.body.chargeAmount).toBe(previewRes.body.chargeAmount);
         expect(secondRes.body.siblingDiscountApplied).toBe(previewRes.body.siblingDiscountApplied);
         expect(secondRes.body.siblingDiscountAmount).toBe(previewRes.body.siblingDiscountAmount);
+      },
+      40000
+    );
+
+    it(
+      'matches the real charge exactly for the BRIDGE sibling discount case too — preview and reality never disagree when the new child is the higher payer',
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'reg-preview-bridge@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'PreviewBridge',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'PreviewBridge',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('reg-preview-bridge@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'PreviewBridgeCheap',
+          levelOrder: 22,
+        });
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'PreviewBridgePricier',
+          levelOrder: 23,
+        });
+
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+
+        // Preview the second (pricier) child — the bridge case.
+        const previewRes = await parentAgent.get('/api/v1/registrations/preview').query({
+          studentId: secondChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+
+        expect(previewRes.status).toBe(200);
+        expect(previewRes.body.siblingDiscountApplied).toBe(true);
+        expect(previewRes.body.siblingDiscountAmount).toBe(MONTHLY_FEE * 0.1);
+        expect(previewRes.body.siblingDiscountReason).toBe(
+          "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan."
+        );
+
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+
+        expect(secondRes.status).toBe(201);
+        expect(secondRes.body.chargeAmount).toBe(previewRes.body.chargeAmount);
+        expect(secondRes.body.siblingDiscountApplied).toBe(previewRes.body.siblingDiscountApplied);
+        expect(secondRes.body.siblingDiscountAmount).toBe(previewRes.body.siblingDiscountAmount);
+        expect(secondRes.body.siblingDiscountReason).toBe(previewRes.body.siblingDiscountReason);
       },
       40000
     );

@@ -1,8 +1,8 @@
 # Implementation plan: Calendar-month billing + one-sub-per-student guard + family sibling discount
 
-**Status:** READY FOR BUILD — owner-approved decisions recorded in ADR 005/006/007 (2026-08-28).
+**Status:** ALL 3 PRs BUILT — PR 1 + PR 2 merged to `develop` (PR #50, #51); PR 3 built, pending owner local testing + commit. See each PR's completion notes below for what actually shipped vs. this original design.
 **Builder:** Sonnet session, following §8 builder instructions exactly.
-**Executes:** [ADR 005](../decisions/005-one-active-subscription-per-student.md) · [ADR 006](../decisions/006-sibling-discount-family-rule.md) · [ADR 007](../decisions/007-calendar-month-billing.md)
+**Executes:** [ADR 005](../decisions/005-one-active-subscription-per-student.md) · [ADR 006](../decisions/006-sibling-discount-family-rule.md) · [ADR 007](../decisions/007-calendar-month-billing.md) · [ADR 008](../decisions/008-registration-create-pending-first.md) (found mid-PR-2, not in the original plan)
 
 Three PRs, in this order, each independently shippable to `develop`:
 
@@ -249,6 +249,34 @@ Run the full backend suite; the only tolerated failures are ones REPRODUCED as p
 **Docs updated in this PR's diff:** ADR 005 + ADR 008 status flipped to "Built, pending owner review"; `docs/decisions/README.md` rows; `CLAUDE.md` active-plan row; `DATABASE_SCHEMA_DOCUMENTATION.md`'s `Subscription`/Guard A description (also fixed a stale line that predated Guard A's original addition and was never corrected then); `docs/plans/registration-ledger-plan.md` D2/D3 marked superseded with addenda pointing at ADR 005/008; `docs/TEST_COVERAGE.md` re-measured.
 
 **Not yet done:** the diagnostic script has not been run against staging (happens after this PR merges, before the index swap ships there); `drop-old-subscription-index` likewise. PR 3 (ADR 006) has not been started.
+
+## PR 3 completion notes (2026-08-28)
+
+**Built, tests passing, NOT YET COMMITTED** — awaiting owner local testing per Hard Rule 5 before `write`-triggered commit. Branch: `feature/sibling-discount-family-rule`, on top of `develop` post-PR-2-merge (`3cc1481`).
+
+**Built as designed in D4, with one contract addition found necessary during implementation, not anticipated in the original design:** `calculateChargeAmount()` throws (rather than silently defaulting) when `options.mode` is missing or invalid, and throws when `mode: 'renewal'` is called without the required `subscription`. This surfaced one caller the original plan's "callers to update" list missed entirely — `backend/scripts/lib/runLegacyImport.js`'s historical-backfill enrollment path, found only because the full backend suite failed loudly on it rather than silently computing something wrong. Fixed with `mode: 'registration'` (a legacy backfill creates a brand-new Subscription, structurally the same "first enrollment" case `registration.service.js`'s `create()` handles).
+
+**What shipped, matching D4 as written:**
+- `backend/src/services/billing/calculateChargeAmount.service.js` — full rewrite per D4's contract. `gatherSiblingFees()` centralizes the F3 pending-cancel cutoff and live fee resolution for both modes. `round2()` closes F4 (cents rounding) in both modes. Renewal mode's tiebreak follows CKQ ADR backend-002 exactly (earliest `subscription.createdAt` among everyone tied at the family max pays full; exact-`createdAt`-tie falls back to smaller `studentId`).
+- Four callers updated: `registration.service.js`'s `create()` and `previewChargeAmount()` → `mode: 'registration'`; `listMine()`'s `currentCharge` → `mode: 'renewal'` with the subscription; `renewal.service.js`'s `renewOne()` → `mode: 'renewal'` with the subscription.
+- `siblingDiscountAmount` now threaded through the renewal ledger row's `breakdown` (previously only `siblingDiscountApplied` was stored) and through every `chargeAndEmail`/`recoverStalePending` call site, so `sendReceiptEmail()` uses the ACTUAL rounded amount from the ledger row instead of recomputing `monthlyFee * 0.1` (the old F4 bug this closes) — verified by a new integration test using a non-round fee where a recompute would have disagreed. `sendReceiptEmail()` also gained a one-line `monthlyFee ?? 0` display fallback (the footnote fix, guards a deleted-Price NaN in the email template).
+- `backend/scripts/lib/runLegacyImport.js` — the missed caller, fixed (see above).
+
+**A real, expected behavior change surfaced by the full-suite run, not a bug:** `runLegacyImport`'s two-siblings-at-an-exact-fee-tie test previously asserted NEITHER sibling got the discount — an artifact of the OLD rule's studentId-based tiebreak (the second-created sibling's numerically larger ObjectId happened to lose). The NEW rule needs no tiebreak for an exact tie in registration mode (`base = min(newFee, existingFee)` is just that fee either way) — the second sibling now correctly gets the discount immediately. Test updated to assert the new, more correct behavior, with the reasoning recorded in the test's own comment so a future reader doesn't mistake it for drift.
+
+**Test coverage added/updated:**
+- `backend/tests/services/billing/calculateChargeAmount.service.test.js` — fully rewritten (18 tests): input-contract errors; no-siblings both modes; renewal mode's 2-kid lower/higher, 3-kid (only top excluded), tie-by-createdAt (both orderings), tie-by-studentId fallback, F3 (both directions), F4 rounding, live re-verification; registration mode's own-fee case, bridge case, prorated fee, 3-kid bridge, never-negative.
+- `backend/tests/services/renewal.service.test.js` — new `describe('sibling discount', ...)` block (3 tests) closing the previously-real coverage gap: a real `renewOne` charge with a sibling discount asserts the ledger row + receipt email carry the actual rounded amount; a top-payer renewal charges full; the retry path charges the LOCKED amount even after a new, pricier sibling joins mid-dunning (proving no recomputation). All 18 pre-existing tests in this file pass unchanged.
+- `backend/tests/routes/registration.routes.test.js` — new bridge-case test (higher-payer new child gets the family discount immediately, distinct reason, real Stripe amount, ledger fields) and its preview-parity counterpart; the pre-existing lower-payer test's stale ADR-001 framing in its comment corrected.
+- `backend/tests/scripts/lib/runLegacyImport.test.js` — the exact-tie test's assertion and comment corrected per the behavior-change note above.
+
+**Verification run (this session):**
+- Backend: `TZ=UTC npx jest` — **52 suites / 519 tests, all passing.** `--coverage`: 88.25% statements / 69.02% branches / 89.94% functions / 88.32% lines (stable, slightly up).
+- Frontend: `npx jest` — **47 suites / 276 tests, all passing** (unaffected — this PR is backend-only). `npx tsc --noEmit` — clean.
+
+**Docs updated in this PR's diff:** ADR 006 status flipped to "Built, pending owner review"; `docs/decisions/README.md` row; ADR 001's sibling-discount paragraph gets a supersession addendum pointing at ADR 006; `CLAUDE.md`'s platform-scope line and active-plan row; `docs/TEST_COVERAGE.md` re-measured.
+
+**Not yet done:** nothing — this is the last PR in the plan. Once merged, the plan doc's `## 5. PR breakdown` and `## 0`/`## 1` framing could be marked closed in a small follow-up doc pass, but no further code work is scoped here.
 
 ## 6. Builder instructions (Sonnet session)
 

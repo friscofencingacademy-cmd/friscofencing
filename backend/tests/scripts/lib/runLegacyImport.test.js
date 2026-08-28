@@ -118,20 +118,30 @@ describe('scripts/lib/runLegacyImport', () => {
       expect(String(registration.subscriptionId)).not.toBe('undefined');
     });
 
-    // Neither sibling's Subscription.lastSiblingDiscountApplied is true
-    // immediately after migration — NOT a bug. Alice (processed first) has
-    // no sibling with an active Subscription yet at the instant hers is
-    // created (Bob's doesn't exist yet), so calculateChargeAmount correctly
-    // finds zero siblings for her, same as if she were genuinely an only
-    // child at that instant. This is identical to how the live app's own
-    // first-sibling-to-register already behaves (calculateChargeAmount
-    // .service.js's own "Known, accepted MVP limitation" comment), not
-    // something this migration introduces. `lastSiblingDiscountApplied` is
-    // explicitly a record of what happened at THAT charge, never a source
-    // of truth (ADR 001) — the next renewal run recomputes it live for both
-    // siblings and applies the discount correctly from then on.
-    const discounted = subscriptions.filter((sub) => sub.lastSiblingDiscountApplied);
-    expect(discounted).toHaveLength(0);
+    // Alice (processed first) has no sibling with an active Subscription
+    // yet at the instant hers is created (Bob's doesn't exist yet), so
+    // calculateChargeAmount correctly finds zero siblings for her, same as
+    // if she were genuinely an only child at that instant — identical to
+    // how the live app's own first-sibling-to-register already behaves
+    // (calculateChargeAmount.service.js's "Known, accepted MVP limitation"
+    // comment), not something this migration introduces.
+    //
+    // Bob (processed second, same Intermediate fee as Alice — an EXACT
+    // tie) DOES get the discount: docs/decisions/006-sibling-discount-
+    // family-rule.md's registration-mode rule always applies the family
+    // discount the moment a family qualifies, with no tiebreak needed for
+    // an exact tie (base = min(newFee, existingFee) is just that fee
+    // either way). This replaced the old rule, where an exact tie fell to
+    // a studentId comparison — Bob's later-created (numerically larger)
+    // ObjectId happened to lose that tie, so this exact scenario used to
+    // assert zero discounts; that was an accident of tiebreak mechanics,
+    // not an intentional guarantee, and the new rule is more correct for
+    // exactly this case, not a regression.
+    const aliceSub = subscriptions.find((sub) => String(sub.studentId) === String(students[0]._id));
+    const bobSub = subscriptions.find((sub) => String(sub.studentId) === String(students[1]._id));
+    expect(aliceSub.lastSiblingDiscountApplied).toBe(false);
+    expect(bobSub.lastSiblingDiscountApplied).toBe(true);
+    expect(bobSub.lastChargeAmount).toBe(90);
   });
 
   it('migrates a student with no Programs value with no enrollment at all', async () => {

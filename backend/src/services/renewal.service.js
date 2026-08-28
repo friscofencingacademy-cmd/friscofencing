@@ -52,7 +52,15 @@ async function resolveMonthlyFee(subscription) {
 // deliberately kept inside this try/catch, alongside the send itself, so a
 // lookup failure here can never undo an already-successful (and
 // already-charged!) renewal.
-async function sendReceiptEmail(subscription, parent, student, chargeAmount, siblingDiscountApplied, monthlyFee, newPeriodStart) {
+// `siblingDiscountAmount` is the ACTUAL rounded amount calculateChargeAmount
+// returned, threaded through the ledger row's own breakdown — never
+// recomputed here as monthlyFee * 0.1 (the old F4 bug: could disagree with
+// the real, rounded, possibly-tiebroken discount actually applied).
+// `monthlyFee` falls back to 0 for display only if the level's Price was
+// deleted between runs (resolveMonthlyFee returning null) — the real
+// charged amount is unaffected either way, this only guards the email
+// template against a null producing "$NaN".
+async function sendReceiptEmail(subscription, parent, student, chargeAmount, siblingDiscountAmount, monthlyFee, newPeriodStart) {
   try {
     const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
     const groupClass = schedule ? await GroupClass.findById(schedule.classId) : null;
@@ -64,8 +72,8 @@ async function sendReceiptEmail(subscription, parent, student, chargeAmount, sib
       groupClass,
       monthLabel: formatMonthLabel(newPeriodStart),
       chargeAmount,
-      monthlyFee,
-      siblingDiscountAmount: siblingDiscountApplied ? monthlyFee * 0.1 : 0,
+      monthlyFee: monthlyFee ?? 0,
+      siblingDiscountAmount: siblingDiscountAmount || 0,
     });
   } catch (error) {
     // eslint-disable-next-line no-console -- operational logging for a
@@ -113,6 +121,7 @@ async function chargeAndEmail({
   stripeCustomerId,
   monthlyFee,
   siblingDiscountApplied,
+  siblingDiscountAmount,
   attemptNumber = 1,
 }) {
   const result = await chargeAndFinalize({
@@ -125,7 +134,7 @@ async function chargeAndEmail({
   });
 
   if (result.outcome === 'charged') {
-    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, siblingDiscountApplied, monthlyFee, row.periodStart);
+    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, siblingDiscountAmount, monthlyFee, row.periodStart);
   } else {
     // Never the final email here — exhaustion (retryCount >= MAX) is checked
     // at the START of the NEXT retryOne call, not inline with the failure
@@ -159,7 +168,7 @@ async function recoverStalePending({ row, subscription, student, parent, payment
       siblingDiscountApplied: row.breakdown.siblingDiscountApplied,
     });
 
-    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, result.siblingDiscountApplied, monthlyFee, row.periodStart);
+    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, row.breakdown.siblingDiscountAmount, monthlyFee, row.periodStart);
 
     return result;
   }
@@ -173,6 +182,7 @@ async function recoverStalePending({ row, subscription, student, parent, payment
     stripeCustomerId,
     monthlyFee,
     siblingDiscountApplied: row.breakdown.siblingDiscountApplied,
+    siblingDiscountAmount: row.breakdown.siblingDiscountAmount,
   });
 }
 
@@ -287,7 +297,10 @@ async function renewOne(subscriptionId) {
     return { subscriptionId, outcome: 'failed_no_price' };
   }
 
-  const { amount, siblingDiscountApplied } = await calculateChargeAmount(student, monthlyFee);
+  const { amount, siblingDiscountApplied, siblingDiscountAmount } = await calculateChargeAmount(student, monthlyFee, {
+    mode: 'renewal',
+    subscription,
+  });
 
   const paymentMethod = await paymentMethodService.getMine(subscription.parentId);
 
@@ -320,6 +333,7 @@ async function renewOne(subscriptionId) {
         monthlyFee,
         registrationFeeCharged: 0,
         siblingDiscountApplied,
+        siblingDiscountAmount,
       },
       periodStart: newPeriodStart,
       periodEnd: newPeriodEnd,
@@ -341,6 +355,7 @@ async function renewOne(subscriptionId) {
     stripeCustomerId,
     monthlyFee,
     siblingDiscountApplied,
+    siblingDiscountAmount,
   });
 }
 
@@ -455,6 +470,7 @@ async function retryOne(subscriptionId) {
     stripeCustomerId,
     monthlyFee: failedRow.breakdown.monthlyFee,
     siblingDiscountApplied: failedRow.breakdown.siblingDiscountApplied,
+    siblingDiscountAmount: failedRow.breakdown.siblingDiscountAmount,
     attemptNumber: subscription.retryCount + 1,
   });
 }

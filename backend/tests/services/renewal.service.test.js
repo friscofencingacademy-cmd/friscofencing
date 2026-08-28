@@ -784,6 +784,243 @@ describe('renewOne', () => {
     },
     30000
   );
+
+  // The renewal path's sibling discount was essentially untested before
+  // docs/decisions/006-sibling-discount-family-rule.md (only a no-sibling
+  // `false` case existed) — this block closes that gap directly against
+  // the real renewOne charge flow, not just the unit-level
+  // calculateChargeAmount suite.
+  describe('sibling discount (docs/decisions/006-sibling-discount-family-rule.md)', () => {
+    it(
+      "applies the 10% discount on a real renewal charge when this subscription is NOT the family's top payer, and threads the ACTUAL rounded amount into the ledger row + receipt email (not a recomputed monthlyFee * 0.1)",
+      async () => {
+        const { schedule: pricierSchedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE * 2, {
+          name: 'SiblingRenewalPricier',
+          order: 10,
+        });
+        const { schedule: cheaperSchedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+          name: 'SiblingRenewalCheap',
+          order: 11,
+        });
+
+        const { parent } = await seedParentAndStudent('renew-sibling-cheap@example.com');
+        const cheaperStudent = await User.create({
+          role: 'student',
+          firstName: 'Cheaper',
+          lastName: 'Renewal',
+          parentId: parent._id,
+        });
+        const pricierStudent = await User.create({
+          role: 'student',
+          firstName: 'Pricier',
+          lastName: 'Renewal',
+          parentId: parent._id,
+        });
+        await savePaymentMethodForParent(parent);
+
+        const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+        // The pricier sibling — the family's top payer, created first so
+        // the tiebreak (irrelevant here, fees differ) is unambiguous.
+        await buildActiveSubscription({
+          studentId: pricierStudent._id,
+          scheduleId: pricierSchedule._id,
+          parentId: parent._id,
+          currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+          currentPeriodEnd,
+          nextBillingDate: currentPeriodEnd,
+        });
+
+        const cheaperSubscription = await buildActiveSubscription({
+          studentId: cheaperStudent._id,
+          scheduleId: cheaperSchedule._id,
+          parentId: parent._id,
+          currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+          currentPeriodEnd,
+          nextBillingDate: currentPeriodEnd,
+        });
+
+        const result = await renewOne(cheaperSubscription._id);
+
+        expect(result.outcome).toBe('charged');
+        expect(result.siblingDiscountApplied).toBe(true);
+        expect(result.chargeAmount).toBe(MONTHLY_FEE * 0.9);
+
+        const ledgerRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: cheaperSubscription._id });
+        expect(ledgerRow.breakdown.siblingDiscountApplied).toBe(true);
+        expect(ledgerRow.breakdown.siblingDiscountAmount).toBe(MONTHLY_FEE * 0.1);
+        expect(ledgerRow.amount).toBe(MONTHLY_FEE * 0.9);
+
+        const updatedSub = await Subscription.findById(cheaperSubscription._id);
+        expect(updatedSub.lastChargeAmount).toBe(MONTHLY_FEE * 0.9);
+        expect(updatedSub.lastSiblingDiscountApplied).toBe(true);
+
+        // The real Stripe charge reflects the discounted amount.
+        const paymentIntent = await stripe.paymentIntents.retrieve(ledgerRow.stripePaymentIntentId);
+        expect(paymentIntent.amount).toBe(Math.round(MONTHLY_FEE * 0.9 * 100));
+
+        // The receipt email uses the ACTUAL amount from the ledger row's
+        // breakdown, not a recomputed monthlyFee * 0.1 (the old F4 bug) —
+        // meaningful specifically because MONTHLY_FEE * 0.1 happens to
+        // equal the real discount here too, so this assertion is only a
+        // real regression guard when combined with the rounding test below,
+        // which uses a fee where a recompute WOULD disagree.
+        expect(mailService.sendRenewalReceiptEmail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            parent: expect.objectContaining({ _id: parent._id }),
+            chargeAmount: MONTHLY_FEE * 0.9,
+            siblingDiscountAmount: MONTHLY_FEE * 0.1,
+          })
+        );
+      },
+      30000
+    );
+
+    it(
+      "charges full price on renewal — no discount — when this subscription IS the family's top payer",
+      async () => {
+        const { schedule: pricierSchedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE * 2, {
+          name: 'SiblingRenewalTopPayer',
+          order: 12,
+        });
+        const { schedule: cheaperSchedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+          name: 'SiblingRenewalTopPayerCheap',
+          order: 13,
+        });
+
+        const { parent } = await seedParentAndStudent('renew-sibling-top@example.com');
+        const pricierStudent = await User.create({
+          role: 'student',
+          firstName: 'TopPayer',
+          lastName: 'Renewal',
+          parentId: parent._id,
+        });
+        const cheaperStudent = await User.create({
+          role: 'student',
+          firstName: 'NotTopPayer',
+          lastName: 'Renewal',
+          parentId: parent._id,
+        });
+        await savePaymentMethodForParent(parent);
+
+        const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+        await buildActiveSubscription({
+          studentId: cheaperStudent._id,
+          scheduleId: cheaperSchedule._id,
+          parentId: parent._id,
+          currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+          currentPeriodEnd,
+          nextBillingDate: currentPeriodEnd,
+        });
+
+        const pricierSubscription = await buildActiveSubscription({
+          studentId: pricierStudent._id,
+          scheduleId: pricierSchedule._id,
+          parentId: parent._id,
+          currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+          currentPeriodEnd,
+          nextBillingDate: currentPeriodEnd,
+        });
+
+        const result = await renewOne(pricierSubscription._id);
+
+        expect(result.outcome).toBe('charged');
+        expect(result.siblingDiscountApplied).toBe(false);
+        expect(result.chargeAmount).toBe(MONTHLY_FEE * 2);
+
+        const ledgerRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: pricierSubscription._id });
+        expect(ledgerRow.breakdown.siblingDiscountApplied).toBe(false);
+        expect(ledgerRow.breakdown.siblingDiscountAmount).toBe(0);
+      },
+      30000
+    );
+
+    it(
+      'the retry path charges the LOCKED amount even after the sibling landscape changes mid-dunning (a new, cheaper sibling registers between the failed attempt and the retry)',
+      async () => {
+        const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+          name: 'SiblingRetryLocked',
+          order: 14,
+        });
+        const { parent, student } = await seedParentAndStudent('renew-sibling-retry-locked@example.com');
+        await savePaymentMethodForParent(parent);
+
+        const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+
+        const subscription = await buildActiveSubscription({
+          studentId: student._id,
+          scheduleId: schedule._id,
+          parentId: parent._id,
+          currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+          currentPeriodEnd,
+          nextBillingDate: currentPeriodEnd,
+        });
+
+        // A failed row already exists, locked at the FULL fee (no sibling
+        // existed at the time it failed) — the retry must charge exactly
+        // this locked amount, never recompute against the family that
+        // exists NOW.
+        const Service = require('../../src/models/service.model');
+        const groupClassesService = await Service.findOne({ code: 'group-classes' });
+
+        const failedRow = await SubscriptionCycleRegistration.create({
+          serviceId: groupClassesService._id,
+          subscriptionId: subscription._id,
+          scheduleId: schedule._id,
+          studentId: student._id,
+          parentId: parent._id,
+          eventType: 'renewal',
+          status: 'failed',
+          amount: MONTHLY_FEE,
+          breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0, siblingDiscountApplied: false, siblingDiscountAmount: 0 },
+          periodStart: currentPeriodEnd,
+          periodEnd: addOneMonth(currentPeriodEnd),
+          failureMessage: 'a prior attempt failed before any sibling existed',
+        });
+        await Subscription.updateOne({ _id: subscription._id }, { $set: { retryCount: 1, nextRetryAt: new Date('2020-01-02T00:00:00.000Z') } });
+
+        // NOW a much cheaper sibling registers — if the retry recomputed
+        // the discount fresh, this subscription (the pricier one) would
+        // still be the top payer (no discount either way here), so use a
+        // MORE PRICEY new sibling instead so a fresh recompute WOULD change
+        // the outcome (this subscription would newly become the lower
+        // payer) — proving the retry does NOT recompute.
+        const { schedule: pricierSiblingSchedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE * 3, {
+          name: 'SiblingRetryLockedNewSibling',
+          order: 15,
+        });
+        const newSibling = await User.create({
+          role: 'student',
+          firstName: 'NewPricierSibling',
+          lastName: 'Retry',
+          parentId: parent._id,
+        });
+        await buildActiveSubscription({
+          studentId: newSibling._id,
+          scheduleId: pricierSiblingSchedule._id,
+          parentId: parent._id,
+          currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+          currentPeriodEnd: new Date('2020-02-01T00:00:00.000Z'),
+          nextBillingDate: new Date('2020-02-01T00:00:00.000Z'),
+        });
+
+        const result = await retryOne(subscription._id);
+
+        expect(result.outcome).toBe('charged');
+        // The LOCKED amount (full fee, no discount) — not a fresh
+        // recompute, which would now find this subscription the lower
+        // payer against the new pricier sibling and discount it.
+        expect(result.chargeAmount).toBe(MONTHLY_FEE);
+
+        const paymentIntent = await stripe.paymentIntents.retrieve(
+          (await SubscriptionCycleRegistration.findById(failedRow._id)).stripePaymentIntentId
+        );
+        expect(paymentIntent.amount).toBe(Math.round(MONTHLY_FEE * 100));
+      },
+      30000
+    );
+  });
 });
 
 describe('runRenewals', () => {

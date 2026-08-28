@@ -6,16 +6,16 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 88.12% | 89.62% |
-| Branches | — (informational) | 68.50% | 79.48% |
-| Functions | — (informational) | 89.66% | 89.03% |
-| Lines | — (informational) | 88.20% | 90.87% |
+| Statements | 80% | 88.25% | 89.62% |
+| Branches | — (informational) | 69.02% | 79.48% |
+| Functions | — (informational) | 89.94% | 89.03% |
+| Lines | — (informational) | 88.32% | 90.87% |
 
 Backend re-measured 2026-08-28 via `TZ=UTC npm test -- --coverage` (`docs/plans/billing-anchor-
-and-sibling-discount-plan.md` PR 1 — calendar-month billing anchor — + PR 2 — one-active-
-subscription-per-student guard, create-pending-first registration, the new shared
-`chargeFinalization.service.js` — backend-only). 52 suites / 501 tests, all passing. Frontend
-figure carried forward from 2026-08-23 (untouched since). Both clear the 80%-statements target.
+and-sibling-discount-plan.md`, all 3 PRs: calendar-month billing anchor; one-active-subscription-
+per-student guard + create-pending-first registration + shared `chargeFinalization.service.js`;
+sibling-discount family rule — backend-only). 52 suites / 519 tests, all passing. Frontend figure
+carried forward from 2026-08-23 (untouched since). Both clear the 80%-statements target.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
