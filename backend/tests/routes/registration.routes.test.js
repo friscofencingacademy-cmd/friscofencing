@@ -30,6 +30,7 @@ const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const Setting = require('../../src/models/setting.model');
 const { computeProration } = require('../../src/services/billing/proration.service');
+const { todayDateOnly } = require('../../src/utils/billingDates');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
@@ -822,7 +823,12 @@ describe('Registration routes', () => {
         const expected = await computeProration({
           levelId,
           monthlyFee: MONTHLY_FEE,
-          registrationDate: new Date(),
+          // Matches what the real code now anchors to when no explicit
+          // startDate is chosen (docs/plans/timezone-consistency-plan.md
+          // D10) — a date-only sentinel, not the exact current instant.
+          // Using new Date() here would silently drift this fixture out of
+          // sync with reality.
+          registrationDate: todayDateOnly(),
         });
 
         const res = await parentAgent.post('/api/v1/registrations').send({
@@ -863,6 +869,66 @@ describe('Registration routes', () => {
         );
         expect(intent).toBeDefined();
         expect(intent.status).toBe('succeeded');
+      },
+      20000
+    );
+
+    // docs/plans/timezone-consistency-plan.md D10 — the actual bug this
+    // fixes: an immediate registration (no explicit startDate) placed
+    // during the UTC/Central gap window used to anchor its proration to
+    // the WRONG calendar day (raw new Date(), UTC-anchored in this test
+    // runner). Fakes ONLY `now` (real timers stay real for the Stripe HTTP
+    // round trip and the Mongo driver), same pattern as
+    // privateClassSchedule.routes.test.js's own DST/gap-window test.
+    it(
+      'anchors proration to the correct Central calendar day for an immediate registration inside the UTC/Central gap window',
+      async () => {
+        await Setting.create({ prorationEnabled: true });
+
+        // 2026-01-16T04:30:00.000Z is 2026-01-15 10:30pm Central (CST) but
+        // already Jan 16 in UTC — the exact daily gap window this plan
+        // closes.
+        jest.useFakeTimers({
+          now: new Date('2026-01-16T04:30:00.000Z'),
+          doNotFake: [
+            'setTimeout',
+            'clearTimeout',
+            'setInterval',
+            'clearInterval',
+            'setImmediate',
+            'clearImmediate',
+            'nextTick',
+          ],
+        });
+
+        try {
+          const { scheduleId, levelId } = await seedSchedule();
+          const { student } = await seedParentAndStudent('proration-gap-window@example.com');
+          const parentAgent = await loginAgent('proration-gap-window@example.com');
+          await savePaymentMethodFor(parentAgent);
+
+          // The correct anchor: Central's Jan 15, not UTC's Jan 16.
+          const expected = await computeProration({
+            levelId,
+            monthlyFee: MONTHLY_FEE,
+            registrationDate: todayDateOnly(),
+          });
+          expect(todayDateOnly().toISOString()).toBe('2026-01-15T00:00:00.000Z');
+
+          const res = await parentAgent.post('/api/v1/registrations').send({
+            studentId: student._id.toString(),
+            scheduleId,
+          });
+
+          expect(res.status).toBe(201);
+          expect(res.body.remainingClassDays).toBe(expected.remainingClassDays);
+          expect(res.body.chargeAmount).toBe(expected.proratedAmount);
+
+          const subscription = await Subscription.findOne({ studentId: student._id });
+          expect(subscription.currentPeriodStart.toISOString()).toBe('2026-01-15T00:00:00.000Z');
+        } finally {
+          jest.useRealTimers();
+        }
       },
       20000
     );
@@ -912,7 +978,12 @@ describe('Registration routes', () => {
         const expectedProration = await computeProration({
           levelId: cheaperGroupClass.levelId,
           monthlyFee: MONTHLY_FEE,
-          registrationDate: new Date(),
+          // Matches what the real code now anchors to when no explicit
+          // startDate is chosen (docs/plans/timezone-consistency-plan.md
+          // D10) — a date-only sentinel, not the exact current instant.
+          // Using new Date() here would silently drift this fixture out of
+          // sync with reality.
+          registrationDate: todayDateOnly(),
         });
         const expectedDiscount = Number((expectedProration.proratedAmount * 0.1).toFixed(2));
         const expectedFinal = Number((expectedProration.proratedAmount - expectedDiscount).toFixed(2));

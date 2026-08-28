@@ -7,8 +7,33 @@ function notFoundError(message) {
   return error;
 }
 
+function badRequestError(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+// Every controller in this codebase does `error.status || 500` — a raw
+// Mongoose ValidationError has no .status, so without this it would surface
+// as a bare 500 with an internal Mongoose message. Scoped to exactly the
+// new timezone validator (docs/plans/timezone-consistency-plan.md D8), not
+// a general overhaul of this route's error handling — a missing required
+// field (name/address) still 500s today, a separate pre-existing gap this
+// plan does not fix.
+function remapTimezoneValidationError(error) {
+  if (error.name === 'ValidationError' && error.errors && error.errors.timezone) {
+    throw badRequestError(error.errors.timezone.message);
+  }
+
+  throw error;
+}
+
 async function create(data) {
-  return Location.create(data);
+  try {
+    return await Location.create(data);
+  } catch (error) {
+    remapTimezoneValidationError(error);
+  }
 }
 
 async function list() {
@@ -26,10 +51,16 @@ async function getById(id) {
 }
 
 async function update(id, data) {
-  const location = await Location.findByIdAndUpdate(id, data, {
-    new: true,
-    runValidators: true,
-  });
+  let location;
+
+  try {
+    location = await Location.findByIdAndUpdate(id, data, {
+      new: true,
+      runValidators: true,
+    });
+  } catch (error) {
+    remapTimezoneValidationError(error);
+  }
 
   if (!location) {
     throw notFoundError('Location not found');

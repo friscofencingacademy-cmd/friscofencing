@@ -259,8 +259,11 @@ describe('GroupClassSession routes', () => {
           scheduleId: scheduleRes.body.schedule._id,
         }).sort({ date: 1 });
         expect(allGenerated).toHaveLength(8);
-        // The first returned session IS today, at midnight.
-        expect(new Date(res.body.sessions[0].date).toISOString()).toBe('2026-08-25T00:00:00.000Z');
+        // The first returned session IS today, at Central midnight — CDT
+        // (UTC-5) in August (docs/plans/timezone-consistency-plan.md
+        // D4/D5: session generation resolves "today" via real IANA
+        // timezone math now, not a raw UTC-midnight sentinel).
+        expect(new Date(res.body.sessions[0].date).toISOString()).toBe('2026-08-25T05:00:00.000Z');
       } finally {
         jest.useRealTimers();
       }

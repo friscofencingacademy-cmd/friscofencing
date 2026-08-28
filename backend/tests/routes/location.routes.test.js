@@ -94,6 +94,55 @@ describe('Location routes', () => {
     expect(res.status).toBe(403);
   });
 
+  // docs/plans/timezone-consistency-plan.md D8 — an invalid IANA timezone
+  // name must fail loudly with a clean 400, not silently default to UTC
+  // (moment-timezone's own behavior for an unrecognized zone) or 500.
+  it('returns 400 with a clear message when creating a location with an invalid timezone', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent.post('/api/v1/locations').send({
+      name: 'Frisco HQ',
+      address: '123 Main St',
+      timezone: 'America/Chigaco', // typo
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/not a valid IANA timezone/);
+    expect(await Location.countDocuments()).toBe(0);
+  });
+
+  it('returns 400 with a clear message when updating a location to an invalid timezone', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+
+    const res = await agent
+      .put(`/api/v1/locations/${location._id}`)
+      .send({ timezone: 'Not/A_Real_Zone' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/not a valid IANA timezone/);
+
+    const persisted = await Location.findById(location._id);
+    expect(persisted.timezone).toBe('America/Chicago'); // unchanged, still the default
+  });
+
+  it('accepts a valid, non-default IANA timezone name', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent.post('/api/v1/locations').send({
+      name: 'Frisco West',
+      address: '456 Elm St',
+      timezone: 'America/Denver',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.location.timezone).toBe('America/Denver');
+  });
+
   it('returns 409 when deleting a location referenced by a GroupClass', async () => {
     await seedUser();
     const agent = await loginAgent('test-admin@example.com');

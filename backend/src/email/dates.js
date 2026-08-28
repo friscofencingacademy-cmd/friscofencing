@@ -2,12 +2,16 @@
 
 /**
  * The ONLY date/time formatters emails may use (docs/plans/ckq-parity-plan.md
- * §3.1). No new dependency — Intl.DateTimeFormat only. Callers pass a real
- * Date/ISO instant to dateFull, and a schedule's own "HH:mm" wall-clock
- * string (never a Date) to timeOfDay.
+ * §3.1). No new dependency of its own — Intl.DateTimeFormat only. Callers
+ * pass a real Date/ISO instant to dateFull, and a schedule's own "HH:mm"
+ * wall-clock string (never a Date) to timeOfDay.
  */
 
-const TIME_ZONE = 'America/Chicago';
+const { DEFAULT_TIMEZONE } = require('../config/timezone');
+
+// Single source of truth is config/timezone.js (docs/plans/timezone-
+// consistency-plan.md D6) — never hardcode a second copy of this string.
+const TIME_ZONE = DEFAULT_TIMEZONE;
 
 const DAY_LABELS = [
   'Sunday',

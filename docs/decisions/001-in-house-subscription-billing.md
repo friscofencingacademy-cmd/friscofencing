@@ -63,6 +63,24 @@ active subscription's rolling period to a calendar-anchored one, no change to th
 cadence (renewals will cluster around the 1st of the month once this is live at real volume — a
 noted future operational consideration, not addressed by code here).
 
+## Addendum — 2026-08-28: timezone-correct "today" for the renewal gate and registration anchor
+
+Full plan: `docs/plans/timezone-consistency-plan.md`. Before this, `renewOne()`'s
+`nextBillingDate <= today` gate (safeguard #1 above) resolved "today" via the server process's
+raw local `Date`, which is UTC in production (no `TZ` env var configured) — not Central, where
+Frisco's business actually happens. This meant the gate genuinely disagreed with the intended
+Central calendar day for roughly 5-6 hours every day, not a rare edge case. `todayAtMidnight()`
+now resolves via real IANA timezone math (`moment-timezone`, `DEFAULT_TIMEZONE = 'America/Chicago'`
+in `config/timezone.js`) — the same class of fix CKQ's own `dateUtils.js` shipped after hitting
+this bug four separate times. `registration.service.js`'s `anchorDate` (an immediate
+registration's implicit start date) gets the same correction via a new `todayDateOnly()` — a
+distinct primitive from `todayAtMidnight()` because `anchorDate` is a date-only value (matching
+`GroupClassSession.date`'s storage convention), not a real instant; conflating the two would have
+reintroduced a different bug (see the plan's D9/D10 for the full reasoning, including one
+correction made mid-implementation after the first draft of the fix got that distinction wrong).
+No change to the three safeguards themselves, or to any other business rule — this addendum is
+about resolving "today" correctly, not about what happens once it's resolved.
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.

@@ -15,7 +15,7 @@ const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { computeProration } = require('./billing/proration.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const settingService = require('./setting.service');
-const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const { addOneMonth, todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
 const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const mailService = require('./mail.service');
@@ -176,11 +176,16 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
 
   // Defined here (not later, at Subscription-creation time as before) so
   // both the proration calc below and currentPeriodStart/End further down
-  // use the exact same instant. anchorDate is the parent's chosen start
-  // date when one was given, otherwise `now` — same fallback resolveStartDate
-  // itself documents.
-  const now = new Date();
-  const anchorDate = requestedStartDate ?? now;
+  // use the exact same value. anchorDate is the parent's chosen start date
+  // when one was given, otherwise today's Central calendar date — a
+  // date-only value (same UTC-midnight-sentinel shape as requestedStartDate
+  // itself, matching GroupClassSession.date's own convention), NOT the
+  // exact current instant. Using todayAtMidnight() here instead would make
+  // anchorDate inconsistently shaped depending on which branch ran, and
+  // would resolve "today" via a raw instant rather than the intended
+  // Central calendar day for an immediate registration — see
+  // docs/plans/timezone-consistency-plan.md D10 for both worked out.
+  const anchorDate = requestedStartDate ?? todayDateOnly();
 
   const { prorationEnabled } = await settingService.getSettings();
 
@@ -404,8 +409,10 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     throw notFoundError("Pricing not configured for this class's level");
   }
 
-  const now = new Date();
-  const anchorDate = requestedStartDate ?? now;
+  // Same anchorDate resolution as create() — see its comment (and
+  // docs/plans/timezone-consistency-plan.md D10) for why this is
+  // todayDateOnly(), not `new Date()`.
+  const anchorDate = requestedStartDate ?? todayDateOnly();
   const { prorationEnabled } = await settingService.getSettings();
 
   // Mirrors create() exactly (docs/plans/prorated-first-month-billing-plan
