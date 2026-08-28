@@ -1,9 +1,16 @@
 # Implementation plan: Registration payment ledger + CKQ-style renewal/retry
 
 **Status:** PR 1 MERGED TO DEVELOP 2026-08-27 (`friscofencingacademy-cmd/friscofencing` PR #37).
-PR 2 and PR 3 not started. See "PR 1 completion notes" at the end of this doc for exactly what
-shipped, three deviations from this spec (each with its reason), and one real gap this spec
-missed that got fixed along the way.
+PR 2 and PR 3 not started — **and now BLOCKED on
+`docs/plans/service-registry-unified-ledger-plan.md` (owner decision, 2026-08-27)**, which
+restructures PR 1's Registration schema into a shared base + billing-shape discriminators (the
+group fields move into a `SubscriptionCycleRegistration` discriminator and every row gains a
+required `serviceId`). Build that plan's PR A + PR B first, then execute this doc's PR 2/3
+against the discriminated shape: wherever this doc says "create a Registration row," read
+"create a `SubscriptionCycleRegistration` row with `serviceId`" — all field names, indexes, and
+dedup semantics in D4-D6 below are otherwise unchanged. See "PR 1 completion notes" at the end
+of this doc for exactly what PR 1 shipped, three deviations from this spec (each with its
+reason), and one real gap this spec missed that got fixed along the way.
 
 **Builder:** intended to be executed by a Sonnet implementation session. See §8 (Builder
 instructions) before touching any file.
