@@ -152,10 +152,42 @@ async function main() {
       passwordHash
     );
 
+    // S5 (docs/plans/audit-skills-refresh-plan.md D3) — sibling-discount
+    // BRIDGE case: a new child registering as the family's HIGHER payer
+    // still gets the discount immediately, based on the sibling's existing
+    // lower fee. Reuses Level A/B — the scenario controls registration
+    // order (cheaper first, pricier second), not the seed.
+    const bridgeParent = await findOrCreateUser(
+      { role: 'parent', firstName: 'Audit', lastName: 'BridgeParent', email: 'audit-bridge-parent@example.com' },
+      passwordHash
+    );
+    await findOrCreateUser(
+      { role: 'student', firstName: 'Audit', lastName: 'BridgeFirst', parentId: bridgeParent._id },
+      passwordHash
+    );
+    await findOrCreateUser(
+      { role: 'student', firstName: 'Audit', lastName: 'BridgeSecond', parentId: bridgeParent._id },
+      passwordHash
+    );
+
+    // S6 (docs/plans/audit-skills-refresh-plan.md D4) — a declined
+    // registration charge enters retry, not an error. Dedicated parent so
+    // S6 never shares payment-method state with any other scenario.
+    const retryParent = await findOrCreateUser(
+      { role: 'parent', firstName: 'Audit', lastName: 'RetryParent', email: 'audit-retry-parent@example.com' },
+      passwordHash
+    );
+    await findOrCreateUser(
+      { role: 'student', firstName: 'Audit', lastName: 'RetryChild', parentId: retryParent._id },
+      passwordHash
+    );
+
     console.log('Audit seed complete:');
     console.log(`  Audit Class A ($100/mo): ${classA._id}, schedule ${scheduleA._id}`);
     console.log(`  Audit Class B ($50/mo):  ${classB._id}, schedule ${scheduleB._id}`);
-    console.log('  Accounts: audit-parent-1@example.com, audit-sibling-parent@example.com, audit-decline-parent@example.com');
+    console.log(
+      '  Accounts: audit-parent-1@example.com, audit-sibling-parent@example.com, audit-decline-parent@example.com, audit-bridge-parent@example.com, audit-retry-parent@example.com'
+    );
     console.log('  (all idempotent — re-running this script is safe)');
     process.exitCode = 0;
   } catch (error) {

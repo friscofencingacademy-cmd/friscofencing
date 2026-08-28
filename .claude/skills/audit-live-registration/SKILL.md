@@ -32,9 +32,11 @@ safe to re-run).
 | ID | What it tests | Pass criteria |
 |---|---|---|
 | S1 | Trial booking (free, no Stripe) | 3-step wizard completes, confirmation screen renders |
-| S2 | Add a payment method (real `CardElement`, success card) then register for a group class | Card saves, registration completes, `Registration.status === 'active'` |
-| S3 | Sibling discount — second (cheaper) child vs. the first (pricier) | Live `GET /registrations/preview` discount line shown pre-charge exactly matches the real applied discount shown post-charge — never disagree |
+| S2 | Add a payment method (real `CardElement`, success card) then register for a group class | Card saves, registration completes, the `Subscription` is `active` and its ledger `Registration` row is `completed` |
+| S3 | Sibling discount, OWN-FEE case — second (cheaper) child vs. the first (pricier) | Live `GET /registrations/preview` discount line shown pre-charge exactly matches the real applied discount shown post-charge — never disagree |
 | S4 | Decline path (Stripe's documented decline card) | Corrected on the first real run, not assumed: the card is declined at the *save* step itself (`POST /payment-methods` returns 500 "Your card was declined." — Stripe's `4000000000000002` declines on `attach()`, not only on charge), not at checkout. Parent sees a clean message — never a raw Stripe/JS error — and no false "card on file" success |
+| S5 | Sibling discount, BRIDGE case — a new child registering as the family's *higher* payer (`docs/decisions/006-sibling-discount-family-rule.md`) | Same preview/reality cross-check as S3, plus the confirmation screen shows the bridge-specific reason text, distinct from S3's own-fee wording |
+| S6 | A declined *registration charge* (not a declined card save — see S4) enters retry, not an error (`docs/decisions/008-registration-create-pending-first.md`) | Wizard reaches "Registration received" (never an error), and `GET /registrations/mine` shows the `Subscription` `active` with `retryCount >= 1` |
 
 ## Report
 

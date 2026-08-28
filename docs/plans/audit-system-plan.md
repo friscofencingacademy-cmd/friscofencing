@@ -303,3 +303,25 @@ Found and fixed, in order:
 **Result: 4/4 scenarios passing** on the first fully clean run after all fixes, confirmed both in
 the script's own console report and by reading it back via `GET /audit-runs?latest=true` —
 visible on `/admin/audits` on staging.
+
+---
+
+## Addendum (2026-08-28): superseded by `docs/plans/audit-skills-refresh-plan.md`
+
+This plan is a historical build record — closed, not revisited. After the billing-anchor +
+sibling-discount plan shipped (calendar-month billing, the one-active-subscription guard,
+create-pending-first registration, the sibling-discount family rule), the owner had
+`docs/plans/audit-skills-refresh-plan.md` reconcile these audit skills against that shipped
+behavior. That plan supersedes two pieces of this one going forward:
+
+- **D5 above** (`audit-reset.js`'s original design, deleting the student documents themselves to
+  free a Stripe idempotency key tied to `initial-registration-${studentId}-${scheduleId}`): that
+  key format no longer exists post-billing-anchor-plan (replaced by `payment_${row._id}`, fresh
+  per ledger row), so the student-delete step was removed. See audit-skills-refresh-plan.md's D1.
+- **The Phase 3 scenario list (S1–S4)**: extended to S1–S6. S5 covers the sibling-discount
+  *bridge* case (a new higher-paying child) the family-rule PR introduced; S6 covers a declined
+  *registration charge* (as opposed to S4's declined card *save*) entering retry rather than
+  erroring, the create-pending-first PR's new behavior. See audit-skills-refresh-plan.md's D3/D4.
+
+Same pattern already used elsewhere in this repo when a shipped change supersedes a piece of an
+earlier plan (e.g. ADR 001 / `registration-ledger-plan.md` after the billing-anchor plan).

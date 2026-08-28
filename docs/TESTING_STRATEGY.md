@@ -110,7 +110,7 @@ a deliberate choice, not an oversight, so it doesn't read as a gap later.
 
 | Script | Flow | Accounts |
 |---|---|---|
-| `audit/run-registration-audit.js` (`/audit-live-registration`) | Trial booking → add-card + group registration → sibling discount (live preview vs. real charge) → decline path | Fixed, seeded via `backend/scripts/audit-seed.js`: `audit-parent-1`, `audit-sibling-parent` (2 children), `audit-decline-parent` |
+| `audit/run-registration-audit.js` (`/audit-live-registration`) | Trial booking → add-card + group registration → sibling discount, own-fee case (live preview vs. real charge) → card-save decline path → sibling discount, bridge case → registration-charge decline enters retry | Fixed, seeded via `backend/scripts/audit-seed.js`: `audit-parent-1`, `audit-sibling-parent` (2 children), `audit-decline-parent`, `audit-bridge-parent` (2 children), `audit-retry-parent` |
 
 ### Rules
 
