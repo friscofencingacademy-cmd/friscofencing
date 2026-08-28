@@ -247,28 +247,14 @@ describe('subscription.service — changeSchedule', () => {
     ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('capacity') });
   });
 
-  it('returns 409 when the student already has an active subscription on the target schedule', async () => {
-    const level = await Level.create({ name: 'DupLevel', order: 5 });
-    const { schedule: oldSchedule, groupClass } = await makeSchedule({ levelId: level._id, suffix: 'dupold' });
-    const { schedule: newSchedule } = await makeSchedule({ levelId: level._id, suffix: 'dupnew' });
-    const { parent, student } = await makeParentAndStudent('dup1');
-    const { subscription } = await enroll({ oldSchedule, groupClass, student, parent });
-
-    await Subscription.create({
-      studentId: student._id,
-      scheduleId: newSchedule._id,
-      parentId: parent._id,
-      status: 'active',
-      cancelAtPeriodEnd: false,
-      currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
-      currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
-      nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
-    });
-
-    await expect(
-      subscriptionService.changeSchedule(subscription._id, newSchedule._id)
-    ).rejects.toMatchObject({ status: 409 });
-  });
+  // The former "student already has another active subscription at the
+  // target schedule" 409 test lived here — removed, not just skipped.
+  // Guard A (docs/decisions/005-one-active-subscription-per-student.md)
+  // now guarantees at most one active subscription per student, period, so
+  // this fixture (two active subscriptions for the same student) can no
+  // longer be constructed at all — even a raw Subscription.create() now
+  // throws E11000. subscription.service.js's changeSchedule() had its
+  // corresponding dead check removed in the same change.
 
   it('returns 409 when the subscription is not active (already cancelled)', async () => {
     const level = await Level.create({ name: 'InactiveLevel', order: 6 });
