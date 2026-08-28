@@ -1,5 +1,6 @@
 const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
+const { selectStartDate } = require('../lib/select-start-date');
 
 // S6 — a declined REGISTRATION CHARGE enters retry, not an error
 // (docs/plans/audit-skills-refresh-plan.md D4; docs/decisions/
@@ -48,12 +49,8 @@ async function run(context, config) {
     // any more; the level/date step's CTA goes directly to "Register & Pay".
     await page.getByRole('radio', { name: /audit retrychild/i }).click();
 
-    // The picker's accessible group name is "Select a start date" (renamed
-    // from "Select a time" by frontend commit e3403d4).
     await page.getByRole('radio', { name: /audit level a/i }).click();
-    const datePill = page.getByRole('radiogroup', { name: 'Select a start date' }).getByRole('radio').first();
-    await datePill.waitFor({ timeout: 10000 });
-    await datePill.click();
+    await selectStartDate(page);
 
     await page.getByText(/card on file/i).waitFor({ timeout: 45000 });
     await page.getByRole('button', { name: /register & pay/i }).click();
