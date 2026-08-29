@@ -24,7 +24,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-gold);
+  background: var(--color-accent);
   display: inline-block;
 }
 
@@ -47,7 +47,7 @@
 }
 
 .navLink:hover {
-  color: var(--color-gold);
+  color: var(--color-accent);
 }
 
 .userArea {

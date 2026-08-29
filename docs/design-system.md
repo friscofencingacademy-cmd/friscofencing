@@ -5,27 +5,31 @@ Short by design — this is primarily a data-dense admin/CRM app, plus a small p
 ## Principles
 
 - **CSS Modules only.** No Bootstrap, no Tailwind, no MUI. Never write a raw hex code in a component's `.module.css` — reference a token.
-- **Near-black is the primary workhorse color** (buttons, nav, most interactive elements), **gold is a small-dose accent only** (badges, active states, the wordmark dot) — never the dominant interactive color. Two reasons: `#C8A000` with white text sits near the edge of WCAG AA contrast for normal text, and a loud accent color used everywhere in a dense CRUD UI (many buttons/badges visible at once) fatigues faster than it would on a single marketing hero. Colors and fonts are inspired by FencerIQ (a related fencing product), rebalanced for sustained daily use rather than a marketing landing page.
+- **Navy is the primary workhorse color** (buttons, nav, most interactive elements), **crimson is the accent** (badges, active states, the wordmark dot, and a second higher-emphasis CTA next to a primary button) — never the *only* interactive color on a dense screen. Rebranded 2026-08-29 to match the live `friscofencingacademy.com` WordPress site (`docs/plans/wordpress-ui-alignment-plan.md`, Phase 1) — previously near-black ink + gold. Unlike gold (`#C8A000` on white sat right at the edge of WCAG AA for normal text), crimson (`#B51726`) passes comfortably (~6.7:1 on white), so it's used more freely than gold ever was — but the same instinct still applies in a dense CRUD UI: don't make every button/badge on a busy admin screen shout at once.
 - **One button, one alert, one card.** `Button`/`Alert`/`Card` are the only implementations of each — never hand-roll a new `.btnPrimary`-style class or an ad hoc `<p role="alert">` in a page's own module.
-- **Two shells, deliberately different.** Admin gets a dark "back office" sidebar; the parent portal gets a light "member area" sidebar with a gold active accent. Never mix `admin.module.css` and the portal-facing `shared.module.css` in one page — see "Shells" below for which to use where.
+- **Two shells, deliberately different.** Admin gets a dark "back office" sidebar; the parent portal gets a light "member area" sidebar with a crimson active accent. Never mix `admin.module.css` and the portal-facing `shared.module.css` in one page — see "Shells" below for which to use where.
 - **Errors render inline, never as a modal.** A failed query renders `LoadError` in place of the content that failed to load; a failed mutation shows its message in the same dialog/form the user was already looking at. A modal is for a user-initiated action (create/edit/delete), never for reporting a load failure.
 
 ## Tokens (`frontend/app/globals.css`)
 
+Rebranded 2026-08-29 (`docs/plans/wordpress-ui-alignment-plan.md`, Phase 1) — `--color-gold` is gone, renamed (not repurposed) to `--color-accent` so no stale "gold" reference could keep meaning crimson.
+
 | Token | Value | Usage |
 |---|---|---|
-| `--color-ink` | `#1B1A17` | Primary buttons, nav background, headings, body text |
-| `--color-gold` | `#C8A000` | Accent only — badges, active states, wordmark dot |
-| `--color-bg` | `#FAF9F6` | Page background |
+| `--color-ink` | `#0E1B2A` | Primary buttons, nav background, headings, body text |
+| `--color-accent` | `#B51726` | Accent — badges, active states, wordmark dot, `Button`'s `accent` variant |
+| `--color-bg` | `#F9F7F4` | Page background |
 | `--color-white` | `#FFFFFF` | Card/surface backgrounds |
 | `--color-border` | `#E2E0DB` | Table/card borders |
 | `--color-muted` | `#6B6B63` | Secondary/meta text |
+| `--color-chip` | `#F0E3E6` | Eyebrow/chip backgrounds (marketing pages, Phase 2) |
+| `--color-navy-deep` | `#00142F` | Table header rows, the Family Scorecard quote panel (Phase 3) |
 | `--color-success` / `--color-success-bg` | `#1F7A4D` / `#E9F4EE` | Success banners |
 | `--color-error` / `--color-error-bg` | `#B3261E` / `#FBEAE9` | Error banners, destructive actions |
 
-Spacing: `--space-1` through `--space-6` (4px–32px). Radius: `--radius-sm` (4px), `--radius-md` (8px). Shadow: `--shadow-card`.
+Spacing: `--space-1` through `--space-6` (4px–32px). Radius: `--radius-sm` / `--radius-md` — both `0` (square corners, matching the WP site's aesthetic; previously 4px/8px). Shadow: `--shadow-card`.
 
-**Shell tokens** (admin sidebar shell + parent portal shell — added for the CKQ UI adoption plan, `docs/plans/ckq-ui-adoption-plan.md`). Adapted from CKQ's own shell tokens per the plan's §1 brand-adaptation table: same geometry/structure, Frisco's ink/gold colors instead of CKQ's navy/sky.
+**Shell tokens** (admin sidebar shell + parent portal shell — added for the CKQ UI adoption plan, `docs/plans/ckq-ui-adoption-plan.md`; rebranded alongside the tokens above). `--sidebar-active`/`--sidebar-active-bg` are used on **light** surfaces (the portal sidebar, badges/chips, StepsRow) — plain crimson passes WCAG AA there. The dark **admin** sidebar is the one surface raw crimson text/borders would fail contrast against (`--sidebar-bg`, ~2.6:1) — `admin/layout.module.css` uses the separate `--sidebar-active-on-dark` tint there instead, never `--sidebar-active` directly.
 
 | Token | Value | Usage |
 |---|---|---|
@@ -33,18 +37,19 @@ Spacing: `--space-1` through `--space-6` (4px–32px). Radius: `--radius-sm` (4p
 | `--sidebar-icon-w` | `64px` | Tablet icon-only sidebar width |
 | `--topbar-h` | `52px` | Mobile top bar height (admin shell) |
 | `--bottomnav-h` | `60px` | Mobile bottom tab bar height (portal shell) |
-| `--sidebar-bg` | `#1B1A17` (`--color-ink`) | Admin sidebar background (dark) |
+| `--sidebar-bg` | `#0E1B2A` (`--color-ink`) | Admin sidebar background (dark) |
 | `--sidebar-text` | `rgba(250,249,246,.72)` | Sidebar nav link text |
 | `--sidebar-muted` | `rgba(250,249,246,.45)` | Sidebar section labels / secondary text |
 | `--sidebar-border` | `rgba(255,255,255,.08)` | Sidebar dividers |
-| `--sidebar-active` | `#C8A000` (`--color-gold`) | Active nav item accent (text + left border) |
-| `--sidebar-active-bg` | `rgba(200,160,0,.12)` | Active nav item background wash |
+| `--sidebar-active` | `#B51726` (`--color-accent`) | Active nav item accent on **light** surfaces (text + left border) |
+| `--sidebar-active-bg` | `rgba(181,23,38,.12)` | Active nav item background wash (any surface) |
+| `--sidebar-active-on-dark` | `#F2ABB2` | Active nav item text/border on the **dark admin sidebar only** (`--sidebar-active` fails contrast there) |
 
 The parent portal sidebar itself renders on a **light** surface (`--color-white` background, `--color-border` divider) — only the admin sidebar uses the dark `--sidebar-bg` treatment.
 
 ## Typography
 
-**Saira Condensed** (700/900, `--font-heading`) for headings, buttons, nav — bold and condensed, matches the athletic brand tone. **Saira** (400/500/600, `--font-body`) for everything else. Both loaded via `next/font/google` in `app/layout.tsx`.
+**Big Shoulders Text** (500/600/700, `--font-heading`, uppercase) for headings, buttons, nav. **Inter** (400/500/600/700, `--font-body`) for everything else. Rebranded 2026-08-29 (previously Saira Condensed/Saira) to match the WP site. Both loaded via `next/font/google` in `app/layout.tsx`. All `h1`–`h6` are `text-transform: uppercase` globally (`globals.css`); `h1`/`h2`/`h3` are weight 600 unless a component explicitly overrides it (several marketing headings keep a heavier local weight — see their own `.module.css`).
 
 ## Shells
 
@@ -65,14 +70,14 @@ Role-gated in the layout itself (admin/superadmin only — a non-admin visitor i
 
 ### Portal shell (`frontend/app/components/portal/PortalLayout/` + `ParentPortalShell/`) — light, "member area"
 
-Deliberately the visual opposite of the admin shell's dark treatment — a light sidebar with a gold active-left-border reads as "member area", a dark one as "back office." Two layers:
+Deliberately the visual opposite of the admin shell's dark treatment — a light sidebar with a crimson active-left-border reads as "member area", a dark one as "back office." Two layers:
 
 - **`PortalLayout`** is the generic, role-agnostic primitive: `{ navGroups: {label?, items?, content?}[], header?, bottomNavItems, children }`. `navGroups` items render as standard sidebar links; a group's `content` (e.g. per-child rows) renders instead of `items` when present. Active state = **longest-href-prefix match of the current pathname**, computed independently for the sidebar's item set and the `bottomNavItems` set (they're often different lists, e.g. bottom nav has no per-child rows).
 - **`ParentPortalShell`** wraps `PortalLayout` with the parent's specific groups/header/bottom-nav (see `docs/features/parent-portal.md` for the exact nav structure) and reads from `ParentPortalContext`.
 
 Breakpoints mirror the admin shell's geometry but with the light surface: ≥1025px full 220px sidebar; 769–1024px icon-only 64px; ≤768px sidebar hidden entirely, replaced by a fixed bottom tab bar (`--bottomnav-h` 60px).
 
-Per-child avatars use a **deterministic index-based palette** (`lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs) — the same child always gets the same color across sessions, never a random/hash-based assignment that could flicker between renders.
+Per-child avatars use a **deterministic index-based palette** (`lib/childPalette.ts`, 4 navy/crimson-harmonious gradient pairs) — the same child always gets the same color across sessions, never a random/hash-based assignment that could flicker between renders.
 
 ## Page patterns
 
@@ -96,7 +101,7 @@ The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMa
 
 | Component | Location | Use |
 |---|---|---|
-| `Button` | `app/components/ui/Button/` | **The only button.** Polymorphic (`as="button"` or `as="a"` + `href`) discriminated union — using `href` on button-mode or omitting it on anchor-mode is a compile-time type error, not a runtime bug. Variants: `primary`/`secondary`/`ghost`/`danger`. Sizes: `sm`/`md`/`lg`. Supports `loading`, `disabled`, `fullWidth`. |
+| `Button` | `app/components/ui/Button/` | **The only button.** Polymorphic (`as="button"` or `as="a"` + `href`) discriminated union — using `href` on button-mode or omitting it on anchor-mode is a compile-time type error, not a runtime bug. Variants: `primary`/`secondary`/`ghost`/`danger`/`accent` (solid crimson — a second, higher-emphasis CTA next to `primary`, added Phase 1 of the WP-alignment plan). Sizes: `sm`/`md`/`lg`. Supports `loading`, `disabled`, `fullWidth`. |
 | `Alert` | `app/components/ui/Alert/` | `variant="success"` (`role="status"`) or `variant="error"` (`role="alert"`) — the `role` distinction matters for assistive tech (errors interrupt, status updates don't). |
 | `Card` | `app/components/ui/Card/` | Simple bordered/shadowed surface wrapper. |
 | `LoadError` | `app/components/ui/LoadError/` | `{ message?, onRetry?, compact? }` — the ONLY way a failed query renders; pairs with `useLoadState`. Never a modal. One documented exception: the home page (`/`) — see "Public marketing pages" above. |

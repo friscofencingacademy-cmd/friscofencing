@@ -13,7 +13,7 @@
  * of-truth applies to emails too (Hard Rule 7).
  */
 
-const { ORG } = require('./tokens');
+const { ORG, C } = require('./tokens');
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -23,7 +23,7 @@ function esc(s) {
 }
 
 function strong(s) {
-  return `<strong style="color:#1B1A17">${esc(s)}</strong>`;
+  return `<strong style="color:${C.ink}">${esc(s)}</strong>`;
 }
 
 const TEMPLATES = [

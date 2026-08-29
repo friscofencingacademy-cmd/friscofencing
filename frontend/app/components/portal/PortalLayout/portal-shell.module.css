@@ -1,7 +1,7 @@
 /* =============================================================
    PortalLayout — light sidebar shell for the parent portal.
    NEVER the dark admin treatment — parent gets a light surface with
-   a gold active-left-border accent (see docs/design-system.md "Portal shell").
+   a crimson active-left-border accent (see docs/design-system.md "Portal shell").
    Desktop:  left sidebar (220px) + main content
    Tablet:   icon-only sidebar (64px) + main content
    Mobile:   full-width content + fixed bottom tab bar

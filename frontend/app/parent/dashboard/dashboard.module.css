@@ -39,7 +39,7 @@
 }
 
 .stepCurrent {
-  border-color: var(--color-gold);
+  border-color: var(--color-accent);
 }
 
 .stepCircle {
@@ -62,7 +62,7 @@
 }
 
 .stepCurrent .stepCircle {
-  background: var(--color-gold);
+  background: var(--color-accent);
   color: var(--color-white);
 }
 

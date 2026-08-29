@@ -48,4 +48,10 @@ describe('Button', () => {
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute('href', '/login');
   });
+
+  it('renders the accent variant', () => {
+    render(<Button variant="accent">Enroll in a Program</Button>);
+
+    expect(screen.getByRole('button', { name: 'Enroll in a Program' })).toBeInTheDocument();
+  });
 });

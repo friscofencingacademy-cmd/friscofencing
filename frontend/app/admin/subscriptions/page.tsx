@@ -349,7 +349,7 @@ export default function AdminSubscriptionsPage() {
                         {isCancelled ? (
                           <span className={styles.chipMuted}>Cancelled</span>
                         ) : isPendingCancel ? (
-                          <span className={styles.chip} style={{ background: 'var(--color-bg)', color: 'var(--color-gold)' }}>
+                          <span className={styles.chip} style={{ background: 'var(--color-bg)', color: 'var(--color-accent)' }}>
                             Cancels {formatDateLabel(row.currentPeriodEnd)}
                           </span>
                         ) : (

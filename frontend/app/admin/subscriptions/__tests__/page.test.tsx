@@ -141,7 +141,7 @@ describe('AdminSubscriptionsPage', () => {
     expect(screen.queryByText(/registration fee/i)).not.toBeInTheDocument();
   });
 
-  it('shows a gold "Cancels <date>" chip and a Reactivate action for a pending-cancel subscription', async () => {
+  it('shows a "Cancels <date>" chip and a Reactivate action for a pending-cancel subscription', async () => {
     rows = [makeRow({ cancelAtPeriodEnd: true })];
     render(<AdminSubscriptionsPage />);
 

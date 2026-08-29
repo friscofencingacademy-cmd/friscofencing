@@ -23,24 +23,24 @@ Every `/parent/*` page that needs household data consumes this context — **no 
 Wraps the generic `PortalLayout` with parent-specific nav groups:
 
 - **HOME** — Dashboard (`/parent/dashboard`).
-- **CHILDREN** — custom content: one row per student (initial-letter avatar with a deterministic per-child palette from `lib/childPalette.ts`, 4 gold/ink-harmonious gradient pairs assigned by index) showing a status line — `Enrolled` / `Trial booked` / `Not enrolled` — plus a "+ Add child" row. Each child row links to `/parent/child/[id]` (Phase 5); "+ Add child" is a button that opens `AddChildModal` in place (Phase 5) rather than navigating.
+- **CHILDREN** — custom content: one row per student (initial-letter avatar with a deterministic per-child palette from `lib/childPalette.ts`, 4 navy/crimson-harmonious gradient pairs assigned by index) showing a status line — `Enrolled` / `Trial booked` / `Not enrolled` — plus a "+ Add child" row. Each child row links to `/parent/child/[id]` (Phase 5); "+ Add child" is a button that opens `AddChildModal` in place (Phase 5) rather than navigating.
 - **ACADEMY** — Book Trial, Register, Private Lessons (`/private-classes`, CKQ parity Phase 4), Billing (`/parent/subscriptions`), Payment Method.
 
 Header: "Welcome back, {firstName}" + today's date, plus a children-count chip. Mobile bottom nav (≤768px, 4 items): Home, Children, Register, Billing.
 
 ## `PortalLayout` (`app/components/portal/PortalLayout/`)
 
-The reusable shell primitive: `{ navGroups, header?, bottomNavItems, children }`. Renders a **light** sidebar (white background, `--color-border` divider, ink text, gold active-left-border — never the admin shell's dark treatment), a right area (optional sticky header + main), and a fixed bottom tab bar on mobile. Active state = longest-href-prefix match of the current pathname, computed independently for the sidebar item set and the bottom-nav item set (they aren't always the same items). Breakpoints: ≥1025px full 220px sidebar; 769–1024px icon-only 64px sidebar; ≤768px sidebar hidden, bottom nav shown.
+The reusable shell primitive: `{ navGroups, header?, bottomNavItems, children }`. Renders a **light** sidebar (white background, `--color-border` divider, ink text, crimson active-left-border — never the admin shell's dark treatment), a right area (optional sticky header + main), and a fixed bottom tab bar on mobile. Active state = longest-href-prefix match of the current pathname, computed independently for the sidebar item set and the bottom-nav item set (they aren't always the same items). Breakpoints: ≥1025px full 220px sidebar; 769–1024px icon-only 64px sidebar; ≤768px sidebar hidden, bottom nav shown.
 
 ## Flow kit (`app/components/portal/flow/`, Phase 4)
 
 Shared building blocks for the multi-step registration/trial wizards:
 
 - **`FlowMain`** — `{ crumbs, eyebrow?, title, steps?, current, summary?, singleColumn?, children }`. Renders an inline breadcrumb (Home → flow name), title block, an optional `FlowStepper`, and a two-column layout (content + sticky summary rail) that collapses to a single centered column when `singleColumn` is set (used for the terminal confirmation step, where a summary rail no longer makes sense).
-- **`FlowStepper`** — numbered circles; gold-filled + active label for the current step, a checkmark for completed steps, plain outline + number for upcoming ones.
+- **`FlowStepper`** — numbered circles; crimson-filled + active label for the current step, a checkmark for completed steps, plain outline + number for upcoming ones.
 - **`FlowSection`** — a bordered card with an optional title, used to group one logical piece of a step's form.
 - **`ChildPickerCards`** — `{ students, selectedId, onSelect }`, a `radiogroup` of radio-cards (palette avatar + name + skill level), one per household child.
-- **`PillRow<T>`** — `{ items, selectedKey, onSelect, getKey, getLabel, getSub?, ariaLabel }`, a `radiogroup` of pill buttons (generic, gold-accented selected state — CKQ-style picker, adapted to Frisco's tokens and `ChildPickerCards`' own `radiogroup`/`radio` a11y pattern rather than CKQ's `aria-pressed` buttons). Currently used only by Book a Trial's session picker.
+- **`PillRow<T>`** — `{ items, selectedKey, onSelect, getKey, getLabel, getSub?, ariaLabel }`, a `radiogroup` of pill buttons (generic, crimson-accented selected state — CKQ-style picker, adapted to Frisco's tokens and `ChildPickerCards`' own `radiogroup`/`radio` a11y pattern rather than CKQ's `aria-pressed` buttons). Currently used only by Book a Trial's session picker.
 - **`OrderSummary`** — `{ lines, cta?, ctaDisabled?, ctaLoading?, onCta?, note? }`. **The advance/submit button for a step lives here, never duplicated elsewhere on the page** — every wizard step's CTA sits in the sticky summary rail so the reviewer's eye never has to leave the summary to know what happens next. The one exception is Register's own "Who" step (below) — selecting a child auto-advances immediately, since there's nothing else to configure on that step and a rail click would just be an extra step for its own sake.
 - **`FlowConfirmation`** — the terminal success panel: a check icon, title/subtitle, a small label/value detail grid, and next-step links.
 

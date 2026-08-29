@@ -5,7 +5,7 @@ interface SpotlightCardProps {
   spotlight: PublicSpotlight;
   /** Which side the photo renders on. */
   align: 'left' | 'right';
-  /** Optional gold eyebrow label, e.g. "Student Spotlight". */
+  /** Optional accent-colored eyebrow label, e.g. "Student Spotlight". */
   eyebrow?: string;
 }
 

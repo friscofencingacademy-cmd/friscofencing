@@ -69,17 +69,33 @@ test.describe('public site (logged out)', () => {
   // Accessibility — only serious/critical violations fail the build;
   // moderate/minor are logged, not failed, to avoid a noisy first run (D8).
   //
-  // KNOWN, PRE-EXISTING FINDING (not introduced by this suite, not fixed
-  // here): the first real run of this scan found LevelGrid's price text
-  // (`marketing.module.css`'s `.levelFee`, gold #c8a000 on white) fails
-  // WCAG AA contrast (2.47:1, needs 4.5:1). Fixing it means picking a new
-  // on-white shade of the brand gold — a real design-system decision
-  // (`docs/design-system.md` has its own pre-read requirement for touching
-  // styling), not something this test-infrastructure plan should decide
-  // unilaterally. Ratcheted instead of ignored: this exact, named
-  // violation is allowed so the suite can ship green, but any OTHER/NEW
-  // color-contrast finding on this page still fails the build.
-  const KNOWN_HOME_PAGE_VIOLATIONS = new Set(['color-contrast']);
+  // FIXED 2026-08-29 (docs/plans/wordpress-ui-alignment-plan.md, Phase 1):
+  // this scan used to ratchet a known color-contrast finding — LevelGrid's
+  // price text (`marketing.module.css`'s `.levelFee`, gold #c8a000 on
+  // white) failed WCAG AA at 2.47:1. The WP-alignment rebrand replaced gold
+  // with crimson (#B51726, ~6.7:1 on white) as a real design-system
+  // decision, which fixes this as a side effect.
+  //
+  // Fixing that one unmasked a SECOND, separate, previously-hidden
+  // color-contrast finding on Hero's temporary photo placeholder
+  // (`marketing.module.css`'s `.photoPlaceholder`, muted text #6b6b63 on
+  // border-gray #e2e0db — both unchanged, pre-existing tokens — fails at
+  // 4.07:1, needs 4.5:1). It was hidden, not absent: the old ratchet
+  // allowlisted the whole `color-contrast` RULE by id, which silently
+  // permitted every violation of that rule, not just the named one — a
+  // precision bug in the ratchet itself. Fixed here by matching on the
+  // violating node's selector instead of the bare rule id, so this ratchet
+  // can never again mask an unrelated future finding.
+  //
+  // NOT fixed in Phase 1: `.photoPlaceholder` is explicitly a stand-in
+  // ("Photo of the salle — coming soon") for the real hero photo Phase 2
+  // installs (docs/plans/wordpress-ui-alignment-plan.md §3.3 item 1) — the
+  // element is deleted, not restyled, when that lands. Re-tightening
+  // `--color-muted`/`--color-border` now would be design-system churn for
+  // a box that won't exist after the next PR.
+  const isKnownPhotoPlaceholderFinding = (v: { id: string; nodes: { target: string[] }[] }) =>
+    v.id === 'color-contrast' &&
+    v.nodes.every((n) => n.target.some((t) => t.includes('photoPlaceholder')));
 
   test('home page has no NEW serious/critical accessibility violations', async ({ page }) => {
     await page.goto('/');
@@ -87,7 +103,7 @@ test.describe('public site (logged out)', () => {
 
     const results = await new AxeBuilder({ page }).analyze();
     const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    const unexpected = blocking.filter((v) => !KNOWN_HOME_PAGE_VIOLATIONS.has(v.id));
+    const unexpected = blocking.filter((v) => !isKnownPhotoPlaceholderFinding(v));
 
     expect(unexpected, JSON.stringify(unexpected, null, 2)).toEqual([]);
   });
