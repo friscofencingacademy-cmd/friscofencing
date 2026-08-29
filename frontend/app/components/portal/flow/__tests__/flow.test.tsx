@@ -143,6 +143,25 @@ describe('ChildPickerCards', () => {
     expect(screen.getByRole('radio', { name: /kid two/i })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'false');
   });
+
+  // docs/plans/trial-registration-required-fields-plan.md §1.5/§2.3 — age
+  // is backend-computed and only shown when present, never a guess.
+  it('shows the backend-computed age alongside skill level when both are present', () => {
+    const withBoth = [{ _id: 's3', firstName: 'Kid', lastName: 'Three', age: 8, skillLevel: 'beginner' as const }];
+
+    render(<ChildPickerCards students={withBoth} selectedId="" onSelect={jest.fn()} />);
+
+    expect(screen.getByText('Age 8 · beginner')).toBeInTheDocument();
+  });
+
+  it('renders no age line at all when age is null — never "Age null" or a guess', () => {
+    const noAge = [{ _id: 's4', firstName: 'Kid', lastName: 'Four', age: null, skillLevel: 'beginner' as const }];
+
+    render(<ChildPickerCards students={noAge} selectedId="" onSelect={jest.fn()} />);
+
+    expect(screen.getByText('beginner')).toBeInTheDocument();
+    expect(screen.queryByText(/age/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('PillRow', () => {

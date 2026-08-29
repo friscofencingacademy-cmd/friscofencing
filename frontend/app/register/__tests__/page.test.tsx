@@ -39,16 +39,67 @@ async function fillAndSubmit(
   firstName: string,
   lastName: string,
   email: string,
-  password: string
+  password: string,
+  // Required on the form (docs/plans/trial-registration-required-fields-
+  // plan.md §2.1) — every call site fills it, since leaving it blank would
+  // block the native HTML5 form submission before handleSubmit ever runs.
+  phone = '555-123-4567'
 ) {
   fireEvent.change(screen.getByLabelText('First Name'), { target: { value: firstName } });
   fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: lastName } });
   fireEvent.change(screen.getByLabelText('Email'), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText('Phone Number'), { target: { value: phone } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: password } });
   fireEvent.click(screen.getByRole('button', { name: /sign up/i }));
 }
 
 describe('RegisterPage', () => {
+  // docs/plans/trial-registration-required-fields-plan.md §2.1.
+  it('shows the trial-class info section above the signup form', () => {
+    renderRegisterPage();
+
+    expect(screen.getByText('Your First Class Is Free')).toBeInTheDocument();
+    expect(screen.getByText(/basic fencing movements and footwork/i)).toBeInTheDocument();
+    expect(screen.getByText(/what to bring/i)).toBeInTheDocument();
+  });
+
+  it('submits phone in the registration payload — required for trial-class booking later', async () => {
+    let postPayload: unknown = null;
+
+    server.use(
+      http.post('*/auth/register', async ({ request }) => {
+        postPayload = await request.json();
+        return HttpResponse.json(
+          {
+            user: {
+              _id: 'user-phone',
+              role: 'parent',
+              firstName: 'Phone',
+              lastName: 'Parent',
+              email: 'phone-parent@example.com',
+              phone: '555-987-6543',
+            },
+          },
+          { status: 201 }
+        );
+      })
+    );
+
+    renderRegisterPage();
+
+    await fillAndSubmit('Phone', 'Parent', 'phone-parent@example.com', 'a-strong-password', '555-987-6543');
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalled());
+
+    expect(postPayload).toEqual({
+      firstName: 'Phone',
+      lastName: 'Parent',
+      email: 'phone-parent@example.com',
+      password: 'a-strong-password',
+      phone: '555-987-6543',
+    });
+  });
+
   it('signs up successfully and redirects to /parent/dashboard by default', async () => {
     server.use(
       http.post('*/auth/register', () =>

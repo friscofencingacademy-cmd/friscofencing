@@ -223,6 +223,54 @@ describe('UsersPage', () => {
         });
       });
     });
+
+    // docs/plans/trial-registration-required-fields-plan.md §2.4 — present
+    // but never `required`, matching the backend's own "don't force it
+    // here" decision (§1.3).
+    it('includes dateOfBirth in the create payload for a student when filled, and offers it as optional', async () => {
+      renderPage('admin');
+      await screen.findByText('Pat Parent');
+
+      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
+      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'student' } });
+
+      const dobInput = screen.getByLabelText('Date of Birth (optional)');
+      expect(dobInput).not.toBeRequired();
+
+      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Kid' } });
+      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'WithBirthday' } });
+      fireEvent.change(screen.getByLabelText('Parent'), { target: { value: 'parent-1' } });
+      fireEvent.change(dobInput, { target: { value: '2018-01-01' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      await waitFor(() => {
+        expect(createdPayload).toMatchObject({ dateOfBirth: '2018-01-01' });
+      });
+    });
+
+    it('includes phone in the create payload for a login-capable role when filled, and offers it as optional', async () => {
+      renderPage('admin');
+      await screen.findByText('Pat Parent');
+
+      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
+      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'coach' } });
+
+      const phoneInput = screen.getByLabelText('Phone (optional)');
+      expect(phoneInput).not.toBeRequired();
+
+      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
+      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Coach' } });
+      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'newcoach2@example.com' } });
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
+      fireEvent.change(phoneInput, { target: { value: '555-123-4567' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      await waitFor(() => {
+        expect(createdPayload).toMatchObject({ phone: '555-123-4567' });
+      });
+    });
   });
 
   describe('Edit', () => {
@@ -246,6 +294,42 @@ describe('UsersPage', () => {
           lastName: 'Coach',
           email: 'cody@example.com',
         });
+      });
+    });
+
+    // docs/plans/trial-registration-required-fields-plan.md's admin-backfill
+    // stop-gap — this is the only place an existing login-capable account
+    // (created before phone existed, or via a create() call that left it
+    // blank) can ever have a phone added after the fact.
+    it("lets an admin backfill an existing coach's phone via edit", async () => {
+      renderPage('admin');
+      await screen.findByText('Cody Coach');
+
+      fireEvent.click(screen.getByRole('button', { name: /edit cody coach/i }));
+
+      const phoneInput = screen.getByLabelText('Phone (optional)');
+      expect(phoneInput).not.toBeRequired();
+      fireEvent.change(phoneInput, { target: { value: '555-987-6543' } });
+      fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => {
+        expect(updatedPayload).toMatchObject({ phone: '555-987-6543' });
+      });
+    });
+
+    it("lets an admin backfill an existing student's dateOfBirth via edit", async () => {
+      renderPage('admin');
+      await screen.findByText('Sam Student');
+
+      fireEvent.click(screen.getByRole('button', { name: /edit sam student/i }));
+
+      const dobInput = screen.getByLabelText('Date of Birth (optional)');
+      expect(dobInput).not.toBeRequired();
+      fireEvent.change(dobInput, { target: { value: '2018-01-01' } });
+      fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => {
+        expect(updatedPayload).toMatchObject({ dateOfBirth: '2018-01-01' });
       });
     });
   });

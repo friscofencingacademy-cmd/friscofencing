@@ -14,6 +14,12 @@ export default function ChildPickerCards({ students, selectedId, onSelect }: Chi
       {students.map((student, index) => {
         const palette = getChildPalette(index);
         const selected = student._id === selectedId;
+        // age is backend-computed (docs/plans/trial-registration-required-
+        // fields-plan.md §1.5/§2.3) — null/absent on a child created before
+        // dateOfBirth existed, so it just doesn't render, never a guess.
+        const metaParts = [student.age != null ? `Age ${student.age}` : null, student.skillLevel].filter(
+          Boolean
+        );
 
         return (
           <button
@@ -31,7 +37,7 @@ export default function ChildPickerCards({ students, selectedId, onSelect }: Chi
               <div className={styles.childName}>
                 {student.firstName} {student.lastName}
               </div>
-              {student.skillLevel ? <div className={styles.childMeta}>{student.skillLevel}</div> : null}
+              {metaParts.length > 0 ? <div className={styles.childMeta}>{metaParts.join(' · ')}</div> : null}
             </span>
           </button>
         );

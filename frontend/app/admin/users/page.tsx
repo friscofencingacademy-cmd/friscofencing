@@ -43,6 +43,13 @@ interface UserForm {
   password: string;
   parentId: string;
   skillLevel: string;
+  // Student-only. Not required here — see docs/plans/trial-registration-
+  // required-fields-plan.md §1.3/§2.4; this dialog is the "may not always
+  // have it in hand" case that decision was about.
+  dateOfBirth: string;
+  // Login-capable-role-only. Also not required here — §1.2's hard-require
+  // is public self-signup only, a different form entirely.
+  phone: string;
 }
 
 const EMPTY_FORM: UserForm = {
@@ -53,6 +60,8 @@ const EMPTY_FORM: UserForm = {
   password: '',
   parentId: '',
   skillLevel: '',
+  dateOfBirth: '',
+  phone: '',
 };
 
 interface DialogState {
@@ -153,6 +162,8 @@ export default function UsersPage() {
         password: '',
         parentId: row.parentId ?? '',
         skillLevel: row.skillLevel ?? '',
+        dateOfBirth: row.dateOfBirth ?? '',
+        phone: row.phone ?? '',
       },
     });
     setDialogError(null);
@@ -194,7 +205,8 @@ export default function UsersPage() {
       const result = await updateUser(dialog.id, {
         firstName: form.firstName,
         lastName: form.lastName,
-        ...(isLoginCapable ? { email: form.email.trim() } : {}),
+        ...(isLoginCapable ? { email: form.email.trim(), phone: form.phone.trim() || undefined } : {}),
+        ...(form.role === 'student' ? { dateOfBirth: form.dateOfBirth || undefined } : {}),
       });
 
       setSaving(false);
@@ -234,6 +246,7 @@ export default function UsersPage() {
             parentId: form.parentId,
             email: form.email.trim() || undefined,
             skillLevel: (form.skillLevel || undefined) as SkillLevel | undefined,
+            dateOfBirth: form.dateOfBirth || undefined,
           }
         : {
             role: form.role,
@@ -241,6 +254,7 @@ export default function UsersPage() {
             lastName: form.lastName,
             email: form.email.trim(),
             password: form.password,
+            phone: form.phone.trim() || undefined,
           }
     );
 
@@ -515,6 +529,18 @@ export default function UsersPage() {
                       onChange={(e) => setField('email', e.target.value)}
                     />
                   </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label} htmlFor="user-dateOfBirth">
+                      Date of Birth (optional)
+                    </label>
+                    <input
+                      id="user-dateOfBirth"
+                      type="date"
+                      className={styles.input}
+                      value={dialog.form.dateOfBirth}
+                      onChange={(e) => setField('dateOfBirth', e.target.value)}
+                    />
+                  </div>
                 </>
               ) : null}
 
@@ -531,6 +557,18 @@ export default function UsersPage() {
                       value={dialog.form.email}
                       onChange={(e) => setField('email', e.target.value)}
                       required
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label} htmlFor="user-phone">
+                      Phone (optional)
+                    </label>
+                    <input
+                      id="user-phone"
+                      type="tel"
+                      className={styles.input}
+                      value={dialog.form.phone}
+                      onChange={(e) => setField('phone', e.target.value)}
                     />
                   </div>
                   <div className={styles.formGroup}>
@@ -551,17 +589,51 @@ export default function UsersPage() {
               ) : null}
 
               {dialog.id && isLoginCapableFormRole ? (
+                <>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label} htmlFor="user-email">
+                      Email
+                    </label>
+                    <input
+                      id="user-email"
+                      type="email"
+                      className={styles.input}
+                      value={dialog.form.email}
+                      onChange={(e) => setField('email', e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label} htmlFor="user-phone">
+                      Phone (optional)
+                    </label>
+                    <input
+                      id="user-phone"
+                      type="tel"
+                      className={styles.input}
+                      value={dialog.form.phone}
+                      onChange={(e) => setField('phone', e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {/* Editing an existing student: the only field this dialog
+                  doesn't already cover via firstName/lastName above.
+                  docs/plans/trial-registration-required-fields-plan.md's
+                  admin-backfill stop-gap only means anything if there's
+                  actually a UI path to set a missing date of birth. */}
+              {dialog.id && dialog.form.role === 'student' ? (
                 <div className={styles.formGroup}>
-                  <label className={styles.label} htmlFor="user-email">
-                    Email
+                  <label className={styles.label} htmlFor="user-dateOfBirth">
+                    Date of Birth (optional)
                   </label>
                   <input
-                    id="user-email"
-                    type="email"
+                    id="user-dateOfBirth"
+                    type="date"
                     className={styles.input}
-                    value={dialog.form.email}
-                    onChange={(e) => setField('email', e.target.value)}
-                    required
+                    value={dialog.form.dateOfBirth}
+                    onChange={(e) => setField('dateOfBirth', e.target.value)}
                   />
                 </div>
               ) : null}

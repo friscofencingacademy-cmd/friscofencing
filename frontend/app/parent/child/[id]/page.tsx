@@ -73,6 +73,11 @@ export default function ChildDetailPage() {
             {student.firstName} {student.lastName}
           </h1>
           <div className={styles.metaRow}>
+            {/* age is backend-computed (docs/plans/trial-registration-
+                required-fields-plan.md §1.5/§2.3) — null/absent on a child
+                created before dateOfBirth existed, so it just doesn't
+                render, never a guess. */}
+            {student.age != null ? <span className={styles.metaLevel}>Age {student.age}</span> : null}
             {student.skillLevel ? <span className={styles.metaLevel}>{student.skillLevel}</span> : null}
             <span className={`${styles.statusPill} ${statusClass}`}>{statusLabel}</span>
           </div>

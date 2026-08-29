@@ -10,7 +10,16 @@ const server = setupServer(
   http.post('*/students', async ({ request }) => {
     postPayload = await request.json();
     return HttpResponse.json(
-      { student: { _id: 'student-2', firstName: 'New', lastName: 'Kid', skillLevel: 'beginner' } },
+      {
+        student: {
+          _id: 'student-2',
+          firstName: 'New',
+          lastName: 'Kid',
+          skillLevel: 'beginner',
+          dateOfBirth: '2018-01-01',
+          age: 8,
+        },
+      },
       { status: 201 }
     );
   })
@@ -24,7 +33,7 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('AddChildModal', () => {
-  it('submits the exact { firstName, lastName, skillLevel } payload and calls onSuccess', async () => {
+  it('submits the exact { firstName, lastName, skillLevel, dateOfBirth } payload and calls onSuccess', async () => {
     const onSuccess = jest.fn();
     const onClose = jest.fn();
 
@@ -32,12 +41,18 @@ describe('AddChildModal', () => {
 
     fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
     fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Kid' } });
+    fireEvent.change(screen.getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
     fireEvent.change(screen.getByLabelText('Skill Level'), { target: { value: 'intermediate' } });
 
     fireEvent.click(screen.getByRole('button', { name: /add child/i }));
 
     await waitFor(() => {
-      expect(postPayload).toEqual({ firstName: 'New', lastName: 'Kid', skillLevel: 'intermediate' });
+      expect(postPayload).toEqual({
+        firstName: 'New',
+        lastName: 'Kid',
+        skillLevel: 'intermediate',
+        dateOfBirth: '2018-01-01',
+      });
     });
 
     expect(onSuccess).toHaveBeenCalledTimes(1);
@@ -66,6 +81,18 @@ describe('AddChildModal', () => {
     expect(postPayload).toBeNull();
   });
 
+  // docs/plans/trial-registration-required-fields-plan.md §1.3.
+  it('shows a client-side validation error and does not submit when date of birth is blank', async () => {
+    render(<AddChildModal onClose={jest.fn()} onSuccess={jest.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
+    fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Kid' } });
+    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+
+    expect(await screen.findByText("Child's date of birth is required.")).toBeInTheDocument();
+    expect(postPayload).toBeNull();
+  });
+
   it('shows the backend error message and keeps the dialog open on a failed save', async () => {
     server.use(http.post('*/students', () => HttpResponse.json({ message: 'Failed to add child.' }, { status: 500 })));
 
@@ -74,6 +101,7 @@ describe('AddChildModal', () => {
 
     fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
     fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Kid' } });
+    fireEvent.change(screen.getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
     fireEvent.click(screen.getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByText('Failed to add child.')).toBeInTheDocument();

@@ -79,6 +79,65 @@ describe('user.service', () => {
 
       expect(user.role).toBe('superadmin');
     });
+
+    // docs/plans/trial-registration-required-fields-plan.md §1.3/§1.5 —
+    // admin's own student-creation dialog gets dateOfBirth too, not force-
+    // required (unlike the parent-facing Add Child flow's own validation).
+    it('accepts and stores dateOfBirth for a student, returning a computed age', async () => {
+      const parent = await createParent();
+
+      const student = await userService.create(
+        {
+          role: 'student',
+          firstName: 'Kid',
+          lastName: 'WithBirthday',
+          parentId: parent._id.toString(),
+          dateOfBirth: '2018-01-01',
+        },
+        'admin'
+      );
+
+      expect(typeof student.age).toBe('number');
+
+      const persisted = await User.findById(student._id);
+      expect(persisted.dateOfBirth.toISOString().slice(0, 10)).toBe('2018-01-01');
+    });
+
+    it('still succeeds without dateOfBirth — age comes back null, not 0 or a guess', async () => {
+      const parent = await createParent();
+
+      const student = await userService.create(
+        { role: 'student', firstName: 'Kid', lastName: 'NoBirthday', parentId: parent._id.toString() },
+        'admin'
+      );
+
+      expect(student.age).toBeNull();
+    });
+
+    // §1.2's hard-require is auth.service.js's register() only — an admin
+    // creating a parent may not have the family's phone in hand yet.
+    it('accepts an optional phone for a login-capable role, but does not require one', async () => {
+      const user = await userService.create(
+        { role: 'parent', firstName: 'No', lastName: 'Phone', email: 'no-phone-admin-created@example.com', password: 'password123' },
+        'admin'
+      );
+
+      expect(user.phone).toBeUndefined();
+
+      const withPhone = await userService.create(
+        {
+          role: 'parent',
+          firstName: 'Has',
+          lastName: 'Phone',
+          email: 'has-phone-admin-created@example.com',
+          password: 'password123',
+          phone: '555-123-4567',
+        },
+        'admin'
+      );
+
+      expect(withPhone.phone).toBe('555-123-4567');
+    });
   });
 
   describe('update', () => {
@@ -106,6 +165,54 @@ describe('user.service', () => {
       const persisted = await User.findById(student._id);
       expect(persisted.firstName).toBe('Kiddo');
       expect(persisted.email).toBeUndefined();
+    });
+
+    // docs/plans/trial-registration-required-fields-plan.md's noted stop-gap
+    // for backfilling an existing account/child created before phone/
+    // dateOfBirth existed — the ONLY self-service-adjacent path today is an
+    // admin using this existing edit endpoint.
+    it("lets an admin backfill an existing parent's missing phone via edit", async () => {
+      const parent = await createParent({ email: 'parent-backfill-phone@example.com' });
+      expect(parent.phone).toBeUndefined();
+
+      await userService.update(
+        parent._id,
+        { firstName: parent.firstName, lastName: parent.lastName, email: parent.email, phone: '555-987-6543' },
+        'admin'
+      );
+
+      const persisted = await User.findById(parent._id);
+      expect(persisted.phone).toBe('555-987-6543');
+    });
+
+    it('does not erase an existing phone when the edit payload omits it entirely', async () => {
+      const parent = await createParent({ email: 'parent-keep-phone@example.com', phone: '555-111-2222' });
+
+      await userService.update(
+        parent._id,
+        { firstName: 'Renamed', lastName: parent.lastName, email: parent.email },
+        'admin'
+      );
+
+      const persisted = await User.findById(parent._id);
+      expect(persisted.phone).toBe('555-111-2222');
+    });
+
+    it("lets an admin backfill an existing student's missing dateOfBirth via edit", async () => {
+      const parent = await createParent();
+      const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
+      expect(student.dateOfBirth).toBeUndefined();
+
+      const updated = await userService.update(
+        student._id,
+        { firstName: student.firstName, lastName: student.lastName, dateOfBirth: '2018-01-01' },
+        'admin'
+      );
+
+      expect(typeof updated.age).toBe('number');
+
+      const persisted = await User.findById(student._id);
+      expect(persisted.dateOfBirth.toISOString().slice(0, 10)).toBe('2018-01-01');
     });
 
     it('returns 404 for a nonexistent user', async () => {

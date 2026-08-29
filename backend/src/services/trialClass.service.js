@@ -20,6 +20,12 @@ function forbiddenError(message) {
   return error;
 }
 
+function badRequestError(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
 function populateTrialClass(trialClassId) {
   return TrialClass.findById(trialClassId)
     .populate('studentId', 'firstName lastName')
@@ -40,6 +46,31 @@ async function create({ studentId, sessionId }, requestingUser) {
 
   if (!isAdmin && String(student.parentId) !== String(requestingUser._id)) {
     throw forbiddenError('This student does not belong to you');
+  }
+
+  // The actual backstop making phone/date-of-birth "mandatory for trial
+  // class registration" true (docs/plans/trial-registration-required-
+  // fields-plan.md §1.4) — catches any account/child that existed before
+  // these fields did, since phone is only hard-required going forward at
+  // signup (auth.service.js) and dateOfBirth is only collected on Add
+  // Child, never hard-required at the shared student-creation service.
+  //
+  // The phone check is against the FAMILY's own parent, not literally
+  // `requestingUser` — for the admin-initiated branch above, requestingUser
+  // is the admin, who has no reason to ever have a phone on file here; the
+  // admin dialog doesn't even collect one. Checking requestingUser.phone
+  // unconditionally would make every admin-initiated booking fail this gate
+  // regardless of the family's real data. Not exempted otherwise: an admin
+  // booking on a family's behalf should still be told the same missing-
+  // field story, since the gap is in the family's own data either way.
+  const bookingParent = isAdmin ? await User.findById(student.parentId) : requestingUser;
+
+  if (!bookingParent || !bookingParent.phone) {
+    throw badRequestError("Add a phone number to the family's account before booking a trial class.");
+  }
+
+  if (!student.dateOfBirth) {
+    throw badRequestError(`Add ${student.firstName}'s date of birth before booking a trial class.`);
   }
 
   // Pre-check for a clean error message before hitting the unique index —
