@@ -209,3 +209,17 @@ unchanged and still lives in `docs/features/private-class.md` — only the stora
 | `order` | Number | default `0` — display order within a type |
 
 Deliberately **not** linked to `User` by ObjectId — editorial content with a consent decision, kept out of the account model on purpose. See `docs/features/public-site.md`.
+
+**No longer rendered on the home page** (2026-08-29) — `TeamBand`/`SpotlightCard` were replaced there by `TestimonialsSection` below. The model, admin CRUD, `/coaches` page, and backend routes are all untouched; only the home page stopped using coach/student spotlights. See `docs/plans/wordpress-ui-alignment-plan.md`'s testimonials addendum.
+
+## `Testimonial` — implemented (2026-08-29, replaces Spotlight on the home page)
+| Field | Type | Notes |
+|---|---|---|
+| `quote` | String | required |
+| `authorName` | String | required |
+| `caption` | String | optional — short handwriting-style pull-quote shown under the photo, e.g. "More than a sport, an environment for growth" |
+| `imageUrl` | String | optional — either a manually-pasted URL, or one returned by `POST /testimonials/upload-image` (uploads to Vercel Blob, admin/superadmin only) |
+| `isPublished` | Boolean | default `false` |
+| `order` | Number | default `0` — display order among published testimonials |
+
+Same standalone, hand-published pattern as `Spotlight` (not linked to `User` by ObjectId). `GET /testimonials/public` (no auth) returns published testimonials only, ordered, as a thin `{quote, authorName, caption?, imageUrl?}` projection. See `docs/features/public-site.md` and `docs/features/admin.md`.

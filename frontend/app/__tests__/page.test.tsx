@@ -13,40 +13,20 @@ jest.mock('next/navigation', () => ({
 
 const LOCATION = { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' };
 
-const COACH_A = {
-  name: 'Jane Smith',
-  title: 'Head Coach',
-  body: 'Jane has coached for 15 years.',
-  bullets: ['NCAA fencer', 'USFA certified'],
+const STEVE_TESTIMONIAL = {
+  quote: 'Training at FFA has helped me feel more confident and disciplined.',
+  authorName: 'Steve',
+  caption: 'More than a sport, an environment for growth',
 };
 
-const COACH_B = { name: 'Sam Lee', title: 'Assistant Coach', body: '', bullets: [] };
-
-const FEATURED_STUDENT = {
-  name: 'Alex Doe',
-  title: '2026 Regional Champion',
-  body: 'Alex trains four days a week.',
-  bullets: [],
-};
-
-function spotlightsHandler(coaches: unknown[] = [COACH_A, COACH_B], students: unknown[] = [FEATURED_STUDENT]) {
-  return http.get('*/spotlights/public', ({ request }) => {
-    const type = new URL(request.url).searchParams.get('type');
-
-    if (type === 'coach') {
-      return HttpResponse.json({ spotlights: coaches });
-    }
-    if (type === 'student') {
-      return HttpResponse.json({ spotlights: students });
-    }
-    return HttpResponse.json({ message: 'type must be "coach" or "student"' }, { status: 400 });
-  });
+function testimonialsHandler(testimonials: unknown[] = [STEVE_TESTIMONIAL]) {
+  return http.get('*/testimonials/public', () => HttpResponse.json({ testimonials }));
 }
 
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ message: 'unauthorized' }, { status: 401 })),
   http.get('*/locations/public', () => HttpResponse.json({ locations: [LOCATION] })),
-  spotlightsHandler()
+  testimonialsHandler()
 );
 
 beforeAll(() => server.listen());
@@ -115,31 +95,28 @@ describe('HomePage (logged out)', () => {
     expect(programCtaLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
   });
 
-  it('renders every published coach in the team band, plus a link to /coaches, and the student spotlight with its eyebrow', async () => {
+  it('renders every published testimonial in the marquee, plus the "What Families Says" banner', async () => {
     renderPage();
 
-    expect(await screen.findByText('Jane Smith')).toBeInTheDocument();
-    expect(screen.getByText('Head Coach')).toBeInTheDocument();
-    expect(screen.getByText('Sam Lee')).toBeInTheDocument();
-    expect(screen.getByText('Assistant Coach')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /view all coaches/i })).toHaveAttribute(
+    expect(await screen.findAllByText('by Steve')).toHaveLength(2);
+    expect(
+      screen.getAllByText('Training at FFA has helped me feel more confident and disciplined.')
+    ).toHaveLength(2);
+    expect(screen.getByText('What Families Says')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'All Testimonials' })).toHaveAttribute(
       'href',
-      '/coaches'
+      '/register'
     );
-
-    expect(screen.getByText('Alex Doe')).toBeInTheDocument();
-    expect(screen.getByText('Student Spotlight')).toBeInTheDocument();
   });
 
-  it('renders neither the team band, nor the student spotlight section, when the backend has none published', async () => {
-    server.use(http.get('*/spotlights/public', () => HttpResponse.json({ spotlights: [] })));
+  it('renders no testimonials section when the backend has none published', async () => {
+    server.use(http.get('*/testimonials/public', () => HttpResponse.json({ testimonials: [] })));
 
     renderPage();
 
     await screen.findByText('Olympic Fencing.');
 
-    expect(screen.queryByRole('link', { name: /view all coaches/i })).not.toBeInTheDocument();
-    expect(screen.queryByText('Student Spotlight')).not.toBeInTheDocument();
+    expect(screen.queryByText('What Families Says')).not.toBeInTheDocument();
   });
 });
 

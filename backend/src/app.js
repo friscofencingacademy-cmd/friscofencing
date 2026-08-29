@@ -23,6 +23,7 @@ const privateClassScheduleRoutes = require('./routes/privateClassSchedule.routes
 const privateClassEnrollmentRoutes = require('./routes/privateClassEnrollment.routes');
 const privateClassSessionRoutes = require('./routes/privateClassSession.routes');
 const spotlightRoutes = require('./routes/spotlight.routes');
+const testimonialRoutes = require('./routes/testimonial.routes');
 const auditRunRoutes = require('./routes/auditRun.routes');
 const evaluationRoutes = require('./routes/evaluation.routes');
 const settingRoutes = require('./routes/setting.routes');
@@ -77,6 +78,7 @@ app.use('/api/v1/private-class-schedules', privateClassScheduleRoutes);
 app.use('/api/v1/private-class-enrollments', privateClassEnrollmentRoutes);
 app.use('/api/v1/private-class-sessions', privateClassSessionRoutes);
 app.use('/api/v1/spotlights', spotlightRoutes);
+app.use('/api/v1/testimonials', testimonialRoutes);
 app.use('/api/v1/audit-runs', auditRunRoutes);
 app.use('/api/v1/evaluations', evaluationRoutes);
 app.use('/api/v1/settings', settingRoutes);
