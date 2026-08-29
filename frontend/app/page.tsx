@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import { useAuth } from './context/AuthContext';
 import { useLoadState } from '../lib/hooks/useLoadState';
-import { fetchPublicLevels, fetchPublicLocations } from '../lib/services/catalog';
+import { fetchPublicLocations } from '../lib/services/catalog';
 import { fetchPublicSpotlights } from '../lib/services/spotlights';
 import { ROLE_LANDING_PATH } from '../lib/constants';
 import AppShell from './components/layout/AppShell';
@@ -13,7 +13,7 @@ import Hero from './components/marketing/Hero';
 import ValuesMarquee from './components/marketing/ValuesMarquee';
 import IntroSection from './components/marketing/IntroSection';
 import StepsRow from './components/marketing/StepsRow';
-import LevelGrid from './components/marketing/LevelGrid';
+import ProgramsSection from './components/marketing/ProgramsSection';
 import FacilityBand from './components/marketing/FacilityBand';
 import TeamBand from './components/marketing/TeamBand';
 import CtaBand from './components/marketing/CtaBand';
@@ -26,13 +26,12 @@ const VALUES_ROW_1 = ['Discipline.', 'Purpose.', 'Guidance.', 'Focus.', 'Confide
 const VALUES_ROW_2 = ['Accountability.', 'Integrity.', 'Teamwork.', 'Respect.', 'Spirit.', 'Self Belief.'];
 
 async function fetchHomePageData() {
-  const [levels, locations, coachSpotlights, studentSpotlights] = await Promise.all([
-    fetchPublicLevels(),
+  const [locations, coachSpotlights, studentSpotlights] = await Promise.all([
     fetchPublicLocations(),
     fetchPublicSpotlights('coach'),
     fetchPublicSpotlights('student'),
   ]);
-  return { levels, locations, coachSpotlights, studentSpotlights };
+  return { locations, coachSpotlights, studentSpotlights };
 }
 
 export default function HomePage() {
@@ -64,7 +63,6 @@ export default function HomePage() {
     );
   }
 
-  const levels = data?.levels ?? [];
   const locations = data?.locations ?? [];
   const coachSpotlights = data?.coachSpotlights ?? [];
   const featuredStudent = data?.studentSpotlights[0];
@@ -74,7 +72,7 @@ export default function HomePage() {
       <Hero />
       <ValuesMarquee words={VALUES_ROW_1} />
       <IntroSection />
-      {levels.length > 0 ? <LevelGrid levels={levels} /> : null}
+      <ProgramsSection />
       <FacilityBand />
       <TeamBand coaches={coachSpotlights} />
       <ValuesMarquee words={VALUES_ROW_2} />
