@@ -12,7 +12,7 @@ Adapted from CKQ's testing conventions (`docs/plans/ckq-ui-adoption-plan.md` Pha
 | Frontend component | `frontend/app/**/__tests__/*.test.tsx` colocated with the component/page | A single component's/page's rendered behavior, including its network calls | Mocked — MSW |
 | Frontend hook | `frontend/lib/hooks/__tests__/*.test.ts` | A hook's state machine in isolation (`@testing-library/react`'s `renderHook`) | No, or MSW if the hook itself fetches |
 | Frontend service | `frontend/lib/services/__tests__/*.test.ts` | The query-throws / mutation-never-throws contract for one service file | Mocked — MSW |
-| E2E | Not yet built | Full browser flows (registration, attendance marking) — Playwright, once the frontend has flows worth covering end-to-end at that fidelity | Real backend + real (memory) DB |
+| E2E | `frontend/e2e/*.spec.ts` (`@playwright/test`) | Full browser flows through a real, locally-built Next.js server — login/role-redirect, the register wizard, the admin shell, coach attendance, the public site — real DOM/routing/hydration a mocked jsdom render can't exercise | Real Chromium, real Next.js server; network fully mocked (`page.route()`), no real backend/DB |
 
 Backend tests mirror `backend/src/`: `src/services/subscription.service.js` → `tests/services/subscription.service.test.js`. Frontend tests live colocated in `__tests__/` next to the component/page/hook/service they cover — never in a parallel top-level `tests/` tree.
 
@@ -94,17 +94,27 @@ has the full design + the corrections made porting it, notably: no MCP browser t
 in this environment, so this uses a real installed `playwright` package driving an unattended
 script, not an agent steering a browser interactively).
 
-### Two-layer strategy (CKQ has one more layer than this repo does)
+### Three-layer strategy
 
 | Layer | Tool | Target | Data | Purpose |
 |---|---|---|---|---|
 | Jest/MSW (this doc, above) | `jest` | jsdom / `mongodb-memory-server` | Fully mocked/in-memory | Fast, deterministic, runs on every change |
-| Live audit (`audit/`) | Real `playwright` package, headless Chromium | `develop` staging | Real staging DB + real Stripe TEST-mode | Integration: catches what mocked tests structurally cannot — real auth, real Stripe behavior, real cross-service wiring |
+| **E2E (`frontend/e2e/`)** | `@playwright/test`, real Chromium | Real, locally-built Next.js server | Fully mocked (`page.route()`) — no real DB/Stripe | Gates every PR/push to `develop`/`main` (`.github/workflows/ci.yml`) — catches real DOM/routing/accessibility regressions a mocked jsdom render structurally cannot, without the cost or blast radius of talking to real staging |
+| Live audit (`audit/`) | Real `playwright` package, headless Chromium | `develop` staging | Real staging DB + real Stripe TEST-mode | Integration truth: real auth, real Stripe behavior, real cross-service wiring — owner-triggered only |
 
-**CKQ has a third, separate layer this repo deliberately does not build**: a CI-gated
-`@playwright/test` suite against `localhost` with fully mocked API responses (`page.route()`),
-required on every PR to `main`. Out of scope for this pass by owner decision — documented here as
-a deliberate choice, not an oversight, so it doesn't read as a gap later.
+Built 2026-08-28 (`docs/plans/e2e-testing-plan.md`) — this is CKQ's own third layer (a CI-gated
+`@playwright/test` suite against a mocked `localhost`), previously deferred by owner decision.
+Triggered directly by this repo's own experience: the same day this suite's design was reviewed,
+the live audit above caught two frontend commits that had silently broken the register wizard's
+DOM days earlier — nothing had run it in the meantime. The E2E layer exists to catch that class of
+break within minutes, on every PR, rather than whenever someone next happens to run the live audit.
+
+**What the E2E layer does NOT catch — stated explicitly, not left implicit:** its mocks are
+hand-written snapshots of the API's current shape. If the real backend's response shape changes —
+a renamed field, a removed status, a 500 from a missing seed step — the E2E suite's mocks keep
+returning the old shape and every spec keeps passing. That class of contract drift stays the live
+audit's job, since it talks to the real API. Neither layer's green result should be read as proof
+the other kind of regression didn't happen.
 
 ### Available scripts
 
@@ -123,6 +133,60 @@ a deliberate choice, not an oversight, so it doesn't read as a gap later.
   is never invoked automatically by the audit script itself.
 - **Reports non-fatally** to `/admin/audits` (superadmin-only) — a reporting failure never
   changes the audit's own pass/fail verdict or gets retried.
+
+## E2E Suite (`frontend/e2e/`)
+
+CI-gated Playwright suite against a real, locally-built Next.js server with every backend call
+mocked (`page.route()` — `frontend/e2e/fixtures/mock-api.ts`). See `docs/plans/e2e-testing-plan.md`
+for the full design; **Phase 1 only** — subscriptions management, the private-class chain, the
+register-private wizard, and spotlight admin remain uncovered, tracked as a future Phase 2.
+
+### Specs
+
+| Spec | Covers | Notes |
+|---|---|---|
+| `login.spec.ts` | Real login form + role-based redirect, for all 5 roles; a declined-login error message | The only spec that drives the real login UI — every other spec skips straight to a logged-in state via `fixtures/auth.ts`'s `loginAs()` |
+| `public-site.spec.ts` | Logged-out `/`, `/classes`, `/coaches` render without a client error; accessibility scans on `/` and `/classes` | Two visual-regression tests are `test.skip()`ed — see the in-file comment: a trustworthy screenshot baseline has to be generated inside the exact CI environment (the Playwright Docker container), which this suite's initial build had no way to do from a Windows dev machine |
+| `parent-register.spec.ts` | The register wizard end-to-end — both date-picker UI states (this-month pill row vs. "Enroll for next month", pinned via `page.clock`, never left to whatever day it happens to run), plus a declined-charge-enters-retry case | Directly reproduces two real regressions found 2026-08-28 (a removed "Continue" button, a renamed date-picker group) as a standing check — see the file's D9 cross-reference comment |
+| `admin-shell.spec.ts` | Sidebar nav renders for admin/superadmin, a non-admin role is redirected away, an accessibility scan on the dashboard, a full Levels CRUD (create/edit/delete) round-trip | |
+| `coach-attendance.spec.ts` | Marking a student attended and saving, with an assertion on the exact PATCH payload | |
+
+### Known, accepted accessibility findings (not fixed by this plan)
+
+Both axe-core scans found real, pre-existing WCAG AA color-contrast violations on their first-ever
+run — genuine bugs in the app's current CSS, not anything introduced by this suite. Fixing either
+means picking a new color (`docs/design-system.md` has its own pre-read requirement for touching
+styling), a real design decision this test-infrastructure plan didn't make unilaterally. Each is
+ratcheted, not ignored, in its spec file: the exact known `color-contrast` finding is allowlisted so
+the suite ships green, but any OTHER/NEW violation on that page still fails the build.
+
+- Home page: `LevelGrid`'s price text (`marketing.module.css`'s `.levelFee`, gold `#c8a000` on
+  white) — 2.47:1, needs 4.5:1.
+- Admin dashboard: the sidebar's brand-role/section-label text (`admin/layout.module.css`,
+  `#7f7e7b` on `#1b1a17`) — 4.28:1, needs 4.5:1 (a near-miss).
+
+### Run it
+
+```bash
+cd frontend
+npx playwright install --with-deps chromium   # first time only
+npm run test:e2e                              # headless
+npm run test:e2e:ui                           # Playwright's interactive UI mode, for debugging
+```
+
+### Rules
+
+- **Fully mocked, never talks to a real backend, database, or Stripe** — safe to run with zero
+  setup, zero secrets, zero staging risk.
+- **CI-gated**: `.github/workflows/ci.yml` runs this on every PR and every push to `develop`/
+  `main`, inside the official Playwright Docker image pinned to the exact same version as
+  `frontend/package.json`'s `@playwright/test` — screenshot baselines are only trustworthy when
+  generated from that same environment (see the skipped visual tests above).
+- **The workflow file alone does not block a merge** — making a red run an actual required check
+  needs a one-time GitHub Settings → Branches change only the repo owner can make. See
+  `docs/plans/e2e-testing-plan.md`'s D6/§3 for the exact steps.
+- **If you touch a flow one of these specs covers, update the matching spec in the same PR** —
+  `CLAUDE.md`'s pre-read table has the exact trigger list.
 
 ## Coverage Expectations
 

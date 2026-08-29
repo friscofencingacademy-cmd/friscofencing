@@ -17,6 +17,11 @@ const customJestConfig = {
   testEnvironmentOptions: {
     customExportConditions: [''],
   },
+  // Jest's default testMatch also matches **/*.spec.ts, which would pick
+  // up frontend/e2e/*.spec.ts (the Playwright suite — @playwright/test's
+  // `test`/`expect`, not Jest's) and fail badly. Found while building
+  // that suite, not assumed — see docs/plans/e2e-testing-plan.md.
+  testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/e2e/'],
 };
 
 module.exports = createJestConfig(customJestConfig);

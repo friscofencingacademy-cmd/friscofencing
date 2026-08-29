@@ -2,6 +2,13 @@ const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 const { selectStartDate } = require('../lib/select-start-date');
 
+// If you change this wizard's DOM/labels, also update:
+//   frontend/e2e/parent-register.spec.ts (E2E twin, mocked-network)
+//   audit/lib/register-child.js (this file's own sibling-discount twin)
+// (docs/plans/e2e-testing-plan.md's D9 — three places independently encode
+// this wizard's DOM; a change here without the others is how this drifted
+// stale before.)
+//
 // S2 — add a payment method (real Stripe CardElement, success card), then
 // complete a group-class registration. Frisco always uses a pre-saved card
 // (frontend/app/parent/payment-method/page.tsx) — there is no "new card at

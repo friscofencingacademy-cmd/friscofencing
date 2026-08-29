@@ -1,0 +1,82 @@
+name: CI
+
+# First CI this repo has ever had — see docs/plans/e2e-testing-plan.md's
+# D6. Runs on every PR (to any base branch) and every push to develop/main.
+# No secrets required anywhere in this workflow: backend/frontend Jest are
+# fully mocked (mongodb-memory-server + MSW), and the E2E job never talks
+# to a real database, Stripe, or staging (frontend/e2e/fixtures/mock-api.ts).
+#
+# NOTE ON THIS WORKFLOW BECOMING AN ACTUAL GATE: this file alone only makes
+# these checks run and report status on a PR. Making a red run actually
+# block a merge requires enabling "required status checks" under
+# Settings -> Branches for develop/main — a GitHub repo-settings action
+# only the owner can take (see the plan's D6/§3 for the one-time steps).
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - run: npm test
+        working-directory: backend
+        env:
+          TZ: UTC
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+        env:
+          TZ: UTC
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    # Runs inside the official Playwright image, exactly version-matched to
+    # frontend/package.json's pinned @playwright/test (D11) — browsers are
+    # already installed in the image (no download/cache step needed), and
+    # critically, this is what makes the committed screenshot baselines
+    # (frontend/e2e/*.spec.ts-snapshots/) actually reproducible: Chromium's
+    # font rendering differs enough between Windows/macOS/Linux that a
+    # baseline generated anywhere else would fail here for the wrong
+    # reason. Bump this tag in lockstep whenever the pinned npm version
+    # changes.
+    container:
+      image: mcr.microsoft.com/playwright:v1.47.2-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14

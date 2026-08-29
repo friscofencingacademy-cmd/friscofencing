@@ -112,3 +112,4 @@ Before touching any of the following areas, **read the linked doc first** — it
 | Touch coach contracts, private-class schedules/enrollments/sessions, or the per-session Stripe charge | `docs/features/private-class.md` |
 | Touch the public home page, `/classes`, `/coaches`, any `/*/public` endpoint, or the `Spotlight` model | `docs/features/public-site.md` |
 | Add or modify a DB collection or field | `DATABASE_SCHEMA_DOCUMENTATION.md` |
+| Touch the register wizard, login/role-redirect logic, the admin shell/nav, or the coach attendance page | `docs/TESTING_STRATEGY.md`'s E2E section — update the matching `frontend/e2e/*.spec.ts` in the same PR |
