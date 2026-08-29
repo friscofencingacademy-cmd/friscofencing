@@ -137,6 +137,14 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* The band is much wider/shorter than the source clip's 16:9 frame, so
+     object-fit:cover crops it vertically — default center-center clipped
+     the fencers' heads (there's empty smoky headroom above them in the
+     source), leaving only their bodies visible. Biasing toward the top of
+     the frame instead keeps their faces in view. Applies to the poster
+     image too (browsers render <video>'s poster with the same object-fit/
+     object-position as the video itself). */
+  object-position: center 20%;
   z-index: 0;
 }
 
