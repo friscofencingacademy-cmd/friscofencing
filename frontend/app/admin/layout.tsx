@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Menu,
   MapPin,
+  MessageSquareQuote,
   Settings,
   ShieldCheck,
   Star,
@@ -67,7 +68,14 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: 'Content',
-    items: [{ href: '/admin/spotlights', label: 'Spotlights', icon: <Star size={15} /> }],
+    items: [
+      { href: '/admin/spotlights', label: 'Spotlights', icon: <Star size={15} /> },
+      {
+        href: '/admin/testimonials',
+        label: 'Testimonials',
+        icon: <MessageSquareQuote size={15} />,
+      },
+    ],
   },
   {
     label: 'Reports',

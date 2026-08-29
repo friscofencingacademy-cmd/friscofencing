@@ -103,6 +103,12 @@ Pattern A. Columns: Name, Type, Title, Order, Published (Yes/No). Fields: type (
 
 **Image field**: a plain URL input, plus a file picker next to it ("Or upload a file:") that `POST`s to `/spotlights/upload-image` (multipart, 5MB cap) and fills the URL field with the returned Vercel Blob URL on success — either path writes the same `imageUrl` string, so the two are interchangeable. A thumbnail preview renders below once the field has a value. Save is disabled while an upload is in flight.
 
+## Testimonials (`/admin/testimonials`)
+
+Pattern A, same conventions as Spotlights above (same image-field upload widget hitting `/testimonials/upload-image` instead). Columns: Author, Quote (truncated to 60 chars in the table), Order, Published (Yes/No). Fields: quote (textarea, required), author name (required), caption (optional — the short handwriting-style line shown under the photo, e.g. "More than a sport, an environment for growth"), Image URL, order (number), isPublished (checkbox). Save requires both quote and author name; trims each field and omits blank optional ones the same way Spotlights does. No delete guard — nothing else references a `Testimonial` by id.
+
+Added 2026-08-29 to replace `TeamBand`/`SpotlightCard` on the public home page (see `docs/features/public-site.md`) — the home page now renders `TestimonialsSection`, an auto-scrolling marquee of published testimonials, instead of coach/student spotlights. `/admin/spotlights` and `/coaches` are unaffected. Sidebar: same **Content** section as Spotlights.
+
 ## Audits (`/admin/audits`)
 
 **Superadmin-only** — enforced in-page (`user?.role === 'superadmin'`), on top of the shell's

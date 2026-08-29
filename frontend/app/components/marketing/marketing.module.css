@@ -706,3 +706,160 @@
 .trialInfoBody p:last-child {
   margin-bottom: 0;
 }
+
+/* ── TestimonialsSection ("What Families Says") ──────────────────────────
+   Replaces TeamBand/SpotlightCard on the home page (2026-08-29) — see
+   docs/plans/wordpress-ui-alignment-plan.md's testimonials addendum. A
+   fixed navy/crimson ribbon banner sits centered over an auto-scrolling
+   marquee of tilted polaroid cards, mirroring the live WP site. */
+.testimonialsBand {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-6) 0;
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.testimonialsMarquee {
+  overflow: hidden;
+}
+
+.testimonialsTrack {
+  display: flex;
+  width: max-content;
+  gap: var(--space-6);
+  align-items: flex-start;
+  animation: testimonials-scroll 50s linear infinite;
+  /* Room for the fixed banner to sit over the middle of the track without
+     a card's own tilt poking out from directly behind it. */
+  padding: 0 320px;
+}
+
+@keyframes testimonials-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .testimonialsTrack {
+    animation: none;
+    flex-wrap: wrap;
+    width: auto;
+    padding: 0 var(--space-5);
+  }
+}
+
+.testimonialCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 280px;
+  flex-shrink: 0;
+  text-align: center;
+  padding-top: var(--space-5);
+}
+
+.testimonialPolaroid {
+  position: relative;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.testimonialTape {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-6deg);
+  width: 34px;
+  height: 24px;
+  background: var(--color-chip);
+}
+
+.testimonialPhoto {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.testimonialPhotoFallback {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--color-ink);
+}
+
+.testimonialCaption {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin: var(--space-2) 0 0;
+}
+
+.testimonialQuoteIcon {
+  width: 32px;
+  height: 22px;
+  color: var(--color-accent);
+  margin-bottom: var(--space-2);
+}
+
+.testimonialQuote {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  margin: 0 0 var(--space-2);
+}
+
+.testimonialAuthor {
+  color: var(--color-ink);
+  font-weight: 700;
+  margin: 0;
+}
+
+/* Absolutely centered over .testimonialsTrack — the fixed point the
+   scrolling polaroids pass behind. Sized as a fixed box rather than
+   fit-content so the crimson tail's clip-path polygon below is predictable.
+   Split into two plain divs (head/tail) rather than clipping the Button
+   component itself — Button carries its own CSS module styles, and
+   fighting those from here would be a same-specificity, import-order-
+   dependent race between two separate stylesheets. */
+.testimonialsBanner {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  width: 280px;
+  text-align: center;
+}
+
+.testimonialsBannerHead {
+  background: var(--color-ink);
+  color: var(--color-white);
+  padding: var(--space-5) var(--space-4) var(--space-4);
+}
+
+.testimonialsBannerTitle {
+  color: var(--color-white);
+  margin: 0;
+}
+
+.testimonialsBanner .eyebrow {
+  margin-bottom: var(--space-3);
+}
+
+/* The ribbon's crimson "tail" — a trapezoid tapering to a point. The
+   actual Button renders normally inside it, unaffected by the clip-path. */
+.testimonialsBannerTail {
+  background: var(--color-accent);
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  display: flex;
+  justify-content: center;
+}

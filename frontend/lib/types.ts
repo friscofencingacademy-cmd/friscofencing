@@ -583,6 +583,25 @@ export interface PublicSpotlight {
   imageUrl?: string;
 }
 
+export interface Testimonial {
+  _id: string;
+  quote: string;
+  authorName: string;
+  caption?: string;
+  imageUrl?: string;
+  isPublished: boolean;
+  order: number;
+}
+
+// GET /testimonials/public — no auth, published only, verbatim strings
+// (see testimonial.service.js's listPublic).
+export interface PublicTestimonial {
+  quote: string;
+  authorName: string;
+  caption?: string;
+  imageUrl?: string;
+}
+
 // PATCH .../attendance and POST .../retry-charge share this response shape.
 export interface PrivateAttendanceResult {
   session: PrivateClassSessionRow;

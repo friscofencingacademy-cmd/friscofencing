@@ -11,6 +11,7 @@
     "seed:superadmin": "node scripts/seed-superadmin.js",
     "seed:coach": "node scripts/seed-coach.js",
     "seed:services": "node scripts/seed-services.js",
+    "seed:testimonials": "node scripts/seed-testimonials.js",
     "renewals": "node scripts/run-renewals.js",
     "realign-billing-anchors": "node scripts/realign-billing-anchors.js",
     "find-duplicate-active-subscriptions": "node scripts/find-duplicate-active-subscriptions.js",

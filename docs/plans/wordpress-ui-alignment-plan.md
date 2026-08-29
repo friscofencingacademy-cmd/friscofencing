@@ -556,3 +556,46 @@ gated by the separate deployment plan's pending items (Stripe/SMTP env vars — 
 `production-env-gaps`). Suggested check between Phase 1 and 2: eyeball `/`, `/parent/dashboard`,
 `/admin/dashboard` on the `develop` preview to catch any contrast/uppercase regression before
 building the new home on top.
+
+## Addendum: Testimonials replace Spotlight on the home page (2026-08-29)
+
+The owner supplied two reference screenshots (`testimonials1.jpg`, `testimonials2.jpg`) of the
+live site's "What Families Says" section — a fixed navy/crimson ribbon banner ("Testimonials" /
+"What Families Says" / "All Testimonials") centered over an auto-scrolling marquee of tilted
+polaroid cards (photo + handwritten-style caption + a red quote-mark glyph + testimonial text +
+"by Name"), and asked to replicate it, decoupling the home page entirely from `TeamBand`/
+`SpotlightCard` (coach/student spotlights) in favor of it.
+
+Re-checked the WP export for this section's real content first, per the project's standing rule
+against inventing copy — found the same class of problem as the hero photo/subcopy: the export's
+raw testimonial text is 100% unusable leftover multi-sport placeholder content (a swim club,
+volleyball, "Coach Jenna", literally "by Placeholder"), never customized for fencing. Worse, one
+testimonial in the two screenshots ("What stood out to us...") is attributed to three different
+names across them (Ryan / Sarath / Mark Twen), and the WP admin toolbar shows unsaved edits in
+progress — the live content itself was caught mid-edit, not a stable source to hardcode from.
+
+Given that, this shipped as a full `Testimonial` model + `/admin/testimonials` CRUD (mirroring
+`Spotlight`'s exact conventions: same field shape, same Vercel Blob image-upload endpoint, same
+published/order semantics) rather than hardcoded screenshot text — seeded with one testimonial
+that had no attribution conflict (Steve's, from `testimonials1.jpg`), with the owner adding the
+rest via the new admin page once the real text/names are finalized. `TeamBand`/`SpotlightCard`
+component files, the `Spotlight` backend, `/admin/spotlights`, and `/coaches` (which still uses
+coach spotlights) are all untouched — only the home page stopped rendering them.
+
+Visual details: the polaroid caption uses a new `Caveat` handwriting font (`next/font/google`);
+the red quote-mark glyph and the dot-badge-style ribbon shape were both pulled as literal SVG
+paths from the WP export rather than approximated with an icon font; the ribbon's crimson "tail"
+is a `clip-path` trapezoid on a plain wrapper div around the real `Button` component (not a
+clip-path on the Button itself, which would fight Button's own CSS module styles — a
+same-specificity, import-order-dependent race between two separate stylesheets). The marquee
+duplicates the testimonial list once for a seamless loop (same technique as `ValuesMarquee`) but,
+unlike that component, is not `aria-hidden` — this is real substantive text, not decorative
+atmosphere.
+
+Tests: `testimonial.routes.test.js` (backend, 8 cases mirroring `spotlight.routes.test.js`),
+`TestimonialsSection.test.tsx`, `admin/testimonials/page.test.tsx`, `page.test.tsx` updated.
+Backend suite verified against unmodified `develop` via `git stash` before concluding the 28
+`registration.routes`/`scheduleOccurrence`/`billingDates`/`realignBillingAnchors` failures are
+pre-existing and unrelated (identical failure count/messages on both). Frontend: 304/304,
+`tsc --noEmit` clean, `next build` succeeds. Visually verified with an ad hoc Playwright
+screenshot against realistic fixture data before committing (not retained).

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from './context/AuthContext';
 import { useLoadState } from '../lib/hooks/useLoadState';
 import { fetchPublicLocations } from '../lib/services/catalog';
-import { fetchPublicSpotlights } from '../lib/services/spotlights';
+import { fetchPublicTestimonials } from '../lib/services/testimonials';
 import { ROLE_LANDING_PATH } from '../lib/constants';
 import AppShell from './components/layout/AppShell';
 import Hero from './components/marketing/Hero';
@@ -15,10 +15,9 @@ import IntroSection from './components/marketing/IntroSection';
 import StepsRow from './components/marketing/StepsRow';
 import ProgramsSection from './components/marketing/ProgramsSection';
 import FacilityBand from './components/marketing/FacilityBand';
-import TeamBand from './components/marketing/TeamBand';
+import TestimonialsSection from './components/marketing/TestimonialsSection';
 import CtaBand from './components/marketing/CtaBand';
 import SiteFooter from './components/marketing/SiteFooter';
-import SpotlightCard from './components/marketing/SpotlightCard';
 
 // Verbatim from the live WP site's two value-word marquees, captured
 // 2026-08-29 (docs/plans/wordpress-ui-alignment-plan.md, Phase 2).
@@ -26,12 +25,11 @@ const VALUES_ROW_1 = ['Discipline.', 'Purpose.', 'Guidance.', 'Focus.', 'Confide
 const VALUES_ROW_2 = ['Accountability.', 'Integrity.', 'Teamwork.', 'Respect.', 'Spirit.', 'Self Belief.'];
 
 async function fetchHomePageData() {
-  const [locations, coachSpotlights, studentSpotlights] = await Promise.all([
+  const [locations, testimonials] = await Promise.all([
     fetchPublicLocations(),
-    fetchPublicSpotlights('coach'),
-    fetchPublicSpotlights('student'),
+    fetchPublicTestimonials(),
   ]);
-  return { locations, coachSpotlights, studentSpotlights };
+  return { locations, testimonials };
 }
 
 export default function HomePage() {
@@ -64,8 +62,7 @@ export default function HomePage() {
   }
 
   const locations = data?.locations ?? [];
-  const coachSpotlights = data?.coachSpotlights ?? [];
-  const featuredStudent = data?.studentSpotlights[0];
+  const testimonials = data?.testimonials ?? [];
 
   return (
     <AppShell>
@@ -74,13 +71,8 @@ export default function HomePage() {
       <IntroSection />
       <ProgramsSection />
       <FacilityBand />
-      <TeamBand coaches={coachSpotlights} />
+      <TestimonialsSection testimonials={testimonials} />
       <ValuesMarquee words={VALUES_ROW_2} />
-
-      {featuredStudent ? (
-        <SpotlightCard spotlight={featuredStudent} align="right" eyebrow="Student Spotlight" />
-      ) : null}
-
       <StepsRow />
       <CtaBand />
       <SiteFooter locations={locations} />

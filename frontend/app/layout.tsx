@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Big_Shoulders_Text, Inter } from 'next/font/google';
+import { Big_Shoulders_Text, Caveat, Inter } from 'next/font/google';
 
 import { AuthProvider } from './context/AuthContext';
 import './globals.css';
@@ -22,6 +22,15 @@ const inter = Inter({
   display: 'swap',
 });
 
+// Handwriting-style font for TestimonialsSection's polaroid captions,
+// mirroring the live site's own handwritten-note look (2026-08-29).
+const caveat = Caveat({
+  subsets: ['latin'],
+  weight: ['600', '700'],
+  variable: '--font-handwriting',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   title: 'Frisco Fencing Academy',
   description: 'Class management and registration for Frisco Fencing Academy.',
@@ -29,7 +38,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${bigShoulders.variable} ${inter.variable}`}>
+    <html lang="en" className={`${bigShoulders.variable} ${inter.variable} ${caveat.variable}`}>
       <body>
         <AuthProvider>{children}</AuthProvider>
       </body>
