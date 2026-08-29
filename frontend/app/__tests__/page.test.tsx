@@ -11,8 +11,6 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock }),
 }));
 
-const BEGINNER = { name: 'Beginner', order: 1, monthlyFee: 120 };
-const ADVANCED = { name: 'Advanced', order: 2, monthlyFee: 180 };
 const LOCATION = { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' };
 
 const COACH_A = {
@@ -47,7 +45,6 @@ function spotlightsHandler(coaches: unknown[] = [COACH_A, COACH_B], students: un
 
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ message: 'unauthorized' }, { status: 401 })),
-  http.get('*/levels/public', () => HttpResponse.json({ levels: [BEGINNER, ADVANCED] })),
   http.get('*/locations/public', () => HttpResponse.json({ locations: [LOCATION] })),
   spotlightsHandler()
 );
@@ -77,13 +74,14 @@ describe('HomePage (logged out)', () => {
     expect(screen.getByText('Add your child')).toBeInTheDocument();
     expect(screen.getByText('Pick a free trial class')).toBeInTheDocument();
 
+    // ProgramsSection is static marketing content (2026-08-29), not
+    // backend-driven — see docs/plans/wordpress-ui-alignment-plan.md's
+    // addendum. All three programs always render regardless of what
+    // levels/pricing the backend has configured.
     expect(screen.getByText('A clear path for every stage')).toBeInTheDocument();
-    expect(await screen.findByText('Beginner')).toBeInTheDocument();
-    expect(screen.getByText('Level 1')).toBeInTheDocument();
-    expect(screen.getByText('$120/month')).toBeInTheDocument();
+    expect(screen.getByText('Beginner')).toBeInTheDocument();
+    expect(screen.getByText('Intermediate')).toBeInTheDocument();
     expect(screen.getByText('Advanced')).toBeInTheDocument();
-    expect(screen.getByText('Level 2')).toBeInTheDocument();
-    expect(screen.getByText('$180/month')).toBeInTheDocument();
 
     // FacilityBand — static, owner-authored stats (never backend data).
     expect(screen.getByText('10')).toBeInTheDocument();
@@ -100,14 +98,21 @@ describe('HomePage (logged out)', () => {
     expect(trialLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
   });
 
-  it('renders no Levels section when the backend returns none, instead of a placeholder', async () => {
-    server.use(http.get('*/levels/public', () => HttpResponse.json({ levels: [] })));
-
+  it('renders each program\'s duration/description copy and a "Know more" link to /register', async () => {
     renderPage();
 
     await screen.findByText('Olympic Fencing.');
 
-    expect(screen.queryByText(/\$\d+\/month/)).not.toBeInTheDocument();
+    expect(screen.getByText('6–12 months')).toBeInTheDocument();
+    expect(screen.getByText('12–18 months')).toBeInTheDocument();
+    expect(screen.getByText('18 months+')).toBeInTheDocument();
+    expect(
+      screen.getByText(/A calm supportive environment where students learn the fundamentals/)
+    ).toBeInTheDocument();
+
+    const knowMoreLinks = screen.getAllByRole('link', { name: /know more/i });
+    expect(knowMoreLinks).toHaveLength(3);
+    expect(knowMoreLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
   });
 
   it('renders every published coach in the team band, plus a link to /coaches, and the student spotlight with its eyebrow', async () => {

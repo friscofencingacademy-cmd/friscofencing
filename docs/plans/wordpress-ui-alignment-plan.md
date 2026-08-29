@@ -86,6 +86,31 @@ export was taken. Both are now reflected in `Hero.tsx`; the second button links 
 existing public `/private-classes` page rather than `/register`, since that's the page it
 actually describes. Covered by `app/components/marketing/__tests__/Hero.test.tsx`.
 
+## Addendum: Programs section decoupled from backend Level data (2026-08-29)
+
+Reviewing the live site's Programs section (`clearpathforeverystage.jpg`) against Phase 2's
+`LevelGrid` found it was fetching real `Level`/`Price` data from `/levels/public` and
+rendering monthly pricing per card — accurate to this platform's own data, but not what the
+live site actually shows (no pricing at all, plus a per-program description paragraph
+`Level` has no field for). The owner's call: keep this section as a fixed, curated
+three-program showcase matching the live site exactly, and let real backend-driven
+level/pricing data live on `/classes` instead (which already renders it independently, via
+`fetchPublicSchedules`/`fetchPublicLocations` — untouched by this change).
+
+`LevelGrid.tsx` was replaced with `ProgramsSection.tsx`: a static component (no props, no
+backend fetch — same pattern as `IntroSection`/`StepsRow`/`FacilityBand`) with the three
+programs' duration + description copy re-extracted verbatim from the WP export's Programs
+block, alongside the hero video find above. Also ported from that same export block: the
+red dot-cluster "progress" icon (6/8/9 of 9 dots filled for Beginner/Intermediate/Advanced,
+exact SVG coordinates, recolored via `currentColor` onto the existing `--color-accent`
+token rather than the export's hardcoded hex) and the plain-link "Know more" CTA style with
+its circular arrow-icon badge (reusing `--color-chip`, the same pale-pink token `.eyebrow`
+already used — no new colors invented). The CTA text is left as the export's own "Know
+more" at the owner's explicit call, rather than changed to match other CTAs on the page.
+`page.tsx` no longer fetches `/levels/public` at all. Covered by
+`app/components/marketing/__tests__/ProgramsSection.test.tsx` and the updated
+`app/__tests__/page.test.tsx`.
+
 **Goal:** make the platform's frontend look like the existing `friscofencingacademy.com`
 (an Elementor site on the VamTam "Eagle Elite" theme) so visitors experience visual
 continuity when the platform replaces WordPress — **without losing any built functionality**

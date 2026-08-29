@@ -348,20 +348,15 @@
   margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
 }
 
-.levelCardPhotoFallback {
-  aspect-ratio: 4 / 3;
-  background: var(--color-ink);
-  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
-}
-
 .levelCardBody {
   padding-top: var(--space-4);
 }
 
-/* Muted, not accent — .levelFee below already uses the accent color, and
-   the accent is a small-dose color only (docs/design-system.md Principles),
-   never repeated twice on the same card. */
-.levelOrder {
+/* Same treatment .levelOrder used to have (renamed: this section is no
+   longer level-data-driven, see ProgramsSection.tsx) — a small muted label
+   above the title, now showing the program's rough duration instead of its
+   catalog order. */
+.programDuration {
   display: block;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -377,10 +372,57 @@
   margin: 0 0 var(--space-1);
 }
 
-.levelFee {
+.programDescription {
+  color: var(--color-muted);
+  margin: 0 0 var(--space-4);
+}
+
+/* The live site's dot-cluster icon, straddling the photo/body boundary —
+   .levelCardPhoto has no overflow:hidden (see its own comment above), so
+   this can spill past the photo's bottom edge onto the card body beneath it
+   without being clipped. currentColor + .programDotIcon's own color (not a
+   hardcoded hex) keeps this on the existing --color-accent token, the same
+   crimson the source SVG used. */
+.programDotIcon {
+  position: absolute;
+  left: var(--space-4);
+  bottom: -19px;
   color: var(--color-accent);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
+}
+
+/* Plain text link + a small circular arrow-icon badge, mirroring the live
+   site's own CTA treatment (a bordered Button felt too heavy here) — reuses
+   --color-chip, the same pale-pink token .eyebrow already uses, rather than
+   inventing a new tint. */
+.programCta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink);
   font-weight: 700;
-  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.programCtaIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-chip);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.programCtaIcon svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
 }
 
 /* ── FacilityBand ─────────────────────────────────────────────────────── */
