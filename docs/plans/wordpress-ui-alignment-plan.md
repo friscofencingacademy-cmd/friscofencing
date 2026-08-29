@@ -1,9 +1,9 @@
 # WordPress UI Alignment + Family Scorecard Checkout — Execution Plan
 
-**Status: Phase 1 + Phase 2 BUILT 2026-08-29 (PRs #58 stacked with the Phase 2 PR), Phase 3
-not started.** Written 2026-08-29 from a full analysis of the owner's WordPress export
-(`friscofencing.WordPress.2026-08-29.xml`, verified against the live site the same day) and
-the screenshot mock `C:\Users\mages\ckqtestimages\familypaymentcard.jpg`.
+**Status: ALL 3 PHASES BUILT 2026-08-29** (three stacked PRs: #58 Phase 1, #59 Phase 2, and
+the Phase 3 branch below). Written 2026-08-29 from a full analysis of the owner's WordPress
+export (`friscofencing.WordPress.2026-08-29.xml`, verified against the live site the same
+day) and the screenshot mock `C:\Users\mages\ckqtestimages\familypaymentcard.jpg`.
 
 ## Phase 1 + 2 completion notes (2026-08-29)
 
@@ -75,6 +75,33 @@ one PR. Follow the repo's hard rules in `CLAUDE.md` — in particular:
   (`docs/design-system.md`, `docs/features/public-site.md`, `docs/features/parent-portal.md`,
   `docs/TESTING_STRATEGY.md`, and for Phase 3's backend addition
   `docs/decisions/001-in-house-subscription-billing.md`).
+
+## Phase 3 completion notes (2026-08-29)
+
+Built exactly as spec'd in §4 below — `resolveRegistrationFee()` gained the `standardAmount`
+field, `previewChargeAmount()` and (per §4.2's plan text, "same mapping on the post-payment
+confirmation summary") `create()` both gained a matching `savings` block, `OrderSummary`
+gained the `kind` prop and its dark "Family Scorecard" restyle, and `/parent/register`'s
+sticky summary + confirmation screen both surface it. Full addendum:
+`docs/decisions/001-in-house-subscription-billing.md`.
+
+One real deviation from the plan's literal text, made deliberately and documented in place:
+§4.2 said "Due Today" stays conditionally shown (implicitly, by not saying otherwise) — this
+build instead renames it to **"Due at enrollment"** and shows it **unconditionally** once a
+preview has loaded, even when it's numerically identical to "Monthly Fee" (no discount/
+proration/fee to explain the difference). Rationale, from the mock itself: a scorecard states
+the bottom line outright rather than making the parent add it up themselves — hiding the total
+specifically when there's nothing to subtract runs against that. `frontend/app/parent/register
+/__tests__/page.test.tsx`'s "renders exactly as before" test was renamed and its assertion
+flipped (from asserting *absence* to asserting *presence*) to match, with the reasoning in a
+comment at the point of change, not silently.
+
+Verification: backend Jest 492/520 (same 28 pre-existing, `git stash`-reproduced-on-baseline
+failures as Phase 1 — confirmed unrelated, not introduced — plus exactly one new passing test);
+`tsc --noEmit` clean; frontend Jest 280/280; `next build` succeeds; Playwright e2e 19/19 (2
+pre-existing unrelated skips); visually verified with an ad hoc Playwright screenshot of the
+live scorecard panel against realistic sibling-discount + waived-fee + proration fixture data
+together (not committed).
 
 ---
 

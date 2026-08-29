@@ -104,6 +104,11 @@ const DEFAULT_PREVIEW = {
   remainingClassDays: null,
   dailyRate: null,
   periodEnd: '2099-01-31T00:00:00.000Z',
+  // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+  // alignment-plan.md, Phase 3) — nothing to save by default; individual
+  // tests override this alongside siblingDiscountAmount/
+  // registrationFeeWaived when they need a non-zero figure.
+  savings: { siblingDiscount: 0, registrationFeeWaived: 0, total: 0 },
 };
 
 let postRegistrationPayload: unknown = null;
@@ -401,6 +406,7 @@ describe('RegisterPage wizard', () => {
             siblingDiscountAmount: 15,
             siblingDiscountReason:
               'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+            savings: { siblingDiscount: 15, registrationFeeWaived: 0, total: 15 },
           })
         )
       );
@@ -412,7 +418,17 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
       expect(screen.getByText('-$15.00')).toBeInTheDocument();
       expect(screen.getByText("You'll Pay")).toBeInTheDocument();
-      expect(screen.getByText('$135.00')).toBeInTheDocument();
+      // $135.00 appears twice here — "You'll Pay" (the recurring monthly
+      // rate) and "Due at enrollment" (the one-time initial total) are
+      // numerically identical whenever there's no fee or proration to
+      // separate them, which is exactly this case.
+      expect(screen.getAllByText('$135.00')).toHaveLength(2);
+      expect(screen.getByText('Due at enrollment')).toBeInTheDocument();
+      // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+      // alignment-plan.md, Phase 3) — the aggregate "You Save" line, read
+      // straight from the backend's own sum.
+      expect(screen.getByText('You Save')).toBeInTheDocument();
+      expect(screen.getByText('$15.00')).toBeInTheDocument();
     });
 
     it('shows no discount lines when the preview reports none', async () => {
@@ -492,7 +508,7 @@ describe('RegisterPage wizard', () => {
 
       expect(await screen.findByText('Registration Fee (one-time)')).toBeInTheDocument();
       expect(screen.getByText('$25.00')).toBeInTheDocument();
-      expect(screen.getByText('Due Today')).toBeInTheDocument();
+      expect(screen.getByText('Due at enrollment')).toBeInTheDocument();
       expect(screen.getByText('$175.00')).toBeInTheDocument();
     });
 
@@ -528,7 +544,35 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByText('$25.00')).toBeInTheDocument();
     });
 
-    it('shows the registration fee as waived on the confirmation screen for a returning student', async () => {
+    it('itemizes a waived registration fee with a "You Save" line, in the Level step summary (Family Scorecard checkout quote panel, docs/plans/wordpress-ui-alignment-plan.md Phase 3)', async () => {
+      server.use(
+        http.get('*/registrations/preview', () =>
+          HttpResponse.json({
+            ...DEFAULT_PREVIEW,
+            registrationFeeCharged: 0,
+            registrationFeeWaived: true,
+            registrationFeeReason: 'Registration fee waived — returning within 6 months of your last enrollment.',
+            savings: { siblingDiscount: 0, registrationFeeWaived: 25, total: 25 },
+          })
+        )
+      );
+
+      renderRegisterPage();
+      await goToPayableState();
+
+      expect(await screen.findByText('Registration Fee')).toBeInTheDocument();
+      expect(screen.getByText('Waived')).toBeInTheDocument();
+      expect(
+        screen.getByText('Registration fee waived — returning within 6 months of your last enrollment.')
+      ).toBeInTheDocument();
+      // registrationFeeCharged is 0 here (same as "no fee configured" would
+      // be) — savings.registrationFeeWaived is the only place the waived
+      // fee's actual dollar value exists at all.
+      expect(screen.getByText('You Save')).toBeInTheDocument();
+      expect(screen.getByText('$25.00')).toBeInTheDocument();
+    });
+
+    it('shows the registration fee as waived, with the same "You Saved" line, on the confirmation screen for a returning student', async () => {
       server.use(
         http.post('*/registrations', async ({ request }) => {
           postRegistrationPayload = await request.json();
@@ -542,6 +586,7 @@ describe('RegisterPage wizard', () => {
               registrationFeeCharged: 0,
               registrationFeeWaived: true,
               registrationFeeReason: 'Registration fee waived — returning within 6 months of your last enrollment.',
+              savings: { siblingDiscount: 0, registrationFeeWaived: 25, total: 25 },
             },
             { status: 201 }
           );
@@ -558,6 +603,8 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByText(/your card was charged \$150\.00/i)).toBeInTheDocument();
       expect(screen.getByText('Registration Fee')).toBeInTheDocument();
       expect(screen.getByText('Waived')).toBeInTheDocument();
+      expect(screen.getByText('You Saved')).toBeInTheDocument();
+      expect(screen.getByText('$25.00')).toBeInTheDocument();
     });
   });
 
@@ -589,7 +636,7 @@ describe('RegisterPage wizard', () => {
 
       expect(screen.getByText('Prorated')).toBeInTheDocument();
       expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
-      expect(screen.getByText('Due Today')).toBeInTheDocument();
+      expect(screen.getByText('Due at enrollment')).toBeInTheDocument();
       expect(screen.getByText('$160.00')).toBeInTheDocument();
       expect(screen.getByText('Full price starts')).toBeInTheDocument();
     });
@@ -633,12 +680,18 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByText('Aug 31, 2026')).toBeInTheDocument();
     });
 
-    it('renders exactly as before (no proration UI at all) when prorated is false — the non-prorated path is unaffected', async () => {
+    it('shows no proration UI when prorated is false, though "Due at enrollment" still appears (it always does once a preview loads)', async () => {
       renderRegisterPage();
       await goToPayableState();
 
+      // "Due at enrollment" (docs/plans/wordpress-ui-alignment-plan.md,
+      // Phase 3) is the one number a parent walks away with — shown
+      // whenever a preview has loaded, even when (as here) it's identical
+      // to "Monthly Fee" with nothing to explain the difference. findByText
+      // (not getByText): the preview is an async fetch this test doesn't
+      // otherwise wait on.
+      expect(await screen.findByText('Due at enrollment')).toBeInTheDocument();
       expect(screen.queryByText('Prorated')).not.toBeInTheDocument();
-      expect(screen.queryByText('Due Today')).not.toBeInTheDocument();
     });
   });
 

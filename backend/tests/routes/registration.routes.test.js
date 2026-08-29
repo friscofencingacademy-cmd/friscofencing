@@ -1445,6 +1445,10 @@ describe('Registration routes', () => {
         totalClassDays: expected.totalClassDays,
         remainingClassDays: expected.remainingClassDays,
         dailyRate: expected.dailyRate,
+        // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+        // alignment-plan.md, Phase 3) — an only child with no fee
+        // configured has nothing to save on either front.
+        savings: { siblingDiscount: 0, registrationFeeWaived: 0, total: 0 },
       });
       // periodEnd is always present (even when not prorated) so the wizard
       // can always show a "renews on" date — asserted loosely since it's
@@ -1528,6 +1532,10 @@ describe('Registration routes', () => {
           totalClassDays: expected.totalClassDays,
           remainingClassDays: expected.remainingClassDays,
           dailyRate: expected.dailyRate,
+          // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+          // alignment-plan.md, Phase 3) — the sibling discount is the only
+          // savings here (no registration fee configured in this test).
+          savings: { siblingDiscount: MONTHLY_FEE * 0.1, registrationFeeWaived: 0, total: MONTHLY_FEE * 0.1 },
         });
         expect(new Date(siblingPreviewPeriodEnd).getTime()).toBeGreaterThan(Date.now());
 
@@ -1547,6 +1555,43 @@ describe('Registration routes', () => {
       },
       40000
     );
+
+    it('exposes the waived registration fee\'s dollar value in savings.registrationFeeWaived, even though registrationFeeCharged is 0 (Family Scorecard checkout quote panel, docs/plans/wordpress-ui-alignment-plan.md Phase 3)', async () => {
+      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
+
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('reg-preview-fee-waived@example.com');
+      const parentAgent = await loginAgent('reg-preview-fee-waived@example.com');
+
+      // A prior enrollment that ended 2 months ago — well inside the
+      // 6-month grace period (same seeding pattern as the end-to-end
+      // "waives the fee" test in the 'one-time registration fee' describe
+      // block above, just previewed instead of actually charged).
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      await Subscription.create({
+        studentId: student._id,
+        scheduleId,
+        parentId: student.parentId,
+        status: 'cancelled',
+        currentPeriodStart: new Date('2025-01-01T00:00:00.000Z'),
+        currentPeriodEnd: twoMonthsAgo,
+        nextBillingDate: twoMonthsAgo,
+      });
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registrationFeeCharged).toBe(0);
+      expect(res.body.registrationFeeWaived).toBe(true);
+      // The dollar value the fee WOULD have been — this is what
+      // registrationFeeCharged alone can never expose, since it's 0
+      // whenever the fee is waived.
+      expect(res.body.savings).toEqual({ siblingDiscount: 0, registrationFeeWaived: 25, total: 25 });
+    });
 
     it(
       'matches the real charge exactly for the BRIDGE sibling discount case too — preview and reality never disagree when the new child is the higher payer',

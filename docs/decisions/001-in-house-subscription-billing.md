@@ -127,6 +127,25 @@ Mongoose silently strips an `undefined` value from an update, which would leave 
 candidate query's own `status: 'active'` filter, this is two independent layers keeping a
 cancelled subscription from ever being picked up again, not one.
 
+## Addendum — 2026-08-29: display-only `savings` breakdown (Family Scorecard checkout quote panel)
+
+Full plan: `docs/plans/wordpress-ui-alignment-plan.md`, Phase 3. `previewChargeAmount()` and
+`create()` both now return a `savings: { siblingDiscount, registrationFeeWaived, total }` object —
+the same "backend is the source of truth" principle every other addendum here already establishes,
+applied to one more number the frontend needed and previously couldn't derive on its own:
+`registrationFeeWaived`'s *dollar value*. Before this, `registrationFeeCharged` was `0` both when a
+fee was waived AND when no fee was configured at all — indistinguishable from the response alone,
+so a "you saved $25 on the registration fee" line was impossible to show without either the
+frontend doing its own `Setting` lookup (a second, un-synchronized read of the same fee this ADR
+already governs) or the backend exposing it. `resolveRegistrationFee()` (`registrationFee.service
+.js`) gained a fourth return field, `standardAmount` — the configured fee before any waiver, `0`
+when none is configured — computed in the same pass, from the same `Setting` read, as `amount`/
+`waived`/`reason` always were; no new query. `savings` itself is assembled in `registration.service
+.js` from fields both functions already had in scope (`siblingDiscountAmount`, the waived fee's
+`standardAmount`) — display-only, never touches `chargeAmount`/`totalChargeAmount` or what Stripe
+is actually asked to charge. The frontend (`OrderSummary`'s "Family Scorecard" quote panel) does
+formatting (`.toFixed(2)`) only, per this ADR's standing rule.
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.
