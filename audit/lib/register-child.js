@@ -1,5 +1,10 @@
 const { selectStartDate } = require('./select-start-date');
 
+// If you change this wizard's DOM/labels, also update:
+//   frontend/e2e/parent-register.spec.ts (E2E twin, mocked-network)
+//   audit/scenarios/s2-registration.js (this file's own plain-registration twin)
+// (docs/plans/e2e-testing-plan.md's D9.)
+//
 // Shared by s3-sibling-discount.js (own-fee case) and
 // s5-sibling-discount-bridge.js (bridge case) — docs/plans/
 // audit-skills-refresh-plan.md D3. Registers one child into one level and

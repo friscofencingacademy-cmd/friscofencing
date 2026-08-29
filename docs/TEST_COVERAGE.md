@@ -105,7 +105,19 @@ cd frontend && TZ=UTC npm test
 
 - **`/sessions/[id]/attendance` restyle** — out of scope for the UI-adoption plan (shared coach/admin page, explicitly left untouched); its existing test suite was left as-is.
 - **Schedule edit/delete** (group classes) — deliberately deferred (ripple effects on generated `GroupClassSession` docs and rosters); there is no UI to test because there is no feature. (The narrow "move a student between same-level schedules" case IS now covered — see the Subscriptions rows above.)
-- **E2E (Playwright)** — not yet built for this project at all; see `docs/TESTING_STRATEGY.md`'s Layers table.
+## E2E (Playwright)
+
+Built 2026-08-28 (Phase 1, `docs/plans/e2e-testing-plan.md`) — 5 spec files, 20 active tests + 2
+intentionally skipped (visual-regression baselines pending a Docker-generated bootstrap), CI-gated
+on every PR/push to `develop`/`main`. Real Chromium against a real Next.js server, fully mocked
+network — no istanbul %-coverage number applies to this layer (it isn't measuring code paths
+exercised, it's proving real DOM/routing/accessibility behavior). Full spec-by-spec breakdown, the
+two known-and-ratcheted accessibility findings, and run instructions live in
+`docs/TESTING_STRATEGY.md`'s E2E section — not duplicated here.
+
+**Phase 2, not yet built**: subscriptions management, the private-class coach-contract → booking →
+attendance-charge chain, the register-private wizard, spotlight admin content, cross-browser/mobile
+viewports.
 
 ## Improvement plan (short)
 
