@@ -51,8 +51,13 @@
   color: var(--color-muted);
 }
 
+/* 1440px matches the live friscofencingacademy.com site's own Elementor kit
+   content width exactly (read from its page settings, 2026-08-29) — the
+   platform's public pages were narrower than the site they're meant to
+   mirror. Shared by every logged-out public page and the logged-in coach's
+   pages (admin/parent have their own dedicated shells, see AppShell.tsx). */
 .content {
-  max-width: min(1100px, 100%);
+  max-width: min(1440px, 100%);
   margin: 0 auto;
   padding: var(--space-5);
 }
