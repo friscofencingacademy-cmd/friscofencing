@@ -12,7 +12,7 @@ export interface PillRowProps<T> {
 }
 
 // A wrapping row of pill buttons — the CKQ-style picker (adapted: Frisco's
-// gold accent, not CKQ's navy/blue; and role="radiogroup"/"radio" semantics
+// own crimson accent, not CKQ's navy/blue; and role="radiogroup"/"radio" semantics
 // to match this codebase's own ChildPickerCards precedent, not CKQ's plain
 // aria-pressed buttons). One selection at a time.
 //

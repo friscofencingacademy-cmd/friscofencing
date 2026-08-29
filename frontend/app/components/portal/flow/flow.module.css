@@ -39,7 +39,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-gold);
+  color: var(--color-accent);
   margin: 0 0 var(--space-1);
 }
 
@@ -84,9 +84,9 @@
 }
 
 .stepCircleActive {
-  background: var(--color-gold);
+  background: var(--color-accent);
   color: var(--color-white);
-  border-color: var(--color-gold);
+  border-color: var(--color-accent);
 }
 
 .stepCircleDone {
@@ -228,7 +228,7 @@
 }
 
 .childCardSelected {
-  border-color: var(--color-gold);
+  border-color: var(--color-accent);
   background: var(--sidebar-active-bg);
 }
 
@@ -281,7 +281,7 @@
 }
 
 .pillSelected {
-  border-color: var(--color-gold);
+  border-color: var(--color-accent);
   background: var(--sidebar-active-bg);
 }
 

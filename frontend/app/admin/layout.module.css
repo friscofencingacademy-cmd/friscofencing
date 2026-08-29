@@ -51,7 +51,9 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--sidebar-active);
+  /* --sidebar-active-on-dark, not --sidebar-active — this dot sits directly
+     on --sidebar-bg (navy); plain crimson fails contrast there (~2.6:1). */
+  background: var(--sidebar-active-on-dark);
   flex-shrink: 0;
 }
 
@@ -103,9 +105,12 @@
 }
 
 .navItemActive {
-  color: var(--sidebar-active) !important;
+  /* --sidebar-active-on-dark for text/border (this renders on navy —
+     --sidebar-active alone fails contrast here); --sidebar-active-bg stays
+     the shared wash, fine as a subtle background tint on any surface. */
+  color: var(--sidebar-active-on-dark) !important;
   background: var(--sidebar-active-bg) !important;
-  border-left-color: var(--sidebar-active) !important;
+  border-left-color: var(--sidebar-active-on-dark) !important;
   font-weight: 700;
 }
 
@@ -143,7 +148,7 @@
 }
 
 .sectionHeaderActive {
-  color: var(--sidebar-active);
+  color: var(--sidebar-active-on-dark);
 }
 
 .sectionLabel {

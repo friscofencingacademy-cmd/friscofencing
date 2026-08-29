@@ -4,7 +4,9 @@
   justify-content: center;
   gap: var(--space-2);
   font-family: var(--font-heading), sans-serif;
-  font-weight: 700;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-decoration: none;
@@ -57,6 +59,15 @@
   background: var(--color-white);
   color: var(--color-error);
   border: 1px solid var(--color-error);
+}
+
+/* Solid crimson — the WP site's own CTA color ("Enroll in a Program",
+   "Join Our Community"). .primary stays the navy workhorse; this is for
+   the second, higher-emphasis CTA that sits next to it. */
+.accent {
+  background: var(--color-accent);
+  color: var(--color-white);
+  border: none;
 }
 
 .fullWidth {

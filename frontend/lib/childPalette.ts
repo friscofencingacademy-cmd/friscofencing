@@ -1,7 +1,8 @@
 // Deterministic per-child avatar palette — assigned by index (1st child,
 // 2nd child, ...) so a given household always sees the same colors across
-// sessions. Four gold/ink-harmonious pairs, never CKQ's own blue/purple/etc
-// palette values (see docs/plans/ckq-ui-adoption-plan.md §1 brand table).
+// sessions. Four navy/crimson-harmonious pairs (rebranded 2026-08-29,
+// docs/plans/wordpress-ui-alignment-plan.md), never CKQ's own blue/purple/
+// etc palette values (see docs/plans/ckq-ui-adoption-plan.md §1 brand table).
 export interface ChildPalette {
   /** CSS gradient for the avatar background. */
   gradient: string;
@@ -10,10 +11,10 @@ export interface ChildPalette {
 }
 
 const PALETTES: ChildPalette[] = [
-  { gradient: 'linear-gradient(135deg, #C8A000, #E6C34D)', text: '#C8A000' }, // gold
-  { gradient: 'linear-gradient(135deg, #1B1A17, #4A4844)', text: '#1B1A17' }, // ink
-  { gradient: 'linear-gradient(135deg, #8C6B1F, #C8A000)', text: '#8C6B1F' }, // bronze
-  { gradient: 'linear-gradient(135deg, #4A4844, #C8A000)', text: '#4A4844' }, // charcoal-gold
+  { gradient: 'linear-gradient(135deg, #16324F, #0E1B2A)', text: '#16324F' }, // navy
+  { gradient: 'linear-gradient(135deg, #B51726, #7C0F1B)', text: '#B51726' }, // crimson
+  { gradient: 'linear-gradient(135deg, #55606C, #2A2D32)', text: '#55606C' }, // slate
+  { gradient: 'linear-gradient(135deg, #C96A74, #9E3D48)', text: '#C96A74' }, // dusty rose
 ];
 
 export function getChildPalette(index: number): ChildPalette {

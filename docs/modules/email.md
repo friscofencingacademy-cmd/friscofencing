@@ -23,7 +23,10 @@ Supporting files:
 - **`tokens.js`** — frozen literal hex palette (`C`), the font stack, `LOGO_URL()` (returns
   `process.env.LOGO_URL || null` — read at call time), and `ORG()` (name, from/support email,
   portal URL — also read at call time). When `LOGO_URL()` is unset the header renders a text
-  wordmark (`FRISCO FENCING`, gold-on-ink) instead of an `<img>`.
+  wordmark (`FRISCO FENCING`, `C.gold`-on-`C.ink`) instead of an `<img>`. Rebranded 2026-08-29
+  to navy/crimson alongside the frontend (`docs/plans/wordpress-ui-alignment-plan.md`, Phase 1)
+  — the `gold`/`goldHover`/`goldSoft`/`goldBorder`/`goldInk` key *names* were kept (every call
+  site in `layout.js` references them), only their hex *values* changed to crimson.
 - **`interpolate.js`** — `{{token}}` substitution for **subject/preheader only** (never block
   content, which is already-escaped structured data by the time it reaches the layout).
   Unresolved tokens stay visible in the output and are `console.warn`ed — a loud failure mode by

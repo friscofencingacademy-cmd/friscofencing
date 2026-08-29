@@ -34,12 +34,17 @@ test.describe('admin shell', () => {
 
   // KNOWN, PRE-EXISTING FINDING (not introduced by this suite, not fixed
   // here): the first real run of this scan found the sidebar's brand-role
-  // and section-label text (`admin/layout.module.css`, #7f7e7b on
-  // #1b1a17) fails WCAG AA contrast (4.28:1, needs 4.5:1) — a near-miss,
-  // unlike the home page's gold-on-white finding, but still a real design-
-  // system decision outside this plan's scope (see public-site.spec.ts's
-  // matching comment). Ratcheted, not ignored: this exact violation is
-  // allowed so the suite can ship green; any OTHER/NEW finding still fails.
+  // and section-label text (`admin/layout.module.css`'s --sidebar-muted,
+  // effectively #787f86 on --sidebar-bg) fails WCAG AA contrast (4.28:1,
+  // needs 4.5:1) — a near-miss, still a real design-system decision outside
+  // this plan's scope. UNCHANGED by the WP-alignment rebrand (Phase 1,
+  // docs/plans/wordpress-ui-alignment-plan.md, 2026-08-29): --sidebar-bg
+  // moved from #1b1a17 to #0e1b2a, but the two colors are similarly dark
+  // (luminance ~0.0104 either way), so the ratio is still ~4.28:1 — verified,
+  // not assumed, before leaving this ratchet in place (see public-site.spec
+  // .ts's matching comment for the one violation that WAS fixed by the
+  // rebrand). Ratcheted, not ignored: this exact violation is allowed so
+  // the suite can ship green; any OTHER/NEW finding still fails.
   const KNOWN_ADMIN_DASHBOARD_VIOLATIONS = new Set(['color-contrast']);
 
   test('dashboard has no NEW serious/critical accessibility violations', async ({ page }) => {

@@ -160,10 +160,20 @@ styling), a real design decision this test-infrastructure plan didn't make unila
 ratcheted, not ignored, in its spec file: the exact known `color-contrast` finding is allowlisted so
 the suite ships green, but any OTHER/NEW violation on that page still fails the build.
 
-- Home page: `LevelGrid`'s price text (`marketing.module.css`'s `.levelFee`, gold `#c8a000` on
-  white) — 2.47:1, needs 4.5:1.
-- Admin dashboard: the sidebar's brand-role/section-label text (`admin/layout.module.css`,
-  `#7f7e7b` on `#1b1a17`) — 4.28:1, needs 4.5:1 (a near-miss).
+- Admin dashboard: the sidebar's brand-role/section-label text (`admin/layout.module.css`'s
+  `--sidebar-muted`, effectively `#787f86` on `--sidebar-bg`) — 4.28:1, needs 4.5:1 (a near-miss).
+  **Unchanged by the 2026-08-29 WP-alignment rebrand** (`docs/plans/wordpress-ui-alignment-plan.md`,
+  Phase 1) — `--sidebar-bg` moved from `#1b1a17` to `#0e1b2a`, but the two are similarly dark
+  (verified, not assumed), so the ratio is still ~4.28:1.
+- Home page: **fixed** as a side effect of that same rebrand — `LevelGrid`'s price text
+  (`.levelFee`) was gold `#c8a000` on white (2.47:1); gold was replaced by crimson `#b51726`
+  (~6.7:1), which passes. Fixing it unmasked a second, previously-hidden finding on Hero's
+  temporary photo placeholder (`.photoPlaceholder`, muted `#6b6b63` on border-gray `#e2e0db`,
+  both unchanged — 4.07:1) — the original ratchet allowlisted the whole `color-contrast` rule id
+  rather than the specific violating node, so it was silently permitting this one too.
+  `public-site.spec.ts`'s ratchet now matches on the violating node's selector instead of the bare
+  rule id, so it can't mask an unrelated future finding again. Left ratcheted, not fixed: the
+  placeholder is deleted (not restyled) once Phase 2 installs the real hero photo.
 
 ### Run it
 

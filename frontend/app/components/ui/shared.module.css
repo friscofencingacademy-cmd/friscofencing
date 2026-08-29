@@ -71,7 +71,7 @@
 }
 
 /* Availability pill — reused wherever a schedule's server-derived
-   open/full state is shown (currently /classes). Same gold-accent pair
+   open/full state is shown (currently /classes). Same accent-color pair
    as .statusPillTrial (child-detail.module.css) for "open" so an
    available slot reads consistently across the app. */
 .availabilityPill {
