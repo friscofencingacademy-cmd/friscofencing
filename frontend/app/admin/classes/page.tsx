@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import {
@@ -17,6 +17,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 interface ClassForm {
@@ -228,138 +229,126 @@ export default function ClassesPage() {
         </div>
       )}
 
-      {dialog.open ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
-          <div className={styles.dialog} role="dialog" aria-label={dialog.id ? 'Edit Class' : 'Add Class'}>
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{dialog.id ? 'Edit Class' : 'Add Class'}</h2>
-              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+      <Modal
+        open={dialog.open}
+        onClose={closeDialog}
+        title={dialog.id ? 'Edit Class' : 'Add Class'}
+        disableClose={saving}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="class-name">
-                  Name
-                </label>
-                <input
-                  id="class-name"
-                  className={styles.input}
-                  value={dialog.form.name}
-                  onChange={(e) => setField('name', e.target.value)}
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="class-level">
-                  Level
-                </label>
-                <select
-                  id="class-level"
-                  className={styles.select}
-                  value={dialog.form.levelId}
-                  onChange={(e) => setField('levelId', e.target.value)}
-                  required
-                >
-                  <option value="">Select a level</option>
-                  {levels.map((level) => (
-                    <option key={level._id} value={level._id}>
-                      {level.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="class-location">
-                  Location
-                </label>
-                <select
-                  id="class-location"
-                  className={styles.select}
-                  value={dialog.form.locationId}
-                  onChange={(e) => setField('locationId', e.target.value)}
-                  required
-                >
-                  <option value="">Select a location</option>
-                  {locations.map((location) => (
-                    <option key={location._id} value={location._id}>
-                      {location.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="class-capacity">
-                  Capacity
-                </label>
-                <input
-                  id="class-capacity"
-                  type="number"
-                  min={1}
-                  className={styles.input}
-                  value={dialog.form.capacity}
-                  onChange={(e) => setField('capacity', e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="class-name">
+            Name
+          </label>
+          <input
+            id="class-name"
+            className={styles.input}
+            value={dialog.form.name}
+            onChange={(e) => setField('name', e.target.value)}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="class-level">
+            Level
+          </label>
+          <select
+            id="class-level"
+            className={styles.select}
+            value={dialog.form.levelId}
+            onChange={(e) => setField('levelId', e.target.value)}
+            required
+          >
+            <option value="">Select a level</option>
+            {levels.map((level) => (
+              <option key={level._id} value={level._id}>
+                {level.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="class-location">
+            Location
+          </label>
+          <select
+            id="class-location"
+            className={styles.select}
+            value={dialog.form.locationId}
+            onChange={(e) => setField('locationId', e.target.value)}
+            required
+          >
+            <option value="">Select a location</option>
+            {locations.map((location) => (
+              <option key={location._id} value={location._id}>
+                {location.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="class-capacity">
+            Capacity
+          </label>
+          <input
+            id="class-capacity"
+            type="number"
+            min={1}
+            className={styles.input}
+            value={dialog.form.capacity}
+            onChange={(e) => setField('capacity', e.target.value)}
+            required
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={deleteError ? 'Cannot Delete' : 'Delete Class'}
+        size="sm"
+        hideCloseButton
+        disableClose={deleting}
+        footer={
+          deleteError ? (
+            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
                 Cancel
               </button>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+              <button
+                type="button"
+                className={styles.btnDangerFilled}
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {deleteTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !deleting && setDeleteTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{deleteError ? 'Cannot Delete' : 'Delete Class'}</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              <p style={{ margin: 0 }}>
-                {deleteError ?? `Delete "${deleteTarget.name}"? This cannot be undone.`}
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
-              {deleteError ? (
-                <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
-                  Close
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerFilled}
-                    onClick={handleDeleteConfirm}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </>
+          )
+        }
+      >
+        <p style={{ margin: 0 }}>{deleteError ?? `Delete "${deleteTarget?.name}"? This cannot be undone.`}</p>
+      </Modal>
     </main>
   );
 }

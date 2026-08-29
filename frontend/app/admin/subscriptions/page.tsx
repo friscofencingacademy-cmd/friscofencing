@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
@@ -19,6 +18,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -424,174 +424,171 @@ export default function AdminSubscriptionsPage() {
         </div>
       )}
 
-      {changeDialog.open && changeDialog.subscription ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeChangeSchedule()}>
-          <div className={styles.dialog} role="dialog" aria-label="Change Schedule">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Change Schedule</h2>
-              <button type="button" className={styles.dialogClose} onClick={closeChangeSchedule} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {changeDialog.error ? <Alert variant="error">{changeDialog.error}</Alert> : null}
-
-              {changeDialog.step === 'pick' ? (
-                <>
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}>Current schedule</label>
-                    <div className={styles.cellMuted}>
-                      {changeDialog.subscription.scheduleId.classId.name} —{' '}
-                      {scheduleLine(changeDialog.subscription.scheduleId)} (
-                      {coachLine(changeDialog.subscription.scheduleId)})
-                    </div>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.label} htmlFor="new-schedule">
-                      New schedule
-                    </label>
-                    {candidateSchedules.length === 0 ? (
-                      <div className={styles.formHint}>
-                        No other schedules are available at this student&apos;s level yet.
-                      </div>
-                    ) : (
-                      <select
-                        id="new-schedule"
-                        className={styles.select}
-                        value={changeDialog.newScheduleId}
-                        onChange={(e) =>
-                          setChangeDialog((prev) => ({ ...prev, newScheduleId: e.target.value }))
-                        }
-                      >
-                        <option value="">Select a schedule</option>
-                        {candidateSchedules.map((schedule) => (
-                          <option key={schedule._id} value={schedule._id}>
-                            {candidateLabel(schedule)}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}>Before</label>
-                    <div className={styles.cellMuted}>
-                      {changeDialog.subscription.scheduleId.classId.name} —{' '}
-                      {scheduleLine(changeDialog.subscription.scheduleId)} (
-                      {coachLine(changeDialog.subscription.scheduleId)})
-                    </div>
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}>After</label>
-                    <div className={styles.cellMuted}>
-                      {selectedNewGroupClass?.name} — {selectedNewSchedule ? scheduleLine(selectedNewSchedule) : ''}
-                    </div>
-                  </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
-                    Monthly fee unchanged — same level.
-                  </p>
-                </>
-              )}
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeChangeSchedule} disabled={changeDialog.saving}>
-                Cancel
-              </button>
-              {changeDialog.step === 'pick' ? (
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  disabled={!changeDialog.newScheduleId}
-                  onClick={() => setChangeDialog((prev) => ({ ...prev, step: 'confirm', error: null }))}
-                >
-                  Continue
-                </button>
-              ) : (
-                <button type="button" className={styles.btnPrimary} onClick={submitChangeSchedule} disabled={changeDialog.saving}>
-                  {changeDialog.saving ? 'Saving…' : 'Confirm Change'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {cancelDialog.open && cancelDialog.subscription ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) =>
-            e.target === e.currentTarget &&
-            !cancelDialog.saving &&
-            setCancelDialog({ open: false, subscription: null, saving: false, error: null })
-          }
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog" aria-label="Cancel Subscription">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Cancel Subscription</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              {cancelDialog.error ? <Alert variant="error">{cancelDialog.error}</Alert> : null}
-              <p style={{ margin: 0 }}>
-                Cancel {cancelDialog.subscription.studentId.firstName}&apos;s subscription? Classes
-                continue through {formatDateLabel(cancelDialog.subscription.currentPeriodEnd)}; nothing
-                is refunded and the subscription will not renew.
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
+      <Modal
+        open={changeDialog.open && changeDialog.subscription !== null}
+        onClose={closeChangeSchedule}
+        title="Change Schedule"
+        disableClose={changeDialog.saving}
+        footer={
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={closeChangeSchedule}
+              disabled={changeDialog.saving}
+            >
+              Cancel
+            </button>
+            {changeDialog.step === 'pick' ? (
               <button
                 type="button"
-                className={styles.btnSecondary}
-                disabled={cancelDialog.saving}
-                onClick={() => setCancelDialog({ open: false, subscription: null, saving: false, error: null })}
+                className={styles.btnPrimary}
+                disabled={!changeDialog.newScheduleId}
+                onClick={() => setChangeDialog((prev) => ({ ...prev, step: 'confirm', error: null }))}
               >
-                Keep Subscription
+                Continue
               </button>
-              <button type="button" className={styles.btnDangerFilled} onClick={submitCancel} disabled={cancelDialog.saving}>
-                {cancelDialog.saving ? 'Cancelling…' : 'Cancel Subscription'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {reactivateDialog.open && reactivateDialog.subscription ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) =>
-            e.target === e.currentTarget &&
-            !reactivateDialog.saving &&
-            setReactivateDialog({ open: false, subscription: null, saving: false, error: null })
-          }
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog" aria-label="Reactivate Subscription">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Reactivate Subscription</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              {reactivateDialog.error ? <Alert variant="error">{reactivateDialog.error}</Alert> : null}
-              <p style={{ margin: 0 }}>
-                Remove the pending cancellation? Renewals continue as normal; nothing is charged now.
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
+            ) : (
               <button
                 type="button"
-                className={styles.btnSecondary}
-                disabled={reactivateDialog.saving}
-                onClick={() => setReactivateDialog({ open: false, subscription: null, saving: false, error: null })}
+                className={styles.btnPrimary}
+                onClick={submitChangeSchedule}
+                disabled={changeDialog.saving}
               >
-                Close
+                {changeDialog.saving ? 'Saving…' : 'Confirm Change'}
               </button>
-              <button type="button" className={styles.btnPrimary} onClick={submitReactivate} disabled={reactivateDialog.saving}>
-                {reactivateDialog.saving ? 'Reactivating…' : 'Remove Cancellation'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            )}
+          </>
+        }
+      >
+        {changeDialog.error ? <Alert variant="error">{changeDialog.error}</Alert> : null}
+
+        {changeDialog.subscription ? (
+          changeDialog.step === 'pick' ? (
+            <>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Current schedule</label>
+                <div className={styles.cellMuted}>
+                  {changeDialog.subscription.scheduleId.classId.name} —{' '}
+                  {scheduleLine(changeDialog.subscription.scheduleId)} ({coachLine(changeDialog.subscription.scheduleId)})
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="new-schedule">
+                  New schedule
+                </label>
+                {candidateSchedules.length === 0 ? (
+                  <div className={styles.formHint}>
+                    No other schedules are available at this student&apos;s level yet.
+                  </div>
+                ) : (
+                  <select
+                    id="new-schedule"
+                    className={styles.select}
+                    value={changeDialog.newScheduleId}
+                    onChange={(e) => setChangeDialog((prev) => ({ ...prev, newScheduleId: e.target.value }))}
+                  >
+                    <option value="">Select a schedule</option>
+                    {candidateSchedules.map((schedule) => (
+                      <option key={schedule._id} value={schedule._id}>
+                        {candidateLabel(schedule)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Before</label>
+                <div className={styles.cellMuted}>
+                  {changeDialog.subscription.scheduleId.classId.name} —{' '}
+                  {scheduleLine(changeDialog.subscription.scheduleId)} ({coachLine(changeDialog.subscription.scheduleId)})
+                </div>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>After</label>
+                <div className={styles.cellMuted}>
+                  {selectedNewGroupClass?.name} — {selectedNewSchedule ? scheduleLine(selectedNewSchedule) : ''}
+                </div>
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>Monthly fee unchanged — same level.</p>
+            </>
+          )
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={cancelDialog.open && cancelDialog.subscription !== null}
+        onClose={() => setCancelDialog({ open: false, subscription: null, saving: false, error: null })}
+        title="Cancel Subscription"
+        size="sm"
+        hideCloseButton
+        disableClose={cancelDialog.saving}
+        footer={
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              disabled={cancelDialog.saving}
+              onClick={() => setCancelDialog({ open: false, subscription: null, saving: false, error: null })}
+            >
+              Keep Subscription
+            </button>
+            <button
+              type="button"
+              className={styles.btnDangerFilled}
+              onClick={submitCancel}
+              disabled={cancelDialog.saving}
+            >
+              {cancelDialog.saving ? 'Cancelling…' : 'Cancel Subscription'}
+            </button>
+          </>
+        }
+      >
+        {cancelDialog.error ? <Alert variant="error">{cancelDialog.error}</Alert> : null}
+        {cancelDialog.subscription ? (
+          <p style={{ margin: 0 }}>
+            Cancel {cancelDialog.subscription.studentId.firstName}&apos;s subscription? Classes continue through{' '}
+            {formatDateLabel(cancelDialog.subscription.currentPeriodEnd)}; nothing is refunded and the subscription
+            will not renew.
+          </p>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={reactivateDialog.open && reactivateDialog.subscription !== null}
+        onClose={() => setReactivateDialog({ open: false, subscription: null, saving: false, error: null })}
+        title="Reactivate Subscription"
+        size="sm"
+        hideCloseButton
+        disableClose={reactivateDialog.saving}
+        footer={
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              disabled={reactivateDialog.saving}
+              onClick={() => setReactivateDialog({ open: false, subscription: null, saving: false, error: null })}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={submitReactivate}
+              disabled={reactivateDialog.saving}
+            >
+              {reactivateDialog.saving ? 'Reactivating…' : 'Remove Cancellation'}
+            </button>
+          </>
+        }
+      >
+        {reactivateDialog.error ? <Alert variant="error">{reactivateDialog.error}</Alert> : null}
+        <p style={{ margin: 0 }}>Remove the pending cancellation? Renewals continue as normal; nothing is charged now.</p>
+      </Modal>
     </main>
   );
 }

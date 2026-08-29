@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { createSchedule, fetchCoaches, fetchSchedules } from '../../../lib/services/scheduling';
@@ -14,6 +14,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 interface ScheduleForm {
@@ -160,111 +161,106 @@ export default function SchedulesPage() {
         </div>
       )}
 
-      {dialogOpen ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
-          <div className={styles.dialog} role="dialog" aria-label="Add Schedule">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Add Schedule</h2>
-              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+      <Modal
+        open={dialogOpen}
+        onClose={closeDialog}
+        title="Add Schedule"
+        disableClose={saving}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="schedule-classId">
-                  Class
-                </label>
-                <select
-                  id="schedule-classId"
-                  className={styles.select}
-                  value={form.classId}
-                  onChange={(e) => setField('classId', e.target.value)}
-                  required
-                >
-                  <option value="">Select a class</option>
-                  {groupClasses.map((groupClass) => (
-                    <option key={groupClass._id} value={groupClass._id}>
-                      {groupClass.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="schedule-coachId">
-                  Coach
-                </label>
-                <select
-                  id="schedule-coachId"
-                  className={styles.select}
-                  value={form.coachId}
-                  onChange={(e) => setField('coachId', e.target.value)}
-                  required
-                >
-                  <option value="">Select a coach</option>
-                  {coaches.map((coach) => (
-                    <option key={coach._id} value={coach._id}>
-                      {coach.firstName} {coach.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="schedule-dayOfWeek">
-                  Day of Week
-                </label>
-                <select
-                  id="schedule-dayOfWeek"
-                  className={styles.select}
-                  value={form.dayOfWeek}
-                  onChange={(e) => setField('dayOfWeek', e.target.value)}
-                >
-                  {DAY_LABELS.map((label, index) => (
-                    <option key={label} value={index}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="schedule-startTime">
-                  Start Time
-                </label>
-                <input
-                  id="schedule-startTime"
-                  type="time"
-                  className={styles.input}
-                  value={form.startTime}
-                  onChange={(e) => setField('startTime', e.target.value)}
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="schedule-endTime">
-                  End Time
-                </label>
-                <input
-                  id="schedule-endTime"
-                  type="time"
-                  className={styles.input}
-                  value={form.endTime}
-                  onChange={(e) => setField('endTime', e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
-                Cancel
-              </button>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Create'}
-              </button>
-            </div>
-          </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="schedule-classId">
+            Class
+          </label>
+          <select
+            id="schedule-classId"
+            className={styles.select}
+            value={form.classId}
+            onChange={(e) => setField('classId', e.target.value)}
+            required
+          >
+            <option value="">Select a class</option>
+            {groupClasses.map((groupClass) => (
+              <option key={groupClass._id} value={groupClass._id}>
+                {groupClass.name}
+              </option>
+            ))}
+          </select>
         </div>
-      ) : null}
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="schedule-coachId">
+            Coach
+          </label>
+          <select
+            id="schedule-coachId"
+            className={styles.select}
+            value={form.coachId}
+            onChange={(e) => setField('coachId', e.target.value)}
+            required
+          >
+            <option value="">Select a coach</option>
+            {coaches.map((coach) => (
+              <option key={coach._id} value={coach._id}>
+                {coach.firstName} {coach.lastName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="schedule-dayOfWeek">
+            Day of Week
+          </label>
+          <select
+            id="schedule-dayOfWeek"
+            className={styles.select}
+            value={form.dayOfWeek}
+            onChange={(e) => setField('dayOfWeek', e.target.value)}
+          >
+            {DAY_LABELS.map((label, index) => (
+              <option key={label} value={index}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="schedule-startTime">
+            Start Time
+          </label>
+          <input
+            id="schedule-startTime"
+            type="time"
+            className={styles.input}
+            value={form.startTime}
+            onChange={(e) => setField('startTime', e.target.value)}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="schedule-endTime">
+            End Time
+          </label>
+          <input
+            id="schedule-endTime"
+            type="time"
+            className={styles.input}
+            value={form.endTime}
+            onChange={(e) => setField('endTime', e.target.value)}
+            required
+          />
+        </div>
+      </Modal>
     </main>
   );
 }

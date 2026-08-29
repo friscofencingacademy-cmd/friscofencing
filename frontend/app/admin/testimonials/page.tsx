@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import {
@@ -16,6 +16,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 interface TestimonialForm {
@@ -239,192 +240,176 @@ export default function TestimonialsPage() {
         </div>
       )}
 
-      {dialog.open ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
-          <div
-            className={styles.dialog}
-            role="dialog"
-            aria-label={dialog.id ? 'Edit Testimonial' : 'Add Testimonial'}
-          >
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>
-                {dialog.id ? 'Edit Testimonial' : 'Add Testimonial'}
-              </h2>
-              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+      <Modal
+        open={dialog.open}
+        onClose={closeDialog}
+        title={dialog.id ? 'Edit Testimonial' : 'Add Testimonial'}
+        disableClose={saving || uploadingImage}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleSave}
+              disabled={saving || uploadingImage}
+            >
+              {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="testimonial-quote">
-                  Quote
-                </label>
-                <textarea
-                  id="testimonial-quote"
-                  className={styles.input}
-                  rows={4}
-                  value={dialog.form.quote}
-                  onChange={(e) => setField('quote', e.target.value)}
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="testimonial-authorName">
-                  Author Name
-                </label>
-                <input
-                  id="testimonial-authorName"
-                  className={styles.input}
-                  value={dialog.form.authorName}
-                  onChange={(e) => setField('authorName', e.target.value)}
-                  placeholder="e.g. Steve"
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="testimonial-caption">
-                  Caption
-                </label>
-                <input
-                  id="testimonial-caption"
-                  className={styles.input}
-                  value={dialog.form.caption}
-                  onChange={(e) => setField('caption', e.target.value)}
-                  placeholder="e.g. More than a sport, an environment for growth"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="testimonial-imageUrl">
-                  Image URL
-                </label>
-                <input
-                  id="testimonial-imageUrl"
-                  className={styles.input}
-                  value={dialog.form.imageUrl}
-                  onChange={(e) => setField('imageUrl', e.target.value)}
-                  placeholder="https://…"
-                />
-                <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <label className={styles.label} htmlFor="testimonial-imageFile" style={{ margin: 0 }}>
-                    Or upload a file:
-                  </label>
-                  <input
-                    id="testimonial-imageFile"
-                    type="file"
-                    accept="image/*"
-                    disabled={uploadingImage}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      handleImageFileSelected(file);
-                      e.target.value = '';
-                    }}
-                  />
-                  {uploadingImage ? <span>Uploading…</span> : null}
-                </div>
-                {dialog.form.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- an
-                  // owner-hosted/Blob-hosted URL, not a local/optimizable asset.
-                  <img
-                    src={dialog.form.imageUrl}
-                    alt=""
-                    style={{
-                      marginTop: 'var(--space-2)',
-                      width: 80,
-                      height: 100,
-                      objectFit: 'cover',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--color-border)',
-                    }}
-                  />
-                ) : null}
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="testimonial-order">
-                  Order
-                </label>
-                <input
-                  id="testimonial-order"
-                  type="number"
-                  className={styles.input}
-                  value={dialog.form.order}
-                  onChange={(e) => setField('order', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="testimonial-isPublished">
-                  <input
-                    id="testimonial-isPublished"
-                    type="checkbox"
-                    checked={dialog.form.isPublished}
-                    onChange={(e) => setField('isPublished', e.target.checked)}
-                    style={{ marginRight: 'var(--space-2)' }}
-                  />
-                  Published
-                </label>
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="testimonial-quote">
+            Quote
+          </label>
+          <textarea
+            id="testimonial-quote"
+            className={styles.input}
+            rows={4}
+            value={dialog.form.quote}
+            onChange={(e) => setField('quote', e.target.value)}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="testimonial-authorName">
+            Author Name
+          </label>
+          <input
+            id="testimonial-authorName"
+            className={styles.input}
+            value={dialog.form.authorName}
+            onChange={(e) => setField('authorName', e.target.value)}
+            placeholder="e.g. Steve"
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="testimonial-caption">
+            Caption
+          </label>
+          <input
+            id="testimonial-caption"
+            className={styles.input}
+            value={dialog.form.caption}
+            onChange={(e) => setField('caption', e.target.value)}
+            placeholder="e.g. More than a sport, an environment for growth"
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="testimonial-imageUrl">
+            Image URL
+          </label>
+          <input
+            id="testimonial-imageUrl"
+            className={styles.input}
+            value={dialog.form.imageUrl}
+            onChange={(e) => setField('imageUrl', e.target.value)}
+            placeholder="https://…"
+          />
+          <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <label className={styles.label} htmlFor="testimonial-imageFile" style={{ margin: 0 }}>
+              Or upload a file:
+            </label>
+            <input
+              id="testimonial-imageFile"
+              type="file"
+              accept="image/*"
+              disabled={uploadingImage}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                handleImageFileSelected(file);
+                e.target.value = '';
+              }}
+            />
+            {uploadingImage ? <span>Uploading…</span> : null}
+          </div>
+          {dialog.form.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- an
+            // owner-hosted/Blob-hosted URL, not a local/optimizable asset.
+            <img
+              src={dialog.form.imageUrl}
+              alt=""
+              style={{
+                marginTop: 'var(--space-2)',
+                width: 80,
+                height: 100,
+                objectFit: 'cover',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+              }}
+            />
+          ) : null}
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="testimonial-order">
+            Order
+          </label>
+          <input
+            id="testimonial-order"
+            type="number"
+            className={styles.input}
+            value={dialog.form.order}
+            onChange={(e) => setField('order', e.target.value)}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="testimonial-isPublished">
+            <input
+              id="testimonial-isPublished"
+              type="checkbox"
+              checked={dialog.form.isPublished}
+              onChange={(e) => setField('isPublished', e.target.checked)}
+              style={{ marginRight: 'var(--space-2)' }}
+            />
+            Published
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={deleteError ? 'Cannot Delete' : 'Delete Testimonial'}
+        size="sm"
+        hideCloseButton
+        disableClose={deleting}
+        footer={
+          deleteError ? (
+            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
                 Cancel
               </button>
               <button
                 type="button"
-                className={styles.btnPrimary}
-                onClick={handleSave}
-                disabled={saving || uploadingImage}
+                className={styles.btnDangerFilled}
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
               >
-                {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {deleteTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !deleting && setDeleteTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{deleteError ? 'Cannot Delete' : 'Delete Testimonial'}</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              <p style={{ margin: 0 }}>
-                {deleteError ?? `Delete the testimonial by "${deleteTarget.authorName}"? This cannot be undone.`}
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
-              {deleteError ? (
-                <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
-                  Close
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerFilled}
-                    onClick={handleDeleteConfirm}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </>
+          )
+        }
+      >
+        <p style={{ margin: 0 }}>
+          {deleteError ?? `Delete the testimonial by "${deleteTarget?.authorName}"? This cannot be undone.`}
+        </p>
+      </Modal>
     </main>
   );
 }

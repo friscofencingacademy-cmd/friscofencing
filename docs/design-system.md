@@ -83,7 +83,7 @@ Per-child avatars use a **deterministic index-based palette** (`lib/childPalette
 
 ### Admin CRUD — Pattern A (`docs/features/admin.md` for full per-page detail)
 
-One dialog handles both create and edit (`dialog.id === null` means create); a separate small confirm dialog handles delete and flips to a "Cannot Delete" state (single Close button, backend's message shown verbatim) when the backend returns a 409 in-use guard. Delete removes the row from local state optimistically on success — no full-list refetch. `AdminPageHeader` (`{title, count?, subtitle?}`) and `AdminTableRows` (`AdminLoadingRow`, `AdminEmptyRow`) are the shared primitives every admin page composes.
+One dialog handles both create and edit (`dialog.id === null` means create); a separate small confirm dialog handles delete and flips to a "Cannot Delete" state (single Close button, backend's message shown verbatim) when the backend returns a 409 in-use guard. Delete removes the row from local state optimistically on success — no full-list refetch. Both dialogs render through the shared `Modal` component (`size="md"` for the create/edit dialog, `size="sm"` for the delete confirm — see Components inventory below); a saving/deleting in-flight state is passed as `disableClose` rather than each page hand-rolling its own guard. `AdminPageHeader` (`{title, count?, subtitle?}`) and `AdminTableRows` (`AdminLoadingRow`, `AdminEmptyRow`) are the shared primitives every admin page composes.
 
 ### Portal dashboard
 
@@ -105,6 +105,7 @@ The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMa
 | `Alert` | `app/components/ui/Alert/` | `variant="success"` (`role="status"`) or `variant="error"` (`role="alert"`) — the `role` distinction matters for assistive tech (errors interrupt, status updates don't). |
 | `Card` | `app/components/ui/Card/` | Simple bordered/shadowed surface wrapper. |
 | `LoadError` | `app/components/ui/LoadError/` | `{ message?, onRetry?, compact? }` — the ONLY way a failed query renders; pairs with `useLoadState`. Never a modal. One documented exception: the home page (`/`) — see "Public marketing pages" above. |
+| `Modal` | `app/components/ui/Modal/` | `{ open, onClose, title, ariaLabel?, size?: 'md'\|'sm', hideCloseButton?, disableClose?, children, footer? }` — the ONLY dialog/overlay primitive sitewide (`docs/plans/shared-modal-component-plan.md`). Owns the overlay, the dialog frame, the X button, and an `Escape` key listener. **Deliberately has no backdrop-click-to-close** — clicking outside the dialog does nothing at all, by design, not by omission. `disableClose` (an in-flight save/delete) disables both the X and Escape; the caller's own footer buttons keep managing their own `disabled` state. Also handles initial-focus-on-open and focus-restore-on-close; full focus-trapping (Tab cycling confined to the dialog) is a known, tracked gap — see `docs/TEST_COVERAGE.md`'s Improvement Plan. |
 | `useLoadState` / `getErrorMessage` | `lib/hooks/useLoadState.ts` | Generic async query hook (`{ data, error, isLoading, retry }`) + a status-code-aware error-message extractor (backend message for a user-facing 4xx, generic text otherwise). |
 | `AdminPageHeader` / `AdminTableRows` | `app/components/admin/` | Admin-only page-header and loading/empty table-row primitives. |
 | `PortalLayout` / `ParentPortalShell` | `app/components/portal/` | Portal shell primitives — see "Shells" above. |
@@ -125,6 +126,7 @@ Things that have shown up before (in CKQ, or would be an easy mistake to reintro
 5. **Per-page duplicate domain interfaces.** Don't redeclare `interface Location { _id, name, address, timezone }` inside a page file — import it from `lib/types.ts`. A duplicate definition is exactly how a page silently drifts from what the backend actually returns.
 6. **A modal (or a full-page takeover) for a load failure.** A failed query renders `LoadError` in place of the content — see Principles above.
 7. **A duplicate CSS Modules class name defined twice in the same file** (the exact bug CKQ shipped in its own `admin.module.css` — two separate `.pageHeader` rules, the second silently overriding the first for any file importing both meanings). `admin.module.css` here defines `.pageHeader` exactly once, as the title+subtitle block only — the title-row-plus-action-button layout is `.pageHeaderRow`, a distinct name.
+8. **Hand-rolled overlay/dialog markup in a page's own JSX.** Import `Modal`. This is exactly how the sitewide "clicking outside a dialog silently discards the form" bug happened (`docs/plans/shared-modal-component-plan.md`) — 25 independent copies of the same backdrop-click handler across 13 files, one of which was always the next one someone forgot to update when the behavior needed to change.
 
 ## Pre-merge checklist
 
