@@ -104,7 +104,7 @@
   padding: var(--space-4);
 }
 
-/* ── Hero (full-bleed navy band — see Hero.tsx for why this isn't a photo) */
+/* ── Hero (full-bleed band, video background — see Hero.tsx) */
 .heroBand {
   background: linear-gradient(135deg, var(--color-ink) 0%, var(--color-navy-deep) 100%);
   display: flex;
@@ -120,9 +120,40 @@
      file. Same reasoning on every other .fullBleed-combined class below. */
   margin-top: var(--space-5);
   margin-bottom: var(--space-5);
+  /* Video hero added 2026-08-29 (docs/plans/wordpress-ui-alignment-plan.md
+     addendum): .heroVideo is absolutely positioned to fill this band, so it
+     needs to be the positioning context, and overflow:hidden keeps the
+     cover-scaled video from spilling past the band's edges. The gradient
+     background above stays as-is — it's still what phones see behind the
+     poster-only image (no video source matches below 768px) and what
+     briefly shows before the poster/video paint on desktop. */
+  position: relative;
+  overflow: hidden;
+}
+
+.heroVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* Dark gradient over the video/poster so the white headline and buttons
+   stay readable at the WCAG contrast levels already verified for the flat
+   navy background this replaces — heavier at the bottom where body copy and
+   buttons sit than at the top where the short chip line does. */
+.heroScrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(11, 20, 32, 0.55) 0%, rgba(11, 20, 32, 0.8) 100%);
+  z-index: 1;
 }
 
 .heroPhotoContent {
+  position: relative;
+  z-index: 2;
   color: var(--color-white);
   padding: var(--space-6) var(--space-5);
   max-width: 640px;
@@ -130,6 +161,16 @@
      .heroSubcopy and .heroActions overrides below handle the two children
      whose own box (not just their text) also needs centering. */
   text-align: center;
+}
+
+.heroSubheading {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: clamp(16px, 2.4vw, 22px);
+  margin: 0 0 var(--space-3);
+  color: rgba(255, 255, 255, 0.92);
 }
 
 /* .heroSubcopy's default color:var(--color-muted) is tuned for the light

@@ -58,6 +58,34 @@ Also visually verified with an ad hoc Playwright screenshot against realistic fi
 (not committed) — this is how findings #1 and #3 were actually caught, not just reasoned
 about.
 
+## Addendum: the real hero background was a video, not the soccer photo (2026-08-29)
+
+Finding #1 above concluded the WP export's designated hero image was a wrong stock photo
+and shipped a solid gradient instead. That conclusion was correct about the photo, but
+incomplete: the owner supplied a screenshot of the actual live page (`frisco-hero.jpg`)
+showing a hero background of two fencers lunging on a teal-lit smoky stage — not a photo at
+all. The original extraction script only ever checked Elementor's `background_image`
+setting key and never looked for `background_video_link`/`background_video_fallback`, so it
+never surfaced that the hero section's `background_background` is set to `"video"`.
+
+Re-extracting with a broader search found the real asset:
+`fencing-match-between-foilswomen.mp4` (1920×1080, 21s loop, 15.7MB) with a poster fallback
+`herro_ban.png` (560KB, a still frame from the same clip) — both still live on the WP host,
+verified by HTTP HEAD and by decoding a frame. `Hero.tsx` now ships a re-encoded copy
+(1280×720, 1.5MB, no audio) as `public/marketing/hero-video.mp4`, muted/looping/autoplaying
+behind the existing text, with `public/marketing/hero-poster.jpg` as both the `<video>`'s
+poster and the only asset phones download at all — the `<source>` is gated to
+`media="(min-width: 768px)"` so no video fetch is attempted below that width. A dark
+gradient scrim sits between the video and the text for the same contrast reasons the solid
+gradient needed.
+
+The reference screenshot also showed a "Child-First Training" subheading and a second
+button reading "Book Private Class with Coach" — neither present in the Aug 29 export
+(which still had "Enroll in a Program"), suggesting the live site was edited after the
+export was taken. Both are now reflected in `Hero.tsx`; the second button links to the
+existing public `/private-classes` page rather than `/register`, since that's the page it
+actually describes. Covered by `app/components/marketing/__tests__/Hero.test.tsx`.
+
 **Goal:** make the platform's frontend look like the existing `friscofencingacademy.com`
 (an Elementor site on the VamTam "Eagle Elite" theme) so visitors experience visual
 continuity when the platform replaces WordPress — **without losing any built functionality**
@@ -182,7 +210,8 @@ Registration on the WP site exits to **ppnsports.com** — the thing this platfo
 | Purpose | URL |
 |---|---|
 | Logo (SVG) | `https://friscofencingacademy.com/wp-content/uploads/2024/10/FCA_Logo-1.svg` |
-| ~~Hero photo~~ | ~~`https://friscofencingacademy.com/wp-content/uploads/2024/12/GettyImages-1716935160-1-scaled.jpg`~~ — **downloaded, verified during Phase 2 build to be a stock photo of children playing soccer (leftover multi-sport theme content), not used.** See the Phase 1+2 completion notes above. `Hero` ships a solid navy gradient instead. |
+| ~~Hero photo~~ | ~~`https://friscofencingacademy.com/wp-content/uploads/2024/12/GettyImages-1716935160-1-scaled.jpg`~~ — **downloaded, verified during Phase 2 build to be a stock photo of children playing soccer (leftover multi-sport theme content), not used.** See the Phase 1+2 completion notes above. |
+| Hero video | `https://friscofencingacademy.com/wp-content/uploads/2026/01/fencing-match-between-foilswomen.mp4` (+ poster fallback `herro_ban.png`) — the real hero background, missed by the original extraction (see "Addendum" below). `Hero` ships a re-encoded copy of both. |
 | Program — Beginner | `https://friscofencingacademy.com/wp-content/uploads/2026/02/beginner_2-scaled.jpg` |
 | Program — Intermediate | `https://friscofencingacademy.com/wp-content/uploads/2026/02/intermediate_2-scaled.jpg` |
 | Program — Advanced | `https://friscofencingacademy.com/wp-content/uploads/2026/02/Frame-1597882064-2-1.png` |
