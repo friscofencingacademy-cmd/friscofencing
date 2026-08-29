@@ -109,6 +109,10 @@
   background: linear-gradient(135deg, var(--color-ink) 0%, var(--color-navy-deep) 100%);
   display: flex;
   align-items: center;
+  /* Centers .heroPhotoContent horizontally in the full-bleed band — added
+     2026-08-29 so the hero (the first thing a visitor sees) isn't flush
+     left on a wide viewport. */
+  justify-content: center;
   /* margin-top/bottom only, never the `margin: X 0` shorthand — this
      combines with .fullBleed (which sets margin-left/right to -50vw) on
      the same element, and the shorthand would reset those to 0 by also
@@ -122,6 +126,10 @@
   color: var(--color-white);
   padding: var(--space-6) var(--space-5);
   max-width: 640px;
+  /* Centers the chip/heading/button row as text/inline content — the
+     .heroSubcopy and .heroActions overrides below handle the two children
+     whose own box (not just their text) also needs centering. */
+  text-align: center;
 }
 
 /* .heroSubcopy's default color:var(--color-muted) is tuned for the light
@@ -129,6 +137,19 @@
    overrides it for anything nested inside the hero content specifically. */
 .heroPhotoContent .heroSubcopy {
   color: rgba(255, 255, 255, 0.88);
+  /* .heroSubcopy's own margin: 0 0 var(--space-4) fixes left/right at 0 —
+     fine when it's the widest thing in its column elsewhere, but here it's
+     narrower (max-width: 560px) than its 640px parent, so without this it
+     would still sit flush left despite the parent's text-align: center. */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* .heroActions is a flex row (not inline content), so the parent's
+   text-align: center has no effect on it — needs its own justify-content,
+   same override CtaBand already applies inline for its own centered band. */
+.heroPhotoContent .heroActions {
+  justify-content: center;
 }
 
 @media (max-width: 760px) {
