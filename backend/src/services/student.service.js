@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const { withAge } = require('../utils/age');
 
 function badRequestError(message) {
   const error = new Error(message);
@@ -31,17 +32,26 @@ async function create(data, requestingUser) {
     parentId = data.parentId;
   }
 
-  return User.create({
+  // dateOfBirth is accepted and stored when present, but NOT hard-required
+  // here — this service is shared with admin's own student-creation dialog,
+  // which may not always have a birthdate in hand (docs/plans/trial-
+  // registration-required-fields-plan.md §1.3). The real requirement lives
+  // at trial-booking time instead (trialClass.service.js).
+  const student = await User.create({
     role: 'student',
     firstName: data.firstName,
     lastName: data.lastName,
     skillLevel: data.skillLevel,
+    dateOfBirth: data.dateOfBirth,
     parentId,
   });
+
+  return withAge(student);
 }
 
 async function listMine(parentId) {
-  return User.find({ role: 'student', parentId });
+  const students = await User.find({ role: 'student', parentId });
+  return students.map(withAge);
 }
 
 module.exports = { create, listMine };

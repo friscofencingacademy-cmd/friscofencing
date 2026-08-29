@@ -32,8 +32,8 @@ async function login(req, res) {
 
 async function register(req, res) {
   try {
-    const { firstName, lastName, email, password } = req.body;
-    const { token, user } = await authService.register({ firstName, lastName, email, password });
+    const { firstName, lastName, email, password, phone } = req.body;
+    const { token, user } = await authService.register({ firstName, lastName, email, password, phone });
 
     res.cookie(COOKIE_NAME, token, cookieOptions());
 

@@ -36,8 +36,21 @@ async function login({ email, password }) {
 // (user.model.js) is the race-safety backstop behind this pre-check — same
 // two-layer duplicate-prevention pattern as price.service.js's
 // assertNoExistingPrice.
-async function register({ firstName, lastName, email, password }) {
+//
+// `phone` is hard-required here (docs/plans/trial-registration-required-
+// fields-plan.md §1.2) — the one specific "parent creates an account"
+// moment, so this is the cleanest place to enforce it, unlike dateOfBirth
+// (§1.3), which is deliberately NOT hard-required at the shared student-
+// creation service since it also serves admin's own dialog.
+async function register({ firstName, lastName, email, password, phone }) {
   const normalizedEmail = String(email || '').toLowerCase().trim();
+  const trimmedPhone = String(phone || '').trim();
+
+  if (!trimmedPhone) {
+    const error = new Error('Phone number is required');
+    error.status = 400;
+    throw error;
+  }
 
   const existing = await User.findOne({ email: normalizedEmail });
 
@@ -54,6 +67,7 @@ async function register({ firstName, lastName, email, password }) {
     firstName,
     lastName,
     email: normalizedEmail,
+    phone: trimmedPhone,
     passwordHash,
   });
 

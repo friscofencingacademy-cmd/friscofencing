@@ -20,6 +20,9 @@ export interface AuthUser {
   firstName: string;
   lastName: string;
   email?: string;
+  // Parent-only in practice, collected at signup (docs/plans/trial-
+  // registration-required-fields-plan.md §1.2).
+  phone?: string;
   parentId?: string;
   skillLevel?: 'beginner' | 'intermediate' | 'advanced';
 }
@@ -32,7 +35,8 @@ interface AuthContextValue {
     firstName: string,
     lastName: string,
     email: string,
-    password: string
+    password: string,
+    phone: string
   ) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -84,12 +88,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (firstName: string, lastName: string, email: string, password: string) => {
+    async (firstName: string, lastName: string, email: string, password: string, phone: string) => {
       const res = await api.post<{ user: AuthUser }>('/auth/register', {
         firstName,
         lastName,
         email,
         password,
+        phone,
       });
       setUser(res.data.user);
     },

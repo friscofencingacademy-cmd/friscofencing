@@ -6,6 +6,7 @@ const PrivateClassSchedule = require('../models/privateClassSchedule.model');
 const CoachContract = require('../models/coachContract.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const { hashPassword } = require('../utils/password');
+const { withAge } = require('../utils/age');
 
 // Roles that get a passwordHash and can log in. Students never get one in
 // this MVP — mirrors the comment on user.model.js's passwordHash field.
@@ -59,7 +60,10 @@ async function list(filter, requesterRole) {
     }
   }
 
-  return User.find(mergedFilter);
+  const users = await User.find(mergedFilter);
+  // withAge is a no-op (age: null) on a non-student row — safe to apply
+  // uniformly across this mixed-role listing rather than branching on role.
+  return users.map(withAge);
 }
 
 async function create(data, requesterRole) {
@@ -113,6 +117,10 @@ async function create(data, requesterRole) {
       }
     }
 
+    // dateOfBirth accepted and stored when present, not hard-required — same
+    // decision as student.service.js's own create() (docs/plans/trial-
+    // registration-required-fields-plan.md §1.3): this dialog may not
+    // always have a birthdate in hand.
     const user = await User.create({
       role: 'student',
       firstName,
@@ -120,9 +128,10 @@ async function create(data, requesterRole) {
       parentId: data.parentId,
       email,
       skillLevel: data.skillLevel,
+      dateOfBirth: data.dateOfBirth,
     });
 
-    return user.toSafeJSON();
+    return withAge(user);
   }
 
   // Login-capable role: parent, coach, admin, or superadmin.
@@ -144,11 +153,16 @@ async function create(data, requesterRole) {
 
   const passwordHash = await hashPassword(data.password);
 
+  // phone is optional here — only auth.service.js's own public self-signup
+  // register() hard-requires it (docs/plans/trial-registration-required-
+  // fields-plan.md §1.2). An admin creating a parent/coach/admin account may
+  // not have the family's phone number in hand at that moment.
   const user = await User.create({
     role,
     firstName,
     lastName,
     email,
+    phone: data.phone,
     passwordHash,
   });
 
@@ -188,6 +202,16 @@ async function update(id, data, requesterRole) {
     }
 
     payload.email = email;
+    // This is the one place an existing parent account (created before
+    // phone existed, or via an admin create() that left it blank) can ever
+    // have a phone added after the fact — docs/plans/trial-registration-
+    // required-fields-plan.md's noted stop-gap for the trial-booking gate.
+    payload.phone = data.phone;
+  }
+
+  // Same stop-gap, for a student's dateOfBirth.
+  if (target.role === 'student') {
+    payload.dateOfBirth = data.dateOfBirth;
   }
 
   const updated = await User.findByIdAndUpdate(id, payload, {
@@ -195,7 +219,7 @@ async function update(id, data, requesterRole) {
     runValidators: true,
   });
 
-  return updated.toSafeJSON();
+  return withAge(updated);
 }
 
 async function updatePassword(id, newPassword, requesterRole) {

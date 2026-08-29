@@ -13,8 +13,17 @@ export interface AuthUser {
   firstName: string;
   lastName: string;
   email?: string;
+  // Parent-only in practice, collected at signup (docs/plans/trial-
+  // registration-required-fields-plan.md §1.2).
+  phone?: string;
   parentId?: string;
   skillLevel?: SkillLevel;
+  // Student-only in practice, same as skillLevel above — GET /users mixes
+  // every role into one list (admin/users), so this shared shape carries
+  // every role-specific optional field rather than a role-narrowed union.
+  // See Student's own dateOfBirth/age fields for the full doc comment.
+  dateOfBirth?: string;
+  age?: number | null;
 }
 
 export interface Location {
@@ -140,6 +149,14 @@ export interface Student {
   firstName: string;
   lastName: string;
   skillLevel?: SkillLevel;
+  // Collected on Add Child (docs/plans/trial-registration-required-fields-
+  // plan.md §1.3) — an ISO date string ("YYYY-MM-DD"), absent on a child
+  // created before this field existed.
+  dateOfBirth?: string;
+  // Backend-computed from dateOfBirth, fresh on every read (§1.5) — never
+  // derived on the frontend. null (not 0) when there's no dateOfBirth on
+  // file, or absent on a response shape that doesn't compute it.
+  age?: number | null;
 }
 
 export interface Coach {

@@ -47,6 +47,24 @@ const userSchema = new Schema(
       type: String,
       enum: SKILL_LEVELS,
     },
+    // Parent-only in practice (collected at signup, auth.service.js's
+    // register()). Not schema-required, same reasoning as email below —
+    // enforcement lives where each field's own ask actually applies
+    // (docs/plans/trial-registration-required-fields-plan.md): hard-required
+    // at signup itself, and re-checked at trial-booking time as the backstop
+    // for any account created before this field existed.
+    phone: {
+      type: String,
+      trim: true,
+    },
+    // Student-only in practice (collected on Add Child, student.service.js's
+    // create()). Not schema-required — admin's own student-creation dialog
+    // may not always have a birthdate in hand (docs/plans/trial-registration-
+    // required-fields-plan.md §1.3). age.js's calculateAge() derives display
+    // age from this, fresh on every read, never stored.
+    dateOfBirth: {
+      type: Date,
+    },
     // Set the first time a parent saves a card (stripeCustomer.service.js).
     // Not schema-required: most users (students, coaches, admins who never
     // pay) never get one. sparse: true for the same reason as email above —

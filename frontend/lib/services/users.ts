@@ -10,12 +10,20 @@ export interface CreateUserPayload {
   password?: string;
   parentId?: string;
   skillLevel?: SkillLevel;
+  // Student-only; not hard-required by the backend for this admin-facing
+  // path (docs/plans/trial-registration-required-fields-plan.md §1.3).
+  dateOfBirth?: string;
+  // Login-capable-role-only; also not hard-required here (§1.2 hard-
+  // requires it only at public self-signup, a different endpoint).
+  phone?: string;
 }
 
 export interface UpdateUserPayload {
   firstName: string;
   lastName: string;
   email?: string;
+  dateOfBirth?: string;
+  phone?: string;
 }
 
 export async function fetchUsers(role?: Role): Promise<AuthUser[]> {

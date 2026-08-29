@@ -21,6 +21,7 @@ export async function createStudent(data: {
   firstName: string;
   lastName: string;
   skillLevel: SkillLevel;
+  dateOfBirth: string;
 }): Promise<MutationResult<Student>> {
   try {
     const res = await api.post<{ student: Student }>('/students', data);

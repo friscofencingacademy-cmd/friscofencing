@@ -63,10 +63,16 @@ describe('ChildrenPage', () => {
 
     fireEvent.change(within(dialog).getByLabelText('First Name'), { target: { value: 'New' } });
     fireEvent.change(within(dialog).getByLabelText('Last Name'), { target: { value: 'Kid' } });
+    fireEvent.change(within(dialog).getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
     fireEvent.click(within(dialog).getByRole('button', { name: /add child/i }));
 
     await waitFor(() => {
-      expect(createdPayload).toEqual({ firstName: 'New', lastName: 'Kid', skillLevel: 'beginner' });
+      expect(createdPayload).toEqual({
+        firstName: 'New',
+        lastName: 'Kid',
+        skillLevel: 'beginner',
+        dateOfBirth: '2018-01-01',
+      });
     });
 
     // The modal closes and the context reload brings in the new child.
@@ -85,6 +91,7 @@ describe('ChildrenPage', () => {
 
     fireEvent.change(within(dialog).getByLabelText('First Name'), { target: { value: 'New' } });
     fireEvent.change(within(dialog).getByLabelText('Last Name'), { target: { value: 'Kid' } });
+    fireEvent.change(within(dialog).getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
     fireEvent.click(within(dialog).getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByText('Failed to add child.')).toBeInTheDocument();

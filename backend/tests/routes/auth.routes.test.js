@@ -74,22 +74,50 @@ describe('POST /api/v1/auth/login', () => {
 });
 
 describe('POST /api/v1/auth/register', () => {
-  it('registers a new parent, sets the accessToken cookie, and omits passwordHash', async () => {
+  it('registers a new parent, sets the accessToken cookie, stores phone, and omits passwordHash', async () => {
     const res = await request(app).post('/api/v1/auth/register').send({
       firstName: 'New',
       lastName: 'Parent',
       email: 'new-parent@example.com',
       password: 'a-strong-password',
+      phone: '555-123-4567',
     });
 
     expect(res.status).toBe(201);
     expect(res.body.user.email).toBe('new-parent@example.com');
     expect(res.body.user.role).toBe('parent');
+    expect(res.body.user.phone).toBe('555-123-4567');
     expect(res.body.user.passwordHash).toBeUndefined();
 
     const cookies = res.headers['set-cookie'];
     expect(cookies).toBeDefined();
     expect(cookies.some((cookie) => cookie.startsWith('accessToken='))).toBe(true);
+  });
+
+  // docs/plans/trial-registration-required-fields-plan.md §1.2: phone is
+  // hard-required at signup, checked before the duplicate-email lookup runs.
+  it('returns 400 when phone is missing', async () => {
+    const res = await request(app).post('/api/v1/auth/register').send({
+      firstName: 'No',
+      lastName: 'Phone',
+      email: 'no-phone@example.com',
+      password: 'a-strong-password',
+    });
+
+    expect(res.status).toBe(400);
+    expect(await User.findOne({ email: 'no-phone@example.com' })).toBeNull();
+  });
+
+  it('returns 400 when phone is only whitespace', async () => {
+    const res = await request(app).post('/api/v1/auth/register').send({
+      firstName: 'Blank',
+      lastName: 'Phone',
+      email: 'blank-phone@example.com',
+      password: 'a-strong-password',
+      phone: '   ',
+    });
+
+    expect(res.status).toBe(400);
   });
 
   it('returns 409 when the email is already registered', async () => {
@@ -100,6 +128,7 @@ describe('POST /api/v1/auth/register', () => {
       lastName: 'Person',
       email: 'dup-parent@example.com',
       password: 'a-strong-password',
+      phone: '555-123-4567',
     });
 
     expect(res.status).toBe(409);
@@ -133,6 +162,7 @@ describe('accessToken cookie flags', () => {
           lastName: 'Test',
           email: 'cookie-test@example.com',
           password: 'a-strong-password',
+          phone: '555-123-4567',
         }),
     ],
   ])('%s', (name, makeRequest) => {

@@ -20,6 +20,7 @@ export interface AddChildModalProps {
 export default function AddChildModal({ onClose, onSuccess }: AddChildModalProps) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [skillLevel, setSkillLevel] = useState<SkillLevel>('beginner');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +33,18 @@ export default function AddChildModal({ onClose, onSuccess }: AddChildModalProps
       return;
     }
 
+    // Required here (docs/plans/trial-registration-required-fields-plan.md
+    // §1.3) — the backend itself doesn't hard-require it (admin's own
+    // dialog may not always have it in hand), but a parent adding their own
+    // child is exactly the moment to collect it, since it's what unblocks
+    // booking a trial class later.
+    if (!dateOfBirth) {
+      setError("Child's date of birth is required.");
+      return;
+    }
+
     setSubmitting(true);
-    const result = await createStudent({ firstName, lastName, skillLevel });
+    const result = await createStudent({ firstName, lastName, skillLevel, dateOfBirth });
     setSubmitting(false);
 
     if (result.status === 'success') {
@@ -76,6 +87,19 @@ export default function AddChildModal({ onClose, onSuccess }: AddChildModalProps
               className={shared.formInput}
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
+              required
+            />
+          </div>
+          <div className={shared.formField}>
+            <label htmlFor="add-child-dateOfBirth" className={shared.formLabel}>
+              Date of Birth
+            </label>
+            <input
+              id="add-child-dateOfBirth"
+              type="date"
+              className={shared.formInput}
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
               required
             />
           </div>

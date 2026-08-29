@@ -10,6 +10,7 @@ import AppShell from '../components/layout/AppShell';
 import Button from '../components/ui/Button/Button';
 import Card from '../components/ui/Card/Card';
 import Alert from '../components/ui/Alert/Alert';
+import TrialInfoCard from '../components/marketing/TrialInfoCard';
 import styles from '../components/ui/shared.module.css';
 
 // useSearchParams() requires a Suspense boundary above it during static
@@ -32,6 +33,7 @@ function RegisterPageContent() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -42,7 +44,7 @@ function RegisterPageContent() {
     setSubmitting(true);
 
     try {
-      await register(firstName, lastName, email, password);
+      await register(firstName, lastName, email, password, phone);
       router.push(next);
     } catch (err) {
       const message = axios.isAxiosError(err) && err.response?.data?.message
@@ -57,7 +59,8 @@ function RegisterPageContent() {
   return (
     <AppShell>
       <main>
-        <div style={{ maxWidth: 400, margin: 'var(--space-6) auto' }}>
+        <div style={{ maxWidth: 480, margin: 'var(--space-6) auto', display: 'grid', gap: 'var(--space-5)' }}>
+          <TrialInfoCard />
           <Card>
             <h1>Sign Up</h1>
             <p style={{ color: 'var(--color-muted)', marginTop: 0 }}>
@@ -98,6 +101,19 @@ function RegisterPageContent() {
                   className={styles.formInput}
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.formField}>
+                <label htmlFor="phone" className={styles.formLabel}>
+                  Phone Number
+                </label>
+                <input
+                  id="phone"
+                  type="tel"
+                  className={styles.formInput}
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
                   required
                 />
               </div>

@@ -100,12 +100,17 @@ describe('TrialClass routes', () => {
     it("lets a parent book a trial for their own child, adding them to the session's roster", async () => {
       const { sessionId } = await seedSession();
 
-      const parent = await seedUser({ role: 'parent', email: 'trial-parent@example.com' });
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-parent@example.com',
+        phone: '555-123-4567',
+      });
       const student = await User.create({
         role: 'student',
         firstName: 'Kid',
         lastName: 'Trial',
         parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
       });
       const parentAgent = await loginAgent('trial-parent@example.com');
 
@@ -166,12 +171,17 @@ describe('TrialClass routes', () => {
         students: [],
       });
 
-      const parent = await seedUser({ role: 'parent', email: 'trial-parent3@example.com' });
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-parent3@example.com',
+        phone: '555-123-4567',
+      });
       const student = await User.create({
         role: 'student',
         firstName: 'Kid',
         lastName: 'Dup',
         parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
       });
       const parentAgent = await loginAgent('trial-parent3@example.com');
 
@@ -190,12 +200,17 @@ describe('TrialClass routes', () => {
     });
 
     it('returns 404 for a nonexistent sessionId', async () => {
-      const parent = await seedUser({ role: 'parent', email: 'trial-parent4@example.com' });
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-parent4@example.com',
+        phone: '555-123-4567',
+      });
       const student = await User.create({
         role: 'student',
         firstName: 'Kid',
         lastName: 'NoSession',
         parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
       });
       const parentAgent = await loginAgent('trial-parent4@example.com');
 
@@ -207,6 +222,114 @@ describe('TrialClass routes', () => {
       });
 
       expect(res.status).toBe(404);
+    });
+
+    // docs/plans/trial-registration-required-fields-plan.md §1.4 — the
+    // actual backstop for phone/date-of-birth being "mandatory for trial
+    // class registration," including for an account/child that existed
+    // before these fields did.
+    it('returns 400 when the requesting parent has no phone on file', async () => {
+      const { sessionId } = await seedSession();
+
+      const parent = await seedUser({ role: 'parent', email: 'trial-no-phone@example.com' });
+      const student = await User.create({
+        role: 'student',
+        firstName: 'Kid',
+        lastName: 'NoPhoneParent',
+        parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
+      });
+      const parentAgent = await loginAgent('trial-no-phone@example.com');
+
+      const res = await parentAgent.post('/api/v1/trial-classes').send({
+        studentId: student._id.toString(),
+        sessionId,
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/phone number/i);
+    });
+
+    it('returns 400 when the student has no date of birth on file', async () => {
+      const { sessionId } = await seedSession();
+
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-no-dob@example.com',
+        phone: '555-123-4567',
+      });
+      const student = await User.create({
+        role: 'student',
+        firstName: 'NoBirthdayKid',
+        lastName: 'Trial',
+        parentId: parent._id,
+      });
+      const parentAgent = await loginAgent('trial-no-dob@example.com');
+
+      const res = await parentAgent.post('/api/v1/trial-classes').send({
+        studentId: student._id.toString(),
+        sessionId,
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/date of birth/i);
+    });
+
+    it("checks the FAMILY's phone, not the admin's own, for an admin-initiated booking", async () => {
+      const { sessionId } = await seedSession();
+
+      // Deliberately no `phone` on the admin — admins never have one in
+      // practice (the admin dialog doesn't even collect it). If the gate
+      // checked requestingUser.phone unconditionally, every admin-initiated
+      // booking would fail here regardless of the family's real data.
+      await seedUser({ role: 'admin', email: 'trial-admin-gate@example.com' });
+      const parent = await seedUser({ role: 'parent', email: 'trial-gated-parent@example.com' });
+      const student = await User.create({
+        role: 'student',
+        firstName: 'Kid',
+        lastName: 'AdminBooked',
+        parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
+      });
+      const adminAgent = await loginAgent('trial-admin-gate@example.com');
+
+      const res = await adminAgent.post('/api/v1/trial-classes').send({
+        studentId: student._id.toString(),
+        sessionId,
+      });
+
+      // The family (the student's own parent) has no phone either, so this
+      // still 400s — but on the FAMILY's missing phone, not a false
+      // "admin's own phone is missing" reason. Proven by the second case
+      // below, where giving the family a phone lets the booking succeed.
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/phone number/i);
+    });
+
+    it('lets an admin-initiated booking succeed once the FAMILY (not the admin) has both fields on file', async () => {
+      const { sessionId } = await seedSession();
+
+      await seedUser({ role: 'admin', email: 'trial-admin-gate2@example.com' });
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-gated-parent2@example.com',
+        phone: '555-123-4567',
+      });
+      const student = await User.create({
+        role: 'student',
+        firstName: 'Kid',
+        lastName: 'AdminBookedOk',
+        parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
+      });
+      const adminAgent = await loginAgent('trial-admin-gate2@example.com');
+
+      const res = await adminAgent.post('/api/v1/trial-classes').send({
+        studentId: student._id.toString(),
+        sessionId,
+      });
+
+      expect(res.status).toBe(201);
     });
   });
 });

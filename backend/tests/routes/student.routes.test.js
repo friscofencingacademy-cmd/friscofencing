@@ -96,6 +96,57 @@ describe('Student routes', () => {
 
       expect(res.status).toBe(400);
     });
+
+    // docs/plans/trial-registration-required-fields-plan.md §1.3/§1.5. No
+    // frozen clock here — jest.useFakeTimers() reliably hangs this suite's
+    // real supertest+MongoDB stack (confirmed while building this test, not
+    // assumed; same class of issue TESTING_STRATEGY.md's E2E date rules
+    // already warn about for a different layer). Instead: a birthdate built
+    // from LOCAL calendar components (never toISOString(), which can shift
+    // the calendar day across a UTC/local boundary) and pushed 30 days
+    // further into the past than "today minus 8 years" — far enough that
+    // this year's birthday has unambiguously already passed regardless of
+    // exactly which timezone the test happens to run in, so the expected
+    // age is deterministic without needing to freeze anything.
+    it('stores dateOfBirth and returns a computed age when provided', async () => {
+      await seedUser({ role: 'parent', email: 'parent-dob@example.com' });
+      const parentAgent = await loginAgent('parent-dob@example.com');
+
+      const birthday = new Date();
+      birthday.setDate(birthday.getDate() - 30);
+      birthday.setFullYear(birthday.getFullYear() - 8);
+      const dateOfBirth = `${birthday.getFullYear()}-${String(birthday.getMonth() + 1).padStart(2, '0')}-${String(birthday.getDate()).padStart(2, '0')}`;
+
+      const res = await parentAgent.post('/api/v1/students').send({
+        firstName: 'Kid',
+        lastName: 'WithBirthday',
+        skillLevel: 'beginner',
+        dateOfBirth,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.student.age).toBe(8);
+
+      const created = await User.findById(res.body.student._id);
+      expect(created.dateOfBirth.toISOString().slice(0, 10)).toBe(dateOfBirth);
+    });
+
+    // Not hard-required at this shared service layer (admin's own dialog may
+    // not always have a birthdate in hand) — creation still succeeds, and
+    // age is null rather than 0 or a guess.
+    it('still succeeds without dateOfBirth — age comes back null, not 0 or a guess', async () => {
+      await seedUser({ role: 'parent', email: 'parent-no-dob@example.com' });
+      const parentAgent = await loginAgent('parent-no-dob@example.com');
+
+      const res = await parentAgent.post('/api/v1/students').send({
+        firstName: 'Kid',
+        lastName: 'NoBirthday',
+        skillLevel: 'beginner',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.student.age).toBeNull();
+    });
   });
 
   describe('GET /api/v1/students/mine', () => {
@@ -118,6 +169,33 @@ describe('Student routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.students).toHaveLength(1);
       expect(res.body.students[0].firstName).toBe('Mine');
+    });
+
+    it("includes each child's computed age alongside their stored dateOfBirth", async () => {
+      const parent = await seedUser({ role: 'parent', email: 'parent5@example.com' });
+
+      // Same "30 days + 8 years further into the past" technique as the
+      // create test above — this year's birthday has unambiguously already
+      // passed, so age is deterministic without freezing the clock (see
+      // that test's comment for why fake timers aren't used here).
+      const birthday = new Date();
+      birthday.setDate(birthday.getDate() - 30);
+      birthday.setFullYear(birthday.getFullYear() - 8);
+
+      await User.create({
+        role: 'student',
+        firstName: 'Birthday',
+        lastName: 'Kid',
+        parentId: parent._id,
+        dateOfBirth: birthday,
+      });
+
+      const parentAgent = await loginAgent('parent5@example.com');
+
+      const res = await parentAgent.get('/api/v1/students/mine');
+
+      expect(res.status).toBe(200);
+      expect(res.body.students[0].age).toBe(8);
     });
   });
 });
