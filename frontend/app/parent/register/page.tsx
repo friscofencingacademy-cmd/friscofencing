@@ -21,6 +21,7 @@ import type {
   Level,
   PaymentMethodInfo,
   Price,
+  RegistrationPreviewSavings,
   RegistrationPricePreview,
 } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
@@ -36,6 +37,7 @@ import {
   OrderSummary,
   PillRow,
 } from '../../components/portal/flow';
+import type { OrderSummaryLine } from '../../components/portal/flow';
 
 const STEPS = ['Who', 'Level', 'Done'];
 
@@ -124,6 +126,7 @@ interface RegisteredInfo {
   remainingClassDays?: number | null;
   dailyRate?: number | null;
   periodEnd?: string;
+  savings?: RegistrationPreviewSavings;
 }
 
 export default function RegisterPage() {
@@ -310,6 +313,7 @@ export default function RegisterPage() {
         remainingClassDays: result.data.remainingClassDays,
         dailyRate: result.data.dailyRate,
         periodEnd: result.data.periodEnd,
+        savings: result.data.savings,
       });
       setStep(2);
       reload();
@@ -376,6 +380,14 @@ export default function RegisterPage() {
                     },
                   ]
                 : []),
+              // Family Scorecard checkout quote panel (docs/plans/
+              // wordpress-ui-alignment-plan.md, Phase 3) — the combined
+              // sibling-discount + waived-fee savings, straight from the
+              // backend's own sum (no arithmetic here). Omitted entirely
+              // when there was nothing to save.
+              ...(registered?.savings && registered.savings.total > 0
+                ? [{ label: 'You Saved', value: `$${registered.savings.total.toFixed(2)}` }]
+                : []),
             ]}
             links={
               <>
@@ -393,14 +405,18 @@ export default function RegisterPage() {
     );
   }
 
-  const summaryLines = [
+  // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+  // alignment-plan.md, Phase 3) — every dollar amount and savings figure
+  // below is read straight from pricePreview, never computed here (Hard
+  // Rule 7); `kind` only chooses OrderSummary's presentation.
+  const summaryLines: OrderSummaryLine[] = [
     { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
     { label: 'Level', value: levelId ? levelName(levels, levelId) : '—' },
     { label: 'Start Date', value: selectedSession ? formatSessionLine(selectedSession) : '—' },
     { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
     ...(pricePreview?.siblingDiscountApplied
       ? [
-          { label: 'Sibling Discount', value: `-$${pricePreview.siblingDiscountAmount.toFixed(2)}` },
+          { label: 'Sibling Discount', value: `-$${pricePreview.siblingDiscountAmount.toFixed(2)}`, kind: 'discount' as const },
           { label: "You'll Pay", value: `$${pricePreview.chargeAmount.toFixed(2)}` },
         ]
       : []),
@@ -416,8 +432,24 @@ export default function RegisterPage() {
     ...(pricePreview?.registrationFeeCharged
       ? [{ label: 'Registration Fee (one-time)', value: `$${pricePreview.registrationFeeCharged.toFixed(2)}` }]
       : []),
-    ...(pricePreview?.registrationFeeCharged || pricePreview?.prorated
-      ? [{ label: 'Due Today', value: `$${pricePreview.totalChargeAmount.toFixed(2)}` }]
+    ...(pricePreview?.registrationFeeWaived
+      ? [
+          { label: 'Registration Fee', value: 'Waived', kind: 'discount' as const },
+          ...(pricePreview.registrationFeeReason
+            ? [{ label: 'Why', value: pricePreview.registrationFeeReason, kind: 'note' as const }]
+            : []),
+        ]
+      : []),
+    // The one number a parent actually needs to walk away with — always
+    // shown once a preview has loaded, even when it's identical to
+    // "Monthly Fee" above (no discount/proration/fee to explain the
+    // difference); a scorecard states the bottom line outright rather than
+    // making the parent add it up themselves.
+    ...(pricePreview
+      ? [{ label: 'Due at enrollment', value: `$${pricePreview.totalChargeAmount.toFixed(2)}`, kind: 'total' as const }]
+      : []),
+    ...(pricePreview?.savings && pricePreview.savings.total > 0
+      ? [{ label: 'You Save', value: `$${pricePreview.savings.total.toFixed(2)}`, kind: 'discount' as const }]
       : []),
     ...(pricePreview?.periodEnd
       ? [

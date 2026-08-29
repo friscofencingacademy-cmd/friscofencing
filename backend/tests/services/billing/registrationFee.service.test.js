@@ -46,7 +46,7 @@ describe('resolveRegistrationFee', () => {
 
     const result = await resolveRegistrationFee(student._id);
 
-    expect(result).toEqual({ amount: 0, waived: false, reason: null });
+    expect(result).toEqual({ amount: 0, waived: false, reason: null, standardAmount: 0 });
   });
 
   it('returns no charge when the configured fee is explicitly 0', async () => {
@@ -55,7 +55,7 @@ describe('resolveRegistrationFee', () => {
 
     const result = await resolveRegistrationFee(student._id);
 
-    expect(result).toEqual({ amount: 0, waived: false, reason: null });
+    expect(result).toEqual({ amount: 0, waived: false, reason: null, standardAmount: 0 });
   });
 
   it('charges the full fee for a brand-new student with no prior subscription history', async () => {
@@ -64,7 +64,7 @@ describe('resolveRegistrationFee', () => {
 
     const result = await resolveRegistrationFee(student._id);
 
-    expect(result).toEqual({ amount: 25, waived: false, reason: null });
+    expect(result).toEqual({ amount: 25, waived: false, reason: null, standardAmount: 25 });
   });
 
   it('charges the full fee for a returning student when no grace period is configured', async () => {
@@ -74,7 +74,7 @@ describe('resolveRegistrationFee', () => {
 
     const result = await resolveRegistrationFee(student._id);
 
-    expect(result).toEqual({ amount: 25, waived: false, reason: null });
+    expect(result).toEqual({ amount: 25, waived: false, reason: null, standardAmount: 25 });
   });
 
   it('waives the fee for a student registering back within the configured grace period', async () => {
@@ -92,6 +92,11 @@ describe('resolveRegistrationFee', () => {
     expect(result.waived).toBe(true);
     expect(result.reason).toMatch(/waived/i);
     expect(result.reason).toContain('6 months');
+    // The Family Scorecard checkout quote panel's "you saved $X" line reads
+    // this — the configured fee's value must survive the waiver, not
+    // collapse to 0 along with `amount` (docs/plans/wordpress-ui-alignment
+    // -plan.md, Phase 3).
+    expect(result.standardAmount).toBe(25);
   });
 
   it('charges the full fee for a student registering back OUTSIDE the configured grace period', async () => {
@@ -105,7 +110,7 @@ describe('resolveRegistrationFee', () => {
 
     const result = await resolveRegistrationFee(student._id);
 
-    expect(result).toEqual({ amount: 25, waived: false, reason: null });
+    expect(result).toEqual({ amount: 25, waived: false, reason: null, standardAmount: 25 });
   });
 
   it('uses the most recent prior subscription when a student has cancelled more than once', async () => {
@@ -162,6 +167,6 @@ describe('resolveRegistrationFee', () => {
     // charges the full fee as if brand-new, rather than crashing or waiving.
     const result = await resolveRegistrationFee(student._id);
 
-    expect(result).toEqual({ amount: 25, waived: false, reason: null });
+    expect(result).toEqual({ amount: 25, waived: false, reason: null, standardAmount: 25 });
   });
 });

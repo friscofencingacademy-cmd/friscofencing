@@ -266,6 +266,25 @@ export interface RegistrationCreateResponse extends ProrationInfo {
   registrationFeeCharged?: number;
   registrationFeeWaived?: boolean;
   registrationFeeReason?: string | null;
+  // Same shape/computation as RegistrationPricePreview's savings — Family
+  // Scorecard checkout quote panel (docs/plans/wordpress-ui-alignment-plan
+  // .md, Phase 3), added to the real-charge response too so the
+  // post-payment confirmation screen can show the same "you saved $X" line
+  // the pre-payment preview did.
+  savings?: RegistrationPreviewSavings;
+}
+
+// Family Scorecard checkout quote panel (docs/plans/wordpress-ui-alignment
+// -plan.md, Phase 3) — server-computed so the frontend never subtracts these
+// itself (Hard Rule 7). Preview-only (POST /registrations's real-charge
+// response has no equivalent field): registrationFeeWaived here is the
+// waived fee's dollar VALUE (0 when nothing was waived) — the only place
+// that value exists at all, since registrationFeeCharged above is 0
+// whenever the fee is waived, same as when no fee is configured.
+export interface RegistrationPreviewSavings {
+  siblingDiscount: number;
+  registrationFeeWaived: number;
+  total: number;
 }
 
 // GET /registrations/preview — read-only pricing/discount estimate for the
@@ -283,6 +302,7 @@ export interface RegistrationPricePreview extends ProrationInfo {
   registrationFeeCharged: number;
   registrationFeeWaived: boolean;
   registrationFeeReason: string | null;
+  savings: RegistrationPreviewSavings;
 }
 
 // GET/PATCH /api/v1/settings — superadmin-only (setting.model.js). Singleton.

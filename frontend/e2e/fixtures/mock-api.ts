@@ -145,6 +145,11 @@ const DEFAULT_RULES: MockRule[] = [
         remainingClassDays: null,
         dailyRate: null,
         periodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+        // alignment-plan.md, Phase 3) — 0 here rather than a real waived
+        // amount: no existing e2e spec asserts on the "You Save" line, and
+        // this default fixture doesn't track what the fee would have been.
+        savings: { siblingDiscount: 0, registrationFeeWaived: 0, total: 0 },
       }),
   },
   {
@@ -166,6 +171,7 @@ const DEFAULT_RULES: MockRule[] = [
         remainingClassDays: null,
         dailyRate: null,
         periodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        savings: { siblingDiscount: 0, registrationFeeWaived: 0, total: 0 },
       }),
   },
 

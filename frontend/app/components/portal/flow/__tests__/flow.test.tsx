@@ -88,6 +88,35 @@ describe('OrderSummary', () => {
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
+  // alignment-plan.md, Phase 3) — `kind` is optional and backward-
+  // compatible (the tests above never pass it), so this covers only the
+  // new variants' own rendering.
+  it('renders a "note" line as its own paragraph, not a bordered summaryRow', () => {
+    render(
+      <OrderSummary
+        lines={[
+          { label: 'Sibling Discount', value: '-$15.00', kind: 'discount' },
+          { label: 'Why', value: 'The lower-priced plan among your children.', kind: 'note' },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('-$15.00')).toBeInTheDocument();
+    expect(screen.getByText('The lower-priced plan among your children.')).toBeInTheDocument();
+    // A note line renders only its value (no separate "Why" label node) —
+    // it's a caption under the row above it, not a labeled row of its own.
+    expect(screen.queryByText('Why')).not.toBeInTheDocument();
+  });
+
+  it('renders a "total" line and an always-visible "Live Quote" overline', () => {
+    render(<OrderSummary lines={[{ label: 'Due at enrollment', value: '$175.00', kind: 'total' }]} />);
+
+    expect(screen.getByText('Live Quote')).toBeInTheDocument();
+    expect(screen.getByText('Due at enrollment')).toBeInTheDocument();
+    expect(screen.getByText('$175.00')).toBeInTheDocument();
+  });
 });
 
 describe('ChildPickerCards', () => {

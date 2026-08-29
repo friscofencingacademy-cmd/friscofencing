@@ -205,6 +205,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     amount: registrationFeeCharged,
     waived: registrationFeeWaived,
     reason: registrationFeeReason,
+    standardAmount: registrationFeeStandardAmount,
   } = await resolveRegistrationFee(studentId);
 
   const totalChargeAmount = chargeAmount + registrationFeeCharged;
@@ -358,6 +359,18 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     }
   }
 
+  // Same display-only breakdown previewChargeAmount() returns (Family
+  // Scorecard checkout quote panel, docs/plans/wordpress-ui-alignment-plan
+  // .md, Phase 3), computed identically here so the post-payment
+  // confirmation screen can show the same "you saved $X" line the preview
+  // did — never affects chargeAmount/totalChargeAmount/what Stripe charges.
+  const registrationFeeWaivedSavings = registrationFeeWaived ? registrationFeeStandardAmount : 0;
+  const savings = {
+    siblingDiscount: siblingDiscountAmount,
+    registrationFeeWaived: registrationFeeWaivedSavings,
+    total: siblingDiscountAmount + registrationFeeWaivedSavings,
+  };
+
   return {
     registration: updatedRegistration,
     subscription: updatedSubscription,
@@ -378,6 +391,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     remainingClassDays: prorationInfo.remainingClassDays,
     dailyRate: prorationInfo.dailyRate,
     periodEnd: currentPeriodEnd,
+    savings,
   };
 }
 
@@ -433,7 +447,21 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     amount: registrationFeeCharged,
     waived: registrationFeeWaived,
     reason: registrationFeeReason,
+    standardAmount: registrationFeeStandardAmount,
   } = await resolveRegistrationFee(studentId);
+
+  // Display-only breakdown for the Family Scorecard checkout quote panel
+  // (docs/plans/wordpress-ui-alignment-plan.md, Phase 3) — computed HERE,
+  // server-side, so the frontend never does this arithmetic itself (Hard
+  // Rule 7). Does not affect chargeAmount/totalChargeAmount or anything
+  // create() does; preview-only. registrationFeeWaived's dollar value isn't
+  // otherwise in this response — registrationFeeCharged is 0 when waived.
+  const registrationFeeWaivedSavings = registrationFeeWaived ? registrationFeeStandardAmount : 0;
+  const savings = {
+    siblingDiscount: siblingDiscountAmount,
+    registrationFeeWaived: registrationFeeWaivedSavings,
+    total: siblingDiscountAmount + registrationFeeWaivedSavings,
+  };
 
   return {
     monthlyFee: price.monthlyFee,
@@ -450,6 +478,7 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     remainingClassDays: prorationInfo.remainingClassDays,
     dailyRate: prorationInfo.dailyRate,
     periodEnd: prorationInfo.periodEnd,
+    savings,
   };
 }
 
