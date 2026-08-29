@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from './context/AuthContext';
@@ -11,10 +10,20 @@ import { fetchPublicSpotlights } from '../lib/services/spotlights';
 import { ROLE_LANDING_PATH } from '../lib/constants';
 import AppShell from './components/layout/AppShell';
 import Hero from './components/marketing/Hero';
+import ValuesMarquee from './components/marketing/ValuesMarquee';
+import IntroSection from './components/marketing/IntroSection';
 import StepsRow from './components/marketing/StepsRow';
 import LevelGrid from './components/marketing/LevelGrid';
+import FacilityBand from './components/marketing/FacilityBand';
+import TeamBand from './components/marketing/TeamBand';
 import CtaBand from './components/marketing/CtaBand';
+import SiteFooter from './components/marketing/SiteFooter';
 import SpotlightCard from './components/marketing/SpotlightCard';
+
+// Verbatim from the live WP site's two value-word marquees, captured
+// 2026-08-29 (docs/plans/wordpress-ui-alignment-plan.md, Phase 2).
+const VALUES_ROW_1 = ['Discipline.', 'Purpose.', 'Guidance.', 'Focus.', 'Confidence.', 'Growth.'];
+const VALUES_ROW_2 = ['Accountability.', 'Integrity.', 'Teamwork.', 'Respect.', 'Spirit.', 'Self Belief.'];
 
 async function fetchHomePageData() {
   const [levels, locations, coachSpotlights, studentSpotlights] = await Promise.all([
@@ -57,46 +66,26 @@ export default function HomePage() {
 
   const levels = data?.levels ?? [];
   const locations = data?.locations ?? [];
-  const headCoach = data?.coachSpotlights[0];
+  const coachSpotlights = data?.coachSpotlights ?? [];
   const featuredStudent = data?.studentSpotlights[0];
 
   return (
     <AppShell>
       <Hero />
-
-      {headCoach ? (
-        <>
-          <SpotlightCard spotlight={headCoach} align="left" eyebrow="Head Coach" />
-          <p style={{ textAlign: 'center', marginTop: 'calc(-1 * var(--space-4))' }}>
-            <Link href="/coaches">View all coaches &rarr;</Link>
-          </p>
-        </>
-      ) : null}
+      <ValuesMarquee words={VALUES_ROW_1} />
+      <IntroSection />
+      {levels.length > 0 ? <LevelGrid levels={levels} /> : null}
+      <FacilityBand />
+      <TeamBand coaches={coachSpotlights} />
+      <ValuesMarquee words={VALUES_ROW_2} />
 
       {featuredStudent ? (
         <SpotlightCard spotlight={featuredStudent} align="right" eyebrow="Student Spotlight" />
       ) : null}
 
       <StepsRow />
-      {levels.length > 0 ? <LevelGrid levels={levels} /> : null}
       <CtaBand />
-
-      <footer
-        style={{
-          textAlign: 'center',
-          padding: 'var(--space-5) 0',
-          color: 'var(--color-muted)',
-          fontSize: '14px',
-        }}
-      >
-        <p style={{ margin: 0 }}>Frisco Fencing Academy</p>
-        {locations.length > 0 ? (
-          <p style={{ margin: 0 }}>
-            {locations.map((location) => `${location.name} · ${location.address}`).join(' | ')}
-          </p>
-        ) : null}
-        <p style={{ margin: 0 }}>&copy; 2026 Frisco Fencing Academy</p>
-      </footer>
+      <SiteFooter locations={locations} />
     </AppShell>
   );
 }

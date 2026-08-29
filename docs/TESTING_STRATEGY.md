@@ -151,29 +151,30 @@ register-private wizard, and spotlight admin remain uncovered, tracked as a futu
 | `admin-shell.spec.ts` | Sidebar nav renders for admin/superadmin, a non-admin role is redirected away, an accessibility scan on the dashboard, a full Levels CRUD (create/edit/delete) round-trip | |
 | `coach-attendance.spec.ts` | Marking a student attended and saving, with an assertion on the exact PATCH payload | |
 
-### Known, accepted accessibility findings (not fixed by this plan)
+### Known, accepted accessibility findings
 
 Both axe-core scans found real, pre-existing WCAG AA color-contrast violations on their first-ever
-run — genuine bugs in the app's current CSS, not anything introduced by this suite. Fixing either
-means picking a new color (`docs/design-system.md` has its own pre-read requirement for touching
-styling), a real design decision this test-infrastructure plan didn't make unilaterally. Each is
-ratcheted, not ignored, in its spec file: the exact known `color-contrast` finding is allowlisted so
-the suite ships green, but any OTHER/NEW violation on that page still fails the build.
+run — genuine bugs in the app's current CSS, not anything introduced by this suite. One is fixed;
+one remains ratcheted (not ignored) in its spec file: the exact known `color-contrast` finding is
+allowlisted so the suite ships green, but any OTHER/NEW violation on that page still fails the build.
 
-- Admin dashboard: the sidebar's brand-role/section-label text (`admin/layout.module.css`'s
-  `--sidebar-muted`, effectively `#787f86` on `--sidebar-bg`) — 4.28:1, needs 4.5:1 (a near-miss).
+- Admin dashboard (still ratcheted): the sidebar's brand-role/section-label text
+  (`admin/layout.module.css`'s `--sidebar-muted`, effectively `#787f86` on `--sidebar-bg`) —
+  4.28:1, needs 4.5:1 (a near-miss). Fixing it means picking a new color (`docs/design-system.md`
+  has its own pre-read requirement for touching styling), a real design decision out of scope here.
   **Unchanged by the 2026-08-29 WP-alignment rebrand** (`docs/plans/wordpress-ui-alignment-plan.md`,
   Phase 1) — `--sidebar-bg` moved from `#1b1a17` to `#0e1b2a`, but the two are similarly dark
   (verified, not assumed), so the ratio is still ~4.28:1.
-- Home page: **fixed** as a side effect of that same rebrand — `LevelGrid`'s price text
-  (`.levelFee`) was gold `#c8a000` on white (2.47:1); gold was replaced by crimson `#b51726`
-  (~6.7:1), which passes. Fixing it unmasked a second, previously-hidden finding on Hero's
-  temporary photo placeholder (`.photoPlaceholder`, muted `#6b6b63` on border-gray `#e2e0db`,
-  both unchanged — 4.07:1) — the original ratchet allowlisted the whole `color-contrast` rule id
-  rather than the specific violating node, so it was silently permitting this one too.
-  `public-site.spec.ts`'s ratchet now matches on the violating node's selector instead of the bare
-  rule id, so it can't mask an unrelated future finding again. Left ratcheted, not fixed: the
-  placeholder is deleted (not restyled) once Phase 2 installs the real hero photo.
+- Home page (fully fixed, ratchet removed): `LevelGrid`'s price text (`.levelFee`) was gold
+  `#c8a000` on white (2.47:1); Phase 1 replaced gold with crimson `#b51726` (~6.7:1), which passes.
+  Fixing that one unmasked a second, previously-hidden finding on Hero's then-temporary photo
+  placeholder (`.photoPlaceholder`, muted `#6b6b63` on border-gray `#e2e0db` — 4.07:1) — the
+  original ratchet allowlisted the whole `color-contrast` rule id rather than the specific
+  violating node, so it was silently permitting this one too. Phase 1 fixed the underlying CSS
+  (`.photoPlaceholder`'s background, ~5:1 now — still used by `SpotlightCard` for a coach/student
+  with no uploaded photo) and Phase 2 made it unreachable on this specific page besides (Hero no
+  longer renders that element — see `Hero.tsx`). `public-site.spec.ts`'s ratchet is removed
+  entirely; the check is back to zero-tolerance.
 
 ### Run it
 

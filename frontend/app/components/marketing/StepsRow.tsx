@@ -25,7 +25,7 @@ export default function StepsRow() {
       </div>
       <div style={{ textAlign: 'center' }}>
         <Button as="a" href="/register" size="lg">
-          Book a Free Trial
+          Take a Trial Class
         </Button>
       </div>
     </section>

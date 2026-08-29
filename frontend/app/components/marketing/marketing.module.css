@@ -3,14 +3,53 @@
    this file only holds what isn't (hero clamp() sizing, the crimson eyebrow,
    the navy closing band). */
 
+/* Breaks a section out of AppShell's padded, max-width:1100px .content
+   wrapper so it reads as a true full-bleed band (WP-style: hero photo,
+   marquees, the navy team band, the crimson CTA band, the footer) —
+   combined with each section's own class, e.g.
+   `${styles.heroPhoto} ${styles.fullBleed}`. The classic robust technique:
+   100vw sized and re-centered on the viewport, independent of the parent's
+   own width/padding. AppShell.module.css's .content sets overflow-x:hidden
+   as this trick's standard companion — 100vw can be a scrollbar's-width
+   wider than the visible viewport in some browsers. */
+.fullBleed {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+}
+
+/* Pill/chip treatment (pale-pink background) added Phase 2, mirroring the
+   live WP site's section-label chips ("Programs", "Our Team", etc. — see
+   docs/plans/wordpress-ui-alignment-plan.md). display:inline-block (not
+   block) so the pill only wraps its own text. */
 .eyebrow {
-  display: block;
+  display: inline-block;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-accent);
+  background: var(--color-chip);
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  padding: 4px 12px;
   margin: 0 0 var(--space-2);
+}
+
+/* Hero-only variant of .eyebrow — solid crimson + white text, standing out
+   against the hero photo instead of the pale-pink chip used everywhere
+   else on the page. */
+.heroChip {
+  display: inline-block;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-white);
+  background: var(--color-accent);
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 6px 14px;
+  margin: 0 0 var(--space-3);
 }
 
 /* Shared two-column responsive layout — Hero (photo right) and
@@ -45,10 +84,17 @@
   flex-wrap: wrap;
 }
 
+/* Background changed --color-border -> --color-bg (2026-08-29, Phase 2):
+   muted text on --color-border failed WCAG AA at 4.07:1 (a real,
+   previously-ratcheted bug — see frontend/e2e/public-site.spec.ts and
+   docs/TESTING_STRATEGY.md's "Known, accepted accessibility findings").
+   On --color-bg the same text passes at ~5:1. Genuinely fixed here, not
+   just no-longer-reachable — SpotlightCard still uses this class for a
+   coach/student spotlight with no uploaded photo. */
 .photoPlaceholder {
   aspect-ratio: 4 / 5;
-  background: var(--color-border);
-  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -56,6 +102,33 @@
   font-size: 14px;
   text-align: center;
   padding: var(--space-4);
+}
+
+/* ── Hero (full-bleed navy band — see Hero.tsx for why this isn't a photo) */
+.heroBand {
+  background: linear-gradient(135deg, var(--color-ink) 0%, var(--color-navy-deep) 100%);
+  display: flex;
+  align-items: center;
+  /* margin-top/bottom only, never the `margin: X 0` shorthand — this
+     combines with .fullBleed (which sets margin-left/right to -50vw) on
+     the same element, and the shorthand would reset those to 0 by also
+     touching left/right, regardless of which rule appears later in this
+     file. Same reasoning on every other .fullBleed-combined class below. */
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.heroPhotoContent {
+  color: var(--color-white);
+  padding: var(--space-6) var(--space-5);
+  max-width: 640px;
+}
+
+/* .heroSubcopy's default color:var(--color-muted) is tuned for the light
+   page background — low-contrast over the hero's dark background, so this
+   overrides it for anything nested inside the hero content specifically. */
+.heroPhotoContent .heroSubcopy {
+  color: rgba(255, 255, 255, 0.88);
 }
 
 @media (max-width: 760px) {
@@ -82,6 +155,81 @@
   margin: var(--space-3) 0 0;
   padding-left: 1.2em;
   color: var(--color-muted);
+}
+
+/* ── IntroSection ("Who we are") ─────────────────────────────────────── */
+.introSection {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  align-items: center;
+  padding: var(--space-6) 0;
+}
+
+/* min-width: 0 — the standard grid-item fix so this column's paragraph
+   text can wrap instead of forcing the 1fr track wider than its share. */
+.introText {
+  min-width: 0;
+}
+
+.introPhoto {
+  position: relative;
+  aspect-ratio: 4 / 5;
+}
+
+.introPhotoImg {
+  object-fit: cover;
+}
+
+@media (max-width: 760px) {
+  .introSection {
+    grid-template-columns: 1fr;
+  }
+
+  .introSection .introPhoto {
+    order: -1;
+  }
+}
+
+/* ── ValuesMarquee ────────────────────────────────────────────────────── */
+.marquee {
+  overflow: hidden;
+  background: var(--color-ink);
+  padding: var(--space-4) 0;
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.marqueeTrack {
+  display: flex;
+  width: max-content;
+  gap: var(--space-6);
+  animation: marquee-scroll 26s linear infinite;
+}
+
+.marqueeWord {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 600;
+  font-size: 1.5rem;
+  color: var(--color-white);
+  white-space: nowrap;
+}
+
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marqueeTrack {
+    animation: none;
+    flex-wrap: wrap;
+    width: auto;
+  }
 }
 
 .stepsRow {
@@ -113,8 +261,31 @@
 
 .levelGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: var(--space-4);
+}
+
+/* Card.module.css's own .card carries padding: var(--space-5) for text
+   content — a photo needs to bleed to the card's edge instead. Rather than
+   fight that with a competing padding rule (a cascade-order race between
+   two separate CSS module files, since both are single-class selectors of
+   equal specificity), the photo cancels it with an equal negative margin —
+   robust regardless of import/bundle order. .levelCardBody's own padding
+   then re-establishes the inset for the text below it. */
+.levelCardPhoto {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
+}
+
+.levelCardPhotoFallback {
+  aspect-ratio: 4 / 3;
+  background: var(--color-ink);
+  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
+}
+
+.levelCardBody {
+  padding-top: var(--space-4);
 }
 
 /* Muted, not accent — .levelFee below already uses the accent color, and
@@ -142,13 +313,211 @@
   margin: 0;
 }
 
-.ctaBand {
+/* ── FacilityBand ─────────────────────────────────────────────────────── */
+.facilityBand {
+  text-align: center;
+  padding: var(--space-6) 0;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.facilityBand .heroSubcopy {
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.statsRow {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  margin-top: var(--space-5);
+}
+
+.statItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.statValue {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 2rem;
+  color: var(--color-ink);
+}
+
+.statLabel {
+  color: var(--color-muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+}
+
+/* ── TeamBand ─────────────────────────────────────────────────────────── */
+.teamBand {
   background: var(--color-ink);
   color: var(--color-white);
-  text-align: center;
   padding: var(--space-6) var(--space-4);
-  border-radius: var(--radius-md);
-  margin: var(--space-6) 0;
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+/* .teamBand is full-bleed (100vw, via .fullBleed) — this re-establishes a
+   readable max-width for its actual content, the same pattern .siteFooterTop
+   and .heroPhotoContent use. */
+.teamBandInner {
+  max-width: 1100px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.teamSubcopy {
+  color: rgba(255, 255, 255, 0.75);
+  max-width: 560px;
+  margin: 0 auto var(--space-5);
+}
+
+.teamGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-5);
+  text-align: left;
+}
+
+.teamCard {
+  display: flex;
+  flex-direction: column;
+}
+
+.teamViewAll {
+  margin: var(--space-5) 0 0;
+}
+
+.teamViewAll a {
+  color: var(--color-white);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.teamViewAll a:hover {
+  text-decoration: underline;
+}
+
+.teamCardPhoto {
+  aspect-ratio: 1;
+  background: rgba(255, 255, 255, 0.08);
+  background-size: cover;
+  background-position: center;
+  margin-bottom: var(--space-3);
+}
+
+.teamCardName {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+
+.teamCardTitle {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* ── SiteFooter ───────────────────────────────────────────────────────── */
+.siteFooter {
+  background: var(--color-ink);
+  color: rgba(255, 255, 255, 0.85);
+  padding: var(--space-6) var(--space-5) var(--space-4);
+  margin-top: var(--space-6);
+}
+
+.siteFooterTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  max-width: 1100px;
+  margin: 0 auto var(--space-5);
+}
+
+.siteFooterWordmark {
+  display: block;
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  color: var(--color-white);
+  margin-bottom: var(--space-1);
+}
+
+.siteFooterLocations {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.85rem;
+  margin: 0;
+  max-width: 340px;
+}
+
+.siteFooterNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.siteFooterNav a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.siteFooterNav a:hover {
+  color: var(--color-white);
+  text-decoration: underline;
+}
+
+.siteFooterSocial {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.siteFooterSocial a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.siteFooterSocial a:hover {
+  color: var(--color-white);
+  text-decoration: underline;
+}
+
+.siteFooterCopyright {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.78rem;
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ── CtaBand ──────────────────────────────────────────────────────────── */
+.ctaBand {
+  background: var(--color-accent);
+  color: var(--color-white);
+  padding: var(--space-6) var(--space-4);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+/* .ctaBand is full-bleed (100vw, via .fullBleed) — see .teamBandInner's
+   comment for why this inner wrapper exists. */
+.ctaBandInner {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
 }
 
 .ctaBandTitle {
@@ -159,8 +528,12 @@
 
 /* Sibling to .ctaBandTitle, not a reuse of .heroSubcopy — that class's
    color: var(--color-muted) is tuned for the light page background, and
-   would be low-contrast on this band's dark --color-ink background. */
+   would be low-contrast on this band's background.
+   Full white, not a translucent white (2026-08-29, Phase 2): the band's
+   background changed from --color-ink to --color-accent (crimson, a
+   lighter color), and 72%-opacity white on crimson measures only 4.07:1
+   (verified — fails WCAG AA's 4.5:1). Full white passes comfortably. */
 .ctaBandSubtitle {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--color-white);
   margin: 0 0 var(--space-4);
 }

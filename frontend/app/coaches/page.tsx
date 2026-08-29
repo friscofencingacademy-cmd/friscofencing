@@ -2,17 +2,26 @@
 
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
 import { fetchPublicSpotlights } from '../../lib/services/spotlights';
+import { fetchPublicLocations } from '../../lib/services/catalog';
 import AppShell from '../components/layout/AppShell';
 import Card from '../components/ui/Card/Card';
 import LoadError from '../components/ui/LoadError/LoadError';
 import SpotlightCard from '../components/marketing/SpotlightCard';
+import SiteFooter from '../components/marketing/SiteFooter';
 import styles from '../components/ui/shared.module.css';
 
+async function fetchCoachesPageData() {
+  const [coaches, locations] = await Promise.all([
+    fetchPublicSpotlights('coach'),
+    fetchPublicLocations(),
+  ]);
+  return { coaches, locations };
+}
+
 export default function CoachesPage() {
-  const { data, error, isLoading, retry } = useLoadState(
-    () => fetchPublicSpotlights('coach'),
-    []
-  );
+  const { data, error, isLoading, retry } = useLoadState(fetchCoachesPageData, []);
+
+  const coaches = data?.coaches ?? [];
 
   return (
     <AppShell>
@@ -24,13 +33,13 @@ export default function CoachesPage() {
         <LoadError message={getErrorMessage(error)} onRetry={retry} />
       ) : isLoading ? (
         <p>Loading…</p>
-      ) : !data || data.length === 0 ? (
+      ) : coaches.length === 0 ? (
         <Card>
           <p style={{ margin: 0 }}>No coach profiles are published yet.</p>
         </Card>
       ) : (
         <div style={{ display: 'grid', gap: 'var(--space-6)' }}>
-          {data.map((coach, index) => (
+          {coaches.map((coach, index) => (
             <SpotlightCard
               key={coach.name}
               spotlight={coach}
@@ -39,6 +48,8 @@ export default function CoachesPage() {
           ))}
         </div>
       )}
+
+      <SiteFooter locations={data?.locations ?? []} />
     </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 import { useAuth, type Role } from '../../context/AuthContext';
@@ -12,12 +13,15 @@ interface NavLink {
   label: string;
 }
 
-// Logged-out (public) nav. Kept to Classes/Coaches/Private Lessons — the
-// three real, unauthenticated surfaces — plus auth actions; every public
-// CTA points at /register (no guest booking, see docs/features/public-site.md).
+// Logged-out (public) nav. Rebranded 2026-08-29 to mirror the live WP
+// site's own nav wording (docs/plans/wordpress-ui-alignment-plan.md,
+// Phase 2) — "Home" alongside the wordmark (the WP site has both), "Programs"
+// for /classes, "Our Team" for /coaches. Every public CTA points at
+// /register (no guest booking, see docs/features/public-site.md).
 const PUBLIC_NAV_LINKS: NavLink[] = [
-  { href: '/classes', label: 'Classes' },
-  { href: '/coaches', label: 'Coaches' },
+  { href: '/', label: 'Home' },
+  { href: '/classes', label: 'Programs' },
+  { href: '/coaches', label: 'Our Team' },
   { href: '/private-classes', label: 'Private Lessons' },
 ];
 
@@ -50,8 +54,7 @@ export default function AppShell({ children }: AppShellProps) {
       <div>
         <nav className={styles.nav}>
           <Link href="/" className={styles.wordmark}>
-            FRISCO FENCING
-            <span className={styles.wordmarkDot} aria-hidden="true" />
+            <Image src="/marketing/logo.svg" alt="Frisco Fencing Academy" width={40} height={32} priority />
           </Link>
 
           <ul className={styles.navLinks}>
@@ -69,7 +72,7 @@ export default function AppShell({ children }: AppShellProps) {
               Log In
             </Button>
             <Button as="a" href="/register" size="sm">
-              Book a Free Trial
+              Take a Trial Class
             </Button>
           </div>
         </nav>
@@ -84,8 +87,7 @@ export default function AppShell({ children }: AppShellProps) {
     <div>
       <nav className={styles.nav}>
         <Link href="/" className={styles.wordmark}>
-          FRISCO FENCING
-          <span className={styles.wordmarkDot} aria-hidden="true" />
+          <Image src="/marketing/logo.svg" alt="Frisco Fencing Academy" width={40} height={32} priority />
         </Link>
 
         <ul className={styles.navLinks}>

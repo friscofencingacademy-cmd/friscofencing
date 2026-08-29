@@ -62,6 +62,15 @@ body {
   color: var(--color-ink);
   font-family: var(--font-body), sans-serif;
   margin: 0;
+  /* Companion to marketing.module.css's .fullBleed (100vw-based full-bleed
+     sections, Phase 2) — 100vw can be a scrollbar's-width wider than the
+     visible viewport in some browsers. Deliberately on body, not on any
+     narrower wrapper (e.g. AppShell's .content): .content is the direct
+     parent of the full-bleed sections, so overflow-x:hidden there would
+     clip the very content .fullBleed is meant to let escape it — verified
+     by hitting exactly this bug in a screenshot check before landing it
+     here instead. */
+  overflow-x: hidden;
 }
 
 h1,
