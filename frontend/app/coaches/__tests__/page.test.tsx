@@ -7,10 +7,14 @@ import { AuthProvider } from '../../context/AuthContext';
 
 const COACH_A = { name: 'Jane Smith', title: 'Head Coach', body: 'Body A.', bullets: [] };
 const COACH_B = { name: 'Sam Lee', title: 'Assistant Coach', body: 'Body B.', bullets: [] };
+const LOCATION = { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' };
 
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ message: 'unauthorized' }, { status: 401 })),
-  http.get('*/spotlights/public', () => HttpResponse.json({ spotlights: [COACH_A, COACH_B] }))
+  http.get('*/spotlights/public', () => HttpResponse.json({ spotlights: [COACH_A, COACH_B] })),
+  // Fetched alongside spotlights (Promise.all) since Phase 2 added the
+  // footer's location data — see docs/plans/wordpress-ui-alignment-plan.md.
+  http.get('*/locations/public', () => HttpResponse.json({ locations: [LOCATION] }))
 );
 
 beforeAll(() => server.listen());

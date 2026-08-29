@@ -9,6 +9,7 @@ import AppShell from '../components/layout/AppShell';
 import Card from '../components/ui/Card/Card';
 import LoadError from '../components/ui/LoadError/LoadError';
 import ScheduleTable from '../components/marketing/ScheduleTable';
+import SiteFooter from '../components/marketing/SiteFooter';
 import styles from '../components/ui/shared.module.css';
 
 async function fetchClassesPageData() {
@@ -85,6 +86,8 @@ export default function ClassesPage() {
           )}
         </>
       )}
+
+      <SiteFooter locations={data?.locations ?? []} />
     </AppShell>
   );
 }

@@ -1,8 +1,62 @@
 # WordPress UI Alignment + Family Scorecard Checkout — Execution Plan
 
-**Status: READY TO EXECUTE.** Written 2026-08-29 from a full analysis of the owner's WordPress
-export (`friscofencing.WordPress.2026-08-29.xml`, verified against the live site the same day)
-and the screenshot mock `C:\Users\mages\ckqtestimages\familypaymentcard.jpg`.
+**Status: Phase 1 + Phase 2 BUILT 2026-08-29 (PRs #58 stacked with the Phase 2 PR), Phase 3
+not started.** Written 2026-08-29 from a full analysis of the owner's WordPress export
+(`friscofencing.WordPress.2026-08-29.xml`, verified against the live site the same day) and
+the screenshot mock `C:\Users\mages\ckqtestimages\familypaymentcard.jpg`.
+
+## Phase 1 + 2 completion notes (2026-08-29)
+
+Built and verified exactly as spec'd below, with four real findings caught and corrected
+during implementation (not assumed from the plan text) — each documented in place with a
+dated comment at its actual fix site, summarized here:
+
+1. **The hero photo was wrong.** The plan's designated hero image
+   (`GettyImages-1716935160-1-scaled.jpg`, the WP site's own hero background) turned out, on
+   visual inspection via a Playwright screenshot, to be a stock photo of children playing
+   **soccer** — leftover "Eagle Elite" multi-sport theme content the WP site itself never
+   replaced with real fencing photography, the same class of bug as finding #2 below.
+   `Hero.tsx` ships a solid navy gradient band instead of a photo (`.heroBand`) until the
+   owner supplies a real one; the file is downloaded and lives on disk, but is not
+   referenced by any component. The other three downloaded photos (`who-we-are.png`, the
+   three `program-*` images) were visually verified as genuinely fencing-related and are
+   used as designed.
+2. **The plan's own quoted hero subcopy was fabricated, and the real WP text is also
+   boilerplate.** §3.3 item 1 quoted "...a center of excellence for fencing in Frisco" as
+   verbatim WP copy; re-extracting the WordPress export's full, untruncated text field found
+   the actual source string is "...a center to bring people together through sports" —
+   generic multi-sport template copy, never customized, and never what the plan claimed
+   either. `Hero.tsx` keeps the pre-existing, accurate, fencing-specific subcopy instead of
+   shipping either version. All other quoted WP copy in Phase 2 (chip/headline/Who-we-are
+   body/Programs/Facility/Team text) was re-verified against the export's full,
+   non-truncated text fields before use — this was the only fabricated one found.
+3. **The full-bleed CSS technique needed two follow-up fixes, both caught by an actual
+   screenshot, not by code review alone:** (a) `overflow-x: hidden` was first added to
+   `AppShell`'s `.content` as the standard companion to the `100vw`-based `.fullBleed`
+   trick — but `.content` is the fullBleed sections' direct parent, so it clipped the very
+   content the technique was meant to let escape. Moved to `body` in `globals.css` instead.
+   (b) Every class combined with `.fullBleed` had to use `margin-top`/`margin-bottom`
+   longhands instead of the `margin: X 0` shorthand, since the shorthand's expanded
+   `margin-left`/`margin-right: 0` would fight `.fullBleed`'s own `-50vw` margins with no
+   reliable winner across two same-specificity rules in different source positions.
+4. **A second, previously-hidden a11y violation, found while fixing the first.** Phase 1's
+   `.levelFee` gold-contrast fix unmasked a second `color-contrast` finding on Hero's
+   temporary photo placeholder — the *original* ratchet (pre-dating this plan) allowlisted
+   the whole `color-contrast` rule id rather than the specific violating node, silently
+   permitting this second one too. Fixed the underlying CSS (`.photoPlaceholder`'s
+   background) and, since Phase 2's real `Hero` no longer renders that element at all,
+   removed the ratchet entirely — `public-site.spec.ts`'s home-page a11y check is back to
+   zero-tolerance. Full detail in `docs/TESTING_STRATEGY.md`'s "Known, accepted
+   accessibility findings."
+
+Verification for both phases: `tsc --noEmit` clean, frontend Jest 277/277, `next build`
+succeeds, Playwright e2e 19/19 (2 pre-existing unrelated skips). Backend Jest's 28
+failures (registration.routes/scheduleOccurrence/billingDates/realignBillingAnchors)
+reproduced identically on the unmodified base commit via `git stash` before Phase 1 — confirmed
+pre-existing and unrelated, not introduced by this plan; Phase 2 touched no backend files.
+Also visually verified with an ad hoc Playwright screenshot against realistic fixture data
+(not committed) — this is how findings #1 and #3 were actually caught, not just reasoned
+about.
 
 **Goal:** make the platform's frontend look like the existing `friscofencingacademy.com`
 (an Elementor site on the VamTam "Eagle Elite" theme) so visitors experience visual
@@ -101,7 +155,7 @@ Registration on the WP site exits to **ppnsports.com** — the thing this platfo
 | Purpose | URL |
 |---|---|
 | Logo (SVG) | `https://friscofencingacademy.com/wp-content/uploads/2024/10/FCA_Logo-1.svg` |
-| Hero photo | `https://friscofencingacademy.com/wp-content/uploads/2024/12/GettyImages-1716935160-1-scaled.jpg` |
+| ~~Hero photo~~ | ~~`https://friscofencingacademy.com/wp-content/uploads/2024/12/GettyImages-1716935160-1-scaled.jpg`~~ — **downloaded, verified during Phase 2 build to be a stock photo of children playing soccer (leftover multi-sport theme content), not used.** See the Phase 1+2 completion notes above. `Hero` ships a solid navy gradient instead. |
 | Program — Beginner | `https://friscofencingacademy.com/wp-content/uploads/2026/02/beginner_2-scaled.jpg` |
 | Program — Intermediate | `https://friscofencingacademy.com/wp-content/uploads/2026/02/intermediate_2-scaled.jpg` |
 | Program — Advanced | `https://friscofencingacademy.com/wp-content/uploads/2026/02/Frame-1597882064-2-1.png` |

@@ -11,21 +11,9 @@
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-heading), sans-serif;
-  font-weight: 900;
-  font-size: 18px;
-  color: var(--color-ink);
   text-decoration: none;
   white-space: nowrap;
-}
-
-.wordmarkDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  display: inline-block;
+  line-height: 0;
 }
 
 .navLinks {

@@ -24,21 +24,22 @@ function renderShell() {
 }
 
 describe('AppShell', () => {
-  it('renders the public nav (Classes, Coaches, Private Lessons, Log In, Book a Free Trial) when logged out', async () => {
+  it('renders the public nav (Home, Programs, Our Team, Private Lessons, Log In, Take a Trial Class) when logged out', async () => {
     renderShell();
 
     // Waits out AuthProvider's /auth/me restore before asserting the
     // logged-out branch is the final render, not a transient loading state.
     await screen.findByText('page content');
 
-    expect(screen.getByRole('link', { name: 'Classes' })).toHaveAttribute('href', '/classes');
-    expect(screen.getByRole('link', { name: 'Coaches' })).toHaveAttribute('href', '/coaches');
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Programs' })).toHaveAttribute('href', '/classes');
+    expect(screen.getByRole('link', { name: 'Our Team' })).toHaveAttribute('href', '/coaches');
     expect(screen.getByRole('link', { name: 'Private Lessons' })).toHaveAttribute(
       'href',
       '/private-classes'
     );
     expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login');
-    expect(screen.getByRole('link', { name: 'Book a Free Trial' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Take a Trial Class' })).toHaveAttribute(
       'href',
       '/register'
     );
@@ -57,6 +58,6 @@ describe('AppShell', () => {
 
     expect(await screen.findByText('Welcome, Jane')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'My Schedules' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Book a Free Trial' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Take a Trial Class' })).not.toBeInTheDocument();
   });
 });
