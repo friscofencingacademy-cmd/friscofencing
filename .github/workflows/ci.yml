@@ -2,9 +2,20 @@ name: CI
 
 # First CI this repo has ever had — see docs/plans/e2e-testing-plan.md's
 # D6. Runs on every PR (to any base branch) and every push to develop/main.
-# No secrets required anywhere in this workflow: backend/frontend Jest are
-# fully mocked (mongodb-memory-server + MSW), and the E2E job never talks
-# to a real database, Stripe, or staging (frontend/e2e/fixtures/mock-api.ts).
+#
+# One secret required: STRIPE_SECRET_KEY (a Stripe TEST-mode key, repo
+# Actions secret — found necessary on this workflow's first real run, not
+# assumed: backend/tests/routes/{paymentMethod,registration,privateClass*}
+# and their service-level twins call real Stripe TEST-mode APIs by this
+# repo's own deliberate, documented convention (docs/TESTING_STRATEGY.md's
+# Mocking rules — Stripe is never mocked, to avoid drifting from its real
+# API contract) — same as every other backend test file, which are fully
+# mocked (mongodb-memory-server + MSW) and need nothing extra. The E2E job
+# never talks to a real database, Stripe, or staging
+# (frontend/e2e/fixtures/mock-api.ts), so it needs no secret either. Note
+# this key already lives in Vercel's own env vars for the deployed
+# backend — that's a separate store GitHub Actions cannot read, so it had
+# to be added here too via `gh secret set`, not assumed already available.
 #
 # NOTE ON THIS WORKFLOW BECOMING AN ACTUAL GATE: this file alone only makes
 # these checks run and report status on a PR. Making a red run actually
@@ -33,6 +44,7 @@ jobs:
         working-directory: backend
         env:
           TZ: UTC
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
 
   frontend-tests:
     runs-on: ubuntu-latest
