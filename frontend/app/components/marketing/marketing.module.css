@@ -63,6 +63,11 @@
   padding: var(--space-6) 0;
 }
 
+/* Deliberately bigger than globals.css's base --font-size-h1 (48px) — a
+   full-bleed video hero reads better with an oversized headline than the
+   plain-page H1 size the WP export otherwise documents. This is the kind
+   of one-off exception that scale exists to be overridden for, not an
+   oversight (see globals.css's type-scale comment). */
 .heroTitle {
   font-family: var(--font-heading), sans-serif;
   font-weight: 900;

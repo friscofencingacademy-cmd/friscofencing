@@ -49,7 +49,20 @@ The parent portal sidebar itself renders on a **light** surface (`--color-white`
 
 ## Typography
 
-**Big Shoulders Text** (500/600/700, `--font-heading`, uppercase) for headings, buttons, nav. **Inter** (400/500/600/700, `--font-body`) for everything else. Rebranded 2026-08-29 (previously Saira Condensed/Saira) to match the WP site. Both loaded via `next/font/google` in `app/layout.tsx`. All `h1`–`h6` are `text-transform: uppercase` globally (`globals.css`); `h1`/`h2`/`h3` are weight 600 unless a component explicitly overrides it (several marketing headings keep a heavier local weight — see their own `.module.css`).
+**Big Shoulders Text** (500/600/700, `--font-heading`, uppercase) for headings, buttons, nav. **Inter** (400/500/600/700, `--font-body`) for everything else. Rebranded 2026-08-29 (previously Saira Condensed/Saira) to match the WP site. Both loaded via `next/font/google` in `app/layout.tsx`.
+
+**Type scale** (`globals.css`'s `--font-size-h1`...`--font-size-h6` tokens, added 2026-08-29 — the WP export's own documented heading scale, `docs/plans/wordpress-ui-alignment-plan.md` §1.2). Every bare `h1`–`h6` element gets its size from these tokens automatically — **a component should never hardcode a heading's `font-size`**; either let the bare element rule apply, or reference the token if a class needs to size some *other* element to match a heading level (see Anti-patterns below).
+
+| Level | Size | Weight | Notes |
+|---|---|---|---|
+| H1 | 48px (28px ≤760px) | 600 | Responsive breakpoint matches the one existing breakpoint marketing pages already use elsewhere — collapses the WP export's 3-tier 48/35/28 desktop/tablet/mobile scale into this codebase's 2-tier one |
+| H2 | 32px | 600 | |
+| H3 | 22px | 600 | |
+| H4 | 20px | 500 | |
+| H5 | 18px | 400 | **Not** a Big Shoulders heading — Inter, not uppercase, the one exception to the scale above. No H5 exists anywhere in the app yet; this is here so the first one gets the correct treatment automatically |
+| H6 | 14px | 500 | |
+
+All `h1`–`h6` except H5 are `text-transform: uppercase` (`globals.css`). A component may deliberately size *past* the scale for a specific, documented reason — e.g. `Hero`'s `.heroTitle` sizes its H1 larger than 48px because a full-bleed video hero reads better oversized — but that's an explicit, commented exception, not a default to copy.
 
 ## Shells
 
@@ -125,6 +138,7 @@ Things that have shown up before (in CKQ, or would be an easy mistake to reintro
 5. **Per-page duplicate domain interfaces.** Don't redeclare `interface Location { _id, name, address, timezone }` inside a page file — import it from `lib/types.ts`. A duplicate definition is exactly how a page silently drifts from what the backend actually returns.
 6. **A modal (or a full-page takeover) for a load failure.** A failed query renders `LoadError` in place of the content — see Principles above.
 7. **A duplicate CSS Modules class name defined twice in the same file** (the exact bug CKQ shipped in its own `admin.module.css` — two separate `.pageHeader` rules, the second silently overriding the first for any file importing both meanings). `admin.module.css` here defines `.pageHeader` exactly once, as the title+subtitle block only — the title-row-plus-action-button layout is `.pageHeaderRow`, a distinct name.
+8. **A component setting its own heading `font-size`.** Let the bare `h1`–`h6` element rule in `globals.css` apply (see Typography's type scale above) — this is exactly how several home-page section headings ended up rendering at the browser's plain ~24px default instead of the WP export's documented 32px: `.sectionTitle`/`.ctaBandTitle`/`.testimonialsBannerTitle` never got a `font-size` set, so nothing overrode the UA default, and it went unnoticed because no single component was "wrong" on its own — the gap was in what *no one* set. A component may still deliberately size past the scale for a specific, commented reason (`Hero`'s `.heroTitle`) — that's a documented exception, not a silent omission.
 
 ## Pre-merge checklist
 
