@@ -20,12 +20,12 @@ describe('ProgramsSection', () => {
     expect(screen.getByText('18 months+')).toBeInTheDocument();
   });
 
-  it('shows no pricing and links every "Know more" CTA to /register', () => {
+  it('shows no pricing and links every "Take Trial Class" CTA to /register', () => {
     render(<ProgramsSection />);
 
     expect(screen.queryByText(/\$\d+\/month/)).not.toBeInTheDocument();
 
-    const links = screen.getAllByRole('link', { name: /know more/i });
+    const links = screen.getAllByRole('link', { name: /take trial class/i });
     expect(links).toHaveLength(3);
     links.forEach((link) => expect(link).toHaveAttribute('href', '/register'));
   });

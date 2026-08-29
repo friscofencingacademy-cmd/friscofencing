@@ -16,9 +16,10 @@ import styles from './marketing.module.css';
 //
 // Copy (duration + description per program) is verbatim from the WP
 // export's Programs section — re-extracted 2026-08-29 alongside the hero
-// video find. The "Know more" CTA text is also left as-is as the export has
-// it, at the owner's explicit call, even though the live site's own hero
-// buttons elsewhere drifted from their export text.
+// video find. The CTA text is "Take Trial Class", verbatim from the live
+// site itself (not the export, which has "Know more" here — the owner's
+// final call after comparing a second reference screenshot, reversing an
+// earlier decision to keep "Know more").
 interface Program {
   key: string;
   name: string;
@@ -105,10 +106,25 @@ export default function ProgramsSection() {
       </p>
       <div className={styles.levelGrid}>
         {PROGRAMS.map((program) => (
-          <Card key={program.key}>
+          <Card key={program.key} className={styles.programCard}>
             <div className={styles.levelCardPhoto}>
-              <Image src={program.photo} alt="" fill sizes="(max-width: 760px) 100vw, 33vw" />
-              <DotProgressIcon filled={program.filledDots} />
+              {/* object-fit: cover is required here, not cosmetic — none of
+                  these source photos are natively 9:4 (see git history for
+                  the exact ratios), so without it they'd be stretched to
+                  fit rather than cropped. Pre-existing gap inherited from
+                  the old LevelGrid (barely visible at the old 4:3 ratio);
+                  caught now because the new, more extreme crop would make
+                  the distortion obvious. */}
+              <Image
+                src={program.photo}
+                alt=""
+                fill
+                sizes="(max-width: 760px) 100vw, 33vw"
+                style={{ objectFit: 'cover' }}
+              />
+              <span className={styles.programDotBadge}>
+                <DotProgressIcon filled={program.filledDots} />
+              </span>
             </div>
             <div className={styles.levelCardBody}>
               <span className={styles.programDuration}>{program.duration}</span>
@@ -118,7 +134,7 @@ export default function ProgramsSection() {
                 <span className={styles.programCtaIcon}>
                   <ArrowIcon />
                 </span>
-                Know more
+                Take Trial Class
               </a>
             </div>
           </Card>

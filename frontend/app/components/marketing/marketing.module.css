@@ -342,14 +342,34 @@
    equal specificity), the photo cancels it with an equal negative margin —
    robust regardless of import/bundle order. .levelCardBody's own padding
    then re-establishes the inset for the text below it. */
+/* aspect-ratio matches the live site's own crop (~2.25/1, measured off a
+   reference screenshot 2026-08-29) — a short, wide "banner" crop, not the
+   taller 4/3 this used before. */
 .levelCardPhoto {
   position: relative;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 9 / 4;
   margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
+  overflow: hidden;
+}
+
+/* Equal-height cards + a flex column body so .programCta below can dock to
+   the bottom of every card regardless of how many lines each program's own
+   description wraps to — the live site keeps all three CTAs on one row;
+   without this, the tallest description's card alone would push its own
+   CTA lower than the other two. .levelGrid is a CSS grid, so its items
+   already stretch to the tallest row by default (align-items: stretch) —
+   height: 100% here is what lets this card's own box fill that. */
+.programCard {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .levelCardBody {
   padding-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 /* Same treatment .levelOrder used to have (renamed: this section is no
@@ -377,24 +397,40 @@
   margin: 0 0 var(--space-4);
 }
 
-/* The live site's dot-cluster icon, straddling the photo/body boundary —
-   .levelCardPhoto has no overflow:hidden (see its own comment above), so
-   this can spill past the photo's bottom edge onto the card body beneath it
-   without being clipped. currentColor + .programDotIcon's own color (not a
-   hardcoded hex) keeps this on the existing --color-accent token, the same
-   crimson the source SVG used. */
-.programDotIcon {
+/* The live site's dot-cluster icon sits inside a white shape in the photo's
+   bottom-left corner — a sharp corner flush with the card's own corner, and
+   one large rounded corner curving up into the photo (measured off a
+   reference screenshot 2026-08-29). border-top-right-radius on an
+   otherwise-square box is exactly that shape; .levelCardPhoto's own
+   overflow:hidden keeps it from spilling past the photo's edges. */
+.programDotBadge {
   position: absolute;
-  left: var(--space-4);
-  bottom: -19px;
+  left: 0;
+  bottom: 0;
+  width: 60px;
+  height: 32px;
+  background: var(--color-white);
+  border-top-right-radius: 60px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0 var(--space-1) var(--space-2);
+}
+
+/* currentColor + this class's own color (not a hardcoded hex) keeps the
+   dots on the existing --color-accent token, the same crimson the source
+   SVG used. Sized down from the source's native 39x38 to fit the badge. */
+.programDotIcon {
+  width: 26px;
+  height: 26px;
   color: var(--color-accent);
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
 }
 
 /* Plain text link + a small circular arrow-icon badge, mirroring the live
    site's own CTA treatment (a bordered Button felt too heavy here) — reuses
    --color-chip, the same pale-pink token .eyebrow already uses, rather than
-   inventing a new tint. */
+   inventing a new tint. margin-top:auto docks this to the bottom of
+   .levelCardBody's flex column, keeping every card's CTA on the same row
+   regardless of how long its own description is (see .programCard). */
 .programCta {
   display: inline-flex;
   align-items: center;
@@ -405,6 +441,7 @@
   letter-spacing: 0.04em;
   font-size: 0.85rem;
   text-decoration: none;
+  margin-top: auto;
 }
 
 .programCtaIcon {

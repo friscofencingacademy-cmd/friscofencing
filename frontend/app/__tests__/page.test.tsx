@@ -98,7 +98,7 @@ describe('HomePage (logged out)', () => {
     expect(trialLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
   });
 
-  it('renders each program\'s duration/description copy and a "Know more" link to /register', async () => {
+  it('renders each program\'s duration/description copy and a "Take Trial Class" link to /register', async () => {
     renderPage();
 
     await screen.findByText('Olympic Fencing.');
@@ -110,9 +110,9 @@ describe('HomePage (logged out)', () => {
       screen.getByText(/A calm supportive environment where students learn the fundamentals/)
     ).toBeInTheDocument();
 
-    const knowMoreLinks = screen.getAllByRole('link', { name: /know more/i });
-    expect(knowMoreLinks).toHaveLength(3);
-    expect(knowMoreLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
+    const programCtaLinks = screen.getAllByRole('link', { name: /^take trial class$/i });
+    expect(programCtaLinks).toHaveLength(3);
+    expect(programCtaLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
   });
 
   it('renders every published coach in the team band, plus a link to /coaches, and the student spotlight with its eyebrow', async () => {
