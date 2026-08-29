@@ -30,6 +30,7 @@ Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected 
 |---|---|---|
 | `levelId` | ObjectId ref `Level` | required, **unique** — one price per level (fencing is in-person only, no online/in-person split) |
 | `monthlyFee` | Number | required, min 0 |
+| `registrationFee` | Number, nullable | optional per-level override of `Setting.registrationFee` (the academy-wide default), min 0. `null` (the default) means "inherit the academy-wide fee"; an explicit `0` means "this level charges no registration fee" — the two are deliberately distinct. See `registrationFee.service.js`'s `resolveRegistrationFee` (`docs/plans/per-level-registration-fee-plan.md`). |
 
 ## `TrialClass` — implemented
 | Field | Type | Notes |
@@ -107,11 +108,11 @@ The charge-amount calculation lives in its own file, `backend/src/services/billi
 ## `Setting` — implemented (registration-fee plan)
 | Collection | Key fields |
 |---|---|
-| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below). |
+| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`) — the **academy-wide default**, overridden per level by `Price.registrationFee` when set (`docs/plans/per-level-registration-fee-plan.md`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below). |
 
 Superadmin-only (`GET`/`PATCH /api/v1/settings`) — same trust bar as `/audit-runs`, since these values change the charge on every future registration immediately, with no confirmation step. No caching — read fresh on every call, consistent with `calculateChargeAmount`'s "never cached" principle.
 
-**Registration fee** (`backend/src/services/billing/registrationFee.service.js`): a one-time fee bundled into the same Stripe `PaymentIntent` as the first month's charge (one charge, the existing idempotency key) — never a second, separate charge. Never discounted by the sibling rule (a flat enrollment fee, not recurring tuition). `$0` (the default) means no charge to anyone until an admin explicitly sets a positive fee.
+**Registration fee** (`backend/src/services/billing/registrationFee.service.js`): a one-time fee bundled into the same Stripe `PaymentIntent` as the first month's charge (one charge, the existing idempotency key) — never a second, separate charge. Never discounted by the sibling rule (a flat enrollment fee, not recurring tuition). Two-source resolution (`docs/plans/per-level-registration-fee-plan.md`): the registering class's level's own `Price.registrationFee` wins when set — including an explicit `0` — and `Setting.registrationFee` (the academy-wide default) applies only when the level's fee is unset. `$0` (the default on both) means no charge to anyone until an admin explicitly sets a positive fee somewhere.
 
 **Returning-student waiver**: if a student has a prior `Subscription` with `status: 'cancelled'`, and `now` is within `returningStudentGracePeriodMonths` of that subscription's `currentPeriodEnd` (when their access actually ended, not when cancellation was requested — see the two-stage cancellation note above), the fee is waived for this registration. `returningStudentGracePeriodMonths: 0` (the default) means the fee always applies, even to a returning student.
 

@@ -142,6 +142,10 @@ export interface Price {
   _id: string;
   levelId: string;
   monthlyFee: number;
+  // One-time registration fee override for this level. null/undefined means
+  // "inherit the academy-wide default" (Setting.registrationFee); 0 means
+  // "this level charges no registration fee" — the two are distinct.
+  registrationFee?: number | null;
 }
 
 export interface Student {

@@ -139,7 +139,7 @@ export async function fetchPrices(): Promise<Price[]> {
 }
 
 export async function createPrice(
-  data: Pick<Price, 'levelId' | 'monthlyFee'>
+  data: Pick<Price, 'levelId' | 'monthlyFee' | 'registrationFee'>
 ): Promise<MutationResult<Price>> {
   try {
     const res = await api.post<{ price: Price }>('/prices', data);
@@ -151,7 +151,7 @@ export async function createPrice(
 
 export async function updatePrice(
   id: string,
-  data: Partial<Pick<Price, 'levelId' | 'monthlyFee'>>
+  data: Partial<Pick<Price, 'levelId' | 'monthlyFee' | 'registrationFee'>>
 ): Promise<MutationResult<Price>> {
   try {
     const res = await api.put<{ price: Price }>(`/prices/${id}`, data);

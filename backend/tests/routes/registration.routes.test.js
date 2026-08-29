@@ -1049,6 +1049,39 @@ describe('Registration routes', () => {
       },
       20000
     );
+
+    it(
+      "charges the level's own registration fee override instead of the academy-wide default (docs/plans/per-level-registration-fee-plan.md)",
+      async () => {
+        await Setting.create({ registrationFee: 145, returningStudentGracePeriodMonths: 0 });
+
+        // seedSchedule() creates a "Beginner" level's Price with no
+        // registrationFee override — set one directly, same as an admin
+        // would via the Prices page.
+        const { scheduleId, levelId } = await seedSchedule();
+        await Price.findOneAndUpdate({ levelId }, { registrationFee: 100 });
+
+        const { student } = await seedParentAndStudent('reg-fee-level-override@example.com');
+        const parentAgent = await loginAgent('reg-fee-level-override@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.registrationFeeCharged).toBe(100);
+        expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE + 100);
+
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const intent = paymentIntents.data.find(
+          (i) => i.amount === Math.round((MONTHLY_FEE + 100) * 100)
+        );
+        expect(intent).toBeDefined();
+      },
+      20000
+    );
   });
 
   describe('prorated first-month billing', () => {
@@ -1468,6 +1501,42 @@ describe('Registration routes', () => {
       // charge attempt happened.
       expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
       expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+    });
+
+    it("previews the level's own registration fee override instead of the academy-wide default (docs/plans/per-level-registration-fee-plan.md)", async () => {
+      await Setting.create({ registrationFee: 145, returningStudentGracePeriodMonths: 0 });
+
+      const { scheduleId, levelId } = await seedSchedule();
+      await Price.findOneAndUpdate({ levelId }, { registrationFee: 100 });
+
+      const { student } = await seedParentAndStudent('reg-preview-level-override@example.com');
+      const parentAgent = await loginAgent('reg-preview-level-override@example.com');
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registrationFeeCharged).toBe(100);
+      expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE + 100);
+    });
+
+    it('previews the academy-wide default when the level has no override configured', async () => {
+      await Setting.create({ registrationFee: 145, returningStudentGracePeriodMonths: 0 });
+
+      const { scheduleId } = await seedSchedule(); // no override set on this level's Price
+      const { student } = await seedParentAndStudent('reg-preview-level-default@example.com');
+      const parentAgent = await loginAgent('reg-preview-level-default@example.com');
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.registrationFeeCharged).toBe(145);
+      expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE + 145);
     });
 
     it(

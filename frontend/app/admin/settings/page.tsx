@@ -98,7 +98,7 @@ export default function AdminSettingsPage() {
 
   return (
     <main>
-      <AdminPageHeader title="Settings" subtitle="Registration fee, charged as a one-time add-on at signup" />
+      <AdminPageHeader title="Settings" subtitle="Default registration fee, charged as a one-time add-on at signup" />
 
       {error ? (
         <LoadError message={getErrorMessage(error)} onRetry={retry} />
@@ -111,7 +111,7 @@ export default function AdminSettingsPage() {
 
           <div className={styles.formGroup}>
             <label className={styles.label} htmlFor="registration-fee">
-              Registration Fee ($)
+              Default Registration Fee ($)
             </label>
             <input
               id="registration-fee"
@@ -123,8 +123,9 @@ export default function AdminSettingsPage() {
               onChange={(e) => setField('registrationFee', e.target.value)}
             />
             <p className={styles.formHint}>
-              One-time charge added to a family&apos;s first month at registration. $0 means no fee is
-              charged — this is the default until you set one.
+              Academy-wide one-time charge added to a family&apos;s first month at registration. $0
+              means no fee is charged — this is the default until you set one. A level can override
+              this on the Prices page.
             </p>
           </div>
 

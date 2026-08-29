@@ -179,4 +179,96 @@ describe('Price routes', () => {
     expect(updateRes.status).toBe(200);
     expect(updateRes.body.price.monthlyFee).toBe(160);
   });
+
+  // Per-level registration fee (docs/plans/per-level-registration-fee-plan.md)
+  describe('registrationFee override', () => {
+    it('creates and returns a price with a registrationFee override', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const level = await Level.create({ name: 'Beginner', order: 1 });
+
+      const createRes = await agent.post('/api/v1/prices').send({
+        levelId: level._id.toString(),
+        monthlyFee: 150,
+        registrationFee: 100,
+      });
+
+      expect(createRes.status).toBe(201);
+      expect(createRes.body.price.registrationFee).toBe(100);
+    });
+
+    it('defaults registrationFee to null when not provided (inherits the academy-wide fee)', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const level = await Level.create({ name: 'Beginner', order: 1 });
+
+      const createRes = await agent.post('/api/v1/prices').send({
+        levelId: level._id.toString(),
+        monthlyFee: 150,
+      });
+
+      expect(createRes.status).toBe(201);
+      expect(createRes.body.price.registrationFee).toBeNull();
+    });
+
+    it('clears a previously-set registrationFee override back to null', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const level = await Level.create({ name: 'Beginner', order: 1 });
+
+      const createRes = await agent.post('/api/v1/prices').send({
+        levelId: level._id.toString(),
+        monthlyFee: 150,
+        registrationFee: 100,
+      });
+      const priceId = createRes.body.price._id;
+
+      const updateRes = await agent
+        .put(`/api/v1/prices/${priceId}`)
+        .send({ registrationFee: null });
+
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.price.registrationFee).toBeNull();
+    });
+
+    it('accepts an explicit registrationFee of 0 (this level charges no fee)', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const level = await Level.create({ name: 'Beginner', order: 1 });
+
+      const createRes = await agent.post('/api/v1/prices').send({
+        levelId: level._id.toString(),
+        monthlyFee: 150,
+        registrationFee: 0,
+      });
+
+      expect(createRes.status).toBe(201);
+      expect(createRes.body.price.registrationFee).toBe(0);
+    });
+
+    it('rejects a negative registrationFee via the real Mongoose min:0 validator', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const level = await Level.create({ name: 'Beginner', order: 1 });
+
+      const res = await agent.post('/api/v1/prices').send({
+        levelId: level._id.toString(),
+        monthlyFee: 150,
+        registrationFee: -5,
+      });
+
+      // price.controller.js has no special-case for a Mongoose
+      // ValidationError (no .status set on it), so it falls through the
+      // generic `error.status || 500` handler — a real, if imperfect,
+      // existing behavior of this controller, not something this PR
+      // introduces. The point of this test is that the negative value is
+      // actually rejected, not accepted and silently stored.
+      expect(res.status).toBe(500);
+    });
+  });
 });

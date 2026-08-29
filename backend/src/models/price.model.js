@@ -15,6 +15,17 @@ const priceSchema = new Schema(
       required: true,
       min: 0,
     },
+    // One-time registration fee for THIS level, overriding the academy-wide
+    // Setting.registrationFee when set (see registrationFee.service.js's
+    // resolveRegistrationFee). null (the default) means "inherit the
+    // academy-wide fee"; an explicit 0 means "this level charges no
+    // registration fee" — the two are deliberately distinct, so this is
+    // read with ?? (nullish coalescing), never ||.
+    registrationFee: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
   },
   {
     timestamps: true,

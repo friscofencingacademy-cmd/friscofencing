@@ -24,7 +24,7 @@ Columns: Name, Order. Fields: name, order (number). Backend delete guard: 409 if
 
 ### Prices (`/admin/prices`)
 
-Columns: Level (resolved via a levels lookup), Monthly Fee. Fields: levelId (select), monthlyFee (number). No delete guard — nothing else references a `Price` by id, so it stays freely deletable (verified against every model in `backend/src/models/`).
+Columns: Level (resolved via a levels lookup), Monthly Fee, Registration Fee. Fields: levelId (select), monthlyFee (number), registrationFee (number, optional — blank means "inherit the academy-wide default" from Settings; an explicit `0` means "no registration fee at this level," a distinct value from blank). The table shows the level's own override when set (including `0`) or a `Default` marker when it inherits (`docs/plans/per-level-registration-fee-plan.md`). No delete guard — nothing else references a `Price` by id, so it stays freely deletable (verified against every model in `backend/src/models/`).
 
 ### Classes (`/admin/classes`)
 
@@ -132,14 +132,15 @@ reporting step (`POST /audit-runs`), never this page.
 every future registration immediately, with no confirmation step. Lives in the **Billing** sidebar
 section, alongside Prices.
 
-Not a Pattern A CRUD page (there's only ever one `Setting` document) — a single form: "Registration Fee
-($)", "Waive if returning within (months)", and "Enable prorated first-month billing" (checkbox — off
+Not a Pattern A CRUD page (there's only ever one `Setting` document) — a single form: "Default
+Registration Fee ($)" (the academy-wide default — a level can override it on the Prices page, see
+above), "Waive if returning within (months)", and "Enable prorated first-month billing" (checkbox — off
 by default, turning it on never changes an already-active subscription). Save does client-side
 validation (both number fields ≥ 0) before `PATCH /api/v1/settings`; a backend error shows inline and
 the form stays editable. See `docs/decisions/001-in-house-subscription-billing.md`'s 2026-08-26 addenda
-(both of them — registration fee, then prorated billing) and `docs/plans/prorated-first-month-billing-
-plan.md` for the full billing behavior
-this configures.
+(both of them — registration fee, then prorated billing), `docs/plans/prorated-first-month-billing-
+plan.md` for the full billing behavior this configures, and `docs/plans/per-level-registration-fee-plan.md`
+for the per-level override.
 
 ## Dashboard (`/admin/dashboard`)
 
