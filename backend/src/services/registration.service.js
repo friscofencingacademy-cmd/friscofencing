@@ -206,7 +206,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     waived: registrationFeeWaived,
     reason: registrationFeeReason,
     standardAmount: registrationFeeStandardAmount,
-  } = await resolveRegistrationFee(studentId);
+  } = await resolveRegistrationFee(studentId, groupClass.levelId);
 
   const totalChargeAmount = chargeAmount + registrationFeeCharged;
 
@@ -448,7 +448,7 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     waived: registrationFeeWaived,
     reason: registrationFeeReason,
     standardAmount: registrationFeeStandardAmount,
-  } = await resolveRegistrationFee(studentId);
+  } = await resolveRegistrationFee(studentId, groupClass.levelId);
 
   // Display-only breakdown for the Family Scorecard checkout quote panel
   // (docs/plans/wordpress-ui-alignment-plan.md, Phase 3) — computed HERE,

@@ -53,14 +53,14 @@ describe('AdminSettingsPage', () => {
   it('loads and displays the current registration fee and grace period', async () => {
     renderPage();
 
-    expect(await screen.findByLabelText('Registration Fee ($)')).toHaveValue(25);
+    expect(await screen.findByLabelText('Default Registration Fee ($)')).toHaveValue(25);
     expect(screen.getByLabelText('Waive if returning within (months)')).toHaveValue(6);
   });
 
   it('saves an edited value and shows a confirmation', async () => {
     renderPage();
 
-    const feeInput = await screen.findByLabelText('Registration Fee ($)');
+    const feeInput = await screen.findByLabelText('Default Registration Fee ($)');
     fireEvent.change(feeInput, { target: { value: '40' } });
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
@@ -78,7 +78,7 @@ describe('AdminSettingsPage', () => {
   it('shows a client-side error and never submits for a negative fee', async () => {
     renderPage();
 
-    const feeInput = await screen.findByLabelText('Registration Fee ($)');
+    const feeInput = await screen.findByLabelText('Default Registration Fee ($)');
     fireEvent.change(feeInput, { target: { value: '-5' } });
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
@@ -92,7 +92,7 @@ describe('AdminSettingsPage', () => {
 
     renderPage();
 
-    const feeInput = await screen.findByLabelText('Registration Fee ($)');
+    const feeInput = await screen.findByLabelText('Default Registration Fee ($)');
     fireEvent.change(feeInput, { target: { value: '40' } });
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
@@ -105,7 +105,7 @@ describe('AdminSettingsPage', () => {
     renderPage();
 
     expect(await screen.findByText(/access denied — superadmin only/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Registration Fee ($)')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Default Registration Fee ($)')).not.toBeInTheDocument();
   });
 
   it('shows a retry option on a failed load, which recovers', async () => {
@@ -118,6 +118,6 @@ describe('AdminSettingsPage', () => {
     server.use(http.get('*/settings', () => HttpResponse.json({ settings: SETTINGS })));
     fireEvent.click(screen.getByRole('button', { name: /try again/i }));
 
-    expect(await screen.findByLabelText('Registration Fee ($)')).toHaveValue(25);
+    expect(await screen.findByLabelText('Default Registration Fee ($)')).toHaveValue(25);
   });
 });

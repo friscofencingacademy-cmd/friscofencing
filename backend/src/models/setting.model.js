@@ -11,10 +11,13 @@ const { Schema } = mongoose;
 // than a regular admin's Price/Level CRUD.
 const settingSchema = new Schema(
   {
-    // One-time fee charged on top of the first month's charge at
-    // registration (registration.service.js's create()). $0 (the default)
-    // means no charge at all — existing behavior is unchanged until an
-    // admin explicitly sets a positive amount.
+    // Academy-wide DEFAULT one-time fee charged on top of the first month's
+    // charge at registration (registration.service.js's create()). $0 (the
+    // default) means no charge at all — existing behavior is unchanged
+    // until an admin explicitly sets a positive amount. A level's own
+    // Price.registrationFee, when set, overrides this value for that level
+    // (see registrationFee.service.js's resolveRegistrationFee) — this
+    // field only applies to a level whose Price has no override configured.
     registrationFee: {
       type: Number,
       default: 0,

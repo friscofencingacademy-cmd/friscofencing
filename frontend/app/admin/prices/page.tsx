@@ -15,9 +15,12 @@ import styles from '../../components/admin/admin.module.css';
 interface PriceForm {
   levelId: string;
   monthlyFee: string;
+  // Empty string = inherit the academy-wide default. '0' is a real,
+  // distinct value (this level charges no registration fee).
+  registrationFee: string;
 }
 
-const EMPTY_FORM: PriceForm = { levelId: '', monthlyFee: '' };
+const EMPTY_FORM: PriceForm = { levelId: '', monthlyFee: '', registrationFee: '' };
 
 interface DialogState {
   open: boolean;
@@ -68,7 +71,13 @@ export default function PricesPage() {
     setDialog({
       open: true,
       id: price._id,
-      form: { levelId: price.levelId, monthlyFee: String(price.monthlyFee) },
+      form: {
+        levelId: price.levelId,
+        monthlyFee: String(price.monthlyFee),
+        registrationFee: price.registrationFee === null || price.registrationFee === undefined
+          ? ''
+          : String(price.registrationFee),
+      },
     });
     setDialogError(null);
   }
@@ -93,9 +102,24 @@ export default function PricesPage() {
       return;
     }
 
+    // Blank means "inherit the academy-wide default" (sent as an explicit
+    // null so an edit can CLEAR a previously-set override). A non-blank
+    // value — including '0' — must be a valid, non-negative number.
+    const registrationFeeInput = dialog.form.registrationFee.trim();
+    let registrationFee: number | null = null;
+
+    if (registrationFeeInput !== '') {
+      registrationFee = Number(registrationFeeInput);
+
+      if (Number.isNaN(registrationFee) || registrationFee < 0) {
+        setDialogError('Registration fee must be a valid, non-negative number, or left blank.');
+        return;
+      }
+    }
+
     setSaving(true);
 
-    const payload = { levelId: dialog.form.levelId, monthlyFee };
+    const payload = { levelId: dialog.form.levelId, monthlyFee, registrationFee };
     const result = dialog.id ? await updatePrice(dialog.id, payload) : await createPrice(payload);
 
     setSaving(false);
@@ -143,19 +167,25 @@ export default function PricesPage() {
               <tr>
                 <th className={styles.th}>Level</th>
                 <th className={styles.th}>Monthly Fee</th>
+                <th className={styles.th}>Registration Fee</th>
                 <th className={styles.th} style={{ width: 90 }} />
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <AdminLoadingRow colSpan={3} />
+                <AdminLoadingRow colSpan={4} />
               ) : items.length === 0 ? (
-                <AdminEmptyRow colSpan={3} message="No prices found" />
+                <AdminEmptyRow colSpan={4} message="No prices found" />
               ) : (
                 items.map((price) => (
                   <tr key={price._id} className={styles.trHover}>
                     <td className={styles.td}>{levelName(levels, price.levelId)}</td>
                     <td className={styles.td}>{price.monthlyFee}</td>
+                    <td className={styles.td}>
+                      {price.registrationFee === null || price.registrationFee === undefined
+                        ? 'Default'
+                        : price.registrationFee}
+                    </td>
                     <td className={`${styles.td} ${styles.tdRight}`}>
                       <div className={styles.actionBtns}>
                         <button
@@ -233,6 +263,23 @@ export default function PricesPage() {
                   onChange={(e) => setField('monthlyFee', e.target.value)}
                   required
                 />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="price-registrationFee">
+                  Registration Fee
+                </label>
+                <input
+                  id="price-registrationFee"
+                  type="number"
+                  min={0}
+                  className={styles.input}
+                  value={dialog.form.registrationFee}
+                  onChange={(e) => setField('registrationFee', e.target.value)}
+                  placeholder="Default"
+                />
+                <p className={styles.formHint}>
+                  Leave blank to use the academy-wide default. Enter 0 for no fee at this level.
+                </p>
               </div>
             </div>
             <div className={styles.dialogFooter}>
