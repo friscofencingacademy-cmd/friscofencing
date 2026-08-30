@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import {
@@ -16,6 +16,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 interface SpotlightForm {
@@ -255,235 +256,219 @@ export default function SpotlightsPage() {
         </div>
       )}
 
-      {dialog.open ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
-          <div
-            className={styles.dialog}
-            role="dialog"
-            aria-label={dialog.id ? 'Edit Spotlight' : 'Add Spotlight'}
-          >
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{dialog.id ? 'Edit Spotlight' : 'Add Spotlight'}</h2>
-              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+      <Modal
+        open={dialog.open}
+        onClose={closeDialog}
+        title={dialog.id ? 'Edit Spotlight' : 'Add Spotlight'}
+        disableClose={saving || uploadingImage}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleSave}
+              disabled={saving || uploadingImage}
+            >
+              {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-type">
-                  Type
-                </label>
-                <select
-                  id="spotlight-type"
-                  className={styles.select}
-                  value={dialog.form.type}
-                  onChange={(e) => setField('type', e.target.value as SpotlightType)}
-                >
-                  <option value="coach">Coach</option>
-                  <option value="student">Student</option>
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-name">
-                  Name
-                </label>
-                <input
-                  id="spotlight-name"
-                  className={styles.input}
-                  value={dialog.form.name}
-                  onChange={(e) => setField('name', e.target.value)}
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-title">
-                  Title
-                </label>
-                <input
-                  id="spotlight-title"
-                  className={styles.input}
-                  value={dialog.form.title}
-                  onChange={(e) => setField('title', e.target.value)}
-                  placeholder="e.g. Head Coach"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-body">
-                  Body
-                </label>
-                <textarea
-                  id="spotlight-body"
-                  className={styles.input}
-                  rows={4}
-                  value={dialog.form.body}
-                  onChange={(e) => setField('body', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-bullet1">
-                  Bullet 1
-                </label>
-                <input
-                  id="spotlight-bullet1"
-                  className={styles.input}
-                  value={dialog.form.bullet1}
-                  onChange={(e) => setField('bullet1', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-bullet2">
-                  Bullet 2
-                </label>
-                <input
-                  id="spotlight-bullet2"
-                  className={styles.input}
-                  value={dialog.form.bullet2}
-                  onChange={(e) => setField('bullet2', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-bullet3">
-                  Bullet 3
-                </label>
-                <input
-                  id="spotlight-bullet3"
-                  className={styles.input}
-                  value={dialog.form.bullet3}
-                  onChange={(e) => setField('bullet3', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-imageUrl">
-                  Image URL
-                </label>
-                <input
-                  id="spotlight-imageUrl"
-                  className={styles.input}
-                  value={dialog.form.imageUrl}
-                  onChange={(e) => setField('imageUrl', e.target.value)}
-                  placeholder="https://…"
-                />
-                <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <label className={styles.label} htmlFor="spotlight-imageFile" style={{ margin: 0 }}>
-                    Or upload a file:
-                  </label>
-                  <input
-                    id="spotlight-imageFile"
-                    type="file"
-                    accept="image/*"
-                    disabled={uploadingImage}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      handleImageFileSelected(file);
-                      e.target.value = '';
-                    }}
-                  />
-                  {uploadingImage ? <span>Uploading…</span> : null}
-                </div>
-                {dialog.form.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- an
-                  // owner-hosted/Blob-hosted URL, not a local/optimizable asset.
-                  <img
-                    src={dialog.form.imageUrl}
-                    alt=""
-                    style={{
-                      marginTop: 'var(--space-2)',
-                      width: 80,
-                      height: 100,
-                      objectFit: 'cover',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--color-border)',
-                    }}
-                  />
-                ) : null}
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-order">
-                  Order
-                </label>
-                <input
-                  id="spotlight-order"
-                  type="number"
-                  className={styles.input}
-                  value={dialog.form.order}
-                  onChange={(e) => setField('order', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="spotlight-isPublished">
-                  <input
-                    id="spotlight-isPublished"
-                    type="checkbox"
-                    checked={dialog.form.isPublished}
-                    onChange={(e) => setField('isPublished', e.target.checked)}
-                    style={{ marginRight: 'var(--space-2)' }}
-                  />
-                  Published
-                </label>
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-type">
+            Type
+          </label>
+          <select
+            id="spotlight-type"
+            className={styles.select}
+            value={dialog.form.type}
+            onChange={(e) => setField('type', e.target.value as SpotlightType)}
+          >
+            <option value="coach">Coach</option>
+            <option value="student">Student</option>
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-name">
+            Name
+          </label>
+          <input
+            id="spotlight-name"
+            className={styles.input}
+            value={dialog.form.name}
+            onChange={(e) => setField('name', e.target.value)}
+            required
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-title">
+            Title
+          </label>
+          <input
+            id="spotlight-title"
+            className={styles.input}
+            value={dialog.form.title}
+            onChange={(e) => setField('title', e.target.value)}
+            placeholder="e.g. Head Coach"
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-body">
+            Body
+          </label>
+          <textarea
+            id="spotlight-body"
+            className={styles.input}
+            rows={4}
+            value={dialog.form.body}
+            onChange={(e) => setField('body', e.target.value)}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-bullet1">
+            Bullet 1
+          </label>
+          <input
+            id="spotlight-bullet1"
+            className={styles.input}
+            value={dialog.form.bullet1}
+            onChange={(e) => setField('bullet1', e.target.value)}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-bullet2">
+            Bullet 2
+          </label>
+          <input
+            id="spotlight-bullet2"
+            className={styles.input}
+            value={dialog.form.bullet2}
+            onChange={(e) => setField('bullet2', e.target.value)}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-bullet3">
+            Bullet 3
+          </label>
+          <input
+            id="spotlight-bullet3"
+            className={styles.input}
+            value={dialog.form.bullet3}
+            onChange={(e) => setField('bullet3', e.target.value)}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-imageUrl">
+            Image URL
+          </label>
+          <input
+            id="spotlight-imageUrl"
+            className={styles.input}
+            value={dialog.form.imageUrl}
+            onChange={(e) => setField('imageUrl', e.target.value)}
+            placeholder="https://…"
+          />
+          <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <label className={styles.label} htmlFor="spotlight-imageFile" style={{ margin: 0 }}>
+              Or upload a file:
+            </label>
+            <input
+              id="spotlight-imageFile"
+              type="file"
+              accept="image/*"
+              disabled={uploadingImage}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                handleImageFileSelected(file);
+                e.target.value = '';
+              }}
+            />
+            {uploadingImage ? <span>Uploading…</span> : null}
+          </div>
+          {dialog.form.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- an
+            // owner-hosted/Blob-hosted URL, not a local/optimizable asset.
+            <img
+              src={dialog.form.imageUrl}
+              alt=""
+              style={{
+                marginTop: 'var(--space-2)',
+                width: 80,
+                height: 100,
+                objectFit: 'cover',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+              }}
+            />
+          ) : null}
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-order">
+            Order
+          </label>
+          <input
+            id="spotlight-order"
+            type="number"
+            className={styles.input}
+            value={dialog.form.order}
+            onChange={(e) => setField('order', e.target.value)}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="spotlight-isPublished">
+            <input
+              id="spotlight-isPublished"
+              type="checkbox"
+              checked={dialog.form.isPublished}
+              onChange={(e) => setField('isPublished', e.target.checked)}
+              style={{ marginRight: 'var(--space-2)' }}
+            />
+            Published
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={deleteError ? 'Cannot Delete' : 'Delete Spotlight'}
+        size="sm"
+        hideCloseButton
+        disableClose={deleting}
+        footer={
+          deleteError ? (
+            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
                 Cancel
               </button>
               <button
                 type="button"
-                className={styles.btnPrimary}
-                onClick={handleSave}
-                disabled={saving || uploadingImage}
+                className={styles.btnDangerFilled}
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
               >
-                {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {deleteTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !deleting && setDeleteTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{deleteError ? 'Cannot Delete' : 'Delete Spotlight'}</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              <p style={{ margin: 0 }}>
-                {deleteError ?? `Delete "${deleteTarget.name}"? This cannot be undone.`}
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
-              {deleteError ? (
-                <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
-                  Close
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerFilled}
-                    onClick={handleDeleteConfirm}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </>
+          )
+        }
+      >
+        <p style={{ margin: 0 }}>{deleteError ?? `Delete "${deleteTarget?.name}"? This cannot be undone.`}</p>
+      </Modal>
     </main>
   );
 }

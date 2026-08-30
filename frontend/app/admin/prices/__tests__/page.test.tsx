@@ -204,4 +204,26 @@ describe('PricesPage', () => {
       expect(screen.getByLabelText('Monthly Fee')).toHaveValue(200);
     });
   });
+
+  // The actual owner-reported bug (docs/plans/shared-modal-component-plan.md)
+  // — a misclick outside the dialog used to close it and silently discard
+  // whatever had been typed in.
+  describe('backdrop click regression (shared-modal-component-plan.md)', () => {
+    it('does not close the dialog or lose typed data when the backdrop is clicked', async () => {
+      const user = userEvent.setup();
+      render(<PricesPage />);
+      await screen.findByText('Beginner');
+
+      await user.click(screen.getByRole('button', { name: /add price/i }));
+      await user.selectOptions(screen.getByLabelText('Level'), 'level-2');
+      await user.type(screen.getByLabelText('Monthly Fee'), '200');
+
+      const dialog = screen.getByRole('dialog');
+      const overlay = dialog.parentElement as HTMLElement;
+      await user.click(overlay);
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByLabelText('Monthly Fee')).toHaveValue(200);
+    });
+  });
 });

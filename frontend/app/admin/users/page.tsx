@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Key, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Key, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
@@ -12,6 +12,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 type TabRole = 'all' | Role;
@@ -418,17 +419,23 @@ export default function UsersPage() {
         </div>
       )}
 
-      {dialog.open ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
-          <div className={styles.dialog} role="dialog" aria-label={dialog.id ? 'Edit User' : 'Add User'}>
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{dialog.id ? 'Edit User' : 'Add User'}</h2>
-              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+      <Modal
+        open={dialog.open}
+        onClose={closeDialog}
+        title={dialog.id ? 'Edit User' : 'Add User'}
+        disableClose={saving}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
               <div className={styles.formGroup}>
                 <label className={styles.label} htmlFor="user-role">
@@ -637,101 +644,79 @@ export default function UsersPage() {
                   />
                 </div>
               ) : null}
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+      </Modal>
+
+      <Modal
+        open={pwDialog.open}
+        onClose={closePasswordDialog}
+        title="Change Password"
+        size="sm"
+        disableClose={pwSaving}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closePasswordDialog} disabled={pwSaving}>
+              Cancel
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={handlePasswordSave} disabled={pwSaving}>
+              {pwSaving ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        {pwError ? <Alert variant="error">{pwError}</Alert> : null}
+        <p style={{ marginTop: 0 }}>New password for {pwDialog.name}.</p>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="user-new-password">
+            New Password
+          </label>
+          <input
+            id="user-new-password"
+            type="password"
+            className={styles.input}
+            value={pwDialog.value}
+            onChange={(e) => setPwDialog((prev) => ({ ...prev, value: e.target.value }))}
+            required
+          />
+          <div className={styles.formHint}>Minimum 8 characters.</div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={deleteError ? 'Cannot Delete' : 'Delete User'}
+        size="sm"
+        hideCloseButton
+        disableClose={deleting}
+        footer={
+          deleteError ? (
+            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
                 Cancel
               </button>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : dialog.id ? 'Save Changes' : 'Create'}
+              <button
+                type="button"
+                className={styles.btnDangerFilled}
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {pwDialog.open ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closePasswordDialog()}>
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog" aria-label="Change Password">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Change Password</h2>
-              <button type="button" className={styles.dialogClose} onClick={closePasswordDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {pwError ? <Alert variant="error">{pwError}</Alert> : null}
-              <p style={{ marginTop: 0 }}>New password for {pwDialog.name}.</p>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="user-new-password">
-                  New Password
-                </label>
-                <input
-                  id="user-new-password"
-                  type="password"
-                  className={styles.input}
-                  value={pwDialog.value}
-                  onChange={(e) => setPwDialog((prev) => ({ ...prev, value: e.target.value }))}
-                  required
-                />
-                <div className={styles.formHint}>Minimum 8 characters.</div>
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closePasswordDialog} disabled={pwSaving}>
-                Cancel
-              </button>
-              <button type="button" className={styles.btnPrimary} onClick={handlePasswordSave} disabled={pwSaving}>
-                {pwSaving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {deleteTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !deleting && setDeleteTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{deleteError ? 'Cannot Delete' : 'Delete User'}</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              <p style={{ margin: 0 }}>
-                {deleteError ?? `Delete "${deleteTarget.name}"? This cannot be undone.`}
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
-              {deleteError ? (
-                <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
-                  Close
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerFilled}
-                    onClick={handleDeleteConfirm}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </>
+          )
+        }
+      >
+        <p style={{ margin: 0 }}>{deleteError ?? `Delete "${deleteTarget?.name}"? This cannot be undone.`}</p>
+      </Modal>
     </main>
   );
 }
