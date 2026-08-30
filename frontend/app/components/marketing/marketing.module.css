@@ -82,6 +82,10 @@
   color: var(--color-muted);
   max-width: 560px;
   font-size: 18px;
+  /* 2026-08-30: was unset, falling back to the browser default (~1.2) —
+     read as cramped on a paragraph this length. Shared by Hero,
+     IntroSection, and FacilityBand, so this one change fixes all three. */
+  line-height: 1.6;
   margin: 0 0 var(--space-4);
 }
 
@@ -360,6 +364,19 @@
     flex-wrap: wrap;
     width: auto;
   }
+}
+
+/* Wraps StepsRow's whole <section> — centers the eyebrow/title above the
+   numbered-step grid, which was already centered on its own (2026-08-30
+   fix: the heading sat in a plain <section> with no alignment, so it read
+   left while everything below it was centered — the stray inline
+   style={{textAlign:'center'}} on the CTA button, deleted in the same fix,
+   was a patch for the symptom, not the cause). Scoped to StepsRow only —
+   IntroSection/ProgramsSection are deliberately left-aligned (paired with
+   a photo or card grid), so this does not touch the shared .eyebrow/
+   .sectionTitle classes themselves. */
+.stepsSection {
+  text-align: center;
 }
 
 .stepsRow {

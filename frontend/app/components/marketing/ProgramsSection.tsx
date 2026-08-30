@@ -114,13 +114,21 @@ export default function ProgramsSection() {
                   fit rather than cropped. Pre-existing gap inherited from
                   the old LevelGrid (barely visible at the old 4:3 ratio);
                   caught now because the new, more extreme crop would make
-                  the distortion obvious. */}
+                  the distortion obvious.
+                  object-position 'center 20%' (2026-08-30) — the default
+                  center-center crop clips heads/faces on these photos: none
+                  of the three source images are natively 9:4 (program-
+                  intermediate.jpg is close to square), so a centered crop
+                  discards a large, evenly-split top/bottom slice, and every
+                  photo's subjects sit in the upper portion of the frame with
+                  mostly floor below. Same fix, same value, as .heroVideo's
+                  own object-position below — see that class's comment. */}
               <Image
                 src={program.photo}
                 alt=""
                 fill
                 sizes="(max-width: 760px) 100vw, 33vw"
-                style={{ objectFit: 'cover' }}
+                style={{ objectFit: 'cover', objectPosition: 'center 20%' }}
               />
               <span className={styles.programDotBadge}>
                 <DotProgressIcon filled={program.filledDots} />

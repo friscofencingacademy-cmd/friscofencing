@@ -12,7 +12,7 @@ const STEPS = [
 
 export default function StepsRow() {
   return (
-    <section>
+    <section className={styles.stepsSection}>
       <span className={styles.eyebrow}>Getting Started</span>
       <h2 className={styles.sectionTitle}>Three steps to your first class.</h2>
       <div className={styles.stepsRow}>
@@ -23,11 +23,9 @@ export default function StepsRow() {
           </div>
         ))}
       </div>
-      <div style={{ textAlign: 'center' }}>
-        <Button as="a" href="/register" size="lg">
-          Take a Trial Class
-        </Button>
-      </div>
+      <Button as="a" href="/register" size="lg">
+        Take a Trial Class
+      </Button>
     </section>
   );
 }
