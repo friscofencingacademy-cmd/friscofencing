@@ -186,6 +186,98 @@ async function recoverStalePending({ row, subscription, student, parent, payment
   });
 }
 
+// Read-only preview for the superadmin-only manual Charge button
+// (docs/plans/manual-charge-and-pdf-invoice-plan.md D1) — NEVER writes
+// anything, never calls Stripe. Computes the exact same numbers renewOne/
+// retryOne would actually charge, via the SAME functions (resolveMonthlyFee
+// + calculateChargeAmount, or the locked failed-row amount in dunning) so
+// this can never structurally disagree with the real charge (the standing
+// preview rule, docs/decisions/001-in-house-subscription-billing.md's
+// 2026-08-23 addendum, applied to this new read path too).
+async function previewRenewal(subscriptionId) {
+  const subscription = await Subscription.findById(subscriptionId);
+
+  if (!subscription) {
+    return { outcome: 'not_found' };
+  }
+
+  if (subscription.status !== 'active') {
+    return { outcome: 'inactive' };
+  }
+
+  const today = todayAtMidnight();
+  const due = subscription.nextBillingDate <= today;
+  const willFinalizeCancellation = subscription.cancelAtPeriodEnd === true && due;
+
+  const paymentMethod = await paymentMethodService.getMine(subscription.parentId);
+  const paymentMethodSummary = paymentMethod
+    ? { cardBrand: paymentMethod.cardBrand, cardLast4: paymentMethod.cardLast4 }
+    : null;
+
+  const periodStart = subscription.currentPeriodEnd;
+  const periodEnd = addOneMonth(periodStart);
+
+  const base = {
+    outcome: 'previewable',
+    due,
+    nextBillingDate: subscription.nextBillingDate,
+    willFinalizeCancellation,
+    periodStart,
+    periodEnd,
+    paymentMethod: paymentMethodSummary,
+  };
+
+  if (willFinalizeCancellation) {
+    // Nothing will be charged — the button finalizes the cancellation
+    // instead (mirrors renewOne's own cancelAtPeriodEnd branch). No amount
+    // to compute or show.
+    return base;
+  }
+
+  // Dunning — the retry path charges the LOCKED amount from the most
+  // recent failed row, never a live recalculation (registration-ledger-
+  // plan.md's dunning policy: the emailed amount is the charged amount).
+  if (subscription.retryCount > 0) {
+    const failedRow = await SubscriptionCycleRegistration.findOne({
+      subscriptionId,
+      status: 'failed',
+    }).sort({ createdAt: -1 });
+
+    if (!failedRow) {
+      return { ...base, outcome: 'no_failed_row' };
+    }
+
+    return {
+      ...base,
+      inDunning: true,
+      retryCount: subscription.retryCount,
+      attemptsRemaining: MAX_PAYMENT_RETRIES - subscription.retryCount,
+      amount: failedRow.amount,
+      breakdown: failedRow.breakdown,
+    };
+  }
+
+  const monthlyFee = await resolveMonthlyFee(subscription);
+
+  if (monthlyFee === null) {
+    return { ...base, outcome: 'no_price' };
+  }
+
+  const student = await User.findById(subscription.studentId);
+  const { amount, siblingDiscountApplied, siblingDiscountAmount } = await calculateChargeAmount(
+    student,
+    monthlyFee,
+    { mode: 'renewal', subscription }
+  );
+
+  return {
+    ...base,
+    inDunning: false,
+    amount,
+    breakdown: { monthlyFee, siblingDiscountApplied, siblingDiscountAmount },
+  };
+}
+
 // Processes exactly ONE subscription, by id, with its OWN fresh fetch —
 // never trusts a status/date snapshot taken earlier by the caller (e.g. the
 // candidate list in runRenewals). This is what makes "a subscription
@@ -357,6 +449,27 @@ async function renewOne(subscriptionId) {
     siblingDiscountApplied,
     siblingDiscountAmount,
   });
+}
+
+// Superadmin manual Charge button's write path (docs/plans/manual-charge-
+// and-pdf-invoice-plan.md D2) — routes to the exact same functions the
+// unscheduled `npm run renewals` job would call, based on the SAME signal
+// runRenewals/runRetries split their two phases on (retryCount > 0 = in
+// dunning). Zero new charge logic: every guard (fresh re-fetch, not-due
+// skip, ledger dedup, stale-pending recovery, idempotency keys, dunning
+// state, emails) lives entirely in renewOne/retryOne, unchanged.
+async function chargeNow(subscriptionId) {
+  const subscription = await Subscription.findById(subscriptionId);
+
+  if (!subscription) {
+    return { subscriptionId, outcome: 'not_found' };
+  }
+
+  if (subscription.retryCount > 0) {
+    return retryOne(subscriptionId);
+  }
+
+  return renewOne(subscriptionId);
 }
 
 // Cancels a subscription that has exhausted its retries — ported verbatim
@@ -563,4 +676,4 @@ async function runRetries() {
   return { total: candidates.length, results };
 }
 
-module.exports = { renewOne, runRenewals, retryOne, runRetries };
+module.exports = { renewOne, runRenewals, retryOne, runRetries, previewRenewal, chargeNow };

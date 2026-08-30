@@ -422,4 +422,120 @@ describe('Subscription routes', () => {
       expect(qMissRes.body.total).toBe(0);
     });
   });
+
+  // Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md
+  // PR 1) — role-guard + wiring coverage only. Every fixture below is
+  // deliberately built so the underlying renewOne/retryOne call never
+  // reaches Stripe (not-due, pending-cancel-finalize, or no-payment-method
+  // early-return branches), matching this file's existing no-real-Stripe-key
+  // setup — the "does the amount match a real charge" property is covered
+  // by the service-level suite (renewal.previewAndCharge.test.js), which
+  // loads a real Stripe TEST-mode key the way renewal.service.test.js does.
+  describe('GET /api/v1/subscriptions/:id/charge-preview', () => {
+    it('returns 401 unauthenticated', async () => {
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await request(app).get(`/api/v1/subscriptions/${subscription._id}/charge-preview`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it.each(['parent', 'admin', 'coach'])('returns 403 for role %s', async (role) => {
+      const email = `charge-preview-403-${role}@example.com`;
+      await seedUser({ role, email });
+      const agent = await loginAgent(email);
+
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await agent.get(`/api/v1/subscriptions/${subscription._id}/charge-preview`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns a well-formed, not-due preview for superadmin — degrades to no_price when the schedule/price chain is unresolvable, never crashes (D9-style)', async () => {
+      await seedUser({ role: 'superadmin', email: 'charge-preview-super1@example.com' });
+      const superAgent = await loginAgent('charge-preview-super1@example.com');
+
+      // Deliberately a bare, unresolvable scheduleId — this endpoint never
+      // calls Stripe (previewRenewal is read-only, no getServiceByCode
+      // call), so the amount-resolution property (previewRenewal agrees
+      // with a REAL renewOne charge) is covered at the service level
+      // (renewal.previewAndCharge.test.js) with a real Price/schedule chain
+      // instead of duplicating that fixture here.
+      const subscription = await buildSubscription({
+        parentId: new mongoose.Types.ObjectId(),
+        currentPeriodEnd: new Date('2099-01-01T00:00:00.000Z'),
+        nextBillingDate: new Date('2099-01-01T00:00:00.000Z'),
+      });
+
+      const res = await superAgent.get(`/api/v1/subscriptions/${subscription._id}/charge-preview`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('no_price');
+      expect(res.body.due).toBe(false);
+      expect(res.body.paymentMethod).toBeNull();
+    });
+  });
+
+  describe('POST /api/v1/subscriptions/:id/charge', () => {
+    it('returns 401 unauthenticated', async () => {
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await request(app).post(`/api/v1/subscriptions/${subscription._id}/charge`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it.each(['parent', 'admin', 'coach'])('returns 403 for role %s', async (role) => {
+      const email = `charge-403-${role}@example.com`;
+      await seedUser({ role, email });
+      const agent = await loginAgent(email);
+
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await agent.post(`/api/v1/subscriptions/${subscription._id}/charge`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('lets superadmin trigger a not-due subscription and returns skipped_not_due, untouched', async () => {
+      await seedUser({ role: 'superadmin', email: 'charge-super-notdue@example.com' });
+      const superAgent = await loginAgent('charge-super-notdue@example.com');
+
+      const subscription = await buildSubscription({
+        parentId: new mongoose.Types.ObjectId(),
+        currentPeriodEnd: new Date('2099-01-01T00:00:00.000Z'),
+        nextBillingDate: new Date('2099-01-01T00:00:00.000Z'),
+      });
+
+      const res = await superAgent.post(`/api/v1/subscriptions/${subscription._id}/charge`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('skipped_not_due');
+    });
+
+    it('lets superadmin finalize a due, pending-cancel subscription with no charge', async () => {
+      await seedUser({ role: 'superadmin', email: 'charge-super-finalize@example.com' });
+      const superAgent = await loginAgent('charge-super-finalize@example.com');
+
+      const subscription = await buildSubscription({
+        parentId: new mongoose.Types.ObjectId(),
+        cancelAtPeriodEnd: true,
+      });
+
+      const res = await superAgent.post(`/api/v1/subscriptions/${subscription._id}/charge`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('cancelled_finalized');
+
+      const inDb = await Subscription.findById(subscription._id);
+      expect(inDb.status).toBe('cancelled');
+    });
+
+    // The "due, resolvable price, no card on file -> failed_no_payment_method"
+    // and "outcome matches a real Stripe charge" scenarios need the full
+    // Service-catalog + Price/schedule fixture renewal.service.test.js
+    // already builds — covered at the service level
+    // (renewal.previewAndCharge.test.js) rather than duplicated here.
+  });
 });

@@ -2,18 +2,27 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { useAuth } from '../../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
 import { fetchSchedules } from '../../../lib/services/scheduling';
 import {
   cancelSubscriptionAdmin,
   changeSubscriptionSchedule,
+  chargeSubscription,
+  fetchChargePreview,
   fetchSubscriptions,
   reactivateSubscription,
   type AdminSubscriptionStatusFilter,
 } from '../../../lib/services/subscriptionsAdmin';
 import { formatTime } from '../../../lib/formatTime';
-import type { AdminSubscriptionRow, GroupClass, GroupClassSchedule } from '../../../lib/types';
+import type {
+  AdminSubscriptionRow,
+  ChargePreview,
+  ChargeResult,
+  GroupClass,
+  GroupClassSchedule,
+} from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
@@ -48,6 +57,91 @@ function coachLine(schedule: AdminSubscriptionRow['scheduleId']): string {
     ? `${schedule.coachId.firstName} ${schedule.coachId.lastName}`
     : 'Coach no longer available';
 }
+
+function formatMoney(amount: number): string {
+  return `$${amount.toFixed(2)}`;
+}
+
+function formatCardLabel(paymentMethod: NonNullable<ChargePreview['paymentMethod']>): string {
+  const brand = paymentMethod.cardBrand.charAt(0).toUpperCase() + paymentMethod.cardBrand.slice(1);
+  return `${brand} •••• ${paymentMethod.cardLast4}`;
+}
+
+// Every outcome renewOne/retryOne can return, turned into plain-language
+// copy for the dialog — the button never invents its own vocabulary, it
+// only describes whichever outcome actually came back
+// (docs/plans/manual-charge-and-pdf-invoice-plan.md D2).
+function describeChargeOutcome(result: ChargeResult): { variant: 'success' | 'error'; message: string } {
+  switch (result.outcome) {
+    case 'charged':
+      return {
+        variant: 'success',
+        message: `Charged ${formatMoney(result.chargeAmount ?? 0)}${
+          result.siblingDiscountApplied ? ' (10% sibling discount applied).' : '.'
+        }`,
+      };
+    case 'cancelled_finalized':
+      return { variant: 'success', message: 'Cancellation finalized — nothing was charged.' };
+    case 'skipped_already_charged':
+      return {
+        variant: 'success',
+        message: 'This period was already charged — the subscription is up to date.',
+      };
+    case 'failed_payment':
+      return {
+        variant: 'error',
+        message: `Card declined: ${result.failureMessage || 'payment failed'}.${
+          result.nextRetryAt ? ` A retry is scheduled for ${formatDateLabel(result.nextRetryAt)}.` : ''
+        }`,
+      };
+    case 'cancelled_exhausted':
+      return {
+        variant: 'error',
+        message: 'Retries were already exhausted — the subscription has been cancelled.',
+      };
+    case 'failed_no_payment_method':
+      return { variant: 'error', message: 'No card on file — nothing was charged.' };
+    case 'failed_no_price':
+      return { variant: 'error', message: 'Could not resolve a price for this class — nothing was charged.' };
+    case 'skipped_not_due':
+      return { variant: 'error', message: 'Not due yet — nothing was charged.' };
+    case 'skipped_inactive':
+      return { variant: 'error', message: 'This subscription is no longer active — nothing was charged.' };
+    case 'skipped_concurrent':
+      return {
+        variant: 'error',
+        message: 'Another charge for this subscription was already in progress — nothing new was charged.',
+      };
+    case 'skipped_no_failed_row':
+      return { variant: 'error', message: 'No failed charge was found to retry.' };
+    case 'not_found':
+      return { variant: 'error', message: 'Subscription not found.' };
+    default:
+      return { variant: 'error', message: 'Unexpected outcome — nothing was charged.' };
+  }
+}
+
+interface ChargeDialogState {
+  open: boolean;
+  subscription: AdminSubscriptionRow | null;
+  loading: boolean;
+  preview: ChargePreview | null;
+  loadError: string | null;
+  charging: boolean;
+  chargeError: string | null;
+  result: ChargeResult | null;
+}
+
+const EMPTY_CHARGE_DIALOG: ChargeDialogState = {
+  open: false,
+  subscription: null,
+  loading: false,
+  preview: null,
+  loadError: null,
+  charging: false,
+  chargeError: null,
+  result: null,
+};
 
 interface ChangeScheduleDialogState {
   open: boolean;
@@ -87,6 +181,9 @@ async function fetchScheduleOptionsData() {
 }
 
 export default function AdminSubscriptionsPage() {
+  const { user } = useAuth();
+  const isSuperadmin = user?.role === 'superadmin';
+
   const [statusTab, setStatusTab] = useState<StatusTab>('all');
   const [searchInput, setSearchInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -150,6 +247,7 @@ export default function AdminSubscriptionsPage() {
     saving: false,
     error: null,
   });
+  const [chargeDialog, setChargeDialog] = useState<ChargeDialogState>(EMPTY_CHARGE_DIALOG);
 
   function openChangeSchedule(subscription: AdminSubscriptionRow) {
     setChangeDialog({
@@ -244,6 +342,57 @@ export default function AdminSubscriptionsPage() {
       setReactivateDialog((prev) => ({ ...prev, saving: false, error: result.message }));
     }
   }
+
+  // Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md
+  // PR 1) — loads the read-only preview on open so the dialog always shows
+  // the exact amount/card-on-file state before the superadmin can confirm.
+  async function openCharge(subscription: AdminSubscriptionRow) {
+    setChargeDialog({ ...EMPTY_CHARGE_DIALOG, open: true, subscription, loading: true });
+
+    const result = await fetchChargePreview(subscription._id);
+
+    if (result.status === 'success') {
+      setChargeDialog((prev) => ({ ...prev, loading: false, preview: result.data }));
+    } else {
+      setChargeDialog((prev) => ({ ...prev, loading: false, loadError: result.message }));
+    }
+  }
+
+  function closeCharge() {
+    if (chargeDialog.charging) return;
+    setChargeDialog(EMPTY_CHARGE_DIALOG);
+  }
+
+  async function submitCharge() {
+    if (!chargeDialog.subscription) return;
+
+    setChargeDialog((prev) => ({ ...prev, charging: true, chargeError: null }));
+
+    const result = await chargeSubscription(chargeDialog.subscription._id);
+
+    if (result.status === 'success') {
+      setChargeDialog((prev) => ({ ...prev, charging: false, result: result.data }));
+      // Refresh the list in the background — Next billing / Last charge /
+      // Status now reflect the outcome — but leave the dialog open so the
+      // superadmin can read the result first (closed explicitly below).
+      retry();
+    } else {
+      setChargeDialog((prev) => ({ ...prev, charging: false, chargeError: result.message }));
+    }
+  }
+
+  // Gating for the Confirm button. `inDunning` intentionally bypasses the
+  // `due` check — retryOne (unlike renewOne) never gates on nextBillingDate,
+  // so a dunning charge is always actionable from this button, matching
+  // what the backend actually enforces.
+  const preview = chargeDialog.preview;
+  const chargeConfirmDisabled =
+    chargeDialog.loading ||
+    chargeDialog.charging ||
+    !preview ||
+    preview.outcome !== 'previewable' ||
+    (!preview.willFinalizeCancellation && !preview.inDunning && !preview.due) ||
+    (!preview.willFinalizeCancellation && !preview.paymentMethod);
 
   return (
     <main>
@@ -379,6 +528,11 @@ export default function AdminSubscriptionsPage() {
                               onClick={() => openReactivate(row)}
                             >
                               Reactivate
+                            </button>
+                          ) : null}
+                          {isSuperadmin && !isCancelled ? (
+                            <button type="button" className={styles.btnPrimary} onClick={() => openCharge(row)}>
+                              Charge
                             </button>
                           ) : null}
                         </div>
@@ -588,6 +742,137 @@ export default function AdminSubscriptionsPage() {
       >
         {reactivateDialog.error ? <Alert variant="error">{reactivateDialog.error}</Alert> : null}
         <p style={{ margin: 0 }}>Remove the pending cancellation? Renewals continue as normal; nothing is charged now.</p>
+      </Modal>
+
+      <Modal
+        open={chargeDialog.open && chargeDialog.subscription !== null}
+        onClose={closeCharge}
+        title="Charge Subscription"
+        disableClose={chargeDialog.charging}
+        footer={
+          chargeDialog.result ? (
+            <button type="button" className={styles.btnPrimary} onClick={closeCharge}>
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={closeCharge}
+                disabled={chargeDialog.charging}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={submitCharge}
+                disabled={chargeConfirmDisabled}
+              >
+                {chargeDialog.charging
+                  ? 'Processing…'
+                  : preview?.willFinalizeCancellation
+                    ? 'Finalize'
+                    : 'Confirm Charge'}
+              </button>
+            </>
+          )
+        }
+      >
+        {chargeDialog.subscription ? (
+          <div className={styles.formGroup}>
+            <div style={{ fontWeight: 600 }}>
+              {chargeDialog.subscription.studentId.firstName} {chargeDialog.subscription.studentId.lastName}
+            </div>
+            <div className={styles.cellMuted}>
+              {chargeDialog.subscription.scheduleId.classId.name} —{' '}
+              {chargeDialog.subscription.scheduleId.classId.levelId.name}
+            </div>
+          </div>
+        ) : null}
+
+        {chargeDialog.loading ? <p className={styles.cellMuted}>Loading preview…</p> : null}
+
+        {chargeDialog.loadError ? <Alert variant="error">{chargeDialog.loadError}</Alert> : null}
+
+        {chargeDialog.result ? (
+          <Alert variant={describeChargeOutcome(chargeDialog.result).variant}>
+            {describeChargeOutcome(chargeDialog.result).message}
+          </Alert>
+        ) : null}
+
+        {!chargeDialog.result && preview && preview.outcome === 'previewable' ? (
+          <>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Billing period</label>
+              <div className={styles.cellMuted}>
+                {preview.periodStart ? formatDateLabel(preview.periodStart) : ''} –{' '}
+                {preview.periodEnd ? formatDateLabel(preview.periodEnd) : ''}
+              </div>
+            </div>
+
+            {preview.willFinalizeCancellation ? (
+              <Alert variant="success">
+                This subscription is pending cancellation. Processing will finalize the cancellation —
+                nothing is charged.
+              </Alert>
+            ) : (
+              <>
+                {preview.inDunning ? (
+                  <Alert variant="error">
+                    Retry attempt {preview.retryCount} of {(preview.retryCount ?? 0) + (preview.attemptsRemaining ?? 0)} —
+                    charging the locked amount from the failed charge.
+                  </Alert>
+                ) : null}
+
+                {preview.breakdown ? (
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Breakdown</label>
+                    <div className={styles.cellMuted}>Monthly fee: {formatMoney(preview.breakdown.monthlyFee)}</div>
+                    {preview.breakdown.siblingDiscountApplied ? (
+                      <div className={styles.cellMuted}>
+                        − {formatMoney(preview.breakdown.siblingDiscountAmount)} sibling discount (10%)
+                      </div>
+                    ) : null}
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', marginTop: 'var(--space-2)' }}>
+                      Total: {formatMoney(preview.amount ?? 0)}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Card on file</label>
+                  {preview.paymentMethod ? (
+                    <div className={styles.cellMuted}>{formatCardLabel(preview.paymentMethod)}</div>
+                  ) : (
+                    <Alert variant="error">No card on file — this charge will fail.</Alert>
+                  )}
+                </div>
+
+                {!preview.due ? (
+                  <p className={styles.cellMuted}>
+                    Not due until {preview.nextBillingDate ? formatDateLabel(preview.nextBillingDate) : '—'}.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </>
+        ) : null}
+
+        {!chargeDialog.result && preview && preview.outcome !== 'previewable' ? (
+          <Alert variant="error">
+            {preview.outcome === 'not_found'
+              ? 'Subscription not found.'
+              : preview.outcome === 'inactive'
+                ? 'This subscription is no longer active.'
+                : preview.outcome === 'no_price'
+                  ? 'Could not resolve a price for this class/level.'
+                  : 'No failed charge was found to retry.'}
+          </Alert>
+        ) : null}
+
+        {chargeDialog.chargeError ? <Alert variant="error">{chargeDialog.chargeError}</Alert> : null}
       </Modal>
     </main>
   );

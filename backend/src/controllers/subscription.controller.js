@@ -1,4 +1,5 @@
 const subscriptionService = require('../services/subscription.service');
+const { previewRenewal, chargeNow } = require('../services/renewal.service');
 
 async function list(req, res) {
   try {
@@ -41,4 +42,30 @@ async function changeSchedule(req, res) {
   }
 }
 
-module.exports = { list, cancel, reactivate, changeSchedule };
+// Superadmin-only manual Charge button (docs/plans/manual-charge-and-pdf-
+// invoice-plan.md). previewRenewal/chargeNow never throw for a billing
+// STATE (not_found/inactive/no_price/skipped_*/failed_payment/etc. all come
+// back as a 200 outcome object) — the try/catch here only guards against a
+// genuine unexpected error (e.g. a real Stripe/DB failure), same posture as
+// every other controller in this file.
+async function chargePreview(req, res) {
+  try {
+    const preview = await previewRenewal(req.params.id);
+    return res.status(200).json(preview);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to preview charge' });
+  }
+}
+
+async function charge(req, res) {
+  try {
+    const result = await chargeNow(req.params.id);
+    return res.status(200).json(result);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to charge subscription' });
+  }
+}
+
+module.exports = { list, cancel, reactivate, changeSchedule, chargePreview, charge };

@@ -1,5 +1,10 @@
 import api from '../api';
-import type { AdminSubscriptionListResponse, AdminSubscriptionRow } from '../types';
+import type {
+  AdminSubscriptionListResponse,
+  AdminSubscriptionRow,
+  ChargePreview,
+  ChargeResult,
+} from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
 
 export type AdminSubscriptionStatusFilter = 'active' | 'pending_cancel' | 'cancelled';
@@ -55,5 +60,27 @@ export async function reactivateSubscription(id: string): Promise<MutationResult
       status: 'error',
       message: extractErrorMessage(err, 'Failed to reactivate subscription.'),
     };
+  }
+}
+
+// Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md,
+// PR 1) — superadmin only. The preview is read-only (no Stripe call on the
+// backend); the charge itself calls the exact same renewOne/retryOne the
+// unscheduled `npm run renewals` job uses.
+export async function fetchChargePreview(id: string): Promise<MutationResult<ChargePreview>> {
+  try {
+    const res = await api.get<ChargePreview>(`/subscriptions/${id}/charge-preview`);
+    return { status: 'success', data: res.data };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to load the charge preview.') };
+  }
+}
+
+export async function chargeSubscription(id: string): Promise<MutationResult<ChargeResult>> {
+  try {
+    const res = await api.post<ChargeResult>(`/subscriptions/${id}/charge`);
+    return { status: 'success', data: res.data };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to charge the subscription.') };
   }
 }
