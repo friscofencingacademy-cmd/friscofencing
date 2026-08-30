@@ -12,7 +12,7 @@
 
 .headerGreeting {
   font-family: var(--font-heading), sans-serif;
-  font-weight: 900;
+  font-weight: 700;
   font-size: 1.15rem;
   margin: 0;
   color: var(--color-ink);

@@ -5,7 +5,7 @@
 
 .pageTitle {
   font-family: var(--font-heading), sans-serif;
-  font-weight: 900;
+  font-weight: 700;
   margin: 0 0 var(--space-1);
 }
 
@@ -78,7 +78,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2px var(--space-3);
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
@@ -106,7 +106,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2px var(--space-2);
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
@@ -116,4 +116,75 @@
 .chipMuted {
   background: var(--color-bg);
   color: var(--color-muted);
+}
+
+/* Level filter (/classes, docs/plans/frontend-polish-plan.md PR 4) — a
+   pill-toggle row above 600px, same visual language as the flow kit's
+   PillRow (crimson-accented radiogroup/radio pills) but reimplemented
+   independently here rather than importing a portal-only component into a
+   marketing page. The plain <select> below 600px (a pill row wraps badly
+   on a phone) drives the exact same levelFilter state. */
+.levelFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.levelFilterPill {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-white);
+  color: var(--color-ink);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.levelFilterPillSelected {
+  border-color: var(--color-accent);
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+}
+
+.levelFilterSelectWrap {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .levelFilterRow {
+    display: none;
+  }
+
+  .levelFilterSelectWrap {
+    display: block;
+    max-width: 240px;
+  }
+}
+
+/* ScheduleTable row (/classes) — --color-border-soft, not --color-border:
+   this is a hairline divider INSIDE a Card, not the card's own structural
+   border. */
+.scheduleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-soft);
+  flex-wrap: wrap;
+}
+
+.scheduleRowTitle {
+  font-weight: 600;
+}
+
+.scheduleRowActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }

@@ -23,12 +23,28 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  /* Marketing section rhythm, 2026-08-29 — see docs/design-system.md. */
+  --space-7: 48px;
+  --space-8: 72px;
 
-  /* Square corners — the WP site's aesthetic has no rounded UI. */
-  --radius-sm: 0;
-  --radius-md: 0;
+  /* Radius — rounded treatment, 2026-08-29. Replaces the square-corner
+     WP match; see docs/design-system.md. */
+  --radius-sm: 10px;    /* was 0 — inputs, selects, small controls */
+  --radius-md: 16px;    /* was 0 — cards, flow sections, panels */
+  --radius-lg: 28px;    /* new — inset full-bleed bands: hero, CTA band, footer top */
+  --radius-pill: 999px; /* new — buttons, chips, status pills */
 
-  --shadow-card: 0 1px 3px rgba(14, 27, 42, 0.08);
+  /* Elevation — a tight contact shadow plus a wide soft ambient one, so a
+     card reads as lifted without a heavy 1px border doing all the work. */
+  --shadow-card: 0 1px 2px rgba(14, 27, 42, 0.04),
+                 0 12px 28px -20px rgba(14, 27, 42, 0.30);
+
+  /* Hairline divider for rules INSIDE a card — --color-border stays the
+     structural border between a surface and the page. */
+  --color-border-soft: #edeae4;
+
+  /* Darkened --color-accent for hover states (Button .accent). */
+  --color-accent-hover: #8e1220;
 
   /* Shell tokens (admin sidebar shell + parent portal shell — originally
      Phase 1/3 of docs/plans/ckq-ui-adoption-plan.md, rebranded navy/crimson

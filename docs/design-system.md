@@ -27,7 +27,20 @@ Rebranded 2026-08-29 (`docs/plans/wordpress-ui-alignment-plan.md`, Phase 1) — 
 | `--color-success` / `--color-success-bg` | `#1F7A4D` / `#E9F4EE` | Success banners |
 | `--color-error` / `--color-error-bg` | `#B3261E` / `#FBEAE9` | Error banners, destructive actions |
 
-Spacing: `--space-1` through `--space-6` (4px–32px). Radius: `--radius-sm` / `--radius-md` — both `0` (square corners, matching the WP site's aesthetic; previously 4px/8px). Shadow: `--shadow-card`.
+Spacing: `--space-1` through `--space-8` (4px–72px; `--space-7`/`--space-8` added 2026-08-29 for marketing section rhythm — see Radius below).
+
+Radius: rounded 2026-08-29 (`docs/plans/frontend-polish-plan.md` PR 1) — the owner asked for a softer, rounded treatment, loosely aligned to the WP site rather than matched to it. This **reverses** the square-corner decision that was in place from Phase 1 of the WP-alignment rebrand (`--radius-sm`/`--radius-md` both `0`) — not a silent drift, a deliberate reversal recorded here. Current scale:
+
+| Token | Value | Usage |
+|---|---|---|
+| `--radius-sm` | `10px` | Inputs, selects, small controls |
+| `--radius-md` | `16px` | Cards, flow sections, panels |
+| `--radius-lg` | `28px` | Inset full-bleed bands — hero, CTA band, footer top |
+| `--radius-pill` | `999px` | Buttons, chips, status pills |
+
+Shadow: `--shadow-card` — a tight contact shadow plus a wide soft ambient one (`0 1px 2px rgba(14,27,42,.04), 0 12px 28px -20px rgba(14,27,42,.30)`, updated 2026-08-29), so a card reads as lifted without a heavy 1px border doing all the work.
+
+`--color-border-soft` (`#EDEAE4`, added 2026-08-29) is the hairline divider for rules *inside* a card (e.g. a row separator) — `--color-border` stays the structural border between a surface and the page; the two are not interchangeable. `--color-accent-hover` (`#8E1220`, added 2026-08-29) is a darkened `--color-accent` for `Button`'s `accent` variant hover state — see Button's row in the Components inventory below for the full hover/focus/active state set added in the same pass.
 
 **Shell tokens** (admin sidebar shell + parent portal shell — added for the CKQ UI adoption plan, `docs/plans/ckq-ui-adoption-plan.md`; rebranded alongside the tokens above). `--sidebar-active`/`--sidebar-active-bg` are used on **light** surfaces (the portal sidebar, badges/chips, StepsRow) — plain crimson passes WCAG AA there. The dark **admin** sidebar is the one surface raw crimson text/borders would fail contrast against (`--sidebar-bg`, ~2.6:1) — `admin/layout.module.css` uses the separate `--sidebar-active-on-dark` tint there instead, never `--sidebar-active` directly.
 
@@ -114,7 +127,7 @@ The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMa
 
 | Component | Location | Use |
 |---|---|---|
-| `Button` | `app/components/ui/Button/` | **The only button.** Polymorphic (`as="button"` or `as="a"` + `href`) discriminated union — using `href` on button-mode or omitting it on anchor-mode is a compile-time type error, not a runtime bug. Variants: `primary`/`secondary`/`ghost`/`danger`/`accent` (solid crimson — a second, higher-emphasis CTA next to `primary`, added Phase 1 of the WP-alignment plan). Sizes: `sm`/`md`/`lg`. Supports `loading`, `disabled`, `fullWidth`. |
+| `Button` | `app/components/ui/Button/` | **The only button.** Polymorphic (`as="button"` or `as="a"` + `href`) discriminated union — using `href` on button-mode or omitting it on anchor-mode is a compile-time type error, not a runtime bug. Variants: `primary`/`secondary`/`ghost`/`danger`/`accent` (solid crimson — a second, higher-emphasis CTA next to `primary`, added Phase 1 of the WP-alignment plan). Sizes: `sm`/`md`/`lg`. Supports `loading`, `disabled`, `fullWidth`. Pill-shaped (`--radius-pill`, 2026-08-29). Every variant has a `:hover` background shift, a `:focus-visible` outline (`2px solid var(--color-accent)`, `2px` offset — the UA default fallback was invisible against navy before this), and an `:active` press (`translateY(1px)`); all state selectors exclude both the native `:disabled` and the `.disabled` class used by `as="a"` anchors. |
 | `Alert` | `app/components/ui/Alert/` | `variant="success"` (`role="status"`) or `variant="error"` (`role="alert"`) — the `role` distinction matters for assistive tech (errors interrupt, status updates don't). |
 | `Card` | `app/components/ui/Card/` | Simple bordered/shadowed surface wrapper. |
 | `LoadError` | `app/components/ui/LoadError/` | `{ message?, onRetry?, compact? }` — the ONLY way a failed query renders; pairs with `useLoadState`. Never a modal. One documented exception: the home page (`/`) — see "Public marketing pages" above. |
@@ -141,6 +154,7 @@ Things that have shown up before (in CKQ, or would be an easy mistake to reintro
 7. **A duplicate CSS Modules class name defined twice in the same file** (the exact bug CKQ shipped in its own `admin.module.css` — two separate `.pageHeader` rules, the second silently overriding the first for any file importing both meanings). `admin.module.css` here defines `.pageHeader` exactly once, as the title+subtitle block only — the title-row-plus-action-button layout is `.pageHeaderRow`, a distinct name.
 8. **Hand-rolled overlay/dialog markup in a page's own JSX.** Import `Modal`. This is exactly how the sitewide "clicking outside a dialog silently discards the form" bug happened (`docs/plans/shared-modal-component-plan.md`) — 25 independent copies of the same backdrop-click handler across 13 files, one of which was always the next one someone forgot to update when the behavior needed to change.
 9. **A component setting its own heading `font-size`.** Let the bare `h1`–`h6` element rule in `globals.css` apply (see Typography's type scale above) — this is exactly how several home-page section headings ended up rendering at the browser's plain ~24px default instead of the WP export's documented 32px: `.sectionTitle`/`.ctaBandTitle`/`.testimonialsBannerTitle` never got a `font-size` set, so nothing overrode the UA default, and it went unnoticed because no single component was "wrong" on its own — the gap was in what *no one* set. A component may still deliberately size past the scale for a specific, commented reason (`Hero`'s `.heroTitle`) — that's a documented exception, not a silent omission.
+10. **A new money line in an `OrderSummary`, computed on the frontend.** Every money line comes from a backend response field (`GET /registrations/preview` for the register wizard's Family Scorecard panel — see the Flow kit's `OrderSummary` entry in Components inventory below); a new line means a new backend field, never a `.toFixed(2)` on a value derived by summing/subtracting other fields client-side. `app/parent/register/__tests__/page.test.tsx`'s `"server-verbatim quote regression guard"` describe block (`docs/plans/frontend-polish-plan.md` PR 5) exists specifically to catch a regression here — deliberately mutually-inconsistent-looking mock figures that don't "add up," so a client-side recomputation would render the wrong number instead of silently passing.
 
 ## Pre-merge checklist
 
