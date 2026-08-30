@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 
+import { useAuth } from '../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
 import { fetchPublicPrivateClassCoaches } from '../../lib/services/privateClass';
 import { formatTime } from '../../lib/formatTime';
@@ -49,6 +50,12 @@ function SlotRow({ slot }: { slot: PublicPrivateClassSlot }) {
 }
 
 export default function PrivateClassesPage() {
+  // Gates the "don't have an account?" prompt below — this page is public
+  // (no auth required to browse), but a parent who's already logged in must
+  // never see a prompt telling them to go log in/register. `authLoading` is
+  // checked too so the prompt doesn't flash for a real logged-in parent
+  // during the brief window before the session restore resolves.
+  const { user, loading: authLoading } = useAuth();
   const { data, error, isLoading, retry } = useLoadState(fetchPublicPrivateClassCoaches, []);
 
   return (
@@ -83,10 +90,12 @@ export default function PrivateClassesPage() {
         </div>
       )}
 
-      <p style={{ marginTop: 'var(--space-5)', fontSize: '0.9rem', color: 'var(--color-muted)' }}>
-        Don&apos;t have an account yet? <Link href="/register">Register</Link> first, then come back to
-        book a slot.
-      </p>
+      {!authLoading && !user ? (
+        <p style={{ marginTop: 'var(--space-5)', fontSize: '0.9rem', color: 'var(--color-muted)' }}>
+          Don&apos;t have an account yet? <Link href="/register">Register</Link> first, then come back to
+          book a slot.
+        </p>
+      ) : null}
     </AppShell>
   );
 }

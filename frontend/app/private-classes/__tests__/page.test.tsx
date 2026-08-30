@@ -25,13 +25,32 @@ const COACH_WITH_SLOTS = {
   ],
 };
 
+const PARENT_USER = {
+  _id: 'parent-1',
+  role: 'parent',
+  firstName: 'Pat',
+  lastName: 'Rivera',
+  email: 'pat@example.com',
+};
+
+let authMeStatus = 401;
+let authMeUser: unknown = null;
+
 const server = setupServer(
-  http.get('*/auth/me', () => HttpResponse.json({ message: 'unauthorized' }, { status: 401 })),
+  http.get('*/auth/me', () =>
+    authMeStatus === 200
+      ? HttpResponse.json({ user: authMeUser })
+      : HttpResponse.json({ message: 'unauthorized' }, { status: 401 })
+  ),
   http.get('*/private-class-schedules/public', () => HttpResponse.json({ coaches: [COACH_WITH_SLOTS] }))
 );
 
 beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  authMeStatus = 401;
+  authMeUser = null;
+});
 afterAll(() => server.close());
 
 function renderPage() {
@@ -66,5 +85,22 @@ describe('PrivateClassesPage', () => {
     expect(
       await screen.findByText(/no private lesson slots are open right now/i)
     ).toBeInTheDocument();
+  });
+
+  it('shows the "don\'t have an account" prompt for a logged-out visitor', async () => {
+    renderPage();
+
+    await screen.findByText('Dana Cole');
+    expect(screen.getByText(/don't have an account yet/i)).toBeInTheDocument();
+  });
+
+  it('never shows the "don\'t have an account" prompt once a parent is logged in', async () => {
+    authMeStatus = 200;
+    authMeUser = PARENT_USER;
+
+    renderPage();
+
+    await screen.findByText('Dana Cole');
+    expect(screen.queryByText(/don't have an account yet/i)).not.toBeInTheDocument();
   });
 });
