@@ -53,12 +53,15 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-5);
+  /* Rounded pill, 2026-08-29 (docs/plans/frontend-polish-plan.md PR 2) —
+     replaces the 3px-left-border active indicator below. */
+  margin: 0 var(--space-2);
+  border-radius: 12px;
   color: var(--color-ink);
   text-decoration: none;
   font-family: var(--font-body), sans-serif;
   font-size: 0.875rem;
   font-weight: 500;
-  border-left: 3px solid transparent;
   transition: background 0.12s, color 0.12s;
 }
 
@@ -69,7 +72,6 @@
 .sidebarLinkActive {
   background: var(--sidebar-active-bg);
   color: var(--sidebar-active);
-  border-left-color: var(--sidebar-active);
   font-weight: 700;
 }
 
@@ -120,15 +122,18 @@
     padding: var(--space-3) 0;
     width: 100%;
     justify-content: center;
-    border-left: none;
     border-right: 3px solid transparent;
     flex-direction: column;
     gap: 2px;
     font-size: 0;
+    /* Reset the desktop pill — a pill has no room to breathe in a 64px
+       icon-only rail; this width switches back to the border-right active
+       indicator kept below. */
+    margin: 0;
+    border-radius: 0;
   }
 
   .sidebarLinkActive {
-    border-left: none;
     border-right-color: var(--sidebar-active);
   }
 

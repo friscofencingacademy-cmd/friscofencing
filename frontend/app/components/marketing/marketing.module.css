@@ -31,6 +31,7 @@
   letter-spacing: 0.08em;
   color: var(--color-accent);
   background: var(--color-chip);
+  border-radius: var(--radius-pill);
   font-weight: 700;
   font-size: 0.75rem;
   padding: 4px 12px;
@@ -46,6 +47,7 @@
   letter-spacing: 0.06em;
   color: var(--color-white);
   background: var(--color-accent);
+  border-radius: var(--radius-pill);
   font-weight: 700;
   font-size: 0.78rem;
   padding: 6px 14px;
@@ -70,7 +72,7 @@
    oversight (see globals.css's type-scale comment). */
 .heroTitle {
   font-family: var(--font-heading), sans-serif;
-  font-weight: 900;
+  font-weight: 700;
   font-size: clamp(40px, 6vw, 72px);
   line-height: 1.05;
   margin: 0 0 var(--space-3);
@@ -109,6 +111,42 @@
   padding: var(--space-4);
 }
 
+/* ── ContactBlock — outage-resilient contact info, PR 5.3 ─────────────── */
+.contactBlock {
+  padding: var(--space-4) var(--space-4) 0;
+  text-align: center;
+}
+
+.contactBlockStatic {
+  margin: 0 0 var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.contactBlockLocations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.contactBlockLocations li {
+  margin: 2px 0;
+}
+
+/* Underlined by default (not just on :hover) — these are links embedded
+   inline inside a sentence of surrounding --color-muted text, not a
+   standalone nav link. axe's link-in-text-block rule caught this for real:
+   crimson-on-muted-gray measures only ~1.25:1 against the surrounding
+   text (needs 3:1) with no non-color cue to fall back on. An underline
+   satisfies WCAG 1.4.1 regardless of the contrast ratio. */
+.contactBlockStatic a,
+.contactBlockLocations a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 /* ── Hero (full-bleed band, video background — see Hero.tsx) */
 .heroBand {
   background: linear-gradient(135deg, var(--color-ink) 0%, var(--color-navy-deep) 100%);
@@ -125,6 +163,17 @@
      file. Same reasoning on every other .fullBleed-combined class below. */
   margin-top: var(--space-5);
   margin-bottom: var(--space-5);
+  /* Rounded-treatment inset, 2026-08-29 (docs/plans/frontend-polish-plan.md
+     PR 2): overrides .fullBleed's width/margin-left/margin-right (this rule
+     comes later in the file, so it wins at equal specificity) to leave a
+     --space-4 gutter per side instead of running flush to the viewport edge
+     — a radius on a truly edge-to-edge band reads as an accident. .fullBleed
+     itself is untouched; .marquee/.teamBand/.testimonialsBand stay
+     edge-to-edge. */
+  width: calc(100vw - 2 * var(--space-4));
+  margin-left: calc(-50vw + var(--space-4));
+  margin-right: calc(-50vw + var(--space-4));
+  border-radius: var(--radius-lg);
   /* Video hero added 2026-08-29 (docs/plans/wordpress-ui-alignment-plan.md
      addendum): .heroVideo is absolutely positioned to fill this band, so it
      needs to be the positioning context, and overflow:hidden keeps the
@@ -238,7 +287,9 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--space-6);
   align-items: center;
-  padding: var(--space-6) 0;
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6; the bands
+     were touching. */
+  padding: var(--space-8) 0;
 }
 
 /* min-width: 0 — the standard grid-item fix so this column's paragraph
@@ -271,8 +322,12 @@
   overflow: hidden;
   background: var(--color-ink);
   padding: var(--space-4) 0;
-  margin-top: var(--space-6);
-  margin-bottom: var(--space-6);
+  /* --space-8, 2026-08-29 section-rhythm pass. Radius stays untouched —
+     square by design (see the .marquee comment in docs/design-system.md's
+     source PR notes): a full-width ticker, rounding it fights the
+     infinite-scroll read. */
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-8);
 }
 
 .marqueeTrack {
@@ -312,7 +367,8 @@
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-5);
   text-align: center;
-  padding: var(--space-6) 0;
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6. */
+  padding: var(--space-8) 0;
 }
 
 .stepNumber {
@@ -324,7 +380,7 @@
   border-radius: 50%;
   background: var(--sidebar-active-bg);
   color: var(--sidebar-active);
-  font-weight: 900;
+  font-weight: 700;
   font-family: var(--font-heading), sans-serif;
   margin: 0 auto var(--space-2);
 }
@@ -368,6 +424,11 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  /* 2026-08-29: with the card's radius now var(--radius-md) (was 0),
+     .levelCardPhoto's negative-margin photo bleed needs clipping — without
+     this the photo's square corner pokes past the card's new rounded
+     corner. */
+  overflow: hidden;
 }
 
 .levelCardBody {
@@ -386,6 +447,7 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-muted);
+  border-radius: var(--radius-pill);
   font-weight: 700;
   font-size: 0.75rem;
   margin: 0 0 var(--space-1);
@@ -393,7 +455,7 @@
 
 .levelName {
   font-family: var(--font-heading), sans-serif;
-  font-weight: 900;
+  font-weight: 700;
   margin: 0 0 var(--space-1);
 }
 
@@ -470,7 +532,8 @@
 /* ── FacilityBand ─────────────────────────────────────────────────────── */
 .facilityBand {
   text-align: center;
-  padding: var(--space-6) 0;
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6. */
+  padding: var(--space-8) 0;
   max-width: 720px;
   margin: 0 auto;
 }
@@ -493,6 +556,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Bordered card treatment, 2026-08-29 (docs/plans/frontend-polish-plan.md
+     PR 2) — --color-border-soft, not --color-border: this is a hairline
+     divider on its own free-floating surface, not a card sitting on the
+     page background. */
+  background: var(--color-white);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5) var(--space-4);
 }
 
 .statValue {
@@ -514,8 +585,11 @@
   background: var(--color-ink);
   color: var(--color-white);
   padding: var(--space-6) var(--space-4);
-  margin-top: var(--space-6);
-  margin-bottom: var(--space-6);
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6. Stays
+     edge-to-edge (no inset/radius) — only .heroBand/.ctaBand/.siteFooter
+     get the inset-card treatment, per the plan. */
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-8);
 }
 
 /* .teamBand is full-bleed (100vw, via .fullBleed) — this re-establishes a
@@ -585,7 +659,14 @@
   background: var(--color-ink);
   color: rgba(255, 255, 255, 0.85);
   padding: var(--space-6) var(--space-5) var(--space-4);
-  margin-top: var(--space-6);
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6. */
+  margin-top: var(--space-8);
+  /* Rounded-treatment inset (same technique as .heroBand's comment above) —
+     bottom corners stay square since this is the last thing on the page. */
+  width: calc(100vw - 2 * var(--space-4));
+  margin-left: calc(-50vw + var(--space-4));
+  margin-right: calc(-50vw + var(--space-4));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .siteFooterTop {
@@ -612,6 +693,16 @@
   font-size: 0.85rem;
   margin: 0;
   max-width: 340px;
+}
+
+.siteFooterLocations a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+}
+
+.siteFooterLocations a:hover {
+  color: var(--color-white);
+  text-decoration: underline;
 }
 
 .siteFooterNav {
@@ -664,8 +755,14 @@
   background: var(--color-accent);
   color: var(--color-white);
   padding: var(--space-6) var(--space-4);
-  margin-top: var(--space-6);
-  margin-bottom: var(--space-6);
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6. */
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-8);
+  /* Rounded-treatment inset (same technique as .heroBand's comment above). */
+  width: calc(100vw - 2 * var(--space-4));
+  margin-left: calc(-50vw + var(--space-4));
+  margin-right: calc(-50vw + var(--space-4));
+  border-radius: var(--radius-lg);
 }
 
 /* .ctaBand is full-bleed (100vw, via .fullBleed) — see .teamBandInner's
@@ -678,7 +775,7 @@
 
 .ctaBandTitle {
   font-family: var(--font-heading), sans-serif;
-  font-weight: 900;
+  font-weight: 700;
   margin: 0 0 var(--space-2);
 }
 
@@ -721,8 +818,11 @@
   position: relative;
   overflow: hidden;
   padding: var(--space-6) 0;
-  margin-top: var(--space-6);
-  margin-bottom: var(--space-6);
+  /* --space-8, 2026-08-29 section-rhythm pass — was --space-6. Stays
+     edge-to-edge (no inset/radius) — only .heroBand/.ctaBand/.siteFooter
+     get the inset-card treatment, per the plan. */
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-8);
 }
 
 .testimonialsMarquee {
