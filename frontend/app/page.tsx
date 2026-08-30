@@ -10,6 +10,7 @@ import { fetchPublicTestimonials } from '../lib/services/testimonials';
 import { ROLE_LANDING_PATH } from '../lib/constants';
 import AppShell from './components/layout/AppShell';
 import Hero from './components/marketing/Hero';
+import ContactBlock from './components/marketing/ContactBlock';
 import ValuesMarquee from './components/marketing/ValuesMarquee';
 import IntroSection from './components/marketing/IntroSection';
 import StepsRow from './components/marketing/StepsRow';
@@ -67,6 +68,7 @@ export default function HomePage() {
   return (
     <AppShell>
       <Hero />
+      <ContactBlock locations={locations} />
       <ValuesMarquee words={VALUES_ROW_1} />
       <IntroSection />
       <ProgramsSection />

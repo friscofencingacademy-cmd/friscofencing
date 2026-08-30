@@ -17,7 +17,7 @@ Login is email+password for `parent`/`coach`/`admin`/`superadmin` only — stude
 ## `Location`, `Level`, `GroupClass`, `GroupClassSchedule`, `GroupClassSession` — implemented
 | Collection | Key fields |
 |---|---|
-| `Location` | `name` (unique), `address`, `timezone` (default `America/Chicago`) |
+| `Location` | `name` (unique), `address`, `timezone` (default `America/Chicago`), `phone` (optional, default `''`, free-form), `email` (optional, default `''`, format-validated when non-empty — `docs/plans/frontend-polish-plan.md` PR 5.3) |
 | `Level` | `name` (unique), `order` (unique, for sorting) |
 | `GroupClass` | `name`, `levelId` ref, `locationId` ref, `capacity`. **No price reference** — `Price` (Phase 4) is looked up dynamically by level at billing time, not stored as a foreign key here. |
 | `GroupClassSchedule` | `classId` ref, `coachId` ref (must be a `User` with `role: 'coach'`), `dayOfWeek` (0–6, `Date.getDay()` convention), `startTime`/`endTime` (`"HH:mm"`), `students` (enrolled roster, array of ObjectId) |

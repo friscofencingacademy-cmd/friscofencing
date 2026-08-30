@@ -16,7 +16,7 @@ Locations, Levels, Prices, and Classes all follow the same shape:
 
 ### Locations (`/admin/locations`)
 
-Columns: Name, Address, Timezone. Fields: name, address, timezone (all free text). Backend delete guard: 409 if any `GroupClass` references the location.
+Columns: Name, Address, Timezone. Fields: name, address, timezone (all free text), plus optional Phone/Email (`docs/plans/frontend-polish-plan.md` PR 5.3 — not shown as table columns, form-only). Both default to `''` and are never required; the public site (`SiteFooter`, the home page's `ContactBlock`) renders a `tel:`/`mailto:` link only when the corresponding field is non-empty, never a placeholder. Backend delete guard: 409 if any `GroupClass` references the location.
 
 ### Levels (`/admin/levels`)
 

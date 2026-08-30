@@ -162,12 +162,99 @@ describe('Location routes', () => {
     expect(res.body.message).toMatch(/1 class\(es\) reference this location/);
   });
 
+  // docs/plans/frontend-polish-plan.md PR 5.3 — optional public contact
+  // info, empty by default; the owner fills the real values in via the
+  // admin form whenever they're ready.
+  describe('phone/email', () => {
+    it('persists phone and email on create and returns them in the response', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const res = await agent.post('/api/v1/locations').send({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+        phone: '(214) 555-0100',
+        email: 'info@friscofencingacademy.com',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.location.phone).toBe('(214) 555-0100');
+      expect(res.body.location.email).toBe('info@friscofencingacademy.com');
+
+      const persisted = await Location.findById(res.body.location._id);
+      expect(persisted.phone).toBe('(214) 555-0100');
+      expect(persisted.email).toBe('info@friscofencingacademy.com');
+    });
+
+    it('defaults phone and email to empty strings when omitted — never a fabricated placeholder', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const res = await agent.post('/api/v1/locations').send({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.location.phone).toBe('');
+      expect(res.body.location.email).toBe('');
+    });
+
+    it('persists an updated phone/email on an existing location', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+
+      const res = await agent
+        .put(`/api/v1/locations/${location._id}`)
+        .send({ phone: '(214) 555-0199', email: 'updated@friscofencingacademy.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.location.phone).toBe('(214) 555-0199');
+      expect(res.body.location.email).toBe('updated@friscofencingacademy.com');
+    });
+
+    it('returns 400 with a clear message when the email is not a valid address, and persists nothing', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const res = await agent.post('/api/v1/locations').send({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+        email: 'not-an-email',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/not a valid email address/);
+      expect(await Location.countDocuments()).toBe(0);
+    });
+
+    it('accepts an empty string email on update without error', async () => {
+      await seedUser();
+      const agent = await loginAgent('test-admin@example.com');
+
+      const location = await Location.create({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+        email: 'info@friscofencingacademy.com',
+      });
+
+      const res = await agent.put(`/api/v1/locations/${location._id}`).send({ email: '' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.location.email).toBe('');
+    });
+  });
+
   describe('GET /api/v1/locations/public', () => {
-    it('requires no auth and returns a thin {name, address, timezone} projection', async () => {
+    it('requires no auth and returns a thin {name, address, timezone, phone, email} projection', async () => {
       await Location.create({
         name: 'Frisco HQ',
         address: '123 Main St',
         timezone: 'America/Chicago',
+        phone: '(214) 555-0100',
+        email: 'info@friscofencingacademy.com',
       });
 
       // No Authorization/cookie at all.
@@ -175,8 +262,24 @@ describe('Location routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.locations).toEqual([
-        { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' },
+        {
+          name: 'Frisco HQ',
+          address: '123 Main St',
+          timezone: 'America/Chicago',
+          phone: '(214) 555-0100',
+          email: 'info@friscofencingacademy.com',
+        },
       ]);
+    });
+
+    it('includes empty-string phone/email in the public projection when neither is set — never omitted, never a placeholder', async () => {
+      await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+
+      const res = await request(app).get('/api/v1/locations/public');
+
+      expect(res.status).toBe(200);
+      expect(res.body.locations[0].phone).toBe('');
+      expect(res.body.locations[0].email).toBe('');
     });
   });
 });

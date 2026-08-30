@@ -22,7 +22,7 @@ export async function fetchLocations(): Promise<Location[]> {
 }
 
 export async function createLocation(
-  data: Pick<Location, 'name' | 'address' | 'timezone'>
+  data: Pick<Location, 'name' | 'address' | 'timezone'> & Partial<Pick<Location, 'phone' | 'email'>>
 ): Promise<MutationResult<Location>> {
   try {
     const res = await api.post<{ location: Location }>('/locations', data);
@@ -34,7 +34,7 @@ export async function createLocation(
 
 export async function updateLocation(
   id: string,
-  data: Partial<Pick<Location, 'name' | 'address' | 'timezone'>>
+  data: Partial<Pick<Location, 'name' | 'address' | 'timezone' | 'phone' | 'email'>>
 ): Promise<MutationResult<Location>> {
   try {
     const res = await api.put<{ location: Location }>(`/locations/${id}`, data);

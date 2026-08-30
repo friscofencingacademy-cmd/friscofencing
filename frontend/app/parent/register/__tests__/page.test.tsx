@@ -394,6 +394,45 @@ describe('RegisterPage wizard', () => {
     });
   });
 
+  // docs/plans/frontend-polish-plan.md PR 5.1 — the register wizard's
+  // summary is fed exclusively by GET /registrations/preview; this asserts
+  // the rendered summary shows the server's numbers VERBATIM. Deliberately
+  // distinctive, non-round, mutually-inconsistent-looking values (they
+  // don't "add up" to each other on purpose) — any client-side arithmetic
+  // creeping back in would either recompute a different, wrong number or
+  // crash trying to derive one from fields that don't relate this way.
+  describe('server-verbatim quote regression guard', () => {
+    it('renders every quote figure exactly as the preview response sent it, with no client-side recomputation', async () => {
+      server.use(
+        http.get('*/registrations/preview', () =>
+          HttpResponse.json({
+            ...DEFAULT_PREVIEW,
+            chargeAmount: 123.47,
+            totalChargeAmount: 199.68,
+            siblingDiscountApplied: true,
+            siblingDiscountAmount: 11.03,
+            siblingDiscountReason: 'A distinctive test-only reason string.',
+            registrationFeeCharged: 87.21,
+            registrationFeeWaived: false,
+            savings: { siblingDiscount: 11.03, registrationFeeWaived: 0, total: 11.03 },
+          })
+        )
+      );
+
+      renderRegisterPage();
+      await goToPayableState();
+
+      expect(await screen.findByText('-$11.03')).toBeInTheDocument();
+      expect(screen.getByText('$123.47')).toBeInTheDocument();
+      expect(screen.getByText('$87.21')).toBeInTheDocument();
+      expect(screen.getByText('$199.68')).toBeInTheDocument();
+      expect(screen.getByText('$11.03')).toBeInTheDocument();
+      // Never a derived/summed figure this page didn't receive verbatim.
+      expect(screen.queryByText('$210.71')).not.toBeInTheDocument(); // 123.47 + 87.21
+      expect(screen.queryByText('$134.50')).not.toBeInTheDocument(); // 123.47 + 11.03
+    });
+  });
+
   describe('sibling discount', () => {
     it('shows a live sibling-discount preview once a level and start date are both selected', async () => {
       server.use(

@@ -16,13 +16,23 @@ function badRequestError(message) {
 // Every controller in this codebase does `error.status || 500` — a raw
 // Mongoose ValidationError has no .status, so without this it would surface
 // as a bare 500 with an internal Mongoose message. Scoped to exactly the
-// new timezone validator (docs/plans/timezone-consistency-plan.md D8), not
-// a general overhaul of this route's error handling — a missing required
-// field (name/address) still 500s today, a separate pre-existing gap this
-// plan does not fix.
-function remapTimezoneValidationError(error) {
-  if (error.name === 'ValidationError' && error.errors && error.errors.timezone) {
-    throw badRequestError(error.errors.timezone.message);
+// timezone (docs/plans/timezone-consistency-plan.md D8) and email
+// (docs/plans/frontend-polish-plan.md PR 5.3) validators, not a general
+// overhaul of this route's error handling — a missing required field
+// (name/address) still 500s today, a separate pre-existing gap neither
+// plan fixes.
+function remapKnownValidationError(error) {
+  if (error.name === 'ValidationError' && error.errors) {
+    const timezoneError = error.errors.timezone;
+    const emailError = error.errors.email;
+
+    if (timezoneError) {
+      throw badRequestError(timezoneError.message);
+    }
+
+    if (emailError) {
+      throw badRequestError(emailError.message);
+    }
   }
 
   throw error;
@@ -32,7 +42,7 @@ async function create(data) {
   try {
     return await Location.create(data);
   } catch (error) {
-    remapTimezoneValidationError(error);
+    remapKnownValidationError(error);
   }
 }
 
@@ -59,7 +69,7 @@ async function update(id, data) {
       runValidators: true,
     });
   } catch (error) {
-    remapTimezoneValidationError(error);
+    remapKnownValidationError(error);
   }
 
   if (!location) {
@@ -91,8 +101,11 @@ async function remove(id) {
   return location;
 }
 
-// Unauthenticated public listing — a thin {name, address, timezone}
-// projection.
+// Unauthenticated public listing — a thin {name, address, timezone, phone,
+// email} projection. phone/email (docs/plans/frontend-polish-plan.md
+// PR 5.3) are always included, even when empty — the frontend decides
+// whether to render a tel:/mailto: link based on the string being
+// non-empty, never a fallback/placeholder invented client-side.
 async function listPublic() {
   const locations = await Location.find();
 
@@ -100,6 +113,8 @@ async function listPublic() {
     name: location.name,
     address: location.address,
     timezone: location.timezone,
+    phone: location.phone,
+    email: location.email,
   }));
 }
 

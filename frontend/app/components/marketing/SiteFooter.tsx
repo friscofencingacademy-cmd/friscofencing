@@ -20,7 +20,33 @@ export default function SiteFooter({ locations }: SiteFooterProps) {
           <span className={styles.siteFooterWordmark}>Frisco Fencing Academy</span>
           {locations.length > 0 ? (
             <p className={styles.siteFooterLocations}>
-              {locations.map((location) => `${location.name} · ${location.address}`).join(' | ')}
+              {locations.map((location, index) => (
+                <span key={location.name}>
+                  {index > 0 ? ' | ' : ''}
+                  {/* A dedicated inner span for the name/address text alone
+                      (no sibling <a> inside it) — keeps it a single, stable
+                      text node regardless of whether the phone/email links
+                      below render. */}
+                  <span>
+                    {location.name} · {location.address}
+                  </span>
+                  {/* phone/email (docs/plans/frontend-polish-plan.md PR 5.3)
+                      — render a real link only when the owner has set one;
+                      never a fabricated placeholder. */}
+                  {location.phone ? (
+                    <>
+                      {' · '}
+                      <a href={`tel:${location.phone}`}>{location.phone}</a>
+                    </>
+                  ) : null}
+                  {location.email ? (
+                    <>
+                      {' · '}
+                      <a href={`mailto:${location.email}`}>{location.email}</a>
+                    </>
+                  ) : null}
+                </span>
+              ))}
             </p>
           ) : null}
         </div>

@@ -17,9 +17,11 @@ interface LocationForm {
   name: string;
   address: string;
   timezone: string;
+  phone: string;
+  email: string;
 }
 
-const EMPTY_FORM: LocationForm = { name: '', address: '', timezone: 'America/Chicago' };
+const EMPTY_FORM: LocationForm = { name: '', address: '', timezone: 'America/Chicago', phone: '', email: '' };
 
 interface DialogState {
   open: boolean;
@@ -59,7 +61,13 @@ export default function LocationsPage() {
     setDialog({
       open: true,
       id: location._id,
-      form: { name: location.name, address: location.address, timezone: location.timezone },
+      form: {
+        name: location.name,
+        address: location.address,
+        timezone: location.timezone,
+        phone: location.phone,
+        email: location.email,
+      },
     });
     setDialogError(null);
   }
@@ -232,6 +240,35 @@ export default function LocationsPage() {
             className={styles.input}
             value={dialog.form.timezone}
             onChange={(e) => setField('timezone', e.target.value)}
+          />
+        </div>
+        {/* Optional — public phone/email shown on the site's footer and
+            home page (docs/plans/frontend-polish-plan.md PR 5.3). Fill
+            these in whenever the real values are ready; left blank, the
+            public site simply doesn't render them. */}
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="loc-phone">
+            Phone <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <input
+            id="loc-phone"
+            className={styles.input}
+            value={dialog.form.phone}
+            onChange={(e) => setField('phone', e.target.value)}
+            placeholder="(XXX) XXX-XXXX"
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="loc-email">
+            Email <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <input
+            id="loc-email"
+            type="email"
+            className={styles.input}
+            value={dialog.form.email}
+            onChange={(e) => setField('email', e.target.value)}
+            placeholder="contact@example.com"
           />
         </div>
       </Modal>

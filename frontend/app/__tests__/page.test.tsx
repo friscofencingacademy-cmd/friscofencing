@@ -11,7 +11,16 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock }),
 }));
 
-const LOCATION = { name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago' };
+// phone/email always present (docs/plans/frontend-polish-plan.md PR 5.3) —
+// non-empty here so the default happy-path test exercises real tel:/
+// mailto: links; a dedicated test below covers the empty-string case.
+const LOCATION = {
+  name: 'Frisco HQ',
+  address: '123 Main St',
+  timezone: 'America/Chicago',
+  phone: '(214) 555-0100',
+  email: 'info@friscofencingacademy.com',
+};
 
 const STEVE_TESTIMONIAL = {
   quote: 'Training at FFA has helped me feel more confident and disciplined.',
@@ -76,6 +85,68 @@ describe('HomePage (logged out)', () => {
 
     const trialLinks = screen.getAllByRole('link', { name: /take a trial class/i });
     expect(trialLinks.every((link) => link.getAttribute('href') === '/register')).toBe(true);
+  });
+
+  // docs/plans/frontend-polish-plan.md PR 5.3 — public phone/email live on
+  // Location, editable by the owner via the admin form; the public site
+  // renders a real link only when the owner has actually set one.
+  describe('contact info (Location.phone/email)', () => {
+    it('renders tel:/mailto: links with the correct hrefs, both in ContactBlock and SiteFooter, when phone/email are set', async () => {
+      renderPage();
+
+      await screen.findByText('Olympic Fencing.');
+
+      const phoneLinks = screen.getAllByRole('link', { name: '(214) 555-0100' });
+      expect(phoneLinks.length).toBeGreaterThan(0);
+      phoneLinks.forEach((link) => expect(link).toHaveAttribute('href', 'tel:(214) 555-0100'));
+
+      const emailLinks = screen.getAllByRole('link', { name: 'info@friscofencingacademy.com' });
+      expect(emailLinks.length).toBeGreaterThan(0);
+      emailLinks.forEach((link) =>
+        expect(link).toHaveAttribute('href', 'mailto:info@friscofencingacademy.com')
+      );
+    });
+
+    it('renders no phone/email links — no dead links — when a location has neither set', async () => {
+      server.use(
+        http.get('*/locations/public', () =>
+          HttpResponse.json({
+            locations: [{ name: 'Frisco HQ', address: '123 Main St', timezone: 'America/Chicago', phone: '', email: '' }],
+          })
+        )
+      );
+
+      renderPage();
+
+      await screen.findByText('Olympic Fencing.');
+
+      expect(screen.queryByRole('link', { name: /^tel:/i })).not.toBeInTheDocument();
+      expect(screen.queryAllByRole('link').some((link) => link.getAttribute('href')?.startsWith('tel:'))).toBe(
+        false
+      );
+      expect(
+        screen.queryAllByRole('link').some((link) => link.getAttribute('href')?.startsWith('mailto:'))
+      ).toBe(false);
+    });
+
+    it('still shows the static contact line — never a blank page — when both /locations/public and /testimonials/public fail', async () => {
+      server.use(
+        http.get('*/locations/public', () => HttpResponse.json({ message: 'boom' }, { status: 500 })),
+        http.get('*/testimonials/public', () => HttpResponse.json({ message: 'boom' }, { status: 500 }))
+      );
+
+      renderPage();
+
+      expect(await screen.findByText('Olympic Fencing.')).toBeInTheDocument();
+      expect(screen.getByText(/call or email us to book a class/i)).toBeInTheDocument();
+      // Both ContactBlock and SiteFooter carry their own YouTube link —
+      // every one of them must still point at the real URL.
+      const youtubeLinks = screen.getAllByRole('link', { name: 'YouTube' });
+      expect(youtubeLinks.length).toBeGreaterThan(0);
+      youtubeLinks.forEach((link) =>
+        expect(link).toHaveAttribute('href', 'https://www.youtube.com/@BrainsBehindBlades')
+      );
+    });
   });
 
   it('renders each program\'s duration/description copy and a "Take Trial Class" link to /register', async () => {

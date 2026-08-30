@@ -41,6 +41,12 @@ Unchanged principle: eligibility is re-derived live at every charge; nothing sto
 - **Accepted overlap:** in a transition month, the family can receive slightly more than one month's 10% (e.g. new child's discounted prorated charge + the existing child's discounted anniversary renewal later that same month — the analysis's F5). Bounded at 10% of one fee, happens at most once per family formation, errs in the family's favor, and only arises at all under proration and/or non-aligned renewal dates. Documented as accepted rather than "fixed" by delaying the discount — delaying is exactly what the owner rejected.
 - ADR 001's sibling-discount paragraph and CLAUDE.md's "2-child case only" scope line are superseded by this rule.
 
+## Addendum, 2026-08-29 (`docs/plans/frontend-polish-plan.md` PR 5.2): the 10% rate stays hardcoded
+
+The rate itself — 10% — is a fixed constant of this rule, implemented in `calculateChargeAmount.service.js`, not a configurable `Setting`. Every dollar amount and every discount `reason` string the frontend renders already comes straight from the backend (including the backend's own `reason` text, which itself states "10%"); the four frontend labels that additionally state "10%" as copy (`parent/subscriptions/page.tsx`, `admin/subscriptions/page.tsx`, `parent/register/page.tsx`) are fixed prose describing this fixed rule, not a value at risk of silently drifting from it, so they are not scrubbed or wired to a response field.
+
+Owner-decided, 2026-08-29: no admin setting for the rate today — it has never changed and there is no plan to change it, so a configurable `Setting.siblingDiscountPercent` would be built for a need that doesn't exist yet. If the rate ever does become configurable, the sequence is: `Setting` gains the field (the same precedent `registrationFee` already set) → `calculateChargeAmount` reads it → API responses/`reason` strings carry the live value → only then do the frontend labels switch to rendering it. Labels are never the first thing to change.
+
 ## Alternatives considered
 
 - **Wait-for-next-renewal when the new child is the top payer** (CKQ's behavior) — rejected by owner as unfair: "If someone registers on the 2nd and his sibling registers on the 3rd, it is unfair to say they won't get discount until the next month."

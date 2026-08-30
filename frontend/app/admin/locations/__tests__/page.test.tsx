@@ -1,14 +1,20 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
 import LocationsPage from '../page';
 
+// phone/email always present (docs/plans/frontend-polish-plan.md PR 5.3) —
+// empty string here, matching the real backend default for a location that
+// hasn't had contact info set yet.
 const EXISTING_LOCATION = {
   _id: 'loc-1',
   name: 'Frisco HQ',
   address: '123 Main St',
   timezone: 'America/Chicago',
+  phone: '',
+  email: '',
 };
 
 let createdPayload: unknown = null;
@@ -76,10 +82,64 @@ describe('LocationsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => {
-      expect(createdPayload).toEqual({ name: 'New Salle', address: '789 Oak Ave', timezone: 'America/Chicago' });
+      expect(createdPayload).toEqual({
+        name: 'New Salle',
+        address: '789 Oak Ave',
+        timezone: 'America/Chicago',
+        phone: '',
+        email: '',
+      });
     });
 
     expect(await screen.findByText('New Salle')).toBeInTheDocument();
+  });
+
+  it('creates a new location with phone and email, carried verbatim in the POST payload', async () => {
+    const user = userEvent.setup();
+    render(<LocationsPage />);
+    await screen.findByText('Frisco HQ');
+
+    await user.click(screen.getByRole('button', { name: /add location/i }));
+
+    await user.type(screen.getByLabelText(/^name/i), 'New Salle');
+    await user.type(screen.getByLabelText(/^address/i), '789 Oak Ave');
+    await user.type(screen.getByLabelText(/^phone/i), '(214) 555-0100');
+    await user.type(screen.getByLabelText(/^email/i), 'info@friscofencingacademy.com');
+
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(createdPayload).toEqual({
+        name: 'New Salle',
+        address: '789 Oak Ave',
+        timezone: 'America/Chicago',
+        phone: '(214) 555-0100',
+        email: 'info@friscofencingacademy.com',
+      });
+    });
+  });
+
+  it('creates a location with phone/email left blank — they are optional, not required', async () => {
+    const user = userEvent.setup();
+    render(<LocationsPage />);
+    await screen.findByText('Frisco HQ');
+
+    await user.click(screen.getByRole('button', { name: /add location/i }));
+    await user.type(screen.getByLabelText(/^name/i), 'New Salle');
+    await user.type(screen.getByLabelText(/^address/i), '789 Oak Ave');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(createdPayload).toEqual({
+        name: 'New Salle',
+        address: '789 Oak Ave',
+        timezone: 'America/Chicago',
+        phone: '',
+        email: '',
+      });
+    });
+    // No validation error blocked the submit.
+    expect(screen.queryByText(/required/i)).not.toBeInTheDocument();
   });
 
   it('edits a location, prefilling the dialog and sending the exact PUT payload', async () => {
@@ -109,10 +169,40 @@ describe('LocationsPage', () => {
         name: 'Frisco HQ Updated',
         address: '123 Main St',
         timezone: 'America/Chicago',
+        phone: '',
+        email: '',
       });
     });
 
     expect(await screen.findByText('Frisco HQ Updated')).toBeInTheDocument();
+  });
+
+  it('edits a location to add phone and email, prefilling from the existing (empty) values and sending the update verbatim', async () => {
+    const user = userEvent.setup();
+    render(<LocationsPage />);
+    await screen.findByText('Frisco HQ');
+
+    await user.click(screen.getByRole('button', { name: /edit frisco hq/i }));
+
+    const phoneInput = screen.getByLabelText(/^phone/i) as HTMLInputElement;
+    const emailInput = screen.getByLabelText(/^email/i) as HTMLInputElement;
+    expect(phoneInput.value).toBe('');
+    expect(emailInput.value).toBe('');
+
+    await user.type(phoneInput, '(214) 555-0199');
+    await user.type(emailInput, 'updated@friscofencingacademy.com');
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(updatedPayload).toEqual({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+        timezone: 'America/Chicago',
+        phone: '(214) 555-0199',
+        email: 'updated@friscofencingacademy.com',
+      });
+    });
   });
 
   it('deletes a location (happy path) and removes the row optimistically', async () => {
