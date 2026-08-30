@@ -74,7 +74,9 @@ test.describe('public site (logged out)', () => {
     page.on('pageerror', (err) => errors.push(err.message));
 
     await page.goto('/coaches');
-    await expect(page.getByRole('heading', { name: 'Coaching Staff' })).toBeVisible();
+    // "Guided by Experience" (docs/plans/frontend-polish-plan.md follow-up,
+    // 2026-08-30) — was "Coaching Staff" before the /coaches redesign.
+    await expect(page.getByRole('heading', { name: 'Guided by Experience' })).toBeVisible();
 
     expect(errors).toEqual([]);
   });

@@ -18,16 +18,26 @@ const LOCATION = {
 // re-running the import (upserts by email, so editing an email here creates
 // a new coach record rather than renaming the placeholder one — a deliberate
 // one-time edit, not something the script infers).
+//
+// chris/abel updated 2026-08-30 to the real last names (Slaughter/
+// Rodriguez, confirmed against the live friscofencingacademy.com "Our
+// Team" section) — this file is NOT live-synced with the database (its own
+// comment above), so these two edits are documentation only: the actual
+// User records were corrected directly (Chris's already was; Abel's fixed
+// alongside this edit). lauren added the same day — her account didn't
+// exist at all before; the live WP site itself only ever published her
+// first name, so her lastName stays the same PLACEHOLDER marker keith/mark
+// already use, genuinely unknown rather than guessed.
 const COACHES = {
   abel: {
     firstName: 'Abel',
-    lastName: '[PLACEHOLDER LAST NAME]',
+    lastName: 'Rodriguez',
     email: 'coach-abel@friscofencing.local',
     password: 'ChangeMe-Abel-2026!',
   },
   chris: {
     firstName: 'Chris',
-    lastName: '[PLACEHOLDER LAST NAME]',
+    lastName: 'Slaughter',
     email: 'coach-chris@friscofencing.local',
     password: 'ChangeMe-Chris-2026!',
   },
@@ -42,6 +52,12 @@ const COACHES = {
     lastName: '[PLACEHOLDER LAST NAME]',
     email: 'coach-mark@friscofencing.local',
     password: 'ChangeMe-Mark-2026!',
+  },
+  lauren: {
+    firstName: 'Lauren',
+    lastName: '[PLACEHOLDER LAST NAME]',
+    email: 'coach-lauren@friscofencing.local',
+    password: 'ChangeMe-Lauren-2026!',
   },
 };
 
