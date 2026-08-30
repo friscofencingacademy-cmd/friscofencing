@@ -144,7 +144,14 @@ the codebase's date math; test suites run under `TZ=UTC`.
 10. **`StripeCardError`** → same failed/email/200 outcome as above; `retryCharge` re-runs
     `chargeSession` verbatim once the card is fixed, minting a fresh `attempt`+idempotency key.
 11. **Success** → charge `completed`, `paidAt`, `stripePaymentIntentId`,
-    `sendPrivateClassSessionReceiptEmail`.
+    `sendPrivateClassSessionReceiptEmail` — carrying a PDF invoice attachment
+    (`docs/plans/manual-charge-and-pdf-invoice-plan.md` PR 2; `docs/modules/email.md`'s
+    "PDF invoice attachments" section) generated from the just-`completed` `charge` doc (already
+    reflects `status: 'completed'` in memory here — the `.save()` above mutates the real Mongoose
+    document, unlike the group-class ledger's `findByIdAndUpdate`-based path, so no re-fetch is
+    needed). A private-lesson row has no `Location` of its own, so its invoice always shows the
+    academy's own address (D9). A PDF generation failure is caught in its own nested try/catch —
+    it drops only the attachment, never the receipt email or the charge outcome.
 
 ## Cancellation (D8 — no refunds, no proration, ever)
 

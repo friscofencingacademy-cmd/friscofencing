@@ -10,6 +10,7 @@ const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.servi
 const { computeSessionPrice, sessionDurationMinutes } = require('../utils/privateClassPricing');
 const { nextOccurrenceStrictlyAfter } = require('../utils/scheduleOccurrence');
 const mailService = require('./mail.service');
+const invoiceService = require('./invoice.service');
 
 // Mirrors group's 8-week generateInitialSessions window (groupClassSession.
 // service.js) — consistency over CKQ's own 10-week private-class window.
@@ -292,6 +293,25 @@ async function chargeSession(session) {
   try {
     const coach = await User.findById(enrollment.coachId);
 
+    // PDF invoice attachment (docs/plans/manual-charge-and-pdf-invoice-
+    // plan.md PR 2) — its OWN try/catch so a generation failure drops only
+    // the attachment, never the receipt email itself. `charge` is already
+    // 'completed' in memory here (the `.save()` above mutates the real
+    // Mongoose document, unlike the group-class ledger's findByIdAndUpdate
+    // path — no re-fetch needed).
+    let invoiceNumber;
+    let invoicePdf;
+
+    try {
+      const invoiceData = await invoiceService.buildInvoiceData(charge);
+      invoiceNumber = invoiceData.invoiceNumber;
+      invoicePdf = await invoiceService.renderInvoicePdf(invoiceData);
+    } catch (invoiceError) {
+      // eslint-disable-next-line no-console -- operational logging for a
+      // fire-and-forget PDF-generation side effect, not debug output.
+      console.error('privateClassSession.service: failed to generate invoice PDF:', invoiceError.message);
+    }
+
     await mailService.sendPrivateClassSessionReceiptEmail({
       parent,
       student,
@@ -299,6 +319,8 @@ async function chargeSession(session) {
       sessionDate: session.startDate,
       durationMinutes: sessionDurationMinutes(session.startDate, session.endDate),
       amount,
+      invoiceNumber,
+      invoicePdf,
     });
   } catch (error) {
     // eslint-disable-next-line no-console -- operational logging for a

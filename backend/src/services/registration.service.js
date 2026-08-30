@@ -5,6 +5,7 @@ const GroupClass = require('../models/groupClass.model');
 const Level = require('../models/level.model');
 const Location = require('../models/location.model');
 const Price = require('../models/price.model');
+const Registration = require('../models/registration.model');
 const { SubscriptionCycleRegistration } = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
 const paymentMethodService = require('./paymentMethod.service');
@@ -19,6 +20,7 @@ const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
 const mailService = require('./mail.service');
+const invoiceService = require('./invoice.service');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -315,6 +317,24 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
       const location = await Location.findById(groupClass.locationId);
       const coach = await User.findById(schedule.coachId);
 
+      // PDF invoice attachment (docs/plans/manual-charge-and-pdf-invoice-
+      // plan.md PR 2) — its OWN try/catch so a generation failure drops only
+      // the attachment, never the confirmation email itself (invoiceNumber/
+      // invoicePdf stay undefined, which sendRegistrationConfirmationEmail's
+      // invoiceAttachment() helper already treats as "no attachment").
+      let invoiceNumber;
+      let invoicePdf;
+
+      try {
+        const invoiceData = await invoiceService.buildInvoiceData(updatedRegistration);
+        invoiceNumber = invoiceData.invoiceNumber;
+        invoicePdf = await invoiceService.renderInvoicePdf(invoiceData);
+      } catch (invoiceError) {
+        // eslint-disable-next-line no-console -- operational logging for a
+        // fire-and-forget PDF-generation side effect, not debug output.
+        console.error('registration.service: failed to generate invoice PDF:', invoiceError.message);
+      }
+
       await mailService.sendRegistrationConfirmationEmail({
         parent: requestingUser,
         student,
@@ -330,6 +350,8 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
         prorated: prorationInfo.prorated,
         totalClassDays: prorationInfo.totalClassDays,
         remainingClassDays: prorationInfo.remainingClassDays,
+        invoiceNumber,
+        invoicePdf,
       });
     } catch (error) {
       // eslint-disable-next-line no-console -- operational logging for a
@@ -533,4 +555,34 @@ async function listMine(parentId) {
   );
 }
 
-module.exports = { create, previewChargeAmount, listMine };
+// Download endpoint backing (docs/plans/manual-charge-and-pdf-invoice-plan
+// .md PR 2, §2.4) — admin/superadmin may fetch any row; a parent only a row
+// whose parentId matches their own (mirrors subscription.service.js's
+// isOwningParent pattern exactly); any other role never reaches this
+// service function at all (route-level requireRole already excludes them).
+// Regenerated on demand every call (D8 — no PDF storage); a `completed` row
+// always renders the same PDF, so this is safe to call repeatedly.
+async function getInvoice(registrationId, requestingUser) {
+  const row = await Registration.findById(registrationId);
+
+  if (!row) {
+    throw notFoundError('Registration not found');
+  }
+
+  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isOwningParent =
+    requestingUser.role === 'parent' && String(row.parentId) === String(requestingUser._id);
+
+  if (!isAdmin && !isOwningParent) {
+    throw forbiddenError('This invoice does not belong to you');
+  }
+
+  // buildInvoiceData itself throws a 409 for a non-'completed' row — no
+  // duplicate check needed here.
+  const invoiceData = await invoiceService.buildInvoiceData(row);
+  const pdf = await invoiceService.renderInvoicePdf(invoiceData);
+
+  return { pdf, invoiceNumber: invoiceData.invoiceNumber };
+}
+
+module.exports = { create, previewChargeAmount, listMine, getInvoice };

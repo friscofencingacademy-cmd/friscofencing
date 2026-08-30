@@ -66,9 +66,32 @@ from `{ monthlyFee, siblingDiscountAmount|null, total }` — the arithmetic happ
 Every `send*` function in `mail.service.js` (1) assembles the template's `data` (populating
 whatever refs it needs — a populate failure must never fail the caller's mutation, so this
 happens inside the function's own try/catch), (2) calls `renderEmail(key, data)`, (3) calls
-`sendMailSafely({ to, cc, subject, text, html })`. **Every send function catches its own errors
-and never throws** — email is a fire-and-forget side effect of an operation that has already
-committed to the database.
+`sendMailSafely({ to, cc, subject, text, html, attachments })`. **Every send function catches its
+own errors and never throws** — email is a fire-and-forget side effect of an operation that has
+already committed to the database.
+
+## PDF invoice attachments (docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2)
+
+`sendMailSafely`'s optional `attachments` param is nodemailer's own shape verbatim
+(`[{ filename, content: Buffer, contentType }]`), passed through to `transporter.sendMail`
+unchanged — the `APP_ENV` staging gate sits upstream of the transport call, so a blocked send
+stays blocked whether or not it carries an attachment. Three senders carry one:
+`sendRegistrationConfirmationEmail`, `sendRenewalReceiptEmail`, and
+`sendPrivateClassSessionReceiptEmail` each accept optional `invoiceNumber`/`invoicePdf` params;
+`mail.service.js`'s own `invoiceAttachment(invoiceNumber, invoicePdf)` helper turns them into the
+attachments array (or `undefined` when `invoicePdf` is falsy, so `sendMailSafely` omits the field
+entirely rather than sending an empty array).
+
+The PDF itself is built by `backend/src/services/invoice.service.js` (`buildInvoiceData` +
+`renderInvoicePdf`, via `pdfkit`) from the completed `Registration` ledger row the charge just
+wrote — every caller (`registration.service.js`'s `create()`, `renewal.service.js`'s
+`sendReceiptEmail()`, `privateClassSession.service.js`'s `chargeSession()`) generates it inside
+its **own** nested try/catch, separate from the email-sending try/catch that already wraps it: a
+PDF generation failure logs and leaves `invoiceNumber`/`invoicePdf` `undefined` (dropping only the
+attachment), it never skips or fails the receipt email itself, and it can never undo or fail an
+already-successful charge. Full design (location fallback rules, the hard-coded academy identity,
+the on-demand `GET /registrations/:id/invoice` download endpoint): `docs/features/private-class.md`
+and the plan doc above.
 
 ## Staging email gate (`APP_ENV`, fail-closed)
 

@@ -1,12 +1,27 @@
 # Manual Charge Button + PDF Invoices — Execution Plan
 
-**Status:** PR 1 BUILT 2026-08-30 on `feature/manual-charge-button`, pending owner local testing
-+ review before merge to `develop`. PR 2 (PDF invoices) not yet started. Backend 586/606 tests green
-(the 20 failures are pre-existing local-machine TZ-environment issues, reverified via `git stash`
-unrelated to this branch's changes — CI/prod run under `TZ=UTC`), including the new
-`tests/services/renewal.previewAndCharge.test.js` (11/11) and the extended
+**Status:** BOTH PRs BUILT 2026-08-30, pending owner local testing + review before merging either
+to `develop`. PR 1 on `feature/manual-charge-button`. PR 2 on `feature/pdf-invoices`, stacked on
+PR 1's branch (PR 1 was still open/unmerged when PR 2 was built, per the owner's "go for PR 2"
+instruction — see the plan's Execution-order note below, amended accordingly: PR 2's diff will be
+clean once PR 1 merges first).
+
+PR 1: backend 586/606 tests green (the 20 failures are pre-existing local-machine TZ-environment
+issues, reverified via `git stash` unrelated to this branch's changes — CI/prod run under
+`TZ=UTC`), including `tests/services/renewal.previewAndCharge.test.js` (11/11) and the extended
 `tests/routes/subscription.routes.test.js` (27/27, up from 16). Frontend 346/346 (23/23 for
 `app/admin/subscriptions/__tests__/page.test.tsx`, up from 14), `tsc --noEmit` clean.
+
+PR 2: new `tests/services/invoice.service.test.js` (8/8), extended
+`tests/services/mail.service.test.js` (36/36, up from 27), `tests/services/renewal.service.test.js`
+(23/23, up from 21), `tests/routes/privateClassSession.routes.test.js` (14/14, up from 12),
+`tests/routes/registration.routes.test.js` (34/48 passing — up from 26/40; the 14 failures are
+pre-existing, independently `git stash`-reverified as identical with PR 2's changes removed: real
+Stripe "amount below minimum charge" errors from a handful of sibling-discount tests that anchor
+registration to real wall-clock "today," which lands very close to month-end proration in the
+current test environment — unrelated to this PR, not attempted here per Hard Rule 6). `npm install
+pdfkit@0.20.2`, no frontend changes (no UI in this PR, per plan). `backend/src/config/academy.js`
+ships with placeholder address/EIN — owner fills in the real values whenever ready.
 **Owner decision (2026-08-30):** For now, renewals are NOT run on any schedule. Instead, a
 superadmin-only **Charge** button on `/admin/subscriptions` processes one subscription at a
 time, with a full pre-charge preview (exact amount + card-on-file status). Separately, every
@@ -299,9 +314,12 @@ Backend:
 1. PR 1 built on `feature/manual-charge-button` → owner local test (charge a staging
    subscription end-to-end: preview → charge → receipt email → list refresh; plus the
    no-card and pending-cancel dialogs) → PR to `develop`.
-2. PR 2 built on `feature/pdf-invoices` (branched after PR 1 merges) → owner local test
-   (register + renew + private session on staging; open the attached PDFs; hit the download
-   endpoint as parent and admin) → PR to `develop`.
+2. PR 2 built on `feature/pdf-invoices`, branched off PR 1's branch (owner said "go for PR 2"
+   before PR 1 had merged — the original plan assumed PR 1 would merge first for a clean diff;
+   stacking instead means PR 2's GitHub diff will show PR 1's commit too until PR 1 merges,
+   after which it resolves to just PR 2's own changes) → owner local test (register + renew +
+   private session on staging; open the attached PDFs; hit the download endpoint as parent and
+   admin) → PR to `develop` (base `develop`, will need PR 1 merged first or a rebase).
 3. Owner fills the real EIN + address into `config/academy.js` whenever ready (any time
    after PR 2; placeholder ships first).
 

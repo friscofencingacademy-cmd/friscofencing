@@ -86,6 +86,12 @@ ONE collection for every charge in the business — see ADR `docs/decisions/004-
 
 **Mutation contract**, every row regardless of shape: immutable after insert except the `pending -> completed|failed` transition and retry's own updates to `attempt`/`stripePaymentIntentId`/`failureMessage`/`paidAt`/`status`.
 
+**PDF invoice** (`docs/plans/manual-charge-and-pdf-invoice-plan.md` PR 2) — no new field or
+collection. `GET /registrations/:id/invoice` (parent-own or admin/superadmin) regenerates a PDF
+on demand from any `completed` row (either discriminator) via `invoice.service.js`; the same
+generator attaches the PDF to the receipt email at charge time. `total` in the PDF is always
+`row.amount` verbatim, never recomputed from `breakdown`.
+
 **Discriminator: `subscription_cycle`** (group classes) — `subscriptionId` ref `Subscription` (required); `scheduleId` ref `GroupClassSchedule` (required, a charge-time snapshot, never rewritten by a later schedule change); `eventType` enum `initial`/`renewal`/`legacy` (required); `breakdown` (`monthlyFee` required, `prorated`, `proratedAmount`, `siblingDiscountApplied`, `siblingDiscountAmount`, `registrationFeeCharged`); `periodStart`/`periodEnd` (required). Query index `{subscriptionId, createdAt: -1}`. **Guard B** — unique partial index `{subscriptionId, periodStart}`, scoped to `status ∈ {pending, completed}` AND `subscriptionId: {$exists: true}` (the `$exists` scoping is what keeps this index from colliding with rows of a different shape, which have no `subscriptionId` field at all) — at most one non-failed charge per subscription per period, CKQ's fourth double-charge protection layer.
 
 **Discriminator: `per_session`** (private lessons — absorbs the former standalone `PrivateClassCharge` collection) — `sessionId` ref `PrivateClassSession` (required); `enrollmentId` ref `PrivateClassEnrollment` (required). Unique partial index on `sessionId`, scoped to `status ∈ {pending, completed}` AND `sessionId: {$exists: true}` — a session may have at most one non-failed charge at a time; `failed` deliberately excluded so a retry is never blocked.

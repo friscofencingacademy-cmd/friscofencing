@@ -155,6 +155,60 @@ describe('Private class session routes', () => {
       20000
     );
 
+    // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
+    it(
+      'attaches an invoice PDF to the receipt email on a successful charge',
+      async () => {
+        const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'invoice1' });
+
+        const res = await coachAgent
+          .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
+          .send({ status: 'attended' });
+
+        expect(res.status).toBe(200);
+
+        // Mock call counts accumulate across this whole test file (no
+        // clearAllMocks between tests, same convention this file's other
+        // tests already note) — read the LAST call, not index 0.
+        const mailService = require('../../src/services/mail.service');
+        const calls = mailService.sendPrivateClassSessionReceiptEmail.mock.calls;
+        const call = calls[calls.length - 1][0];
+        expect(call.invoiceNumber).toMatch(/^INV-/);
+        expect(Buffer.isBuffer(call.invoicePdf)).toBe(true);
+        expect(call.invoicePdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      },
+      20000
+    );
+
+    it(
+      'a PDF generation failure still sends the receipt email (no attachment) and does not affect the charge outcome',
+      async () => {
+        const invoiceService = require('../../src/services/invoice.service');
+        const buildInvoiceDataSpy = jest
+          .spyOn(invoiceService, 'buildInvoiceData')
+          .mockRejectedValue(new Error('PDF generation exploded'));
+
+        const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'invoicefail1' });
+
+        const res = await coachAgent
+          .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
+          .send({ status: 'attended' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.charged).toBe(true);
+        expect(res.body.charge.status).toBe('completed');
+
+        const mailService = require('../../src/services/mail.service');
+        const calls = mailService.sendPrivateClassSessionReceiptEmail.mock.calls;
+        const call = calls[calls.length - 1][0];
+        expect(call.invoicePdf).toBeUndefined();
+        expect(call.invoiceNumber).toBeUndefined();
+
+        buildInvoiceDataSpy.mockRestore();
+      },
+      20000
+    );
+
     it('returns 400 for a session that has not yet occurred', async () => {
       const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({
