@@ -170,9 +170,13 @@ pushes create Preview deployments automatically — that is our staging.
   `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,
   `payment_intent.failed`) → put the signing secret in `STRIPE_WEBHOOK_SECRET`. Repeat
   with a second endpoint for staging if desired.
-- **Renewals scheduling**: `npm run renewals` is currently manual. Options: Vercel Cron
-  (needs an HTTP endpoint wrapper + auth guard) or run monthly from this machine. Decide
-  when first real subscription exists.
+- **Renewals scheduling**: `npm run renewals` is currently manual, and staying that way for
+  now by owner decision (2026-08-30) — a superadmin-only manual **Charge** button on
+  `/admin/subscriptions` is the current per-subscription billing path instead
+  (`docs/plans/manual-charge-and-pdf-invoice-plan.md`, `docs/decisions/001-in-house-
+  subscription-billing.md`'s 2026-08-30 addendum). Scheduling options for whenever this
+  changes: Vercel Cron (needs an HTTP endpoint wrapper + auth guard) or run monthly from
+  this machine.
 - **Custom domain**: buy via Vercel or any registrar → add to frontend project. Then
   authenticate the domain in Brevo (DKIM/SPF) and switch `MAIL_FROM_ADDRESS` to
   `noreply@<domain>` for deliverability.

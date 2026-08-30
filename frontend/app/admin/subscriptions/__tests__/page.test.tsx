@@ -4,6 +4,27 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
 import AdminSubscriptionsPage from '../page';
+import { AuthProvider } from '../../../context/AuthContext';
+
+// Defaults to superadmin so the Charge button/dialog tests below don't need
+// their own per-test auth wiring — tests that specifically need a non-
+// superadmin viewer override this before rendering (same pattern
+// admin/audits/__tests__/page.test.tsx uses).
+let authUser: Record<string, unknown> | null = {
+  _id: 'super-1',
+  role: 'superadmin',
+  firstName: 'Super',
+  lastName: 'Admin',
+  email: 'super@example.com',
+};
+
+function renderPage() {
+  return render(
+    <AuthProvider>
+      <AdminSubscriptionsPage />
+    </AuthProvider>
+  );
+}
 
 const LEVEL = { _id: 'level-1', name: 'Beginner', order: 1 };
 const OTHER_LEVEL = { _id: 'level-2', name: 'Advanced', order: 2 };
@@ -42,14 +63,33 @@ function makeRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const DEFAULT_CHARGE_PREVIEW = {
+  outcome: 'previewable',
+  due: true,
+  nextBillingDate: '2026-02-01T00:00:00.000Z',
+  willFinalizeCancellation: false,
+  periodStart: '2026-02-01T00:00:00.000Z',
+  periodEnd: '2026-03-01T00:00:00.000Z',
+  paymentMethod: { cardBrand: 'visa', cardLast4: '4242' },
+  inDunning: false,
+  amount: 150,
+  breakdown: { monthlyFee: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0 },
+};
+
 let rows: unknown[] = [makeRow()];
 let changeSchedulePayload: unknown = null;
 let cancelledId: string | null = null;
 let reactivatedId: string | null = null;
 let scheduleRouteStatus = 200;
 let scheduleRouteMessage = 'Failed';
+let chargePreviewResponse: Record<string, unknown> = DEFAULT_CHARGE_PREVIEW;
+let chargeResponse: Record<string, unknown> = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 150 };
+let chargedId: string | null = null;
 
 const server = setupServer(
+  http.get('*/auth/me', () =>
+    authUser ? HttpResponse.json({ user: authUser }) : HttpResponse.json({ message: 'Unauthenticated' }, { status: 401 })
+  ),
   http.get('*/subscriptions', () =>
     HttpResponse.json({ subscriptions: rows, total: rows.length, totalPages: 1, currentPage: 1 })
   ),
@@ -71,6 +111,11 @@ const server = setupServer(
   http.post('*/subscriptions/:id/reactivate', ({ params }) => {
     reactivatedId = params.id as string;
     return HttpResponse.json({ subscription: makeRow({ cancelAtPeriodEnd: false }) });
+  }),
+  http.get('*/subscriptions/:id/charge-preview', () => HttpResponse.json(chargePreviewResponse)),
+  http.post('*/subscriptions/:id/charge', ({ params }) => {
+    chargedId = params.id as string;
+    return HttpResponse.json(chargeResponse);
   })
 );
 
@@ -83,12 +128,22 @@ afterEach(() => {
   reactivatedId = null;
   scheduleRouteStatus = 200;
   scheduleRouteMessage = 'Failed';
+  chargePreviewResponse = DEFAULT_CHARGE_PREVIEW;
+  chargeResponse = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 150 };
+  chargedId = null;
+  authUser = {
+    _id: 'super-1',
+    role: 'superadmin',
+    firstName: 'Super',
+    lastName: 'Admin',
+    email: 'super@example.com',
+  };
 });
 afterAll(() => server.close());
 
 describe('AdminSubscriptionsPage', () => {
   it('renders a row from the API with student/parent/class/schedule/status', async () => {
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     const table = screen.getByRole('table');
@@ -103,7 +158,7 @@ describe('AdminSubscriptionsPage', () => {
   // label, not crash.
   it('renders a fallback coach label when the schedule\'s coach was deleted', async () => {
     rows = [makeRow({ scheduleId: { ...makeRow().scheduleId, coachId: null } })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.getByText('Coach no longer available')).toBeInTheDocument();
@@ -111,7 +166,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('shows the one-time registration fee as a note under Last Charge when the subscription has one', async () => {
     rows = [makeRow({ registrationFeeCharged: 25 })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.getByText('+ $25.00 registration fee')).toBeInTheDocument();
@@ -119,7 +174,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('shows a "Prorated first month" chip when firstChargeProrated is true, and omits it otherwise', async () => {
     rows = [makeRow({ firstChargeProrated: true })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.getByText('Prorated first month')).toBeInTheDocument();
@@ -127,7 +182,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('omits the prorated chip when firstChargeProrated is false', async () => {
     rows = [makeRow({ firstChargeProrated: false })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.queryByText('Prorated first month')).not.toBeInTheDocument();
@@ -135,7 +190,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('omits the registration-fee note entirely when none was charged', async () => {
     rows = [makeRow({ registrationFeeCharged: 0 })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.queryByText(/registration fee/i)).not.toBeInTheDocument();
@@ -143,7 +198,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('shows a "Cancels <date>" chip and a Reactivate action for a pending-cancel subscription', async () => {
     rows = [makeRow({ cancelAtPeriodEnd: true })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.getByText(/cancels/i)).toBeInTheDocument();
@@ -153,7 +208,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('shows a "Premium — any session" chip and hides Change Schedule for an active premium subscription', async () => {
     rows = [makeRow({ isPremium: true })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(screen.getByText(/premium — any session/i)).toBeInTheDocument();
@@ -164,7 +219,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('shows a muted "Cancelled" chip and no actions for a cancelled subscription', async () => {
     rows = [makeRow({ status: 'cancelled', cancelAtPeriodEnd: false })];
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     expect(within(screen.getByRole('table')).getByText('Cancelled')).toBeInTheDocument();
@@ -175,7 +230,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('Change Schedule dialog filters the new-schedule select to the same level, excluding the current schedule', async () => {
     const user = userEvent.setup();
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     await user.click(screen.getByRole('button', { name: /change schedule/i }));
@@ -191,7 +246,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('confirm step posts the correct payload and closes on success', async () => {
     const user = userEvent.setup();
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     await user.click(screen.getByRole('button', { name: /change schedule/i }));
@@ -214,7 +269,7 @@ describe('AdminSubscriptionsPage', () => {
     scheduleRouteMessage = 'Schedule changes must stay within the same level';
 
     const user = userEvent.setup();
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     await user.click(screen.getByRole('button', { name: /change schedule/i }));
@@ -231,7 +286,7 @@ describe('AdminSubscriptionsPage', () => {
 
   it('cancel flow: confirm dialog shows the copy, submits, and reloads', async () => {
     const user = userEvent.setup();
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
@@ -248,7 +303,7 @@ describe('AdminSubscriptionsPage', () => {
   it('reactivate flow: confirm dialog shows the copy, submits, and reloads', async () => {
     rows = [makeRow({ cancelAtPeriodEnd: true })];
     const user = userEvent.setup();
-    render(<AdminSubscriptionsPage />);
+    renderPage();
 
     await screen.findByText('Sam Rivera');
     await user.click(screen.getByRole('button', { name: /reactivate/i }));
@@ -262,5 +317,139 @@ describe('AdminSubscriptionsPage', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: /reactivate subscription/i })).not.toBeInTheDocument()
     );
+  });
+
+  // Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md
+  // PR 1) — superadmin-only, dialog states.
+  describe('Charge button (superadmin only)', () => {
+    it('is hidden entirely for a non-superadmin admin viewer', async () => {
+      authUser = { _id: 'admin-1', role: 'admin', firstName: 'Regular', lastName: 'Admin', email: 'admin@example.com' };
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      expect(screen.queryByRole('button', { name: /^charge$/i })).not.toBeInTheDocument();
+    });
+
+    it('is hidden for a cancelled subscription even for a superadmin', async () => {
+      rows = [makeRow({ status: 'cancelled', cancelAtPeriodEnd: false })];
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      expect(screen.queryByRole('button', { name: /^charge$/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the breakdown, total, and card on file, with Confirm enabled', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      expect(await within(dialog).findByText('Monthly fee: $150.00')).toBeInTheDocument();
+      expect(within(dialog).getByText('Total: $150.00')).toBeInTheDocument();
+      expect(within(dialog).getByText('Visa •••• 4242')).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /confirm charge/i })).toBeEnabled();
+    });
+
+    it('shows a "no card on file" warning and disables Confirm', async () => {
+      chargePreviewResponse = { ...DEFAULT_CHARGE_PREVIEW, paymentMethod: null };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      expect(await within(dialog).findByText(/no card on file/i)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /confirm charge/i })).toBeDisabled();
+    });
+
+    it('shows "Not due until" and disables Confirm when the subscription is not yet due', async () => {
+      chargePreviewResponse = { ...DEFAULT_CHARGE_PREVIEW, due: false, nextBillingDate: '2099-01-01T00:00:00.000Z' };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      expect(await within(dialog).findByText(/not due until/i)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /confirm charge/i })).toBeDisabled();
+    });
+
+    it('shows the dunning note and keeps Confirm enabled (retryOne never gates on due date)', async () => {
+      chargePreviewResponse = {
+        ...DEFAULT_CHARGE_PREVIEW,
+        due: false,
+        inDunning: true,
+        retryCount: 1,
+        attemptsRemaining: 2,
+      };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      expect(await within(dialog).findByText(/retry attempt 1 of 3/i)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /confirm charge/i })).toBeEnabled();
+    });
+
+    it('pending-cancel + due: shows the finalize copy, no breakdown, and a "Finalize" button', async () => {
+      chargePreviewResponse = {
+        ...DEFAULT_CHARGE_PREVIEW,
+        willFinalizeCancellation: true,
+        amount: undefined,
+        breakdown: undefined,
+      };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      expect(await within(dialog).findByText(/will finalize the cancellation/i)).toBeInTheDocument();
+      expect(within(dialog).queryByText(/monthly fee/i)).not.toBeInTheDocument();
+      const finalizeButton = within(dialog).getByRole('button', { name: /^finalize$/i });
+      expect(finalizeButton).toBeEnabled();
+    });
+
+    it('confirm posts the charge, shows the success result, and refreshes the list', async () => {
+      chargeResponse = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 150, siblingDiscountApplied: false };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await user.click(within(dialog).getByRole('button', { name: /confirm charge/i }));
+
+      expect(await within(dialog).findByText(/charged \$150\.00/i)).toBeInTheDocument();
+      await waitFor(() => expect(chargedId).toBe('sub-1'));
+    });
+
+    it('confirm posts the charge, shows a failure result with the failure message and next retry date', async () => {
+      chargeResponse = {
+        subscriptionId: 'sub-1',
+        outcome: 'failed_payment',
+        failureMessage: 'Your card was declined.',
+        nextRetryAt: '2026-02-02T00:00:00.000Z',
+      };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await user.click(within(dialog).getByRole('button', { name: /confirm charge/i }));
+
+      expect(await within(dialog).findByText(/your card was declined/i)).toBeInTheDocument();
+      expect(within(dialog).getByText(/a retry is scheduled for/i)).toBeInTheDocument();
+    });
   });
 });

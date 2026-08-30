@@ -146,6 +146,37 @@ when none is configured — computed in the same pass, from the same `Setting` r
 is actually asked to charge. The frontend (`OrderSummary`'s "Family Scorecard" quote panel) does
 formatting (`.toFixed(2)`) only, per this ADR's standing rule.
 
+## Addendum — 2026-08-30: scheduled renewal runs paused; superadmin manual Charge button
+
+Full plan: `docs/plans/manual-charge-and-pdf-invoice-plan.md` PR 1. Owner decision: for now, renewals
+are not run on any schedule (`npm run renewals` was never actually wired to a scheduler in the first
+place — this addendum documents the decision to keep it that way for the time being, not a code
+change to disable anything). In its place, a superadmin-only **Charge** button on
+`/admin/subscriptions` (`docs/features/admin.md`) processes one subscription at a time, showing the
+exact amount and card-on-file status before confirming.
+
+The button adds zero new charge logic: `renewal.service.js`'s new `chargeNow(subscriptionId)` is a
+3-line router onto the SAME `renewOne`/`retryOne` this ADR's safeguards already govern (routed by
+`retryCount > 0`, the same signal `runRenewals`/`runRetries` split their two phases on) — every
+guard above (charge-time re-verification, the atomic conditional update, the per-period idempotency
+key, the payment-ledger dedup index, stale-pending recovery, dunning) applies completely unchanged.
+A new read-only `previewRenewal(subscriptionId)` computes the exact amount via the same
+`resolveMonthlyFee`/`calculateChargeAmount` pair `renewOne` itself calls (the standing "a preview can
+never structurally disagree with the real charge" rule, this ADR's 2026-08-23 addendum), including
+returning the LOCKED amount from the latest failed ledger row when the subscription is in dunning —
+never a live recalculation.
+
+One operational consequence worth stating: `renewOne` also finalizes a due, pending-cancel
+subscription (flips `status` to `cancelled`, removes the roster) instead of charging. With no
+scheduled run, that finalization now only happens when a superadmin clicks Charge on that row — the
+dialog states this explicitly ("this will finalize the cancellation — nothing is charged") rather
+than hiding the button, so the path still exists.
+
+`npm run renewals` itself is untouched and remains safe to run at any time — same functions, same
+guards, same idempotency; nothing about this addendum makes running it dangerous or redundant with
+manual charges (Guard B's ledger dedup means a manual charge and a later `npm run renewals` run can
+never double-charge the same period either way).
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.

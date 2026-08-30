@@ -450,6 +450,58 @@ export interface AdminSubscriptionListResponse {
   currentPage: number;
 }
 
+// ── Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md
+// PR 1) — superadmin-only, typed against renewal.service.js's previewRenewal/
+// chargeNow return shapes exactly.
+export type ChargePreviewOutcome = 'previewable' | 'not_found' | 'inactive' | 'no_price' | 'no_failed_row';
+
+export interface ChargeBreakdown {
+  monthlyFee: number;
+  siblingDiscountApplied: boolean;
+  siblingDiscountAmount: number;
+}
+
+export interface ChargePreview {
+  outcome: ChargePreviewOutcome;
+  due?: boolean;
+  nextBillingDate?: string;
+  willFinalizeCancellation?: boolean;
+  periodStart?: string;
+  periodEnd?: string;
+  paymentMethod?: { cardBrand: string; cardLast4: string } | null;
+  inDunning?: boolean;
+  retryCount?: number;
+  attemptsRemaining?: number;
+  amount?: number;
+  breakdown?: ChargeBreakdown;
+}
+
+// Every outcome renewOne/retryOne can return, verbatim — the button never
+// invents its own vocabulary, it displays whichever of these came back.
+export type ChargeOutcome =
+  | 'not_found'
+  | 'skipped_inactive'
+  | 'skipped_not_due'
+  | 'cancelled_finalized'
+  | 'cancelled_exhausted'
+  | 'skipped_already_charged'
+  | 'skipped_concurrent'
+  | 'skipped_no_failed_row'
+  | 'failed_no_price'
+  | 'failed_no_payment_method'
+  | 'failed_payment'
+  | 'charged';
+
+export interface ChargeResult {
+  subscriptionId: string;
+  outcome: ChargeOutcome;
+  chargeAmount?: number;
+  siblingDiscountApplied?: boolean;
+  failureMessage?: string;
+  nextRetryAt?: string | null;
+  attemptNumber?: number;
+}
+
 // ── Audit runs (docs/plans/audit-system-plan.md) ──────────────────────────
 // Typed against backend/src/models/auditRun.model.js exactly.
 
