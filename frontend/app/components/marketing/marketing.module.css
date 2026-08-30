@@ -167,17 +167,15 @@
      file. Same reasoning on every other .fullBleed-combined class below. */
   margin-top: var(--space-5);
   margin-bottom: var(--space-5);
-  /* Rounded-treatment inset, 2026-08-29 (docs/plans/frontend-polish-plan.md
-     PR 2): overrides .fullBleed's width/margin-left/margin-right (this rule
-     comes later in the file, so it wins at equal specificity) to leave a
-     --space-4 gutter per side instead of running flush to the viewport edge
-     — a radius on a truly edge-to-edge band reads as an accident. .fullBleed
-     itself is untouched; .marquee/.teamBand/.testimonialsBand stay
-     edge-to-edge. */
-  width: calc(100vw - 2 * var(--space-4));
-  margin-left: calc(-50vw + var(--space-4));
-  margin-right: calc(-50vw + var(--space-4));
-  border-radius: var(--radius-lg);
+  /* Reverted, 2026-08-30 (owner call): PR 2 briefly gave this band the same
+     inset-rounded treatment as .ctaBand/.siteFooter (a --space-4 gutter +
+     border-radius, overriding .fullBleed's own width/margin-left/margin-
+     right). Rounding a full-bleed video hero read as a mistake — the video
+     should cover the entire top of the page edge-to-edge, not sit in a
+     rounded card — so this band now falls straight through to .fullBleed's
+     own width:100vw / margin:-50vw again, square-cornered like before PR 2.
+     .ctaBand/.siteFooter keep the inset-rounded treatment; this is scoped
+     to the hero only. */
   /* Video hero added 2026-08-29 (docs/plans/wordpress-ui-alignment-plan.md
      addendum): .heroVideo is absolutely positioned to fill this band, so it
      needs to be the positioning context, and overflow:hidden keeps the
