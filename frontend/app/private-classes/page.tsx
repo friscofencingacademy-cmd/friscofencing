@@ -21,7 +21,19 @@ function formatFirstSessionDate(iso: string): string {
   });
 }
 
-function SlotRow({ slot }: { slot: PublicPrivateClassSlot }) {
+function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isLoggedInParent: boolean }) {
+  // A logged-in parent goes straight to the booking wizard; anyone else
+  // (logged out, or logged in as some other role) goes to log in first,
+  // carrying ?next= so they land right back on this exact slot afterward —
+  // /parent/layout.tsx's own guard would otherwise bounce a logged-out
+  // visitor here through a "Loading…" flash before redirecting to the same
+  // place. Deliberately not "/register?next=..." (unlike the group-class
+  // trial CTA) — /login already offers a "Register" link for someone with
+  // no account yet, and doesn't force a re-registration attempt on someone
+  // who already has one.
+  const bookingHref = `/parent/register-private?slot=${slot.scheduleId}`;
+  const href = isLoggedInParent ? bookingHref : `/login?next=${encodeURIComponent(bookingHref)}`;
+
   return (
     <div
       style={{
@@ -42,7 +54,7 @@ function SlotRow({ slot }: { slot: PublicPrivateClassSlot }) {
           ${slot.sessionPrice.toFixed(2)} / session · First session {formatFirstSessionDate(slot.firstSessionDate)}
         </div>
       </div>
-      <Button as="a" href={`/parent/register-private?slot=${slot.scheduleId}`} size="sm">
+      <Button as="a" href={href} size="sm">
         Book this slot
       </Button>
     </div>
@@ -56,6 +68,7 @@ export default function PrivateClassesPage() {
   // checked too so the prompt doesn't flash for a real logged-in parent
   // during the brief window before the session restore resolves.
   const { user, loading: authLoading } = useAuth();
+  const isLoggedInParent = !!user && user.role === 'parent';
   const { data, error, isLoading, retry } = useLoadState(fetchPublicPrivateClassCoaches, []);
 
   return (
@@ -82,7 +95,7 @@ export default function PrivateClassesPage() {
               <h3 style={{ marginTop: 0 }}>{coach.coachName}</h3>
               <div>
                 {coach.slots.map((slot) => (
-                  <SlotRow key={slot.scheduleId} slot={slot} />
+                  <SlotRow key={slot.scheduleId} slot={slot} isLoggedInParent={isLoggedInParent} />
                 ))}
               </div>
             </Card>

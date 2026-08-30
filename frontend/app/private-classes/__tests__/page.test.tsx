@@ -62,7 +62,10 @@ function renderPage() {
 }
 
 describe('PrivateClassesPage', () => {
-  it('renders a coach card with slot day/time/price and a Book button carrying the scheduleId', async () => {
+  it('renders a coach card with slot day/time/price, and a logged-in parent\'s Book button goes straight to the booking wizard', async () => {
+    authMeStatus = 200;
+    authMeUser = PARENT_USER;
+
     renderPage();
 
     expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
@@ -75,6 +78,20 @@ describe('PrivateClassesPage', () => {
 
     const bookLink = screen.getByRole('link', { name: /book this slot/i });
     expect(bookLink).toHaveAttribute('href', '/parent/register-private?slot=sched-1');
+  });
+
+  // The fixed bug: a logged-out visitor clicking "Book this slot" used to
+  // land on /parent/register-private, get silently bounced to home by the
+  // parent layout's auth guard, and never learn why. Now the link itself
+  // goes to /login, carrying the slot so they land right back on it.
+  it('sends a logged-out visitor\'s Book button to /login, carrying the slot as ?next=', async () => {
+    renderPage();
+
+    const bookLink = await screen.findByRole('link', { name: /book this slot/i });
+    expect(bookLink).toHaveAttribute(
+      'href',
+      `/login?next=${encodeURIComponent('/parent/register-private?slot=sched-1')}`
+    );
   });
 
   it('shows the empty state when no slots are open', async () => {

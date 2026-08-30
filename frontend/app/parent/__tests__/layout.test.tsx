@@ -26,6 +26,7 @@ beforeAll(() => server.listen());
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
+  window.history.pushState({}, '', '/parent/dashboard');
 });
 afterAll(() => server.close());
 
@@ -58,11 +59,21 @@ describe('ParentLayout', () => {
     expect(screen.queryByText('Page content')).not.toBeInTheDocument();
   });
 
-  it('redirects a logged-out visitor to "/"', async () => {
+  // A logged-out visitor is sent to log in/register instead of being
+  // silently bounced home — the fixed bug: clicking "Book this slot" on the
+  // public /private-classes page while logged out used to land on / with no
+  // explanation. ?next= carries them back to the exact page (query string
+  // included) once they authenticate.
+  it('redirects a logged-out visitor to /login, carrying the attempted path + query as ?next=', async () => {
+    window.history.pushState({}, '', '/parent/register-private?slot=abc123');
     server.use(http.get('*/auth/me', () => HttpResponse.json({ message: 'unauthorized' }, { status: 401 })));
 
     renderLayout();
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/'));
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith(
+        `/login?next=${encodeURIComponent('/parent/register-private?slot=abc123')}`
+      )
+    );
   });
 });
