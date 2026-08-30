@@ -5,25 +5,41 @@ import { setupServer } from 'msw/node';
 import ParentDashboardPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
 
-const STUDENT_ENROLLED = { _id: 'student-1', firstName: 'Enrolled', lastName: 'Kid' };
-const STUDENT_TRIAL = { _id: 'student-2', firstName: 'Trial', lastName: 'Kid' };
-const STUDENT_NONE = { _id: 'student-3', firstName: 'New', lastName: 'Kid' };
-
-const SUBSCRIPTION = {
-  _id: 'sub-1',
-  studentId: STUDENT_ENROLLED,
-  scheduleId: { _id: 'sched-1', classId: 'class-1', coachId: 'coach-1', dayOfWeek: 3, startTime: '16:00', endTime: '17:00', students: [] },
-  status: 'active',
-  cancelAtPeriodEnd: false,
-  currentPeriodEnd: '2026-02-01T00:00:00.000Z',
-  nextBillingDate: '2026-02-01T00:00:00.000Z',
-  lastChargeAmount: 150,
+// enrollment is server-decided (student.service.js's attachEnrollment(),
+// docs/plans/frontend-polish-plan.md PR 3) — these fixtures set it directly
+// rather than relying on the page to derive it from subscriptions/
+// trialClasses, since the page no longer does that at all.
+const STUDENT_ENROLLED = {
+  _id: 'student-1',
+  firstName: 'Enrolled',
+  lastName: 'Kid',
+  enrollment: {
+    status: 'enrolled' as const,
+    canBookTrial: false,
+    schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+  },
 };
-
-const TRIAL_CLASS = {
-  _id: 'trial-1',
-  studentId: STUDENT_TRIAL,
-  sessionId: { _id: 'session-1', date: '2026-09-01T00:00:00.000Z' },
+const STUDENT_TRIAL = {
+  _id: 'student-2',
+  firstName: 'Trial',
+  lastName: 'Kid',
+  enrollment: { status: 'trial_scheduled' as const, canBookTrial: false, schedule: null },
+};
+const STUDENT_NONE = {
+  _id: 'student-3',
+  firstName: 'New',
+  lastName: 'Kid',
+  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null },
+};
+// The previously-impossible-to-represent state this PR makes real (a trial
+// from months ago no longer reads as "scheduled" forever) — canBookTrial is
+// false here too (the one-trial-ever rule), so no CTA renders for this
+// child either.
+const STUDENT_TRIAL_COMPLETED = {
+  _id: 'student-4',
+  firstName: 'PastTrial',
+  lastName: 'Kid',
+  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null },
 };
 
 const server = setupServer(
@@ -67,9 +83,7 @@ describe('ParentDashboardPage', () => {
     server.use(
       http.get('*/students/mine', () =>
         HttpResponse.json({ students: [STUDENT_ENROLLED, STUDENT_TRIAL, STUDENT_NONE] })
-      ),
-      http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [SUBSCRIPTION] })),
-      http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
+      )
     );
 
     renderDashboard();
@@ -81,7 +95,8 @@ describe('ParentDashboardPage', () => {
     expect(screen.getByText('New Kid')).toBeInTheDocument();
     expect(screen.getByText('Not enrolled')).toBeInTheDocument();
 
-    // Only the not-enrolled child gets the "Book a free trial" CTA.
+    // Only the not-enrolled child (canBookTrial: true) gets the "Book a
+    // free trial" CTA — read directly off the server flag, never inferred.
     expect(screen.getAllByRole('link', { name: /book a free trial/i })).toHaveLength(1);
 
     // Each child's name links to their detail page.
@@ -89,6 +104,27 @@ describe('ParentDashboardPage', () => {
       'href',
       `/parent/child/${STUDENT_ENROLLED._id}`
     );
+  });
+
+  // Named per TESTING_STRATEGY's regression-naming convention — the bug the
+  // original design brief missed: before PR 3, a trial from months ago read
+  // as "Trial class scheduled" forever, since TrialClass has no status
+  // field and the page used to infer status from bare existence.
+  describe('stale "Trial class scheduled" regression (bug fix)', () => {
+    it('shows "Trial completed" — not "Trial class scheduled" — and no CTA, for a trial_completed child', async () => {
+      server.use(
+        http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_TRIAL_COMPLETED] }))
+      );
+
+      renderDashboard();
+
+      expect(await screen.findByText('PastTrial Kid')).toBeInTheDocument();
+      expect(screen.getByText('Trial completed')).toBeInTheDocument();
+      expect(screen.queryByText('Trial class scheduled')).not.toBeInTheDocument();
+      // canBookTrial is false for this state (one-trial-ever rule) — no CTA,
+      // even though the child isn't currently enrolled.
+      expect(screen.queryByRole('link', { name: /book a free trial/i })).not.toBeInTheDocument();
+    });
   });
 
   it('renders the Quick Actions rail', async () => {

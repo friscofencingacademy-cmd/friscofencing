@@ -13,17 +13,49 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
-const STUDENT = { _id: 'student-1', firstName: 'Kid', lastName: 'One', skillLevel: 'beginner' };
+// enrollment is server-decided (student.service.js's attachEnrollment(),
+// docs/plans/frontend-polish-plan.md PR 3) — set directly per fixture
+// rather than left for the page to derive from subscriptions/trialClasses,
+// since the page no longer derives status/CTA-gating at all. Kept
+// consistent with each test's own /registrations/mine or /trial-classes/mine
+// override below, matching what the real backend would compute together.
+const STUDENT_BASE = { _id: 'student-1', firstName: 'Kid', lastName: 'One', skillLevel: 'beginner' };
+const STUDENT_NOT_ENROLLED = {
+  ...STUDENT_BASE,
+  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null },
+};
+const STUDENT_ENROLLED = {
+  ...STUDENT_BASE,
+  enrollment: {
+    status: 'enrolled' as const,
+    canBookTrial: false,
+    schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+  },
+};
+const STUDENT_TRIAL_SCHEDULED = {
+  ...STUDENT_BASE,
+  enrollment: { status: 'trial_scheduled' as const, canBookTrial: false, schedule: null },
+};
+const STUDENT_TRIAL_COMPLETED = {
+  ...STUDENT_BASE,
+  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null },
+};
 
 const SUBSCRIPTION = {
   _id: 'sub-1',
-  studentId: STUDENT,
+  studentId: STUDENT_BASE,
   scheduleId: { _id: 'sched-1', classId: 'class-1', coachId: 'coach-1', dayOfWeek: 3, startTime: '16:00', endTime: '17:00', students: [] },
   status: 'active',
   cancelAtPeriodEnd: false,
   currentPeriodEnd: '2026-02-01T00:00:00.000Z',
   nextBillingDate: '2026-02-01T00:00:00.000Z',
   lastChargeAmount: 150,
+};
+
+const TRIAL_CLASS = {
+  _id: 'trial-1',
+  studentId: STUDENT_BASE,
+  sessionId: { _id: 'session-1', date: '2026-09-01T00:00:00.000Z' },
 };
 
 const CLASS_SCHEDULES = [
@@ -33,7 +65,7 @@ const CLASS_SCHEDULES = [
 ];
 
 const server = setupServer(
-  http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
+  http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_NOT_ENROLLED] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
   http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })),
@@ -65,16 +97,67 @@ describe('ChildDetailPage', () => {
     expect(screen.getByText('Not enrolled')).toBeInTheDocument();
   });
 
-  it('defaults to the Overview tab and shows the "Not Enrolled" card when there is no subscription or trial', async () => {
+  it('defaults to the Overview tab and shows the "Not Enrolled" card (with its Book a Free Trial CTA) when canBookTrial is true', async () => {
     renderPage();
 
     const overviewTab = await screen.findByRole('tab', { name: 'Overview' });
     expect(overviewTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Not Enrolled')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /book a free trial/i })).toHaveAttribute(
+      'href',
+      `/parent/book-trial?child=${STUDENT_NOT_ENROLLED._id}`
+    );
+  });
+
+  it('shows the Trial Class card with the session date for a trial_scheduled child', async () => {
+    server.use(
+      http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_TRIAL_SCHEDULED] })),
+      http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Trial booked')).toBeInTheDocument();
+    expect(screen.getByText('Trial Class')).toBeInTheDocument();
+    expect(screen.getByText(/scheduled for/i)).toBeInTheDocument();
+    // Not enrolled AND not a fresh not_enrolled — no "Not Enrolled" card,
+    // no CTA (canBookTrial is false: the one trial is already spoken for).
+    expect(screen.queryByText('Not Enrolled')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /book a free trial/i })).not.toBeInTheDocument();
+  });
+
+  // Named per TESTING_STRATEGY's regression-naming convention — the bug the
+  // original design brief missed: before PR 3, a trial from months ago
+  // still read as "Trial booked" forever on this page too, since the page
+  // used to infer status from bare TrialClass existence with no date check.
+  describe('stale "Trial class scheduled" regression (bug fix)', () => {
+    it('shows a "Trial Completed" card and the Trial completed pill — never the stale "Trial booked" — for a trial_completed child', async () => {
+      server.use(
+        http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_TRIAL_COMPLETED] })),
+        http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
+      );
+
+      renderPage();
+
+      expect(await screen.findByText('Trial completed')).toBeInTheDocument();
+      expect(screen.getByText('Trial Completed')).toBeInTheDocument();
+      expect(screen.queryByText('Trial booked')).not.toBeInTheDocument();
+      expect(screen.queryByText('Trial Class')).not.toBeInTheDocument();
+      // canBookTrial is false — no trial CTA. Register is the only forward
+      // action offered.
+      expect(screen.queryByRole('link', { name: /book a free trial/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^register$/i })).toHaveAttribute(
+        'href',
+        `/parent/register?child=${STUDENT_TRIAL_COMPLETED._id}`
+      );
+    });
   });
 
   it('shows the Overview tab\'s active-registration card with a Billing entry point when enrolled', async () => {
-    server.use(http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [SUBSCRIPTION] })));
+    server.use(
+      http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_ENROLLED] })),
+      http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [SUBSCRIPTION] }))
+    );
 
     renderPage();
 
@@ -84,10 +167,16 @@ describe('ChildDetailPage', () => {
       'href',
       '/parent/subscriptions'
     );
+    // The status pill reflects the server's enrollment decision, not a
+    // local re-derivation from the subscriptions list.
+    expect(screen.getByText('Enrolled')).toBeInTheDocument();
   });
 
   it('switches to the Schedule tab via the ?tab= URL param and shows the recurring pattern', async () => {
-    server.use(http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [SUBSCRIPTION] })));
+    server.use(
+      http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_ENROLLED] })),
+      http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [SUBSCRIPTION] }))
+    );
     mockSearchParams = new URLSearchParams({ tab: 'schedule' });
 
     renderPage();
@@ -99,6 +188,7 @@ describe('ChildDetailPage', () => {
 
   it('shows every sibling schedule of the class for a premium subscription, not just the one it\'s anchored to', async () => {
     server.use(
+      http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_ENROLLED] })),
       http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [{ ...SUBSCRIPTION, isPremium: true }] }))
     );
     mockSearchParams = new URLSearchParams({ tab: 'schedule' });

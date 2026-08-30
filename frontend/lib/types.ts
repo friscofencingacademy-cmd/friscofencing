@@ -26,11 +26,15 @@ export interface AuthUser {
   age?: number | null;
 }
 
+// phone/email (docs/plans/frontend-polish-plan.md PR 5.3) are always
+// present — empty string, not absent, when the owner hasn't set one yet.
 export interface Location {
   _id: string;
   name: string;
   address: string;
   timezone: string;
+  phone: string;
+  email: string;
 }
 
 export interface Level {
@@ -58,11 +62,16 @@ export interface GroupClassSchedule {
 }
 
 // GET /locations/public — no auth, no `_id` (see location.service.js's
-// listPublic).
+// listPublic). phone/email (docs/plans/frontend-polish-plan.md PR 5.3) are
+// always present — empty string, not absent — when the owner hasn't set
+// one yet; render a tel:/mailto: link only when non-empty, never a
+// fallback/placeholder invented client-side.
 export interface PublicLocation {
   name: string;
   address: string;
   timezone: string;
+  phone: string;
+  email: string;
 }
 
 // GET /levels/public — no auth. Excludes any level with no configured
@@ -78,11 +87,14 @@ export interface PublicLevel {
 // is a server-derived 'open' | 'full' string, present only in schedule-based
 // mode; premium (the live default) omits it entirely since one schedule's
 // roster filling up doesn't mean the level has no room (see
-// groupClassSchedule.service.js's listPublic/computeAvailability).
+// groupClassSchedule.service.js's listPublic/computeAvailability). `timezone`
+// (docs/plans/frontend-polish-plan.md PR 4) is THIS schedule's own location's
+// IANA zone — never assume every row shares one location's timezone.
 export interface PublicGroupClassSchedule {
   className: string;
   levelName: string;
   locationName: string;
+  timezone: string;
   coachName: string;
   dayOfWeek: number;
   startTime: string;
@@ -148,7 +160,22 @@ export interface Price {
   registrationFee?: number | null;
 }
 
-export interface Student {
+export type EnrollmentStatus = 'enrolled' | 'trial_scheduled' | 'trial_completed' | 'not_enrolled';
+
+// Server-decided enrollment facts (docs/plans/frontend-polish-plan.md PR 3,
+// source-of-truth audit finding B1) — always present on a `/students/mine`
+// response. `status` and `canBookTrial` are independent fields on purpose:
+// the frontend renders a label from `status` and gates the "Book a free
+// trial" CTA on `canBookTrial` alone, never by inferring one from the other
+// (e.g. `trial_completed` with `canBookTrial: false` is a real, valid
+// combination — a used trial that's already in the past).
+export interface StudentEnrollment {
+  status: EnrollmentStatus;
+  canBookTrial: boolean;
+  schedule: { dayOfWeek: number; startTime: string; endTime: string } | null;
+}
+
+export interface StudentBase {
   _id: string;
   firstName: string;
   lastName: string;
@@ -161,6 +188,18 @@ export interface Student {
   // derived on the frontend. null (not 0) when there's no dateOfBirth on
   // file, or absent on a response shape that doesn't compute it.
   age?: number | null;
+}
+
+// POST /students's response shape — student.service.js's create() never
+// attaches enrollment facts (a brand-new child can't have any yet); only
+// listMine() does. Kept as its own type rather than an optional field on
+// Student so a consumer of the create response can never accidentally read
+// a `.enrollment` that endpoint doesn't actually send.
+export type NewStudent = StudentBase;
+
+// GET /students/mine's response shape — enrollment is always present here.
+export interface Student extends StudentBase {
+  enrollment: StudentEnrollment;
 }
 
 export interface Coach {

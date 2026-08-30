@@ -18,6 +18,20 @@ Contract: `{ students, subscriptions, trialClasses, privateEnrollments, loading,
 
 Every `/parent/*` page that needs household data consumes this context — **no page-level fetching** for students/subscriptions/trials any more (the book-trial/register/payment-method pages still do their own local fetches for page-specific option lists like classes/schedules/prices, which are out of this context's scope).
 
+**`enrollment` on each `Student`** (`GET /students/mine`, `docs/plans/frontend-polish-plan.md` PR 3, source-of-truth audit finding B1) — a server-decided object, always present:
+
+```ts
+enrollment: {
+  status: 'enrolled' | 'trial_scheduled' | 'trial_completed' | 'not_enrolled';
+  canBookTrial: boolean;   // the "Book a free trial" CTA gate — never inferred from status
+  schedule: { dayOfWeek: number; startTime: string; endTime: string } | null; // set only when status === 'enrolled'
+}
+```
+
+Computed server-side in `student.service.js`'s `attachEnrollment()` (batched — one `Subscription` query + one `TrialClass` query for the whole household, never per-student), replacing what the dashboard and child-detail pages used to derive themselves by scanning `subscriptions`/`trialClasses` client-side. That derivation hid a real bug: `TrialClass` has no status field (one trial ever per student, unique-indexed on `studentId`), so a trial from months ago read as `trial_scheduled` forever — only the backend can tell upcoming from past, using the same Central-tz "today" every other date-sensitive calculation in this codebase uses. `canBookTrial` is `false` whenever *any* `TrialClass` row exists for the student (scheduled or completed) or an active `Subscription` exists — mirroring the one-trial-ever rule `trialClass.service.js`'s `create()` already enforces, not a duplicate of it. Orphaned references (a subscription's schedule, or a trial's session, deleted out from under it) degrade the *display* fields (`schedule: null`, status defaults to `trial_completed`) without ever crashing or flipping `canBookTrial` to a value that would offer a doomed retry — same pattern `groupClassSchedule.service.js`'s `listPublic()` uses.
+
+The frontend only formats: `status` maps to a label (`enrollmentStatusLabel()` on the dashboard, `statusPillLabel()`/`statusPillClass()` on the child detail page), and `canBookTrial` gates the CTA directly — neither page re-derives anything from `subscriptions`/`trialClasses` for these decisions any more. `POST /students` (creating a child) does **not** attach `enrollment` — a brand-new child can't have any yet — so the frontend types this as a distinct `NewStudent` shape (`lib/types.ts`) rather than an optional field on `Student`, which stays required.
+
 ## `ParentPortalShell` (`app/components/portal/ParentPortalShell/`)
 
 Wraps the generic `PortalLayout` with parent-specific nav groups:
@@ -78,11 +92,11 @@ Extracted from the children page's former inline form into a reusable dialog: `{
 
 ## Child detail page (`app/parent/child/[id]/page.tsx`, Phase 5)
 
-Reads the child straight out of `ParentPortalContext` (`students.find(s => s._id === id)`) — **no new fetch**. If the id doesn't match any of the household's children (once loading has finished), shows an inline "Child not found." message with a link back to `/parent/children`. Header: palette avatar (same index-based palette as the sidebar), name, skill level (if set), and a status pill (`Enrolled` / `Trial booked` / `Not enrolled`).
+Reads the child straight out of `ParentPortalContext` (`students.find(s => s._id === id)`) — **no new fetch**. If the id doesn't match any of the household's children (once loading has finished), shows an inline "Child not found." message with a link back to `/parent/children`. Header: palette avatar (same index-based palette as the sidebar), name, skill level (if set), and a status pill driven by `student.enrollment.status` (`Enrolled` / `Trial booked` / `Trial completed` / `Not enrolled` — see `enrollment` above; `Trial completed` was added in PR 3, previously indistinguishable from a fresh `Not enrolled` since the frontend couldn't tell a past trial from no trial at all).
 
 Two tabs, driven by a `?tab=` URL param (real `<Link>`s with `role="tab"`/`aria-selected`, not client-only state) validated against a fixed `Set(['overview', 'schedule'])` — any other or missing value falls back to `overview`:
 
-- **Overview** — a trial-status card (if a trial is booked and there's no active subscription yet), an active-registration card (schedule days/times, next billing date, and a "Manage / Cancel in Billing" link into `/parent/subscriptions` as the cancel entry point — cancellation itself still only happens on the Billing page), or a "Not Enrolled" card with a Book-a-Trial CTA when neither applies.
+- **Overview** — one card per `enrollment.status`: a Trial Class card (`trial_scheduled`) showing the booked session's date, an Active Registration card (`enrolled` — schedule days/times, next billing date, and a "Manage / Cancel in Billing" link into `/parent/subscriptions` as the cancel entry point — cancellation itself still only happens on the Billing page; sourced from the locally-fetched `subscriptions` row, not `enrollment`, since it needs fields — `nextBillingDate`, `isPremium` — `enrollment` doesn't carry), a Trial Completed card (`trial_completed` — no trial CTA, since the one-trial-ever rule means `canBookTrial` is false; offers a Register link instead), or a Not Enrolled card with a Book-a-Trial CTA gated on `canBookTrial` (`not_enrolled`).
 - **Schedule** — display-only. For a non-premium subscription (schedule-based mode only — see docs/plans/premium-registration-and-attendance-plan.md), shows the **recurring day/time pattern** from `scheduleId` alone ("Every Wednesday, 16:00 - 17:00") — still no enumerated session-date list, per the original plan's instruction. For a **premium** subscription (`isPremium: true`, the live default), the page does its own page-specific fetch of every `GroupClassSchedule` (same exception this doc already carries for book-trial/register/payment-method), filters to the ones sharing the subscription's `scheduleId.classId`, and lists all of them — "attend any of these scheduled sessions," not just the one it's anchored to.
 
 Sidebar child rows and dashboard child cards both now link here instead of to `/parent/children`.

@@ -6,18 +6,46 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { useParentPortal } from '../../../context/ParentPortalContext';
 import { getChildPalette } from '../../../../lib/childPalette';
 import { formatTime } from '../../../../lib/formatTime';
+import { DAY_LABELS } from '../../../../lib/constants';
 import { useLoadState } from '../../../../lib/hooks/useLoadState';
 import { fetchSchedules } from '../../../../lib/services/scheduling';
+import type { EnrollmentStatus } from '../../../../lib/types';
 import Button from '../../../components/ui/Button/Button';
 import styles from './child-detail.module.css';
-
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const VALID_TABS = new Set(['overview', 'schedule']);
 type TabKey = 'overview' | 'schedule';
 
 function resolveTab(value: string | null): TabKey {
   return value && VALID_TABS.has(value) ? (value as TabKey) : 'overview';
+}
+
+// Presentation only — same split as dashboard/page.tsx's
+// enrollmentStatusLabel: the backend (student.service.js's
+// attachEnrollment(), docs/plans/frontend-polish-plan.md PR 3) decides
+// which of the four states a child is in; these two only map that decision
+// to a label/CSS class.
+function statusPillLabel(status: EnrollmentStatus): string {
+  switch (status) {
+    case 'enrolled':
+      return 'Enrolled';
+    case 'trial_scheduled':
+      return 'Trial booked';
+    case 'trial_completed':
+      return 'Trial completed';
+    case 'not_enrolled':
+    default:
+      return 'Not enrolled';
+  }
+}
+
+function statusPillClass(status: EnrollmentStatus): string {
+  if (status === 'enrolled') return styles.statusPillEnrolled;
+  if (status === 'trial_scheduled') return styles.statusPillTrial;
+  // trial_completed and not_enrolled both fall back to the plain, unmodified
+  // .statusPill — a neutral muted pill, not the crimson "active trial"
+  // accent (that would misleadingly suggest a trial is still upcoming).
+  return '';
 }
 
 export default function ChildDetailPage() {
@@ -53,14 +81,16 @@ export default function ChildDetailPage() {
   }
 
   const palette = getChildPalette(index);
+  // DISPLAY-only lookups from here down — the actual subscription/trial ROW
+  // this page needs to render schedule/next-billing/session-date details
+  // the enrollment object doesn't carry. The ENROLLMENT DECISION itself
+  // (status pill, "Not Enrolled" card, CTA gate below) comes from
+  // student.enrollment instead — see docs/plans/frontend-polish-plan.md
+  // PR 3. Neither of these two lookups gates anything on its own any more.
   const activeSubscription = subscriptions.find(
     (sub) => sub.studentId._id === student._id && sub.status === 'active'
   );
   const trial = trialClasses.find((t) => t.studentId._id === student._id);
-  const hasTrial = !!trial && !activeSubscription;
-
-  const statusLabel = activeSubscription ? 'Enrolled' : hasTrial ? 'Trial booked' : 'Not enrolled';
-  const statusClass = activeSubscription ? styles.statusPillEnrolled : hasTrial ? styles.statusPillTrial : '';
 
   return (
     <main>
@@ -79,7 +109,9 @@ export default function ChildDetailPage() {
                 render, never a guess. */}
             {student.age != null ? <span className={styles.metaLevel}>Age {student.age}</span> : null}
             {student.skillLevel ? <span className={styles.metaLevel}>{student.skillLevel}</span> : null}
-            <span className={`${styles.statusPill} ${statusClass}`}>{statusLabel}</span>
+            <span className={`${styles.statusPill} ${statusPillClass(student.enrollment.status)}`}>
+              {statusPillLabel(student.enrollment.status)}
+            </span>
           </div>
         </div>
       </div>
@@ -105,7 +137,7 @@ export default function ChildDetailPage() {
 
       {tab === 'overview' ? (
         <>
-          {hasTrial && trial ? (
+          {student.enrollment.status === 'trial_scheduled' && trial ? (
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Trial Class</h2>
               <p>Scheduled for {new Date(trial.sessionId.date).toLocaleDateString()}.</p>
@@ -126,7 +158,23 @@ export default function ChildDetailPage() {
             </div>
           ) : null}
 
-          {!activeSubscription && !hasTrial ? (
+          {/* A newly-representable state (docs/plans/frontend-polish-plan.md
+              PR 3) — the backend can now tell a PAST trial apart from an
+              upcoming one, so there's a real state between "Trial Class"
+              and "Not Enrolled" above: the one-trial-ever rule means
+              canBookTrial is false here too, so no trial CTA renders —
+              Register is the only forward action left. */}
+          {student.enrollment.status === 'trial_completed' ? (
+            <div className={styles.card}>
+              <h2 className={styles.cardTitle}>Trial Completed</h2>
+              <p>{student.firstName} has already used their free trial class.</p>
+              <Button as="a" href={`/parent/register?child=${student._id}`} size="sm">
+                Register
+              </Button>
+            </div>
+          ) : null}
+
+          {student.enrollment.canBookTrial ? (
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Not Enrolled</h2>
               <p>{student.firstName} isn&apos;t enrolled in a class yet.</p>

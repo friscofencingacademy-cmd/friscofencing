@@ -1,5 +1,6 @@
 import api from '../api';
 import type {
+  NewStudent,
   PaymentMethodInfo,
   RegistrationCreateResponse,
   RegistrationPricePreview,
@@ -22,9 +23,9 @@ export async function createStudent(data: {
   lastName: string;
   skillLevel: SkillLevel;
   dateOfBirth: string;
-}): Promise<MutationResult<Student>> {
+}): Promise<MutationResult<NewStudent>> {
   try {
-    const res = await api.post<{ student: Student }>('/students', data);
+    const res = await api.post<{ student: NewStudent }>('/students', data);
     return { status: 'success', data: res.data.student };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to add child.') };

@@ -43,7 +43,17 @@ export function json(route: Route, status: number, body: unknown) {
 
 export const FIXTURE_LEVEL_A = { _id: 'level-a', name: 'Fencing Foundation', order: 1 };
 export const FIXTURE_LEVEL_B = { _id: 'level-b', name: 'Intermediate', order: 2 };
-export const FIXTURE_LOCATION = { _id: 'location-1', name: 'Frisco Main', address: '123 Main St, Frisco, TX' };
+// phone/email (docs/plans/frontend-polish-plan.md PR 5.3) — always present
+// on a real /locations/public response; set here so the home page's
+// ContactBlock/SiteFooter tel:/mailto: links have real coverage in this
+// suite too, not just Jest.
+export const FIXTURE_LOCATION = {
+  _id: 'location-1',
+  name: 'Frisco Main',
+  address: '123 Main St, Frisco, TX',
+  phone: '(214) 555-0100',
+  email: 'info@friscofencingacademy.com',
+};
 export const FIXTURE_GROUP_CLASS_A = {
   _id: 'class-a',
   name: 'Fencing Foundation',
@@ -60,7 +70,19 @@ export const FIXTURE_SCHEDULE_A = {
   startTime: '16:00',
   endTime: '17:00',
 };
-export const FIXTURE_STUDENT = { _id: 'student-1', firstName: 'Test', lastName: 'Child', role: 'student' as const };
+// enrollment is server-decided (student.service.js's attachEnrollment(),
+// docs/plans/frontend-polish-plan.md PR 3) — always present on a real
+// /students/mine response, so the mock must carry it too or the dashboard/
+// child-detail pages (which read student.enrollment directly, no fallback)
+// crash under this mock the same way they would against a stale real
+// backend response.
+export const FIXTURE_STUDENT = {
+  _id: 'student-1',
+  firstName: 'Test',
+  lastName: 'Child',
+  role: 'student' as const,
+  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null as null },
+};
 export const FIXTURE_PAYMENT_METHOD = { cardBrand: 'visa', cardLast4: '4242' };
 
 const DEFAULT_RULES: MockRule[] = [
@@ -79,6 +101,14 @@ const DEFAULT_RULES: MockRule[] = [
     // on an empty array, which is itself worth exercising by default.
     handler: (route) => json(route, 200, { spotlights: [] }),
   },
+  // Was missing entirely before docs/plans/frontend-polish-plan.md PR 5.3 —
+  // the home page's fetchHomePageData() bundles this with /locations/public
+  // via Promise.all, so an unmocked 501 here silently rejected the WHOLE
+  // fetch and blanked `locations` too, even though /locations/public itself
+  // was mocked correctly. No existing spec had ever asserted on the home
+  // page's real location/footer content, so this went uncaught until PR
+  // 5.3's own ContactBlock test needed `locations` to actually populate.
+  { method: 'GET', path: '/testimonials/public', handler: (route) => json(route, 200, { testimonials: [] }) },
   {
     method: 'GET',
     path: '/group-class-schedules/public',
@@ -87,8 +117,23 @@ const DEFAULT_RULES: MockRule[] = [
         schedules: [
           {
             ...FIXTURE_SCHEDULE_A,
+            // className/coachName were missing from this fixture entirely
+            // before docs/plans/frontend-polish-plan.md PR 4 — the real
+            // listPublic() always sends both (public-site.md's endpoint
+            // table), but nothing here previously asserted on a schedule
+            // row's actual text closely enough to catch a silently-blank
+            // "· {level}" / "Coach " render. Added while writing PR 4's own
+            // pill-filter e2e coverage; a byte-accurate mock is the whole
+            // point of this layer (TESTING_STRATEGY's mock/reality-drift
+            // warning).
+            className: FIXTURE_GROUP_CLASS_A.name,
             levelName: FIXTURE_LEVEL_A.name,
             locationName: FIXTURE_LOCATION.name,
+            // Per-row, sourced from this schedule's own location
+            // (docs/plans/frontend-polish-plan.md PR 4) — never a guess
+            // from a separate locations fetch.
+            timezone: 'America/Chicago',
+            coachName: 'Jane Coach',
           },
         ],
       }),

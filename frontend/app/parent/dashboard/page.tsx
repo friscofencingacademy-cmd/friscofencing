@@ -7,29 +7,42 @@ import { CalendarPlus, ClipboardList, Wallet } from 'lucide-react';
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { getChildPalette } from '../../../lib/childPalette';
 import { formatTime } from '../../../lib/formatTime';
-import type { Subscription } from '../../../lib/types';
+import { DAY_LABELS } from '../../../lib/constants';
+import type { StudentEnrollment } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import AddChildModal from '../../components/portal/AddChildModal';
 import styles from './dashboard.module.css';
 
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-function statusLine(activeSubscription: Subscription | undefined, hasTrial: boolean): string {
-  if (activeSubscription) {
-    const schedule = activeSubscription.scheduleId;
-    return `Enrolled — ${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
+// Presentation only — the ENROLLMENT DECISION (which of these four states a
+// student is in, and whether the trial CTA should show) is the backend's
+// (student.service.js's attachEnrollment(), docs/plans/frontend-polish-
+// plan.md PR 3). This function only maps an already-decided status to a
+// label string and formats the schedule fields it's handed; it never
+// scans subscriptions/trialClasses itself.
+function enrollmentStatusLabel(enrollment: StudentEnrollment): string {
+  switch (enrollment.status) {
+    case 'enrolled': {
+      const schedule = enrollment.schedule;
+      // Always present when status is 'enrolled', except the rare case the
+      // backend's own schedule reference degraded (orphaned ref) — render a
+      // safe fallback rather than crash on a null schedule.
+      return schedule
+        ? `Enrolled — ${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`
+        : 'Enrolled';
+    }
+    case 'trial_scheduled':
+      return 'Trial class scheduled';
+    case 'trial_completed':
+      return 'Trial completed';
+    case 'not_enrolled':
+    default:
+      return 'Not enrolled';
   }
-
-  if (hasTrial) {
-    return 'Trial class scheduled';
-  }
-
-  return 'Not enrolled';
 }
 
 export default function ParentDashboardPage() {
-  const { students, subscriptions, trialClasses, loading, reload } = useParentPortal();
+  const { students, loading, reload } = useParentPortal();
   const [addChildOpen, setAddChildOpen] = useState(false);
 
   if (loading) {
@@ -85,11 +98,6 @@ export default function ParentDashboardPage() {
         <div className={styles.childCards}>
           {students.map((student, index) => {
             const palette = getChildPalette(index);
-            const activeSubscription = subscriptions.find(
-              (sub) => sub.studentId._id === student._id && sub.status === 'active'
-            );
-            const hasTrial = trialClasses.some((trial) => trial.studentId._id === student._id);
-            const notEnrolled = !activeSubscription && !hasTrial;
 
             return (
               <Card key={student._id}>
@@ -102,10 +110,10 @@ export default function ParentDashboardPage() {
                       <p className={styles.childCardName}>
                         {student.firstName} {student.lastName}
                       </p>
-                      <p className={styles.childCardStatus}>{statusLine(activeSubscription, hasTrial)}</p>
+                      <p className={styles.childCardStatus}>{enrollmentStatusLabel(student.enrollment)}</p>
                     </div>
                   </Link>
-                  {notEnrolled ? (
+                  {student.enrollment.canBookTrial ? (
                     <Button as="a" href="/parent/book-trial" variant="secondary" size="sm">
                       Book a free trial →
                     </Button>

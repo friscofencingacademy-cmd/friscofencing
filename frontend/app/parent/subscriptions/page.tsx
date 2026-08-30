@@ -5,14 +5,13 @@ import axios from 'axios';
 
 import api from '../../../lib/api';
 import { formatTime } from '../../../lib/formatTime';
+import { DAY_LABELS } from '../../../lib/constants';
 import { fetchMyPrivateEnrollments, cancelPrivateEnrollment } from '../../../lib/services/privateClass';
 import type { MyPrivateEnrollmentEntry, Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
 import styles from '../../components/ui/shared.module.css';
-
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function formatSchedule(schedule: Subscription['scheduleId']): string {
   return `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;

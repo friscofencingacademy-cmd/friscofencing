@@ -1,9 +1,12 @@
 import { getChildPalette } from '../../../../lib/childPalette';
-import type { Student } from '../../../../lib/types';
+import type { StudentBase } from '../../../../lib/types';
 import styles from './flow.module.css';
 
 export interface ChildPickerCardsProps {
-  students: Student[];
+  // StudentBase, not Student — this component only ever reads _id/
+  // firstName/lastName/age/skillLevel, never enrollment. A real Student
+  // (which extends StudentBase) is still assignable here.
+  students: StudentBase[];
   selectedId: string;
   onSelect: (id: string) => void;
 }

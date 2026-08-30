@@ -197,5 +197,27 @@ describe('Student routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.students[0].age).toBe(8);
     });
+
+    // Shape-only assertion — the enrollment status/canBookTrial DECISION
+    // logic (including its Central-tz "today" boundary) is covered by
+    // tests/services/student.service.test.js's own suite. Fake timers are
+    // deliberately NOT used in this file (see this describe block's
+    // comment above the dateOfBirth tests) — a plain not_enrolled fixture
+    // needs no clock at all, so this test doesn't need one either.
+    it("includes an enrollment object on every child, per docs/plans/frontend-polish-plan.md PR 3 (source-of-truth audit finding B1)", async () => {
+      const parent = await seedUser({ role: 'parent', email: 'parent6@example.com' });
+      await User.create({ role: 'student', firstName: 'NoEnrollment', lastName: 'Kid', parentId: parent._id });
+
+      const parentAgent = await loginAgent('parent6@example.com');
+
+      const res = await parentAgent.get('/api/v1/students/mine');
+
+      expect(res.status).toBe(200);
+      expect(res.body.students[0].enrollment).toEqual({
+        status: 'not_enrolled',
+        canBookTrial: true,
+        schedule: null,
+      });
+    });
   });
 });
