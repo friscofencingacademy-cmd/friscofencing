@@ -164,8 +164,18 @@
      combines with .fullBleed (which sets margin-left/right to -50vw) on
      the same element, and the shorthand would reset those to 0 by also
      touching left/right, regardless of which rule appears later in this
-     file. Same reasoning on every other .fullBleed-combined class below. */
-  margin-top: var(--space-5);
+     file. Same reasoning on every other .fullBleed-combined class below.
+     margin-top is negative (2026-08-30, owner call) — AppShell.module.css's
+     .content wrapper (the hero's parent) has padding: var(--space-5) on
+     every side, including top, and .fullBleed only escapes the LEFT/RIGHT
+     padding via its width/margin trick, not the top — so without this, a
+     --space-5 gap of --color-bg beige showed between the nav bar and the
+     hero, on top of this rule's own former positive margin adding a
+     second --space-5 gap beneath it. The negative value exactly cancels
+     .content's own top padding, pulling the hero flush against the nav's
+     bottom border; every other page keeps its normal top gutter since
+     .content itself is untouched. */
+  margin-top: calc(-1 * var(--space-5));
   margin-bottom: var(--space-5);
   /* Reverted, 2026-08-30 (owner call): PR 2 briefly gave this band the same
      inset-rounded treatment as .ctaBand/.siteFooter (a --space-4 gutter +
