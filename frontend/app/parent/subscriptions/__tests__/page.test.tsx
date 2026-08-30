@@ -132,7 +132,10 @@ describe('SubscriptionsPage', () => {
     // unrelated row.
     const groupRow = screen.getByText('Kid One').closest('tr') as HTMLElement;
     expect(within(groupRow).getByText('active')).toBeInTheDocument();
-    expect(screen.getAllByText('2026-02-01')).toHaveLength(2);
+    // currentPeriodEnd/nextBillingDate render via formatDateOnly (docs/plans/
+    // utc-date-standard-plan.md) — a pretty, UTC-anchored label, not the
+    // raw ISO-slice this page used to show.
+    expect(screen.getAllByText('Feb 1, 2026')).toHaveLength(2);
     expect(screen.getByText('$150.00')).toBeInTheDocument();
     // Neither fixture sets lastSiblingDiscountApplied -> no chip.
     expect(screen.queryByText('10% sibling')).not.toBeInTheDocument();

@@ -7,6 +7,7 @@ import {
   markPrivateClassAttendance,
   retryPrivateClassCharge,
 } from '../../../lib/services/privateClassCoach';
+import { formatInstant } from '../../../lib/formatDate';
 import type { PrivateAttendanceResult, PrivateClassSessionRow } from '../../../lib/types';
 import ProtectedRoute from '../../components/ProtectedRoute';
 import AppShell from '../../components/layout/AppShell';
@@ -15,14 +16,10 @@ import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import styles from '../../components/ui/shared.module.css';
 
+// session.startDate is a real instant (docs/plans/utc-date-standard-plan.md)
+// — rendered via formatInstant (Central-anchored), never browser-local.
 function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatInstant(iso, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
 function studentName(session: PrivateClassSessionRow): string {

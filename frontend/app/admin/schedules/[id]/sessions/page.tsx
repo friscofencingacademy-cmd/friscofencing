@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 
 import { useLoadState, getErrorMessage } from '../../../../../lib/hooks/useLoadState';
 import { fetchSessionsBySchedule } from '../../../../../lib/services/scheduling';
+import { formatDateOnly } from '../../../../../lib/formatDate';
 import Button from '../../../../components/ui/Button/Button';
 import LoadError from '../../../../components/ui/LoadError/LoadError';
 import AdminPageHeader from '../../../../components/admin/AdminPageHeader';
@@ -43,7 +44,7 @@ export default function SessionsPage() {
               ) : (
                 sessions.map((session) => (
                   <tr key={session._id} className={styles.trHover}>
-                    <td className={styles.td}>{new Date(session.date).toLocaleDateString()}</td>
+                    <td className={styles.td}>{formatDateOnly(session.date)}</td>
                     <td className={styles.td}>{session.students.length}</td>
                     <td className={`${styles.td} ${styles.tdRight}`}>
                       <Button as="a" href={`/sessions/${session._id}/attendance`} size="sm" variant="secondary">

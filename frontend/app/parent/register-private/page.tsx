@@ -9,6 +9,7 @@ import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchPublicPrivateClassCoaches, createPrivateEnrollment } from '../../../lib/services/privateClass';
 import { fetchMyPaymentMethod } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
+import { formatInstant } from '../../../lib/formatDate';
 import type { PaymentMethodInfo, PublicPrivateClassCoach, PublicPrivateClassSlot } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
@@ -42,8 +43,10 @@ function findSlot(
   return null;
 }
 
+// firstSessionDate is a real instant (docs/plans/utc-date-standard-plan.md)
+// — rendered via formatInstant (Central-anchored), never browser-local.
 function formatFirstSessionDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  return formatInstant(iso, { weekday: 'long' });
 }
 
 export default function RegisterPrivatePage() {

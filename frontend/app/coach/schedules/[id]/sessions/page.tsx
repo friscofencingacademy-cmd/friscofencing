@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 import api from '../../../../../lib/api';
+import { formatDateOnly } from '../../../../../lib/formatDate';
 import ProtectedRoute from '../../../../components/ProtectedRoute';
 import AppShell from '../../../../components/layout/AppShell';
 import Button from '../../../../components/ui/Button/Button';
@@ -82,7 +83,7 @@ function CoachSessionsPageContent() {
             <tbody>
               {sessions.map((session) => (
                 <tr key={session._id}>
-                  <td>{new Date(session.date).toLocaleDateString()}</td>
+                  <td>{formatDateOnly(session.date)}</td>
                   <td>{session.students.length}</td>
                   <td>
                     <Button

@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchUsers } from '../../../lib/services/users';
 import { createCoachContract, deactivateCoachContract, fetchCoachContracts } from '../../../lib/services/coachContracts';
+import { formatInstant } from '../../../lib/formatDate';
 import type { AuthUser, CoachContract } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
@@ -28,8 +29,12 @@ const EMPTY_FORM: ContractForm = {
   sessionDurationMinutes: '60',
 };
 
+// effectiveFrom defaults to Date.now (coachContract.model.js) — a real
+// instant, not a calendar-day sentinel — so it renders via formatInstant
+// (Central-anchored), never formatDateOnly (docs/plans/
+// utc-date-standard-plan.md).
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatInstant(iso);
 }
 
 // coachId is null when the coach was deleted without a delete-guard
