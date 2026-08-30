@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
 import { fetchPublicPrivateClassCoaches } from '../../lib/services/privateClass';
 import { formatTime } from '../../lib/formatTime';
+import { formatInstant } from '../../lib/formatDate';
 import type { PublicPrivateClassSlot } from '../../lib/types';
 import AppShell from '../components/layout/AppShell';
 import Button from '../components/ui/Button/Button';
@@ -13,12 +14,12 @@ import Card from '../components/ui/Card/Card';
 import LoadError from '../components/ui/LoadError/LoadError';
 import styles from '../components/ui/shared.module.css';
 
+// firstSessionDate is a real instant (private-class sessions store a true
+// UTC start instant, not a calendar-day sentinel — docs/plans/
+// utc-date-standard-plan.md) — rendered via formatInstant (Central-
+// anchored), never a bare toLocaleDateString.
 function formatFirstSessionDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatInstant(iso, { weekday: 'short' });
 }
 
 function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isLoggedInParent: boolean }) {

@@ -16,6 +16,7 @@ import {
   type AdminSubscriptionStatusFilter,
 } from '../../../lib/services/subscriptionsAdmin';
 import { formatTime } from '../../../lib/formatTime';
+import { formatDateOnly, formatInstant } from '../../../lib/formatDate';
 import type {
   AdminSubscriptionRow,
   ChargePreview,
@@ -41,8 +42,13 @@ const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
+// nextBillingDate/currentPeriodEnd/periodStart/periodEnd are calendar-day
+// sentinels — formatDateOnly renders them UTC-anchored, never browser-local
+// (docs/plans/utc-date-standard-plan.md). nextRetryAt is a real instant
+// (Central-midnight, via billingDates.js's addOneDay) and is rendered
+// separately via formatInstant — see describeChargeOutcome below.
 function formatDateLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatDateOnly(iso);
 }
 
 function scheduleLine(schedule: Pick<GroupClassSchedule, 'dayOfWeek' | 'startTime' | 'endTime'>): string {
@@ -91,7 +97,7 @@ function describeChargeOutcome(result: ChargeResult): { variant: 'success' | 'er
       return {
         variant: 'error',
         message: `Card declined: ${result.failureMessage || 'payment failed'}.${
-          result.nextRetryAt ? ` A retry is scheduled for ${formatDateLabel(result.nextRetryAt)}.` : ''
+          result.nextRetryAt ? ` A retry is scheduled for ${formatInstant(result.nextRetryAt)}.` : ''
         }`,
       };
     case 'cancelled_exhausted':

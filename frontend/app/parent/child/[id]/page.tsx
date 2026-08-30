@@ -9,6 +9,7 @@ import { formatTime } from '../../../../lib/formatTime';
 import { DAY_LABELS } from '../../../../lib/constants';
 import { useLoadState } from '../../../../lib/hooks/useLoadState';
 import { fetchSchedules } from '../../../../lib/services/scheduling';
+import { formatDateOnly } from '../../../../lib/formatDate';
 import type { EnrollmentStatus } from '../../../../lib/types';
 import Button from '../../../components/ui/Button/Button';
 import styles from './child-detail.module.css';
@@ -140,7 +141,7 @@ export default function ChildDetailPage() {
           {student.enrollment.status === 'trial_scheduled' && trial ? (
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Trial Class</h2>
-              <p>Scheduled for {new Date(trial.sessionId.date).toLocaleDateString()}.</p>
+              <p>Scheduled for {formatDateOnly(trial.sessionId.date)}.</p>
             </div>
           ) : null}
 
@@ -151,7 +152,7 @@ export default function ChildDetailPage() {
                 {DAY_LABELS[activeSubscription.scheduleId.dayOfWeek]}{' '}
                 {formatTime(activeSubscription.scheduleId.startTime)}-{formatTime(activeSubscription.scheduleId.endTime)}
               </p>
-              <p>Next billing date: {activeSubscription.nextBillingDate.slice(0, 10)}</p>
+              <p>Next billing date: {formatDateOnly(activeSubscription.nextBillingDate)}</p>
               <Button as="a" href="/parent/subscriptions" variant="secondary" size="sm">
                 Manage / Cancel in Billing
               </Button>

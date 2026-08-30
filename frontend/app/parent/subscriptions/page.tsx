@@ -6,6 +6,7 @@ import axios from 'axios';
 import api from '../../../lib/api';
 import { formatTime } from '../../../lib/formatTime';
 import { DAY_LABELS } from '../../../lib/constants';
+import { formatDateOnly, formatInstant } from '../../../lib/formatDate';
 import { fetchMyPrivateEnrollments, cancelPrivateEnrollment } from '../../../lib/services/privateClass';
 import type { MyPrivateEnrollmentEntry, Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
@@ -17,11 +18,12 @@ function formatSchedule(schedule: Subscription['scheduleId']): string {
   return `${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}-${formatTime(schedule.endTime)}`;
 }
 
-// Renders the ISO date's calendar-day portion only — the backend is the
-// source of truth for billing dates, this is display formatting only, never
-// a value fed back into a request.
+// currentPeriodEnd/nextBillingDate are calendar-day sentinels — the backend
+// is the source of truth for billing dates, this is display formatting
+// only, never a value fed back into a request. formatDateOnly renders it
+// UTC-anchored, never browser-local (docs/plans/utc-date-standard-plan.md).
 function formatDate(isoDate: string): string {
-  return isoDate.slice(0, 10);
+  return formatDateOnly(isoDate);
 }
 
 function chargeLabel(status: MyPrivateEnrollmentEntry['charges'][number]['status']): string {
@@ -105,7 +107,7 @@ function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessons
                     {charges.length === 0
                       ? '—'
                       : charges
-                          .map((charge) => `${new Date(charge.createdAt).toLocaleDateString()} · $${charge.amount.toFixed(2)} (${chargeLabel(charge.status)})`)
+                          .map((charge) => `${formatInstant(charge.createdAt)} · $${charge.amount.toFixed(2)} (${chargeLabel(charge.status)})`)
                           .join(', ')}
                   </td>
                   <td>

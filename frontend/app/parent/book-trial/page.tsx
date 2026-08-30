@@ -9,6 +9,7 @@ import { fetchGroupClasses } from '../../../lib/services/catalog';
 import { fetchSessionsByClass } from '../../../lib/services/scheduling';
 import { bookTrialClass } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
+import { formatDateOnly } from '../../../lib/formatDate';
 import type { GroupClass, GroupClassSessionWithSchedule } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
@@ -32,13 +33,12 @@ async function fetchBookingOptions() {
 // A session carries its own schedule's day/time now (no separate schedule
 // selection) — both the pill picker and the summary/confirmation derive
 // their display strings from the session itself, never a cross-referenced
-// schedule list.
+// schedule list. session.date is a calendar-day sentinel (docs/plans/
+// utc-date-standard-plan.md) — rendered via formatDateOnly (UTC-anchored),
+// never a bare toLocaleDateString, which renders the wrong day for any
+// viewer in a browser timezone west of UTC.
 function formatSessionDate(dateIso: string): string {
-  return new Date(dateIso).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatDateOnly(dateIso, { weekday: 'short' });
 }
 
 function formatSessionTimeRange(schedule: GroupClassSessionWithSchedule['scheduleId']): string {

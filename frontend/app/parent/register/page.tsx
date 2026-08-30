@@ -14,6 +14,16 @@ import {
   fetchRegistrationPricePreview,
 } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
+import {
+  formatDateOnly,
+  todayInAcademyTZ,
+  sentinelCalendarDay,
+  calendarDayOrdinal,
+  addCalendarDays,
+  lastDayOfMonth,
+  nextCalendarMonth,
+  type CalendarDay,
+} from '../../../lib/formatDate';
 import stripePromise from '../../../lib/stripe';
 import type {
   GroupClass,
@@ -55,21 +65,18 @@ function levelName(levels: Level[], id: string): string {
   return levels.find((level) => level._id === id)?.name ?? id;
 }
 
-// The ISO date's calendar-day portion only — the backend is the source of
-// truth for this date (periodEnd), this is display formatting only.
+// periodEnd is a calendar-day sentinel — the backend is the source of truth
+// for this date, this is display formatting only. formatDateOnly renders it
+// UTC-anchored, never browser-local (docs/plans/utc-date-standard-plan.md).
 function formatDateLabel(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatDateOnly(isoDate);
 }
 
 // A session carries its own schedule's day/time — same helpers as
 // /parent/book-trial's session picker, so a date+time reads identically
-// everywhere a parent sees one.
+// everywhere a parent sees one. session.date is a calendar-day sentinel.
 function formatSessionDate(dateIso: string): string {
-  return new Date(dateIso).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatDateOnly(dateIso, { weekday: 'short' });
 }
 
 function formatSessionTimeRange(schedule: GroupClassSessionWithSchedule['scheduleId']): string {
@@ -88,22 +95,30 @@ function formatSessionLine(session: GroupClassSessionWithSchedule): string {
 // backend computes — the actual prorated/full-price dollar amount for
 // whichever date gets picked always comes from GET /registrations/preview
 // and the real POST /registrations response, verbatim, same as before.
-function thisMonthWindowEnd(today: Date): Date {
-  const fourteenDaysOut = new Date(today);
-  fourteenDaysOut.setDate(fourteenDaysOut.getDate() + 14);
+//
+// Every comparison here happens on CalendarDay tuples (docs/plans/
+// utc-date-standard-plan.md), never on `Date` objects built from a session
+// sentinel via local getters — `new Date(session.date).getMonth()` reads a
+// UTC-midnight sentinel through browser-local time, which silently shifts
+// it onto the wrong calendar day for any viewer west of UTC (the same bug
+// class as the raw-toLocaleDateString rendering bug this plan also fixes).
+// `today` is `todayInAcademyTZ()` — the academy's own "today," never the
+// viewer's browser-local one — read once per render, not memoized, since
+// this is a display window, not a value that needs to survive a re-render
+// identically.
+function thisMonthWindowEnd(today: CalendarDay): CalendarDay {
+  const fourteenDaysOut = addCalendarDays(today, 14);
+  const endOfThisMonth = lastDayOfMonth(today);
 
-  const endOfThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  endOfThisMonth.setHours(23, 59, 59, 999);
-
-  return fourteenDaysOut < endOfThisMonth ? fourteenDaysOut : endOfThisMonth;
+  return calendarDayOrdinal(fourteenDaysOut) < calendarDayOrdinal(endOfThisMonth) ? fourteenDaysOut : endOfThisMonth;
 }
 
 // True when `candidate` falls in the calendar month immediately after
 // `today`'s — used only to find the one real session "Enroll for next
 // month" anchors to, never to compute what it costs.
-function isNextCalendarMonth(candidate: Date, today: Date): boolean {
-  const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  return candidate.getFullYear() === nextMonthStart.getFullYear() && candidate.getMonth() === nextMonthStart.getMonth();
+function isNextCalendarMonth(candidate: CalendarDay, today: CalendarDay): boolean {
+  const nextMonth = nextCalendarMonth(today);
+  return candidate.year === nextMonth.year && candidate.month === nextMonth.month;
 }
 
 interface RegisteredInfo {
@@ -233,16 +248,16 @@ export default function RegisterPage() {
   // Split the fetched sessions into "this month" (the picker) and "the
   // earliest real session next month" (what "Enroll for next month"
   // anchors to) — both derived purely from real session data already
-  // fetched, never a fabricated/computed date. `now` is read once per
-  // render, not memoized — this is a display window, not a value that
-  // needs to survive a re-render identically.
-  const now = new Date();
-  const windowEnd = thisMonthWindowEnd(now);
+  // fetched, never a fabricated/computed date.
+  const today = todayInAcademyTZ();
+  const todayOrdinal = calendarDayOrdinal(today);
+  const windowEndOrdinal = calendarDayOrdinal(thisMonthWindowEnd(today));
   const thisMonthSessions = sessions.filter((session) => {
-    const date = new Date(session.date);
-    return date >= now && date <= windowEnd;
+    const ordinal = calendarDayOrdinal(sentinelCalendarDay(session.date));
+    return ordinal >= todayOrdinal && ordinal <= windowEndOrdinal;
   });
-  const nextMonthSession = sessions.find((session) => isNextCalendarMonth(new Date(session.date), now)) ?? null;
+  const nextMonthSession =
+    sessions.find((session) => isNextCalendarMonth(sentinelCalendarDay(session.date), today)) ?? null;
   // True exactly when the currently-selected session IS that anchor — i.e.
   // "Enroll for next month" was clicked, not a this-month pill. Purely
   // derived from existing selection state, not a separate flag that could
