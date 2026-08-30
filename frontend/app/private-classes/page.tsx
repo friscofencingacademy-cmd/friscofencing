@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
 import { fetchPublicPrivateClassCoaches } from '../../lib/services/privateClass';
+import { formatTime } from '../../lib/formatTime';
 import type { PublicPrivateClassSlot } from '../../lib/types';
 import AppShell from '../components/layout/AppShell';
 import Button from '../components/ui/Button/Button';
@@ -34,7 +35,7 @@ function SlotRow({ slot }: { slot: PublicPrivateClassSlot }) {
     >
       <div>
         <div style={{ fontWeight: 600 }}>
-          {slot.dayName} · {slot.displayTime} · {slot.durationMinutes} min
+          {slot.dayName} · {formatTime(slot.startTime)} · {slot.durationMinutes} min
         </div>
         <div className={styles.pageSubtitle}>
           ${slot.sessionPrice.toFixed(2)} / session · First session {formatFirstSessionDate(slot.firstSessionDate)}

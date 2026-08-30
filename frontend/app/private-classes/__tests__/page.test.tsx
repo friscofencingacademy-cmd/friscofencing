@@ -13,8 +13,10 @@ const COACH_WITH_SLOTS = {
       scheduleId: 'sched-1',
       dayOfWeek: 2,
       dayName: 'Tuesday',
+      // Raw "HH:mm" — no displayTime field (see PublicPrivateClassSlot's
+      // own comment). The page formats it; this fixture matches the real
+      // wire shape.
       startTime: '16:00',
-      displayTime: '16:00',
       durationMinutes: 60,
       sessionPrice: 65,
       hourlyRate: 65,
@@ -45,7 +47,11 @@ describe('PrivateClassesPage', () => {
     renderPage();
 
     expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
-    expect(screen.getByText(/tuesday · 16:00 · 60 min/i)).toBeInTheDocument();
+    // Named regression: this used to assert the raw "16:00" — a real bug
+    // (24-hour time shipped to parents) that a wrong-but-passing assertion
+    // locked in as "correct." Must read 4:00 PM.
+    expect(screen.getByText(/tuesday · 4:00 pm · 60 min/i)).toBeInTheDocument();
+    expect(screen.queryByText(/16:00/)).not.toBeInTheDocument();
     expect(screen.getByText(/\$65\.00 \/ session/i)).toBeInTheDocument();
 
     const bookLink = screen.getByRole('link', { name: /book this slot/i });

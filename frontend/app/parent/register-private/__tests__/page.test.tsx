@@ -31,8 +31,10 @@ const COACH_WITH_SLOTS = {
       scheduleId: 'sched-1',
       dayOfWeek: 2,
       dayName: 'Tuesday',
+      // Raw "HH:mm" — no displayTime field (see PublicPrivateClassSlot's
+      // own comment). The page formats it; this fixture matches the real
+      // wire shape.
       startTime: '16:00',
-      displayTime: '16:00',
       durationMinutes: 60,
       sessionPrice: 65,
       hourlyRate: 65,
@@ -98,6 +100,13 @@ describe('RegisterPrivatePage', () => {
     renderPage();
 
     await screen.findByText(/who is this for/i);
+    // Named regression: this had no coverage at all before, on either the
+    // step-0 line or the summary rail — both used to render the slot's raw
+    // "16:00" (a real bug shipped to parents, see PublicPrivateClassSlot's
+    // own comment). Both must read 4:00 PM now.
+    expect(await screen.findByText(/dana cole — tuesday 4:00 pm/i)).toBeInTheDocument();
+    expect(screen.getByText(/tuesday · 4:00 pm · 60 min/i)).toBeInTheDocument();
+    expect(screen.queryByText(/16:00/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: /sam kid/i }));
     await user.click(screen.getByRole('button', { name: /continue/i }));
 

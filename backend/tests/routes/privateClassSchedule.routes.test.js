@@ -246,6 +246,14 @@ describe('Private class schedule routes', () => {
       expect(slot.sessionPrice).toBe(computeSessionPrice(60, 60));
       expect(slot.hourlyRate).toBe(60);
       expect(slot.dayName).toBe('Tuesday');
+      // Raw "HH:mm" — the frontend formats it (lib/formatTime.ts), never
+      // the backend. Regression lock: a redundant `displayTime` field
+      // (byte-identical to startTime, but named as if pre-formatted) used
+      // to sit here too and was the exact trap that shipped 24-hour times
+      // to parents on /private-classes and /parent/register-private —
+      // never reintroduce it.
+      expect(slot.startTime).toBe('16:00');
+      expect(slot).not.toHaveProperty('displayTime');
       // No student/parent data leaks.
       expect(JSON.stringify(res.body)).not.toContain('email');
     });

@@ -147,8 +147,16 @@ async function listPublic() {
       scheduleId: schedule._id,
       dayOfWeek: schedule.dayOfWeek,
       dayName: DAY_LABELS[schedule.dayOfWeek],
+      // Raw "HH:mm" — same convention as every other schedule endpoint in
+      // this codebase (groupClassSchedule.service.js's listPublic() etc.).
+      // A redundant `displayTime: schedule.startTime` alias used to sit
+      // here too — its name implied "already formatted," which led both
+      // frontend consumers (app/private-classes, app/parent/register-
+      // private) to render it raw instead of through lib/formatTime.ts,
+      // shipping 24-hour times to parents. Removed rather than fixed in
+      // place: a second field that's byte-identical to startTime is the
+      // trap that caused this, not just the missing format call.
       startTime: schedule.startTime,
-      displayTime: schedule.startTime,
       durationMinutes: schedule.durationMinutes,
       sessionPrice,
       hourlyRate: contract.studentBillingRate,

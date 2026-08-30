@@ -520,12 +520,16 @@ export interface PrivateClassScheduleRow {
 }
 
 // GET /private-class-schedules/public — no auth, no student/parent data.
+// startTime is raw "HH:mm" — format it with lib/formatTime.ts before
+// rendering, same as every other schedule's startTime in this codebase.
+// (No separate `displayTime` field on purpose: a byte-identical alias
+// named as if it were pre-formatted is exactly what shipped 24-hour times
+// to parents here — see privateClassSchedule.service.js's listPublic().)
 export interface PublicPrivateClassSlot {
   scheduleId: string;
   dayOfWeek: number;
   dayName: string;
   startTime: string;
-  displayTime: string;
   durationMinutes: number;
   sessionPrice: number;
   hourlyRate: number;

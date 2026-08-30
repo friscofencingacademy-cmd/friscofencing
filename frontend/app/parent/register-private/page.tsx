@@ -8,6 +8,7 @@ import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchPublicPrivateClassCoaches, createPrivateEnrollment } from '../../../lib/services/privateClass';
 import { fetchMyPaymentMethod } from '../../../lib/services/parent';
+import { formatTime } from '../../../lib/formatTime';
 import type { PaymentMethodInfo, PublicPrivateClassCoach, PublicPrivateClassSlot } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
@@ -168,7 +169,9 @@ export default function RegisterPrivatePage() {
     { label: 'Coach', value: found?.coach.coachName ?? '—' },
     {
       label: 'Slot',
-      value: found ? `${found.slot.dayName} · ${found.slot.displayTime} · ${found.slot.durationMinutes} min` : '—',
+      value: found
+        ? `${found.slot.dayName} · ${formatTime(found.slot.startTime)} · ${found.slot.durationMinutes} min`
+        : '—',
     },
     { label: 'Per session', value: found ? `$${found.slot.sessionPrice.toFixed(2)}` : '—' },
   ];
@@ -226,7 +229,7 @@ export default function RegisterPrivatePage() {
               </Alert>
             ) : (
               <p style={{ marginTop: 'var(--space-3)', color: 'var(--color-muted)' }}>
-                Slot: {found.coach.coachName} — {found.slot.dayName} {found.slot.displayTime}
+                Slot: {found.coach.coachName} — {found.slot.dayName} {formatTime(found.slot.startTime)}
               </p>
             )}
           </FlowSection>
