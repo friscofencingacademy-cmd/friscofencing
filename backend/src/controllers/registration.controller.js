@@ -31,4 +31,19 @@ async function listMine(req, res) {
   }
 }
 
-module.exports = { create, preview, listMine };
+// PDF invoice download (docs/plans/manual-charge-and-pdf-invoice-plan.md
+// PR 2) — streams the buffer directly rather than JSON.
+async function invoice(req, res) {
+  try {
+    const { pdf, invoiceNumber } = await registrationService.getInvoice(req.params.id, req.user);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoiceNumber}.pdf"`);
+    return res.status(200).send(pdf);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to generate invoice' });
+  }
+}
+
+module.exports = { create, preview, listMine, invoice };

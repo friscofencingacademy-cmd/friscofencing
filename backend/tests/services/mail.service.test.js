@@ -159,6 +159,46 @@ describe('mail.service', () => {
       expect(call.text.toLowerCase()).toContain('sibling discount');
     });
 
+    // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
+    it('attaches the invoice PDF as "<invoiceNumber>.pdf" when invoicePdf is provided', async () => {
+      const mailService = loadMailService();
+      const invoicePdf = Buffer.from('%PDF-fake');
+
+      await mailService.sendRegistrationConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Robin' },
+        schedule: {},
+        groupClass: {},
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+        invoiceNumber: 'INV-abc123',
+        invoicePdf,
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.attachments).toEqual([
+        { filename: 'INV-abc123.pdf', content: invoicePdf, contentType: 'application/pdf' },
+      ]);
+    });
+
+    it('omits attachments entirely when no invoicePdf is provided', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendRegistrationConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Robin' },
+        schedule: {},
+        groupClass: {},
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.attachments).toBeUndefined();
+    });
+
     it('omits the sibling discount line when siblingDiscountAmount is 0', async () => {
       const mailService = loadMailService();
 
@@ -219,6 +259,42 @@ describe('mail.service', () => {
       expect(call.cc).toBeUndefined();
       expect(call.subject).toContain('Jamie');
       expect(call.text).toContain('150');
+    });
+
+    // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
+    it('attaches the invoice PDF when invoicePdf is provided, omits it otherwise', async () => {
+      const mailService = loadMailService();
+      const invoicePdf = Buffer.from('%PDF-fake');
+
+      await mailService.sendRenewalReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        schedule: {},
+        groupClass: {},
+        monthLabel: 'September 2026',
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+        invoiceNumber: 'INV-renewal1',
+        invoicePdf,
+      });
+
+      expect(sendMail.mock.calls[0][0].attachments).toEqual([
+        { filename: 'INV-renewal1.pdf', content: invoicePdf, contentType: 'application/pdf' },
+      ]);
+
+      await mailService.sendRenewalReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        schedule: {},
+        groupClass: {},
+        monthLabel: 'September 2026',
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+      });
+
+      expect(sendMail.mock.calls[1][0].attachments).toBeUndefined();
     });
 
     it('catches a sendMail rejection, logs it, and returns false without throwing', async () => {
@@ -574,6 +650,91 @@ describe('mail.service', () => {
 
       // Memoized — only created once per process even across repeated calls.
       expect(nodemailer.createTestAccount).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
+  describe('sendPrivateClassSessionReceiptEmail', () => {
+    it('sends to the parent, cc ADMIN_EMAIL, and attaches the invoice PDF when provided', async () => {
+      const mailService = loadMailService();
+      const invoicePdf = Buffer.from('%PDF-fake');
+
+      const result = await mailService.sendPrivateClassSessionReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        coach: { firstName: 'Dana', lastName: 'Coach' },
+        sessionDate: new Date('2026-09-01T00:00:00.000Z'),
+        durationMinutes: 30,
+        amount: 25,
+        invoiceNumber: 'INV-session1',
+        invoicePdf,
+      });
+
+      expect(result).not.toBe(false);
+      const call = sendMail.mock.calls[0][0];
+      expect(call.to).toBe('pat@example.com');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
+      expect(call.text).toContain('Sam');
+      expect(call.attachments).toEqual([
+        { filename: 'INV-session1.pdf', content: invoicePdf, contentType: 'application/pdf' },
+      ]);
+    });
+
+    it('omits attachments entirely when no invoicePdf is provided', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendPrivateClassSessionReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        coach: { firstName: 'Dana', lastName: 'Coach' },
+        sessionDate: new Date('2026-09-01T00:00:00.000Z'),
+        durationMinutes: 30,
+        amount: 25,
+      });
+
+      expect(sendMail.mock.calls[0][0].attachments).toBeUndefined();
+    });
+
+    it('catches a sendMail rejection, logs it, and returns false without throwing', async () => {
+      sendMail.mockRejectedValue(new Error('SMTP exploded'));
+      const mailService = loadMailService();
+
+      await expect(
+        mailService.sendPrivateClassSessionReceiptEmail({
+          parent: { firstName: 'Pat', email: 'pat@example.com' },
+          student: { firstName: 'Sam' },
+          coach: {},
+          sessionDate: new Date('2026-09-01T00:00:00.000Z'),
+          durationMinutes: 30,
+          amount: 25,
+        })
+      ).resolves.toBe(false);
+
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+  });
+
+  // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2 — the transport-
+  // level plumbing every sender above relies on.
+  describe('sendMailSafely attachments passthrough', () => {
+    it('passes a non-empty attachments array through to transporter.sendMail verbatim', async () => {
+      const mailService = loadMailService();
+      const attachments = [{ filename: 'INV-1.pdf', content: Buffer.from('x'), contentType: 'application/pdf' }];
+
+      await mailService.sendRenewalReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        schedule: {},
+        groupClass: {},
+        monthLabel: 'September 2026',
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+        invoiceNumber: 'INV-1',
+        invoicePdf: attachments[0].content,
+      });
+
+      expect(sendMail.mock.calls[0][0].attachments).toEqual(attachments);
     });
   });
 });

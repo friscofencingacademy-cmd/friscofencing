@@ -238,6 +238,83 @@ describe('renewOne', () => {
     30000
   );
 
+  // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
+  it(
+    'attaches an invoice PDF (matching the ledger row it just charged) to the renewal receipt email',
+    async () => {
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'InvoiceAttach',
+        order: 16,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-invoice-attach@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      const result = await renewOne(subscription._id);
+      expect(result.outcome).toBe('charged');
+
+      const ledgerRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
+
+      const call = mailService.sendRenewalReceiptEmail.mock.calls.find(
+        (c) => c[0].parent?.email === 'renew-invoice-attach@example.com'
+      )[0];
+      expect(call.invoiceNumber).toBe(`INV-${ledgerRow._id}`);
+      expect(Buffer.isBuffer(call.invoicePdf)).toBe(true);
+      expect(call.invoicePdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    },
+    30000
+  );
+
+  it(
+    'a PDF generation failure still sends the renewal receipt email (no attachment) and the charge outcome is unaffected',
+    async () => {
+      const invoiceService = require('../../src/services/invoice.service');
+      const buildInvoiceDataSpy = jest
+        .spyOn(invoiceService, 'buildInvoiceData')
+        .mockRejectedValue(new Error('PDF generation exploded'));
+
+      const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
+        name: 'InvoiceFail',
+        order: 17,
+      });
+      const { parent, student } = await seedParentAndStudent('renew-invoice-fail@example.com');
+      await savePaymentMethodForParent(parent);
+
+      const currentPeriodEnd = new Date('2020-02-01T00:00:00.000Z');
+      const subscription = await buildActiveSubscription({
+        studentId: student._id,
+        scheduleId: schedule._id,
+        parentId: parent._id,
+        currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      const result = await renewOne(subscription._id);
+
+      expect(result.outcome).toBe('charged');
+      expect(result.chargeAmount).toBe(MONTHLY_FEE);
+
+      const call = mailService.sendRenewalReceiptEmail.mock.calls.find(
+        (c) => c[0].parent?.email === 'renew-invoice-fail@example.com'
+      )[0];
+      expect(call.invoicePdf).toBeUndefined();
+      expect(call.invoiceNumber).toBeUndefined();
+
+      buildInvoiceDataSpy.mockRestore();
+    },
+    30000
+  );
+
   it(
     'finalizes a cancelling subscription WITHOUT charging, removing the student from the schedule roster and every future session',
     async () => {

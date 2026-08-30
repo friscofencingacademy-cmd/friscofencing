@@ -337,6 +337,64 @@ describe('Registration routes', () => {
       30000
     );
 
+    // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
+    it(
+      'attaches an invoice PDF (matching the ledger row it just created) to the confirmation email',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-invoice-attach@example.com');
+        const parentAgent = await loginAgent('reg-invoice-attach@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+
+        const call = mailService.sendRegistrationConfirmationEmail.mock.calls.find(
+          (c) => c[0].parent?.email === 'reg-invoice-attach@example.com'
+        )[0];
+        expect(call.invoiceNumber).toBe(`INV-${res.body.registration._id}`);
+        expect(Buffer.isBuffer(call.invoicePdf)).toBe(true);
+        expect(call.invoicePdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      },
+      30000
+    );
+
+    it(
+      'a PDF generation failure still sends the confirmation email (no attachment) and does not affect the registration outcome',
+      async () => {
+        const invoiceService = require('../../src/services/invoice.service');
+        const buildInvoiceDataSpy = jest
+          .spyOn(invoiceService, 'buildInvoiceData')
+          .mockRejectedValue(new Error('PDF generation exploded'));
+
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('reg-invoice-fail@example.com');
+        const parentAgent = await loginAgent('reg-invoice-fail@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.paymentStatus).toBe('completed');
+
+        const call = mailService.sendRegistrationConfirmationEmail.mock.calls.find(
+          (c) => c[0].parent?.email === 'reg-invoice-fail@example.com'
+        )[0];
+        expect(call.invoicePdf).toBeUndefined();
+        expect(call.invoiceNumber).toBeUndefined();
+
+        buildInvoiceDataSpy.mockRestore();
+      },
+      30000
+    );
+
     it(
       'sets isPremium: false when ENABLE_SCHEDULE_BASED_REGISTRATION=true (the rollback flag)',
       async () => {
@@ -1882,5 +1940,121 @@ describe('Registration routes', () => {
       expect(mineRes.body.subscriptions[0].status).toBe('cancelled');
       expect(mineRes.body.subscriptions[0].currentCharge).toBeUndefined();
     });
+  });
+
+  // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2, §2.4.
+  describe('GET /api/v1/registrations/:id/invoice', () => {
+    async function seedCompletedRegistration(parentEmail) {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent(parentEmail);
+      const parentAgent = await loginAgent(parentEmail);
+      await savePaymentMethodFor(parentAgent);
+
+      const res = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.paymentStatus).toBe('completed');
+
+      return { registrationId: res.body.registration._id, parentAgent };
+    }
+
+    it(
+      'lets the owning parent download the PDF, with the right headers and magic bytes',
+      async () => {
+        const { registrationId, parentAgent } = await seedCompletedRegistration('inv-owner1@example.com');
+
+        const res = await parentAgent.get(`/api/v1/registrations/${registrationId}/invoice`);
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toBe('application/pdf');
+        expect(res.headers['content-disposition']).toBe(`attachment; filename="INV-${registrationId}.pdf"`);
+        expect(Buffer.isBuffer(res.body)).toBe(true);
+        expect(res.body.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      },
+      30000
+    );
+
+    it(
+      'returns 403 for a different parent',
+      async () => {
+        const { registrationId } = await seedCompletedRegistration('inv-owner2@example.com');
+        await seedUser({ role: 'parent', email: 'inv-other2@example.com' });
+        const otherAgent = await loginAgent('inv-other2@example.com');
+
+        const res = await otherAgent.get(`/api/v1/registrations/${registrationId}/invoice`);
+
+        expect(res.status).toBe(403);
+      },
+      30000
+    );
+
+    it(
+      "lets an admin download any parent's invoice",
+      async () => {
+        const { registrationId } = await seedCompletedRegistration('inv-owner3@example.com');
+        await seedUser({ role: 'admin', email: 'inv-admin3@example.com' });
+        const adminAgent = await loginAgent('inv-admin3@example.com');
+
+        const res = await adminAgent.get(`/api/v1/registrations/${registrationId}/invoice`);
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toBe('application/pdf');
+      },
+      30000
+    );
+
+    it(
+      'returns 403 for a coach',
+      async () => {
+        const { registrationId } = await seedCompletedRegistration('inv-owner4@example.com');
+        await seedUser({ role: 'coach', email: 'inv-coach4@example.com' });
+        const coachAgent = await loginAgent('inv-coach4@example.com');
+
+        const res = await coachAgent.get(`/api/v1/registrations/${registrationId}/invoice`);
+
+        expect(res.status).toBe(403);
+      },
+      30000
+    );
+
+    it('returns 404 for an unknown registration id', async () => {
+      await seedUser({ role: 'admin', email: 'inv-admin404@example.com' });
+      const adminAgent = await loginAgent('inv-admin404@example.com');
+
+      const res = await adminAgent.get(`/api/v1/registrations/${new mongoose.Types.ObjectId()}/invoice`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it(
+      'returns 409 for a pending (not yet completed) row',
+      async () => {
+        const groupClassesService = await Service.findOne({ code: 'group-classes' });
+        const { student, parent } = await seedParentAndStudent('inv-pending5@example.com');
+        const parentAgent = await loginAgent('inv-pending5@example.com');
+        const { scheduleId } = await seedSchedule();
+
+        const pendingRow = await Registration.SubscriptionCycleRegistration.create({
+          serviceId: groupClassesService._id,
+          subscriptionId: new mongoose.Types.ObjectId(),
+          scheduleId,
+          studentId: student._id,
+          parentId: parent._id,
+          eventType: 'initial',
+          status: 'pending',
+          amount: MONTHLY_FEE,
+          breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0 },
+          periodStart: new Date(),
+          periodEnd: new Date(),
+        });
+
+        const res = await parentAgent.get(`/api/v1/registrations/${pendingRow._id}/invoice`);
+
+        expect(res.status).toBe(409);
+      },
+      30000
+    );
   });
 });

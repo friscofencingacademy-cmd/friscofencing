@@ -19,6 +19,7 @@ const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 const { removeStudentFromRoster } = require('./roster.service');
 const mailService = require('./mail.service');
+const invoiceService = require('./invoice.service');
 
 // Resolves a subscription's schedule -> class -> level -> Price chain, the
 // same walk registration.service.js does for the initial charge. Returns
@@ -60,10 +61,33 @@ async function resolveMonthlyFee(subscription) {
 // deleted between runs (resolveMonthlyFee returning null) — the real
 // charged amount is unaffected either way, this only guards the email
 // template against a null producing "$NaN".
-async function sendReceiptEmail(subscription, parent, student, chargeAmount, siblingDiscountAmount, monthlyFee, newPeriodStart) {
+//
+// `registrationId` (docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2)
+// is the ledger row's OWN id, not the (possibly stale, still-'pending'-in-
+// memory) `row` object every caller already holds — finalizeSuccessfulCharge/
+// chargeAndFinalize update the DB row via findByIdAndUpdate without mutating
+// the in-memory doc, so re-fetching by id here (inside buildInvoiceData) is
+// what actually sees the just-written 'completed' status.
+async function sendReceiptEmail(subscription, parent, student, chargeAmount, siblingDiscountAmount, monthlyFee, newPeriodStart, registrationId) {
   try {
     const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
     const groupClass = schedule ? await GroupClass.findById(schedule.classId) : null;
+
+    // PDF invoice attachment — its OWN try/catch so a generation failure
+    // drops only the attachment, never the receipt email itself (same
+    // containment pattern as registration.service.js's confirmation email).
+    let invoiceNumber;
+    let invoicePdf;
+
+    try {
+      const invoiceData = await invoiceService.buildInvoiceData(registrationId);
+      invoiceNumber = invoiceData.invoiceNumber;
+      invoicePdf = await invoiceService.renderInvoicePdf(invoiceData);
+    } catch (invoiceError) {
+      // eslint-disable-next-line no-console -- operational logging for a
+      // fire-and-forget PDF-generation side effect, not debug output.
+      console.error('renewal.service: failed to generate invoice PDF:', invoiceError.message);
+    }
 
     await mailService.sendRenewalReceiptEmail({
       parent,
@@ -74,6 +98,8 @@ async function sendReceiptEmail(subscription, parent, student, chargeAmount, sib
       chargeAmount,
       monthlyFee: monthlyFee ?? 0,
       siblingDiscountAmount: siblingDiscountAmount || 0,
+      invoiceNumber,
+      invoicePdf,
     });
   } catch (error) {
     // eslint-disable-next-line no-console -- operational logging for a
@@ -134,7 +160,7 @@ async function chargeAndEmail({
   });
 
   if (result.outcome === 'charged') {
-    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, siblingDiscountAmount, monthlyFee, row.periodStart);
+    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, siblingDiscountAmount, monthlyFee, row.periodStart, row._id);
   } else {
     // Never the final email here — exhaustion (retryCount >= MAX) is checked
     // at the START of the NEXT retryOne call, not inline with the failure
@@ -168,7 +194,7 @@ async function recoverStalePending({ row, subscription, student, parent, payment
       siblingDiscountApplied: row.breakdown.siblingDiscountApplied,
     });
 
-    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, row.breakdown.siblingDiscountAmount, monthlyFee, row.periodStart);
+    await sendReceiptEmail(subscription, parent, student, result.chargeAmount, row.breakdown.siblingDiscountAmount, monthlyFee, row.periodStart, row._id);
 
     return result;
   }

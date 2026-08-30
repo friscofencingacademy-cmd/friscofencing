@@ -75,7 +75,13 @@ const isEmailBlocked = () =>
 // successfully committed to the database (a trial booking, a
 // registration, a renewal charge); a mail failure must never make an
 // otherwise-successful operation look like it failed to its caller.
-async function sendMailSafely({ to, cc, subject, text, html }) {
+// `attachments` (optional) is passed through verbatim to nodemailer's own
+// shape: [{ filename, content: Buffer, contentType }]. Added for PDF
+// invoices (docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2) — no
+// other call site needs to change, since this param is optional and simply
+// omitted (never an empty array, which nodemailer would still accept fine,
+// but omitting matches every OTHER optional field's convention here).
+async function sendMailSafely({ to, cc, subject, text, html, attachments }) {
   try {
     // Gate checked AFTER the caller has already built the full message (the
     // subject/text/html arguments above are already assembled) so staging
@@ -104,6 +110,7 @@ async function sendMailSafely({ to, cc, subject, text, html }) {
       subject,
       text,
       html,
+      ...(attachments && attachments.length ? { attachments } : {}),
     });
 
     return result || true;
@@ -118,6 +125,18 @@ async function sendMailSafely({ to, cc, subject, text, html }) {
 function fullName(user) {
   if (!user) return '';
   return [user.firstName, user.lastName].filter(Boolean).join(' ');
+}
+
+// Shared by the three receipt senders below that can carry an invoice PDF
+// (docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2). `invoicePdf` is
+// undefined whenever the caller's own PDF generation failed or wasn't
+// attempted — this returns undefined in that case too, so sendMailSafely's
+// spread (`...(attachments && attachments.length ? ... : {})`) omits the
+// field entirely rather than sending an empty array.
+function invoiceAttachment(invoiceNumber, invoicePdf) {
+  if (!invoicePdf) return undefined;
+
+  return [{ filename: `${invoiceNumber}.pdf`, content: invoicePdf, contentType: 'application/pdf' }];
 }
 
 function scheduleLabel(schedule) {
@@ -204,6 +223,8 @@ async function sendRegistrationConfirmationEmail({
   prorated,
   totalClassDays,
   remainingClassDays,
+  invoiceNumber,
+  invoicePdf,
 }) {
   try {
     const firstClassDateLabel = schedule ? dayOfWeekLabel(schedule.dayOfWeek) : '';
@@ -233,6 +254,7 @@ async function sendRegistrationConfirmationEmail({
       subject,
       text,
       html,
+      attachments: invoiceAttachment(invoiceNumber, invoicePdf),
     });
   } catch (error) {
     console.error('mail.service: failed to build registrationConfirmation email:', error.message);
@@ -249,6 +271,8 @@ async function sendRenewalReceiptEmail({
   chargeAmount,
   monthlyFee,
   siblingDiscountAmount,
+  invoiceNumber,
+  invoicePdf,
 }) {
   try {
     const data = {
@@ -263,7 +287,13 @@ async function sendRenewalReceiptEmail({
 
     const { subject, html, text } = renderEmail('renewalReceipt', data);
 
-    return sendMailSafely({ to: parent.email, subject, text, html });
+    return sendMailSafely({
+      to: parent.email,
+      subject,
+      text,
+      html,
+      attachments: invoiceAttachment(invoiceNumber, invoicePdf),
+    });
   } catch (error) {
     console.error('mail.service: failed to build renewalReceipt email:', error.message);
     return false;
@@ -406,6 +436,8 @@ async function sendPrivateClassSessionReceiptEmail({
   sessionDate,
   durationMinutes,
   amount,
+  invoiceNumber,
+  invoicePdf,
 }) {
   try {
     const data = {
@@ -418,7 +450,14 @@ async function sendPrivateClassSessionReceiptEmail({
 
     const { subject, html, text } = renderEmail('privateClassSessionReceipt', data);
 
-    return sendMailSafely({ to: parent.email, cc: [ADMIN_EMAIL()], subject, text, html });
+    return sendMailSafely({
+      to: parent.email,
+      cc: [ADMIN_EMAIL()],
+      subject,
+      text,
+      html,
+      attachments: invoiceAttachment(invoiceNumber, invoicePdf),
+    });
   } catch (error) {
     console.error('mail.service: failed to build privateClassSessionReceipt email:', error.message);
     return false;
