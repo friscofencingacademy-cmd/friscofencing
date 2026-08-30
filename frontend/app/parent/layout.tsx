@@ -22,10 +22,25 @@ export default function ParentLayout({ children }: ParentLayoutProps) {
       return;
     }
 
-    if (!isAllowed) {
-      router.push('/');
+    if (isAllowed) {
+      return;
     }
-  }, [loading, isAllowed, router]);
+
+    // Not logged in at all (e.g. a parent clicked "Book this slot" on the
+    // public /private-classes page without an account) -> send them to log
+    // in or register, carrying the page they actually wanted via ?next= —
+    // the same param /login and /register already read to bounce back here
+    // on success. A logged-in user of the WRONG role (coach/admin/student)
+    // is a different case entirely — they don't need to log in again, this
+    // area just isn't theirs, so that still goes home.
+    if (!user) {
+      const destination = `${window.location.pathname}${window.location.search}`;
+      router.push(`/login?next=${encodeURIComponent(destination)}`);
+      return;
+    }
+
+    router.push('/');
+  }, [loading, isAllowed, user, router]);
 
   if (loading) {
     return <div style={{ padding: 'var(--space-5)' }}>Loading…</div>;
