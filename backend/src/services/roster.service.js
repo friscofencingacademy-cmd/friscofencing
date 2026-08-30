@@ -15,6 +15,13 @@ const visitService = require('./visit.service');
 // -plan.md §3.5 — GroupClassSession no longer has a students field at all).
 // schedule.students itself is untouched — still the enrollment roster,
 // still what capacity checks and "whose home schedule is this" read.
+//
+// `today` (both functions below) MUST be a calendar-day sentinel — the same
+// UTC-midnight shape GroupClassSession.date itself uses (docs/plans/
+// utc-date-standard-plan.md) — never a real instant like billingDates.js's
+// todayAtMidnight(). It feeds a `date: { $gte: today }` query directly;
+// passing an instant silently excludes a session dated exactly today (bug
+// 5 in that plan). Every current caller passes todayDateOnly().
 
 async function addStudentToRoster(schedule, studentId, today) {
   const alreadyOnRoster = schedule.students.some((id) => String(id) === String(studentId));

@@ -1,6 +1,6 @@
 const nodemailer = require('nodemailer');
 const { renderEmail } = require('../email');
-const { dateFull, timeOfDay, dayOfWeekLabel } = require('../email/dates');
+const { dateFull, dateOnlyFull, timeOfDay, dayOfWeekLabel } = require('../email/dates');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 
 // Lazy, memoized module-level cache — created once per process. If
@@ -153,8 +153,13 @@ function scheduleLabel(schedule) {
 
 async function sendTrialConfirmationEmail({ parent, student, session, schedule, groupClass, level, location, coach }) {
   try {
+    // session.date is a calendar-day sentinel, not a real instant
+    // (docs/plans/utc-date-standard-plan.md) — dateOnlyFull renders it
+    // UTC-anchored. Using dateFull (Central) here was the original,
+    // real-shipped instance of this bug: a Monday trial's confirmation
+    // email stated "Sunday."
     const whenLabel = [
-      session && session.date ? dateFull(session.date) : null,
+      session && session.date ? dateOnlyFull(session.date) : null,
       schedule ? timeOfDay(schedule.startTime) : null,
     ]
       .filter(Boolean)
@@ -332,11 +337,13 @@ async function sendPaymentFailureEmail({ parent, student, schedule, groupClass, 
 
 async function sendCancellationConfirmationEmail({ parent, student, groupClass, schedule, coach, endDate }) {
   try {
+    // endDate is Subscription.currentPeriodEnd — a calendar-day sentinel,
+    // not a real instant (docs/plans/utc-date-standard-plan.md).
     const data = {
       studentName: fullName(student),
       className: groupClass ? groupClass.name : '',
       scheduleLabel: scheduleLabel(schedule),
-      endDateLabel: endDate ? dateFull(endDate) : '',
+      endDateLabel: endDate ? dateOnlyFull(endDate) : '',
     };
 
     const { subject, html, text } = renderEmail('cancellationConfirmation', data);
@@ -351,11 +358,13 @@ async function sendCancellationConfirmationEmail({ parent, student, groupClass, 
 
 async function sendReactivationConfirmationEmail({ parent, student, groupClass, schedule, nextBillingDate }) {
   try {
+    // nextBillingDate is Subscription.nextBillingDate — a calendar-day
+    // sentinel, not a real instant (docs/plans/utc-date-standard-plan.md).
     const data = {
       studentName: fullName(student),
       className: groupClass ? groupClass.name : '',
       scheduleLabel: scheduleLabel(schedule),
-      nextBillingDateLabel: nextBillingDate ? dateFull(nextBillingDate) : '',
+      nextBillingDateLabel: nextBillingDate ? dateOnlyFull(nextBillingDate) : '',
     };
 
     const { subject, html, text } = renderEmail('reactivationConfirmation', data);
