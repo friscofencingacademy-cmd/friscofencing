@@ -15,7 +15,7 @@ const {
   advanceSubscriptionPeriod,
 } = require('./billing/chargeFinalization.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
-const { addOneMonth, todayAtMidnight } = require('../utils/billingDates');
+const { addOneMonth, todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 const { removeStudentFromRoster } = require('./roster.service');
 const mailService = require('./mail.service');
@@ -345,7 +345,12 @@ async function renewOne(subscriptionId) {
     const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
 
     if (schedule) {
-      await removeStudentFromRoster(schedule, subscription.studentId, today);
+      // A calendar-day sentinel, NOT the billing-instant `today` above
+      // (docs/plans/utc-date-standard-plan.md bug 5) — removeStudentFromRoster
+      // filters session dates via $gte, which must stay sentinel-shaped;
+      // `today` (todayAtMidnight()) is deliberately kept as-is for this
+      // function's own due-check earlier.
+      await removeStudentFromRoster(schedule, subscription.studentId, todayDateOnly());
     }
 
     return { subscriptionId, outcome: 'cancelled_finalized' };
@@ -529,7 +534,10 @@ async function cancelAfterExhaustion(subscription, failedRow) {
   const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
 
   if (schedule) {
-    await removeStudentFromRoster(schedule, subscription.studentId, todayAtMidnight());
+    // A calendar-day sentinel, not a real instant — same fix as renewOne's
+    // own cancellation-finalize branch above (docs/plans/utc-date-standard-
+    // plan.md bug 5).
+    await removeStudentFromRoster(schedule, subscription.studentId, todayDateOnly());
   }
 
   const student = await User.findById(subscription.studentId);

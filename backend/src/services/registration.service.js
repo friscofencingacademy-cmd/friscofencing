@@ -15,7 +15,8 @@ const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { computeProration } = require('./billing/proration.service');
 const { chargeAndFinalize } = require('./billing/chargeFinalization.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
-const { todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
+const { todayDateOnly } = require('../utils/billingDates');
+const { dateOnlyUTC } = require('../utils/dateShapes');
 const { addStudentToRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
@@ -83,18 +84,27 @@ async function resolveStudentForSchedule(studentId, scheduleId, requestingUser) 
 // back to `now`, byte-identical to this function's pre-existing behavior.
 // Never trusts the client's date/schedule pairing — re-validates it against
 // a real, currently-existing GroupClassSession every time.
+//
+// `GroupClassSession.date` is a calendar-day sentinel, not a real instant
+// (docs/plans/utc-date-standard-plan.md) — the client-supplied ISO string is
+// normalized through dateOnlyUTC() BEFORE the past-check and the exact-match
+// lookup, so a stale/old-shape echo (e.g. a still-cached pre-migration
+// instant) still resolves to the correct sentinel rather than silently
+// missing the match or comparing an instant against a sentinel.
 async function resolveStartDate(scheduleId, startDate) {
   if (startDate === undefined || startDate === null || startDate === '') {
     return null;
   }
 
-  const parsed = new Date(startDate);
+  const raw = new Date(startDate);
 
-  if (Number.isNaN(parsed.getTime())) {
+  if (Number.isNaN(raw.getTime())) {
     throw badRequestError('Invalid startDate');
   }
 
-  if (parsed < todayAtMidnight()) {
+  const parsed = dateOnlyUTC(raw);
+
+  if (parsed < todayDateOnly()) {
     throw badRequestError('startDate cannot be in the past');
   }
 
@@ -304,7 +314,13 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   ]);
 
   if (result.outcome === 'charged') {
-    await addStudentToRoster(schedule, studentId, todayAtMidnight());
+    // A calendar-day sentinel, matching GroupClassSession.date's own shape
+    // (docs/plans/utc-date-standard-plan.md bug 5) — addStudentToRoster's
+    // `today` param filters session dates via $gte, so it must be a
+    // sentinel, never todayAtMidnight()'s real-instant shape (which would
+    // silently exclude a session dated exactly today from the new Visits
+    // this creates).
+    await addStudentToRoster(schedule, studentId, todayDateOnly());
 
     // Fire-and-forget confirmation email — never throws, never affects this
     // response (see mail.service.js's send-function contract). The extra

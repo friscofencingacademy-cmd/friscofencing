@@ -28,7 +28,7 @@ const groupClassScheduleService = require('../../src/services/groupClassSchedule
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { calculateChargeAmount } = require('../../src/services/billing/calculateChargeAmount.service');
 const { getServiceByCode } = require('../../src/services/serviceCatalog.service');
-const { addOneMonth, todayAtMidnight } = require('../../src/utils/billingDates');
+const { addOneMonth, todayDateOnly } = require('../../src/utils/billingDates');
 const { hashPassword } = require('../../src/utils/password');
 
 const { parseCsv } = require('./csv');
@@ -284,7 +284,10 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
     }
   }
 
-  const today = todayAtMidnight();
+  // A calendar-day sentinel, matching GroupClassSession.date's own shape
+  // (docs/plans/utc-date-standard-plan.md bug 5) — addStudentToRoster
+  // filters session dates via $gte, which must stay sentinel-shaped.
+  const today = todayDateOnly();
   for (const entry of resources.schedules) {
     // eslint-disable-next-line no-await-in-loop -- sequential by design, a
     // handful of schedules per level, each roster add already awaits its

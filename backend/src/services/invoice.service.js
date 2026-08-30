@@ -8,7 +8,7 @@ const GroupClass = require('../models/groupClass.model');
 const Location = require('../models/location.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
 const { sessionDurationMinutes } = require('../utils/privateClassPricing');
-const { dateFull } = require('../email/dates');
+const { dateFull, dateOnlyFull } = require('../email/dates');
 const academy = require('../config/academy');
 
 // docs/plans/manual-charge-and-pdf-invoice-plan.md, PR 2 — the invoice PDF
@@ -85,7 +85,11 @@ async function buildSubscriptionCycleData(row) {
     serviceLabel: EVENT_TYPE_DESCRIPTIONS[row.eventType] || 'Group Class Charge',
     location,
     lineItems,
-    periodLabel: `${dateFull(row.periodStart)} – ${dateFull(row.periodEnd)}`,
+    // periodStart/periodEnd are calendar-day sentinels, not real instants
+    // (docs/plans/utc-date-standard-plan.md) — dateOnlyFull renders them
+    // UTC-anchored, never dateFull (Central), which would shift a period
+    // boundary onto the wrong calendar day on the invoice.
+    periodLabel: `${dateOnlyFull(row.periodStart)} – ${dateOnlyFull(row.periodEnd)}`,
   };
 }
 
