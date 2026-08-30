@@ -159,6 +159,13 @@ plan, and do not attempt to fix it here if it isn't (separate, already-tracked i
 
 ### D8 — `Location.timezone`: no schema change to its role, but add format validation
 
+**Update, 2026-08-29 (`docs/plans/frontend-polish-plan.md` PR 4):** the "no call site yet" premise
+below is now out of date — `groupClassSchedule.service.js`'s `listPublic()` returns
+`Location.timezone` per public schedule row (the location was already populated for that query, so
+this is a zero-extra-query field), replacing the frontend's previous "guess from whichever location
+loaded first" logic on `/classes`. The rest of this section is left as written for the historical
+record of why the validator was added ahead of having a consumer.
+
 Shape and default stay as-is (`String`, `default: 'America/Chicago'`) — this plan still does not
 wire it into any call site (one location, nothing to select between yet). But it currently has
 **no validation that the value is a real IANA zone name** — an admin typo when a second location

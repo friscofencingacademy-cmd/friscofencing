@@ -136,6 +136,13 @@ async function listPublic() {
       className: schedule.classId.name,
       levelName: schedule.classId.levelId.name,
       locationName: schedule.classId.locationId.name,
+      // First real consumer of Location.timezone (docs/plans/timezone-
+      // consistency-plan.md D8, docs/plans/frontend-polish-plan.md PR 4) —
+      // the location is already populated above, so this is a zero-extra-
+      // query field. Per-schedule, sourced from THAT schedule's own
+      // location, never guessed from an unrelated "first location in the
+      // list" the way the frontend used to.
+      timezone: schedule.classId.locationId.timezone,
       coachName: `${schedule.coachId.firstName} ${schedule.coachId.lastName}`,
       dayOfWeek: schedule.dayOfWeek,
       startTime: schedule.startTime,

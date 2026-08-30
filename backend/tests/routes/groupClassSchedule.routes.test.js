@@ -299,6 +299,7 @@ describe('GroupClassSchedule routes', () => {
         className: 'Beginner Foil',
         levelName: 'Beginner',
         locationName: 'Frisco HQ',
+        timezone: 'America/Chicago', // seedClass()'s Location doesn't set one — the schema default
         coachName: 'Coach Public',
         dayOfWeek: 3,
         startTime: '16:00',
@@ -324,6 +325,84 @@ describe('GroupClassSchedule routes', () => {
 
       expect(full.availability).toBe('full');
       expect(open.availability).toBe('open');
+    });
+
+    // docs/plans/frontend-polish-plan.md PR 4, source-of-truth audit finding
+    // B2 — the frontend used to guess a single timezone from "whichever
+    // location loaded first" and apply it to every row; each row must carry
+    // its OWN schedule's location's timezone instead.
+    it("returns each schedule's own location's timezone, not one guessed from a different location", async () => {
+      await seedUser();
+      const adminAgent = await loginAgent('test-admin@example.com');
+
+      const level = await Level.create({ name: 'Beginner', order: 1 });
+      const chicagoLocation = await Location.create({
+        name: 'Frisco HQ',
+        address: '123 Main St',
+        timezone: 'America/Chicago',
+      });
+      const denverLocation = await Location.create({
+        name: 'Denver Salle',
+        address: '1 Mountain Rd',
+        timezone: 'America/Denver',
+      });
+      const chicagoClass = await GroupClass.create({
+        name: 'Chicago Class',
+        levelId: level._id,
+        locationId: chicagoLocation._id,
+        capacity: 10,
+      });
+      const denverClass = await GroupClass.create({
+        name: 'Denver Class',
+        levelId: level._id,
+        locationId: denverLocation._id,
+        capacity: 10,
+      });
+      const coach = await User.create({
+        role: 'coach',
+        firstName: 'Coach',
+        lastName: 'MultiLocation',
+        email: 'coach-multi-location@example.com',
+        passwordHash: await hashPassword(TEST_PASSWORD),
+      });
+
+      await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: chicagoClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 2,
+        startTime: '16:00',
+        endTime: '17:00',
+      });
+      await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: denverClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 4,
+        startTime: '17:00',
+        endTime: '18:00',
+      });
+
+      const res = await request(app).get('/api/v1/group-class-schedules/public');
+
+      expect(res.status).toBe(200);
+      const chicagoRow = res.body.schedules.find((s) => s.className === 'Chicago Class');
+      const denverRow = res.body.schedules.find((s) => s.className === 'Denver Class');
+
+      expect(chicagoRow.timezone).toBe('America/Chicago');
+      expect(denverRow.timezone).toBe('America/Denver');
+    });
+
+    it('excludes a schedule whose class/level/location/coach reference is missing — orphaned refs never surface as a half-populated row', async () => {
+      await seedFullAndOpenSchedules();
+      // The full schedule's dayOfWeek === 3 row's referenced GroupClass is
+      // deleted out from under it, mirroring the existing orphaned-reference
+      // guard already covered elsewhere in this suite's sibling routes.
+      const groupClass = await GroupClass.findOne({ name: 'Beginner Foil' });
+      await GroupClass.deleteOne({ _id: groupClass._id });
+
+      const res = await request(app).get('/api/v1/group-class-schedules/public');
+
+      expect(res.status).toBe(200);
+      expect(res.body.schedules).toHaveLength(0);
     });
   });
 });

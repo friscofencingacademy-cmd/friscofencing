@@ -21,6 +21,23 @@ test.describe('public site (logged out)', () => {
     expect(errors).toEqual([]);
   });
 
+  // docs/plans/frontend-polish-plan.md PR 5.3 — the outage-resilient
+  // ContactBlock and its real tel:/mailto: links, real-DOM coverage.
+  test('home page shows the ContactBlock with real tel:/mailto: links', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Olympic Fencing.' })).toBeVisible();
+
+    await expect(page.getByText(/call or email us to book a class/i)).toBeVisible();
+    await expect(page.getByRole('link', { name: '(214) 555-0100' }).first()).toHaveAttribute(
+      'href',
+      'tel:(214) 555-0100'
+    );
+    await expect(page.getByRole('link', { name: 'info@friscofencingacademy.com' }).first()).toHaveAttribute(
+      'href',
+      'mailto:info@friscofencingacademy.com'
+    );
+  });
+
   test('/classes renders without a client error', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
@@ -29,6 +46,27 @@ test.describe('public site (logged out)', () => {
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
 
     expect(errors).toEqual([]);
+  });
+
+  // Real-DOM coverage for the pill-toggle level filter (docs/plans/
+  // frontend-polish-plan.md PR 4/A5) — a real radiogroup of real <button>s,
+  // driven through the browser rather than jsdom.
+  test('/classes: the level filter pill row filters the schedule list and updates aria-checked', async ({ page }) => {
+    await page.goto('/classes');
+    await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
+
+    const pillGroup = page.getByRole('radiogroup', { name: 'Filter by level' });
+    await expect(pillGroup.getByRole('radio', { name: 'All levels' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Fencing Foundation · Fencing Foundation', { exact: false })).toBeVisible();
+
+    // The other configured level has no scheduled sessions — filtering to
+    // it hides the only row without erroring.
+    await pillGroup.getByRole('radio', { name: 'Intermediate' }).click();
+    await expect(pillGroup.getByRole('radio', { name: 'Intermediate' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('No classes match this level.')).toBeVisible();
+
+    await pillGroup.getByRole('radio', { name: 'Fencing Foundation' }).click();
+    await expect(page.getByText('Fencing Foundation · Fencing Foundation', { exact: false })).toBeVisible();
   });
 
   test('/coaches renders without a client error', async ({ page }) => {

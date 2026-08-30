@@ -7,9 +7,14 @@ import styles from '../ui/shared.module.css';
 
 interface ScheduleTableProps {
   schedules: PublicGroupClassSchedule[];
+  // True when the returned rows span more than one distinct timezone — the
+  // page-level "All times shown in X" line only makes sense for a single
+  // zone (docs/plans/frontend-polish-plan.md PR 4, finding B2), so each row
+  // names its own zone instead when this is set.
+  showTimezone?: boolean;
 }
 
-function ScheduleRow({ schedule }: { schedule: PublicGroupClassSchedule }) {
+function ScheduleRow({ schedule, showTimezone }: { schedule: PublicGroupClassSchedule; showTimezone: boolean }) {
   // `availability` is only present in schedule-based mode (see
   // PublicGroupClassSchedule) — no pill at all in premium, the live
   // default, since one schedule's roster filling up doesn't mean the level
@@ -17,27 +22,18 @@ function ScheduleRow({ schedule }: { schedule: PublicGroupClassSchedule }) {
   const isOpen = schedule.availability !== 'full';
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 'var(--space-3)',
-        padding: 'var(--space-3) 0',
-        borderTop: '1px solid var(--color-border)',
-        flexWrap: 'wrap',
-      }}
-    >
+    <div className={styles.scheduleRow}>
       <div>
-        <div style={{ fontWeight: 600 }}>
+        <div className={styles.scheduleRowTitle}>
           {schedule.className} · {schedule.levelName}
         </div>
         <div className={styles.pageSubtitle}>
           {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)} · {schedule.locationName} · Coach{' '}
           {schedule.coachName}
+          {showTimezone ? ` · ${schedule.timezone}` : ''}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+      <div className={styles.scheduleRowActions}>
         {schedule.availability !== undefined && (
           <span
             className={`${styles.availabilityPill} ${
@@ -65,7 +61,7 @@ function ScheduleRow({ schedule }: { schedule: PublicGroupClassSchedule }) {
 // one Card per day that has any classes. Renders nothing itself when
 // `schedules` is empty — the caller owns the empty-state message, since
 // "no classes at all" and "no classes for this filter" read differently.
-export default function ScheduleTable({ schedules }: ScheduleTableProps) {
+export default function ScheduleTable({ schedules, showTimezone = false }: ScheduleTableProps) {
   const schedulesByDay: PublicGroupClassSchedule[][] = DAY_LABELS.map(() => []);
   schedules.forEach((schedule) => {
     schedulesByDay[schedule.dayOfWeek].push(schedule);
@@ -82,6 +78,7 @@ export default function ScheduleTable({ schedules }: ScheduleTableProps) {
                 <ScheduleRow
                   key={`${schedule.className}-${schedule.startTime}-${index}`}
                   schedule={schedule}
+                  showTimezone={showTimezone}
                 />
               ))}
             </div>
