@@ -19,6 +19,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -343,182 +344,171 @@ export default function AdminPrivateClassesPage() {
         </div>
       )}
 
-      {addSlotOpen ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && !slotSaving && setAddSlotOpen(false)}>
-          <div className={styles.dialog} role="dialog" aria-label="Add Slot">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Add Slot</h2>
-              <button
-                type="button"
-                className={styles.dialogClose}
-                onClick={() => !slotSaving && setAddSlotOpen(false)}
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {slotError ? <Alert variant="error">{slotError}</Alert> : null}
+      <Modal
+        open={addSlotOpen}
+        onClose={() => setAddSlotOpen(false)}
+        title="Add Slot"
+        disableClose={slotSaving}
+        footer={
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => setAddSlotOpen(false)}
+              disabled={slotSaving}
+            >
+              Cancel
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={handleAddSlot} disabled={slotSaving}>
+              {slotSaving ? 'Saving…' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {slotError ? <Alert variant="error">{slotError}</Alert> : null}
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="slot-coachId">
-                  Coach
-                </label>
-                <select
-                  id="slot-coachId"
-                  className={styles.select}
-                  value={slotForm.coachId}
-                  onChange={(e) => setSlotField('coachId', e.target.value)}
-                >
-                  <option value="">Select a coach</option>
-                  {coaches.map((coach) => (
-                    <option key={coach._id} value={coach._id}>
-                      {coach.firstName} {coach.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="slot-coachId">
+            Coach
+          </label>
+          <select
+            id="slot-coachId"
+            className={styles.select}
+            value={slotForm.coachId}
+            onChange={(e) => setSlotField('coachId', e.target.value)}
+          >
+            <option value="">Select a coach</option>
+            {coaches.map((coach) => (
+              <option key={coach._id} value={coach._id}>
+                {coach.firstName} {coach.lastName}
+              </option>
+            ))}
+          </select>
+        </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="slot-dayOfWeek">
-                  Day of Week
-                </label>
-                <select
-                  id="slot-dayOfWeek"
-                  className={styles.select}
-                  value={slotForm.dayOfWeek}
-                  onChange={(e) => setSlotField('dayOfWeek', e.target.value)}
-                >
-                  {DAY_LABELS.map((label, index) => (
-                    <option key={label} value={index}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="slot-dayOfWeek">
+            Day of Week
+          </label>
+          <select
+            id="slot-dayOfWeek"
+            className={styles.select}
+            value={slotForm.dayOfWeek}
+            onChange={(e) => setSlotField('dayOfWeek', e.target.value)}
+          >
+            {DAY_LABELS.map((label, index) => (
+              <option key={label} value={index}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="slot-startTime">
-                  Start Time
-                </label>
-                <input
-                  id="slot-startTime"
-                  type="time"
-                  className={styles.input}
-                  value={slotForm.startTime}
-                  onChange={(e) => setSlotField('startTime', e.target.value)}
-                />
-              </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="slot-startTime">
+            Start Time
+          </label>
+          <input
+            id="slot-startTime"
+            type="time"
+            className={styles.input}
+            value={slotForm.startTime}
+            onChange={(e) => setSlotField('startTime', e.target.value)}
+          />
+        </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="slot-durationMinutes">
-                  Duration (min)
-                </label>
-                <input
-                  id="slot-durationMinutes"
-                  type="number"
-                  min={15}
-                  className={styles.input}
-                  value={slotForm.durationMinutes}
-                  onChange={(e) => setSlotField('durationMinutes', e.target.value)}
-                />
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="slot-durationMinutes">
+            Duration (min)
+          </label>
+          <input
+            id="slot-durationMinutes"
+            type="number"
+            min={15}
+            className={styles.input}
+            value={slotForm.durationMinutes}
+            onChange={(e) => setSlotField('durationMinutes', e.target.value)}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        title="Cancel Enrollment"
+        size="sm"
+        hideCloseButton
+        disableClose={cancelling}
+        footer={
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => setCancelTarget(null)}
+              disabled={cancelling}
+            >
+              Keep Enrollment
+            </button>
+            <button
+              type="button"
+              className={styles.btnDangerFilled}
+              onClick={handleCancelConfirm}
+              disabled={cancelling}
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel Enrollment'}
+            </button>
+          </>
+        }
+      >
+        {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
+        <p style={{ margin: 0 }}>
+          Cancel {personLabel(cancelTarget?.studentId ?? null, 'Student no longer available')}&apos;s private
+          lessons? All upcoming sessions will be removed and the weekly slot released. Completed sessions already
+          charged are unaffected.
+        </p>
+      </Modal>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={deleteError ? 'Cannot Delete' : 'Delete Slot'}
+        size="sm"
+        hideCloseButton
+        disableClose={deleting}
+        footer={
+          deleteError ? (
+            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+              Close
+            </button>
+          ) : (
+            <>
               <button
                 type="button"
                 className={styles.btnSecondary}
-                onClick={() => setAddSlotOpen(false)}
-                disabled={slotSaving}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
               >
                 Cancel
               </button>
-              <button type="button" className={styles.btnPrimary} onClick={handleAddSlot} disabled={slotSaving}>
-                {slotSaving ? 'Saving…' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {cancelTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !cancelling && setCancelTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Cancel Enrollment</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
-              <p style={{ margin: 0 }}>
-                Cancel {personLabel(cancelTarget.studentId, 'Student no longer available')}&apos;s private lessons? All upcoming sessions
-                will be removed and the weekly slot released. Completed sessions already charged are
-                unaffected.
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
               <button
                 type="button"
-                className={styles.btnSecondary}
-                onClick={() => setCancelTarget(null)}
-                disabled={cancelling}
+                className={styles.btnDangerFilled}
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
               >
-                Keep Enrollment
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
-              <button type="button" className={styles.btnDangerFilled} onClick={handleCancelConfirm} disabled={cancelling}>
-                {cancelling ? 'Cancelling…' : 'Cancel Enrollment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {deleteTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !deleting && setDeleteTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>{deleteError ? 'Cannot Delete' : 'Delete Slot'}</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              <p style={{ margin: 0 }}>
-                {deleteError ??
-                  `Delete the ${DAY_LABELS[deleteTarget.dayOfWeek]} ${formatTime(deleteTarget.startTime)} slot? This cannot be undone.`}
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
-              {deleteError ? (
-                <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
-                  Close
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerFilled}
-                    onClick={handleDeleteConfirm}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </>
+          )
+        }
+      >
+        <p style={{ margin: 0 }}>
+          {deleteError ??
+            (deleteTarget
+              ? `Delete the ${DAY_LABELS[deleteTarget.dayOfWeek]} ${formatTime(deleteTarget.startTime)} slot? This cannot be undone.`
+              : '')}
+        </p>
+      </Modal>
     </main>
   );
 }

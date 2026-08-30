@@ -228,7 +228,16 @@
   }
 }
 
-/* ── Dialog / modal ──────────────────────────────────────────── */
+/* ── Mobile sidebar overlay ──────────────────────────────────── */
+/* NOTE: this .overlay is the mobile off-canvas sidebar's backdrop (see
+   layout.tsx), NOT a dialog backdrop — the dialog-frame rules that used to
+   live here (.dialog/.dialogSm/.dialogHeader/.dialogTitle/.dialogClose/
+   .dialogBody/.dialogFooter) moved to the shared Modal component
+   (app/components/ui/Modal/Modal.module.css, docs/plans/shared-modal-
+   component-plan.md) and were deleted from here once every admin page
+   migrated to it. This class happening to share the name ".overlay" with
+   Modal's own is coincidental — CSS Modules scope each file's classes
+   independently, so there is no actual collision. */
 .overlay {
   position: fixed;
   inset: 0;
@@ -238,70 +247,6 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-}
-
-.dialog {
-  background: var(--color-white);
-  border-radius: var(--radius-md);
-  width: 100%;
-  max-width: 500px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(27, 26, 23, 0.25);
-}
-
-.dialogSm {
-  max-width: 380px;
-}
-
-.dialogHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.dialogTitle {
-  font-family: var(--font-heading), sans-serif;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--color-ink);
-  margin: 0;
-}
-
-.dialogClose {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-muted);
-  display: flex;
-  align-items: center;
-  padding: var(--space-1);
-  border-radius: var(--radius-sm);
-  transition: color 0.15s, background 0.15s;
-}
-
-.dialogClose:hover {
-  color: var(--color-ink);
-  background: var(--color-bg);
-}
-
-.dialogBody {
-  padding: var(--space-5);
-  overflow-y: auto;
-  flex: 1;
-}
-
-.dialogFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
 }
 
 /* ── Form elements (inside dialogs) ─────────────────────────── */

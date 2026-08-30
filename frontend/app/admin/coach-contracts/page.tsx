@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchUsers } from '../../../lib/services/users';
@@ -11,6 +11,7 @@ import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
 interface ContractForm {
@@ -204,131 +205,123 @@ export default function AdminCoachContractsPage() {
         </div>
       )}
 
-      {dialogOpen ? (
-        <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeDialog()}>
-          <div className={styles.dialog} role="dialog" aria-label="Add Contract">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Add Contract</h2>
-              <button type="button" className={styles.dialogClose} onClick={closeDialog} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.dialogBody}>
-              {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
+      <Modal
+        open={dialogOpen}
+        onClose={closeDialog}
+        title="Add Contract"
+        disableClose={saving}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="contract-coachId">
-                  Coach
-                </label>
-                <select
-                  id="contract-coachId"
-                  className={styles.select}
-                  value={form.coachId}
-                  onChange={(e) => setField('coachId', e.target.value)}
-                >
-                  <option value="">Select a coach</option>
-                  {coaches.map((coach) => (
-                    <option key={coach._id} value={coach._id}>
-                      {coach.firstName} {coach.lastName}
-                    </option>
-                  ))}
-                </select>
-                <div className={styles.formHint}>
-                  Creating a contract replaces the coach&apos;s current active contract.
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="contract-studentBillingRate">
-                  Rate Billed to Parent ($/hr)
-                </label>
-                <input
-                  id="contract-studentBillingRate"
-                  type="number"
-                  min={0}
-                  className={styles.input}
-                  value={form.studentBillingRate}
-                  onChange={(e) => setField('studentBillingRate', e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="contract-coachCompensationRate">
-                  Coach Compensation ($/hr)
-                </label>
-                <input
-                  id="contract-coachCompensationRate"
-                  type="number"
-                  min={0}
-                  className={styles.input}
-                  value={form.coachCompensationRate}
-                  onChange={(e) => setField('coachCompensationRate', e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="contract-sessionDurationMinutes">
-                  Default Session Duration (min)
-                </label>
-                <input
-                  id="contract-sessionDurationMinutes"
-                  type="number"
-                  min={15}
-                  className={styles.input}
-                  value={form.sessionDurationMinutes}
-                  onChange={(e) => setField('sessionDurationMinutes', e.target.value)}
-                />
-              </div>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
-                Cancel
-              </button>
-              <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Create'}
-              </button>
-            </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="contract-coachId">
+            Coach
+          </label>
+          <select
+            id="contract-coachId"
+            className={styles.select}
+            value={form.coachId}
+            onChange={(e) => setField('coachId', e.target.value)}
+          >
+            <option value="">Select a coach</option>
+            {coaches.map((coach) => (
+              <option key={coach._id} value={coach._id}>
+                {coach.firstName} {coach.lastName}
+              </option>
+            ))}
+          </select>
+          <div className={styles.formHint}>
+            Creating a contract replaces the coach&apos;s current active contract.
           </div>
         </div>
-      ) : null}
 
-      {deactivateTarget ? (
-        <div
-          className={styles.overlay}
-          onClick={(e) => e.target === e.currentTarget && !deactivating && setDeactivateTarget(null)}
-        >
-          <div className={`${styles.dialog} ${styles.dialogSm}`} role="dialog">
-            <div className={styles.dialogHeader}>
-              <h2 className={styles.dialogTitle}>Deactivate Contract</h2>
-            </div>
-            <div className={styles.dialogBody}>
-              {deactivateError ? <Alert variant="error">{deactivateError}</Alert> : null}
-              <p style={{ margin: 0 }}>
-                Deactivate {coachLabel(deactivateTarget.coachId)}&apos;s
-                contract? They will no longer be able to publish new private-lesson slots.
-              </p>
-            </div>
-            <div className={styles.dialogFooter}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setDeactivateTarget(null)}
-                disabled={deactivating}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={styles.btnDangerFilled}
-                onClick={handleDeactivateConfirm}
-                disabled={deactivating}
-              >
-                {deactivating ? 'Deactivating…' : 'Deactivate'}
-              </button>
-            </div>
-          </div>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="contract-studentBillingRate">
+            Rate Billed to Parent ($/hr)
+          </label>
+          <input
+            id="contract-studentBillingRate"
+            type="number"
+            min={0}
+            className={styles.input}
+            value={form.studentBillingRate}
+            onChange={(e) => setField('studentBillingRate', e.target.value)}
+          />
         </div>
-      ) : null}
+
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="contract-coachCompensationRate">
+            Coach Compensation ($/hr)
+          </label>
+          <input
+            id="contract-coachCompensationRate"
+            type="number"
+            min={0}
+            className={styles.input}
+            value={form.coachCompensationRate}
+            onChange={(e) => setField('coachCompensationRate', e.target.value)}
+          />
+        </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="contract-sessionDurationMinutes">
+            Default Session Duration (min)
+          </label>
+          <input
+            id="contract-sessionDurationMinutes"
+            type="number"
+            min={15}
+            className={styles.input}
+            value={form.sessionDurationMinutes}
+            onChange={(e) => setField('sessionDurationMinutes', e.target.value)}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={deactivateTarget !== null}
+        onClose={() => setDeactivateTarget(null)}
+        title="Deactivate Contract"
+        size="sm"
+        hideCloseButton
+        disableClose={deactivating}
+        footer={
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => setDeactivateTarget(null)}
+              disabled={deactivating}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.btnDangerFilled}
+              onClick={handleDeactivateConfirm}
+              disabled={deactivating}
+            >
+              {deactivating ? 'Deactivating…' : 'Deactivate'}
+            </button>
+          </>
+        }
+      >
+        {deactivateError ? <Alert variant="error">{deactivateError}</Alert> : null}
+        <p style={{ margin: 0 }}>
+          Deactivate {deactivateTarget ? coachLabel(deactivateTarget.coachId) : ''}&apos;s contract? They will no
+          longer be able to publish new private-lesson slots.
+        </p>
+      </Modal>
     </main>
   );
 }
