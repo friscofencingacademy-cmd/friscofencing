@@ -2,6 +2,25 @@
 
 **Status:** Implemented — 2026-08-28 (PR 1 of `docs/plans/billing-anchor-and-sibling-discount-plan.md`, merged to `develop` via PR #50). PR 2 (ADR 005) and PR 3 (ADR 006) not yet started.
 
+**2026-08-30 addendum — proration scoped to the current month
+(`docs/plans/payment-airtight-plan.md` D1):** this ADR's original text below
+("the prorated-first-month path becomes the *only* path") was refined after a
+real incident. `computeProration()` was being called unconditionally for
+ANY registration anchor date, including one the parent explicitly picked in
+a FUTURE calendar month (the wizard's "Enroll for next month" action) — so a
+next-month anchor that didn't happen to land exactly on that month's first
+class day was silently charged a fraction of the month (e.g. 275 × 16/17 =
+258.82 instead of 275). The rule is now explicit: proration applies **only**
+when the chosen start date falls in the CURRENT calendar month; any
+FUTURE-month anchor is billed the full monthly fee for that entire calendar
+month, unconditionally, regardless of which day within that month is chosen.
+Both branches still anchor their period to the calendar-month boundary this
+ADR establishes — this only changes whether the FIRST month's amount is a
+fraction or the full fee, never the period math itself. Single source of
+truth: `billing/proration.service.js`'s `resolveFirstChargePeriod()`, called
+identically by `registration.service.js`'s `create()` and
+`previewChargeAmount()`.
+
 ## Context
 
 **The intended model** (owner, 2026-08-28): "Our renewal is supposed to be going 1st of each month — that is the chesskq model." CKQ's payment module doc states it directly: *"we collect the first month's payment immediately and then automatically renew on the 1st of each month"*, and CKQ's `renewalCron.js` targets `startOf('month')` in Central time. CKQ additionally forces schedule start dates to the 1st at validation, sidestepping most proration.

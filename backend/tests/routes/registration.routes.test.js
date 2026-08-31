@@ -30,7 +30,7 @@ const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const Setting = require('../../src/models/setting.model');
 const { computeProration } = require('../../src/services/billing/proration.service');
-const { retryOne } = require('../../src/services/renewal.service');
+const { retryOne, renewOne, runRenewals, previewRenewal } = require('../../src/services/renewal.service');
 const { todayDateOnly } = require('../../src/utils/billingDates');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
@@ -1433,6 +1433,109 @@ describe('Registration routes', () => {
       },
       20000
     );
+
+    it(
+      'charges the FULL monthly fee (no proration) and anchors the period to the calendar month itself when the chosen start date falls in a FUTURE month (docs/plans/payment-airtight-plan.md D1)',
+      async () => {
+        const { scheduleId } = await seedSchedule();
+        const { student } = await seedParentAndStudent('startdate-future-month@example.com');
+        const parentAgent = await loginAgent('startdate-future-month@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        // seedSchedule's real create route generates 8 weekly sessions from
+        // FROZEN_NOW (Oct 1, 2026) — the level's Wednesday sessions land
+        // Oct 7/14/21/28, then Nov 4/11/18/25. sessions[4] (Nov 4) is a
+        // genuine FUTURE-MONTH anchor, not just a future date within
+        // October — the exact case the trigger incident
+        // (viji.annadurai@gmail.com, 2026-08-30) got wrong: "Enroll for next
+        // month" anchored to a real session date that wasn't the 1st, and
+        // the old unconditional proration silently charged 16/17 of a
+        // month that should have been billed in full.
+        const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+        const chosenSession = sessions[4];
+        expect(chosenSession.date.toISOString()).toBe('2026-11-04T00:00:00.000Z');
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+          startDate: chosenSession.date.toISOString(),
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.prorated).toBe(false);
+        expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
+        expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE);
+        expect(res.body.totalClassDays).toBe(0);
+        expect(res.body.remainingClassDays).toBe(0);
+
+        const subscription = await Subscription.findOne({ studentId: student._id });
+        expect(subscription.firstChargeProrated).toBe(false);
+        // The billing period is the WHOLE calendar month, not anchored to
+        // the 4th (the actual session/roster-join date) — Nov 1 -> Dec 1.
+        expect(subscription.currentPeriodStart.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+        expect(subscription.currentPeriodEnd.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+        expect(subscription.nextBillingDate.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+
+        const ledgerRow = await Registration.findOne({ studentId: student._id });
+        expect(ledgerRow.breakdown.prorated).toBe(false);
+        expect(ledgerRow.breakdown.proratedAmount).toBeNull();
+        expect(ledgerRow.periodStart.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+        expect(ledgerRow.periodEnd.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+
+        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
+        const intent = paymentIntents.data.find((i) => i.amount === Math.round(MONTHLY_FEE * 100));
+        expect(intent).toBeDefined();
+        expect(intent.status).toBe('succeeded');
+
+        // The owner's edge case, pinned (docs/plans/payment-airtight-plan.md
+        // Context section): register in one month for the next, then a
+        // renewal check DURING that already-paid next month (whether the
+        // unscheduled cron or the admin Charge button's preview) must
+        // immediately recognize the month is paid for and charge nothing —
+        // never re-derive "was this paid" from anything but nextBillingDate/
+        // the ledger. Move the frozen clock into November (still before the
+        // real Dec 1 due date) and re-check all three surfaces.
+        jest.setSystemTime(new Date('2026-11-15T15:00:00.000Z'));
+
+        const preview = await previewRenewal(subscription._id);
+        expect(preview.outcome).toBe('previewable');
+        expect(preview.due).toBe(false);
+
+        const directResult = await renewOne(subscription._id);
+        expect(directResult).toEqual({ subscriptionId: subscription._id, outcome: 'skipped_not_due' });
+
+        const { total } = await runRenewals();
+        expect(total).toBe(0);
+
+        // Nothing charged twice — still exactly the one ledger row from the
+        // original registration, subscription fields untouched.
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
+        const unchangedSubscription = await Subscription.findById(subscription._id);
+        expect(unchangedSubscription.currentPeriodEnd.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+        expect(unchangedSubscription.nextBillingDate.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+      },
+      20000
+    );
+
+    it('GET /preview shows the full monthly fee, never a prorated one, for a startDate in a future month', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('startdate-future-month-preview@example.com');
+      const parentAgent = await loginAgent('startdate-future-month-preview@example.com');
+
+      const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+      const chosenSession = sessions[4];
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+        startDate: chosenSession.date.toISOString(),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.prorated).toBe(false);
+      expect(res.body.chargeAmount).toBe(MONTHLY_FEE);
+      expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE);
+    });
 
     it('returns 400 and creates/charges nothing when startDate does not match a real session for the schedule', async () => {
       const { scheduleId } = await seedSchedule();

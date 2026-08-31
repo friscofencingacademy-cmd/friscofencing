@@ -1,6 +1,6 @@
 const GroupClass = require('../../models/groupClass.model');
 const GroupClassSchedule = require('../../models/groupClassSchedule.model');
-const { daysInMonth, firstOfNextMonth } = require('../../utils/billingDates');
+const { daysInMonth, firstOfNextMonth, todayDateOnly } = require('../../utils/billingDates');
 
 // Every distinct weekday (0=Sun..6=Sat) at least one schedule at `levelId`
 // meets on — a level can have several schedules on different days (a
@@ -102,4 +102,66 @@ async function computeProration({ levelId, monthlyFee, registrationDate }) {
   };
 }
 
-module.exports = { computeProration };
+// True when `anchorDate` (a calendar-day sentinel) falls in the same
+// calendar month as "today" in Central time — the exact boundary D1 below
+// branches on. anchorDate's UTC getters are safe to read directly (it's a
+// UTC-midnight sentinel, not a real instant); todayDateOnly() already
+// returns that same sentinel shape.
+function isCurrentCalendarMonth(anchorDate) {
+  const today = todayDateOnly();
+  return anchorDate.getUTCFullYear() === today.getUTCFullYear() && anchorDate.getUTCMonth() === today.getUTCMonth();
+}
+
+// Single source of truth for a first charge's amount AND billing period
+// (docs/plans/payment-airtight-plan.md D1) — called identically by
+// registration.service.js's create() and previewChargeAmount(), and nowhere
+// else, so the two paths can never structurally disagree. Prompted by a
+// real incident: "Enroll for next month" anchored to a real session date
+// that wasn't the 1st, so computeProration silently prorated a future
+// month's charge too (275 * 16/17 = 258.82 instead of the expected 275).
+//
+// The rule: proration applies ONLY when `anchorDate` falls in the CURRENT
+// calendar month (Central) — delegates to computeProration() unchanged in
+// that case. Any FUTURE month is billed the full monthly fee for that
+// entire calendar month, never a fraction of it, regardless of which day
+// within that month the parent's chosen session falls on — computeProration
+// is never even called in that branch. Both branches return the same shape,
+// so callers never need to know which one ran.
+//
+// `periodStart` is the BILLING period's start, which is NOT always
+// `anchorDate` — a future-month anchor's period starts on the 1st of that
+// month, even though the student's roster join date (handled entirely
+// separately, by roster.service.js's addStudentToRoster) stays the actual
+// day the parent picked.
+//
+// The future-month branch deliberately builds BOTH periodStart and
+// periodEnd via explicit Date.UTC arithmetic (dateShapes.js's convention),
+// never billingDates.js's firstOfNextMonth — that helper reads/writes a
+// Date's LOCAL components, which only agrees with a UTC-midnight sentinel's
+// real calendar day when the host itself runs in UTC (true in prod/CI, not
+// necessarily on a developer's own machine, same assumption every other
+// billingDates.js caller already carries). Since anchorDate here can be a
+// genuine UTC sentinel from any caller, this branch stays correct
+// regardless of the host's local timezone rather than inheriting that
+// class of bug.
+async function resolveFirstChargePeriod({ levelId, monthlyFee, anchorDate }) {
+  if (isCurrentCalendarMonth(anchorDate)) {
+    const prorationInfo = await computeProration({ levelId, monthlyFee, registrationDate: anchorDate });
+    return { ...prorationInfo, periodStart: anchorDate };
+  }
+
+  const periodStart = new Date(Date.UTC(anchorDate.getUTCFullYear(), anchorDate.getUTCMonth(), 1));
+  const periodEnd = new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1, 1));
+
+  return {
+    prorated: false,
+    totalClassDays: 0,
+    remainingClassDays: 0,
+    dailyRate: 0,
+    proratedAmount: monthlyFee,
+    periodEnd,
+    periodStart,
+  };
+}
+
+module.exports = { computeProration, resolveFirstChargePeriod };

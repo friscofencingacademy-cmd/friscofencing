@@ -819,20 +819,20 @@ describe('RegisterPage wizard', () => {
             }
             return HttpResponse.json({ sessions: [] });
           }),
-          // The backend's own math for the true first session of a month —
-          // remainingClassDays === totalClassDays — comes back prorated:true
-          // structurally, even though it's functionally full price.
+          // A future-month anchor never prorates, full stop (docs/plans/
+          // payment-airtight-plan.md D1) — regardless of which day of that
+          // month the real next session happens to land on.
           http.get('*/registrations/preview', () =>
             HttpResponse.json({
               ...DEFAULT_PREVIEW,
               monthlyFee: 150,
               chargeAmount: 150,
               totalChargeAmount: 150,
-              prorated: true,
-              totalClassDays: 8,
-              remainingClassDays: 8,
-              dailyRate: 18.75,
-              periodEnd: '2099-02-28T23:59:59.999Z',
+              prorated: false,
+              totalClassDays: 0,
+              remainingClassDays: 0,
+              dailyRate: 0,
+              periodEnd: '2099-03-01T00:00:00.000Z',
             })
           )
         );
@@ -843,8 +843,7 @@ describe('RegisterPage wizard', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: /enroll for next month/i }));
 
-        // Full-price framing shown, never the "X of Y class days" sentence —
-        // even though the backend structurally reports prorated: true.
+        // Full-price framing shown, never the "X of Y class days" sentence.
         await screen.findByText(/full monthly price — \$150\.00 due today/i);
         expect(screen.queryByText(/class days remain this month/)).not.toBeInTheDocument();
 

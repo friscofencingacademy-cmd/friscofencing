@@ -12,7 +12,7 @@ const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
 const { resolveRegistrationFee } = require('./billing/registrationFee.service');
-const { computeProration } = require('./billing/proration.service');
+const { resolveFirstChargePeriod } = require('./billing/proration.service');
 const { chargeAndFinalize } = require('./billing/chargeFinalization.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const { todayDateOnly } = require('../utils/billingDates');
@@ -191,18 +191,22 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   // instant. See docs/plans/timezone-consistency-plan.md D10.
   const anchorDate = requestedStartDate ?? todayDateOnly();
 
-  // Prorate the RAW list price FIRST (owner-directed sequencing, docs/plans/
-  // prorated-first-month-billing-plan.md), unconditionally — every
-  // registration's first charge/period is calendar-month-anchored now
-  // (docs/decisions/007-calendar-month-billing.md). The RESULT feeds into
+  // Resolve the RAW list price into a charge amount + billing period FIRST
+  // (owner-directed sequencing, docs/plans/prorated-first-month-billing-plan
+  // .md), unconditionally — every registration's first charge/period is
+  // calendar-month-anchored now (docs/decisions/007-calendar-month-billing
+  // .md). Only prorated when anchorDate falls in the CURRENT calendar month;
+  // a future-month anchor is billed the full fee for that whole month
+  // (docs/plans/payment-airtight-plan.md D1 — resolveFirstChargePeriod is
+  // the single source of that branch). The RESULT feeds into
   // calculateChargeAmount() below, unmodified. Sibling-discount eligibility
   // therefore compares "what this student actually owes this cycle"
   // (possibly prorated) against siblings' own current standard rates, never
   // the raw unprorated list price.
-  const prorationInfo = await computeProration({
+  const prorationInfo = await resolveFirstChargePeriod({
     levelId: groupClass.levelId,
     monthlyFee: price.monthlyFee,
-    registrationDate: anchorDate,
+    anchorDate,
   });
   const feeForDiscountCalc = prorationInfo.proratedAmount;
 
@@ -222,12 +226,14 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
 
   const totalChargeAmount = chargeAmount + registrationFeeCharged;
 
-  // Always the calendar-month boundary (ADR 007) — computeProration() is
-  // the single source of this period math too, not just the amount (see
-  // its own docblock), so this can never structurally disagree with what
-  // it returned. Anchors off anchorDate (the parent's chosen start date),
-  // not the moment they paid — these fields don't depend on whether the
-  // charge below succeeds.
+  // Always the calendar-month boundary (ADR 007) — resolveFirstChargePeriod()
+  // is the single source of this period math too, not just the amount (see
+  // its own docblock), so this can never structurally disagree with what it
+  // returned. periodStart is the parent's chosen anchorDate for a
+  // current-month registration, but the 1st of the anchor's month for a
+  // future-month one (D1) — NOT always anchorDate itself. Neither field
+  // depends on whether the charge below succeeds.
+  const billingPeriodStart = prorationInfo.periodStart;
   const currentPeriodEnd = prorationInfo.periodEnd;
 
   // RESERVE the Subscription BEFORE any Stripe call — this is the actual
@@ -247,7 +253,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
       parentId: requestingUser._id,
       status: 'active',
       cancelAtPeriodEnd: false,
-      currentPeriodStart: anchorDate,
+      currentPeriodStart: billingPeriodStart,
       currentPeriodEnd,
       nextBillingDate: currentPeriodEnd,
       lastChargeAmount: null,
@@ -283,7 +289,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
       siblingDiscountAmount,
       registrationFeeCharged,
     },
-    periodStart: anchorDate,
+    periodStart: billingPeriodStart,
     periodEnd: currentPeriodEnd,
   });
 
@@ -468,13 +474,14 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
   const anchorDate = requestedStartDate ?? todayDateOnly();
 
   // Mirrors create() exactly (docs/plans/prorated-first-month-billing-plan
-  // .md, D3; unconditional per docs/decisions/007-calendar-month-billing.md)
-  // — same function, same sequencing, same anchorDate role — so this
-  // preview can never structurally disagree with the real charge.
-  const prorationInfo = await computeProration({
+  // .md, D3; docs/plans/payment-airtight-plan.md D1 for the current-vs-
+  // future-month branch) — same function, same sequencing, same anchorDate
+  // role — so this preview can never structurally disagree with the real
+  // charge.
+  const prorationInfo = await resolveFirstChargePeriod({
     levelId: groupClass.levelId,
     monthlyFee: price.monthlyFee,
-    registrationDate: anchorDate,
+    anchorDate,
   });
   const feeForDiscountCalc = prorationInfo.proratedAmount;
 
