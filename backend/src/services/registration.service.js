@@ -499,8 +499,14 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
   });
   const feeForDiscountCalc = prorationInfo.proratedAmount;
 
-  const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
-    await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration' });
+  const {
+    amount: chargeAmount,
+    siblingDiscountApplied,
+    siblingDiscountAmount,
+    reason: siblingDiscountReason,
+    siblingComparison,
+    discountBase,
+  } = await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration' });
 
   const {
     amount: registrationFeeCharged,
@@ -538,6 +544,13 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     dailyRate: prorationInfo.dailyRate,
     periodEnd: prorationInfo.periodEnd,
     savings,
+    // Family-breakdown fields for the register wizard's quote panel (docs/
+    // plans/booking-flow-sequential-plan.md) — undefined (never present)
+    // when no discount applied, since calculateChargeAmount's no-siblings
+    // early return doesn't produce them; the frontend treats both as
+    // optional.
+    siblingComparison,
+    discountBase,
   };
 }
 

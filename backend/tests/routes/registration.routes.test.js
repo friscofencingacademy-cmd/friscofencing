@@ -1861,6 +1861,14 @@ describe('Registration routes', () => {
           // alignment-plan.md, Phase 3) — the sibling discount is the only
           // savings here (no registration fee configured in this test).
           savings: { siblingDiscount: MONTHLY_FEE * 0.1, registrationFeeWaived: 0, total: MONTHLY_FEE * 0.1 },
+          // Register-wizard quote panel family breakdown (docs/plans/
+          // booking-flow-sequential-plan.md) — secondChild is the lower
+          // payer here, so discountBase is its OWN fee (MONTHLY_FEE), and
+          // the comparison lists the pricier firstChild sibling.
+          discountBase: MONTHLY_FEE,
+          siblingComparison: [
+            { studentId: firstChild._id.toString(), studentName: 'First Preview', monthlyFee: MONTHLY_FEE * 2 },
+          ],
         });
         expect(new Date(siblingPreviewPeriodEnd).getTime()).toBeGreaterThan(Date.now());
 
@@ -1965,6 +1973,13 @@ describe('Registration routes', () => {
         expect(previewRes.body.siblingDiscountReason).toBe(
           "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan."
         );
+        // Bridge case: discountBase is the EXISTING (cheaper) sibling's fee,
+        // not the new pricier child's own fee — docs/plans/booking-flow-
+        // sequential-plan.md's quote-panel "(10% of $X)" label depends on this.
+        expect(previewRes.body.discountBase).toBe(MONTHLY_FEE);
+        expect(previewRes.body.siblingComparison).toEqual([
+          { studentId: firstChild._id.toString(), studentName: 'First PreviewBridge', monthlyFee: MONTHLY_FEE },
+        ]);
 
         const secondRes = await parentAgent.post('/api/v1/registrations').send({
           studentId: secondChild._id.toString(),

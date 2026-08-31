@@ -161,6 +161,10 @@ describe('calculateChargeAmount', () => {
 
       const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription });
 
+      // Exact-shape assertion (no extra keys) is deliberate here — it's the
+      // regression guard that the registration-mode-only siblingComparison/
+      // discountBase fields (docs/plans/booking-flow-sequential-plan.md)
+      // never leak into a renewal-mode result.
       expect(result).toEqual({
         amount: 90,
         siblingDiscountApplied: true,
@@ -387,6 +391,12 @@ describe('calculateChargeAmount', () => {
         siblingDiscountApplied: true,
         siblingDiscountAmount: 10,
         reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+        // discountBase === the new child's own fee (100) — this IS the
+        // lower-priced plan, so the discount is based on it directly.
+        discountBase: 100,
+        siblingComparison: [
+          expect.objectContaining({ studentId: existingChild._id, studentName: 'Existing Test', monthlyFee: 200 }),
+        ],
       });
     });
 
@@ -407,6 +417,13 @@ describe('calculateChargeAmount', () => {
         siblingDiscountApplied: true,
         siblingDiscountAmount: 10,
         reason: "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.",
+        // discountBase === the EXISTING sibling's lower fee (100), not the
+        // new child's own 200 — this is the bridge case's whole point, and
+        // exactly what the quote panel's "(10% of $100)" label needs to say.
+        discountBase: 100,
+        siblingComparison: [
+          expect.objectContaining({ studentId: existingChild._id, studentName: 'ExistingCheap Test', monthlyFee: 100 }),
+        ],
       });
     });
 
@@ -448,6 +465,14 @@ describe('calculateChargeAmount', () => {
 
       expect(result.siblingDiscountAmount).toBe(20);
       expect(result.amount).toBe(180);
+      expect(result.discountBase).toBe(200);
+      expect(result.siblingComparison).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ studentId: existingLow._id, studentName: 'ExistingLow Test', monthlyFee: 100 }),
+          expect.objectContaining({ studentId: existingHigh._id, studentName: 'ExistingHigh Test', monthlyFee: 300 }),
+        ])
+      );
+      expect(result.siblingComparison).toHaveLength(2);
     });
 
     it('never returns a negative amount', async () => {

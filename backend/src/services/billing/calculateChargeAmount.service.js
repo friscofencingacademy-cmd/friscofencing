@@ -82,7 +82,12 @@ async function gatherSiblingFees(student) {
       continue;
     }
 
-    entries.push({ studentId: sibling._id, fee, createdAt: subscription.createdAt });
+    entries.push({
+      studentId: sibling._id,
+      studentName: `${sibling.firstName} ${sibling.lastName}`,
+      fee,
+      createdAt: subscription.createdAt,
+    });
   }
 
   return entries;
@@ -138,7 +143,27 @@ async function calculateChargeAmount(student, feeNow, options) {
         ? 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.'
         : "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.";
 
-    return { amount, siblingDiscountApplied: true, siblingDiscountAmount, reason };
+    // Display-only breakdown for the register wizard's quote panel (docs/
+    // plans/booking-flow-sequential-plan.md) — siblingComparison lists the
+    // exact entries that drove this calculation (never re-queried), and
+    // discountBase is the exact figure the 10% was taken from, so the
+    // frontend can show "10% of $<discountBase>" without ever computing it
+    // itself (Hard Rule 7). Additive only: unused by 'renewal' callers and
+    // by any caller that ignores extra fields.
+    const siblingComparison = siblingEntries.map((entry) => ({
+      studentId: entry.studentId,
+      studentName: entry.studentName,
+      monthlyFee: entry.fee,
+    }));
+
+    return {
+      amount,
+      siblingDiscountApplied: true,
+      siblingDiscountAmount,
+      reason,
+      siblingComparison,
+      discountBase: base,
+    };
   }
 
   // mode === 'renewal' — is THIS student the family's top payer?
