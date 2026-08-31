@@ -41,15 +41,17 @@ number that actually matters, and it's solid. Full reasoning in `docs/TESTING_ST
 
 ## Backend (`backend/`)
 
-**Current state: 42 test suites / 410 tests, run under `TZ=UTC`, 2026-08-27 (after PR 1 of the
-Registration payment-ledger rebuild — `docs/plans/registration-ledger-plan.md`). 409 pass; the
-one failure (`registration.routes.test.js`'s "prorates the real Stripe charge and anchors the
-period to calendar month-end" test) is a pre-existing, date-dependent bug unrelated to this PR —
-`computeProration()` can hit a $0 remaining-class-days edge case near calendar month-end, which
-Stripe rejects with a raw 500 (already logged in
-`docs/plans/registration-ledger-gap-analysis.md`'s "Related open items," out of scope for this
-plan). Verified by `git stash`-ing this PR's changes and re-running the same test in isolation:
-identical failure on the unmodified code.**
+**Current state: 65 test suites / 729 tests, last run on this (non-`TZ=UTC`) dev machine 2026-08-31
+(after PR 3 of `docs/plans/payment-airtight-plan.md`). 697 pass; the 32 failures are ALL the same
+pre-existing, local-machine-timezone-dependent class first documented under that plan's PR 1 — not
+a single narrow $0-proration edge case any more, but several related root causes across
+`registration.routes.test.js` (14), `scheduleOccurrence.test.js`, `billingDates.test.js`,
+`realignBillingAnchors.test.js`, and `groupClassSchedule.routes.test.js` (18 more), all stemming
+from date-math code that reads a UTC-midnight calendar-day sentinel via a Date's LOCAL getters —
+correct when the process runs under `TZ=UTC` (true in CI and production), wrong on a non-UTC dev
+host. Reverified via `git stash` at every PR of that plan: byte-identical failure count/set on
+unmodified `develop`, so none of these are regressions from that plan's own changes. Run this suite
+itself under `TZ=UTC` (as documented below) to see the CI-true, all-green count.**
 
 ```
 cd backend && TZ=UTC npm test
@@ -59,11 +61,13 @@ cd backend && TZ=UTC npm test
 |---|---|---|---|
 | Unit | `tests/utils/{jwt,password}.test.js` | Token signing/verification, bcrypt hashing | No |
 | Unit | `tests/utils/privateClassPricing.test.js` | Per-session pricing rounding + fail-closed throws (CKQ parity Phase 4) | No |
-| Unit | `tests/services/billing/calculateChargeAmount.service.test.js` | Sibling-discount math | No |
+| Unit | `tests/services/billing/{calculateChargeAmount,proration}.service.test.js` | Sibling-discount math; proration math incl. `resolveFirstChargePeriod`'s current-vs-future-month branch (docs/plans/payment-airtight-plan.md D1) | No |
+| Unit | `tests/models/registration.model.test.js` | `periodMonth` derivation (schema pre-validate hook), `manualNote` validation, Guard B's re-keyed unique index — incl. the exact same-month-different-day collision case the old index missed (docs/plans/payment-airtight-plan.md D7) | Yes (memory) |
 | Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
 | Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
 | Route-integration | `tests/routes/*.routes.test.js` (20 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing), prices, students, users, trial-classes, registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
 | Script | `tests/scripts/lib/migrateRegistrationsToLedger.test.js` | The one-time old-shape-Registration → payment-ledger migration script (`docs/plans/registration-ledger-plan.md` D8): dry-run writes nothing, live run rewrites matched docs (incl. the prorated-periodEnd variant), orphaned docs left untouched and reported, safe to re-run | Yes (memory) |
+| Script | `tests/scripts/lib/migratePeriodMonth.test.js` | The one-time `periodMonth` backfill + Guard B index re-key (docs/plans/payment-airtight-plan.md D7): dry-run vs. live, idempotent re-run, collision abort with zero writes, a `failed` row never blocks | Yes (memory) |
 | Smoke | `tests/health.test.js` | `/health` endpoint | No |
 
 ### Coverage gaps (honest, not hidden)
@@ -74,7 +78,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 45 test suites / 231 tests passing, run under `TZ=UTC`, 2026-08-23 (after the audit system's `/admin/audits` report page — `docs/plans/audit-system-plan.md`).**
+**Current state: 55 test suites / 389 tests, all passing, 2026-08-31 (after PR 3 of `docs/plans/payment-airtight-plan.md` — the `/parent/billing` payment-history page).**
 
 ```
 cd frontend && TZ=UTC npm test
@@ -85,7 +89,8 @@ cd frontend && TZ=UTC npm test
 | Component — admin | `app/admin/**/__tests__/*.test.tsx` (layout, dashboard, redirect page, 4 Pattern-A CRUD pages, schedules, sessions, **subscriptions, coach-contracts, private-classes**) | Shell role-gate, dashboard counts, full CRUD (create/edit/delete/blocked-delete) per entity, subscriptions list/filter/change-schedule/cancel/reactivate, coach-contract create/deactivate, private-class enrollment-cancel + schedule add/delete guards | MSW |
 | Component — portal shell | `app/components/portal/{PortalLayout,ParentPortalShell,AddChildModal}/__tests__/*.test.tsx` | Nav rendering/active-state, per-child rows + status lines, modal payload/validation/error, Private Lessons nav item | MSW (shell tests), none (pure `AddChildModal` unit tests) |
 | Component — flow kit | `app/components/portal/flow/__tests__/flow.test.tsx` | Stepper done/active/upcoming states, `OrderSummary` CTA disabled/loading, `ChildPickerCards` selection, `FlowConfirmation` rendering | None (pure component tests) |
-| Component — parent pages | `app/parent/**/__tests__/*.test.tsx` (layout, dashboard, children, child detail, book-trial wizard, register wizard, subscriptions, payment-method, **register-private wizard**) | Full wizard walkthroughs with exact payload assertions, context-driven rendering, tab/not-found states, guard behavior, private-lessons section (charges list + cancel), 409 slot-taken recovery | MSW (+ Stripe SDK module mock for `payment-method`) |
+| Component — parent pages | `app/parent/**/__tests__/*.test.tsx` (layout, dashboard, children, child detail, book-trial wizard, register wizard, subscriptions, **billing**, payment-method, register-private wizard) | Full wizard walkthroughs with exact payload assertions, context-driven rendering, tab/not-found states, guard behavior, private-lessons section (charges list + cancel), 409 slot-taken recovery; **`/parent/billing`** (docs/plans/payment-airtight-plan.md D10): row rendering across billing shapes, the manual-payment chip + note, failed-row status with no download link, a real invoice-download `<a href>`, empty state | MSW (+ Stripe SDK module mock for `payment-method`) |
+| Component — shared payment UI | `app/components/ui/PaymentHistoryTable/` | Covered transitively through `/parent/billing`'s own test file (no standalone component test yet — same "coverage is real, organized under the consuming page" pattern the gaps list below already accepts for other UI primitives) | — |
 | Component — public/coach | `app/private-classes/__tests__/page.test.tsx`, `app/coach/private-students/__tests__/page.test.tsx` | Public availability browse page (empty state, book-slot href); coach attendance page (unmarked list, confirm-dialog amount, attended/missed PATCH payloads, failed-charge Retry) | MSW |
 | Component — shared UI | `app/components/ui/{Button,LoadError}/__tests__/*.test.tsx`, `app/components/__tests__/ProtectedRoute.test.tsx` | Design-system primitives, route guard | None |
 | Component — auth/public | `app/{login,register}/__tests__/*.test.tsx` | Login/register forms | MSW |

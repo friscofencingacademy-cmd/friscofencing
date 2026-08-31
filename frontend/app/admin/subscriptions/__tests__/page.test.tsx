@@ -59,6 +59,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     nextBillingDate: '2026-02-01T00:00:00.000Z',
     lastChargeAmount: 150,
     lastSiblingDiscountApplied: false,
+    lastPayment: { amount: 150, paidAt: '2026-01-01T12:00:00.000Z', chargeMethod: 'card' },
     ...overrides,
   };
 }
@@ -201,12 +202,35 @@ describe('AdminSubscriptionsPage', () => {
     expect(screen.getByText('Coach no longer available')).toBeInTheDocument();
   });
 
-  it('shows the one-time registration fee as a note under Last Charge when the subscription has one', async () => {
-    rows = [makeRow({ registrationFeeCharged: 25 })];
+  // docs/plans/payment-airtight-plan.md D11 — Last Payment shows the real
+  // ledger total (fee included) as ONE figure, not a base amount plus a
+  // separate "+ $X registration fee" note (the pre-D11 UI, which relied on
+  // lastChargeAmount being fee-free).
+  it('Last Payment reflects the real ledger total, fee included, as a single figure', async () => {
+    rows = [
+      makeRow({
+        registrationFeeCharged: 25,
+        lastPayment: { amount: 175, paidAt: '2026-01-01T12:00:00.000Z', chargeMethod: 'card' },
+      }),
+    ];
     renderPage();
 
     await screen.findByText('Sam Rivera');
-    expect(screen.getByText('+ $25.00 registration fee')).toBeInTheDocument();
+    expect(screen.getByText('$175.00')).toBeInTheDocument();
+    expect(screen.queryByText(/registration fee/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a "Manual" chip on Last Payment when the most recent payment was recorded manually', async () => {
+    rows = [
+      makeRow({
+        lastPayment: { amount: 150, paidAt: '2026-01-01T12:00:00.000Z', chargeMethod: 'manual' },
+      }),
+    ];
+    renderPage();
+
+    await screen.findByText('Sam Rivera');
+    const row = screen.getByText('Sam Rivera').closest('tr') as HTMLElement;
+    expect(within(row).getByText('Manual')).toBeInTheDocument();
   });
 
   it('shows a "Prorated first month" chip when firstChargeProrated is true, and omits it otherwise', async () => {
@@ -223,14 +247,6 @@ describe('AdminSubscriptionsPage', () => {
 
     await screen.findByText('Sam Rivera');
     expect(screen.queryByText('Prorated first month')).not.toBeInTheDocument();
-  });
-
-  it('omits the registration-fee note entirely when none was charged', async () => {
-    rows = [makeRow({ registrationFeeCharged: 0 })];
-    renderPage();
-
-    await screen.findByText('Sam Rivera');
-    expect(screen.queryByText(/registration fee/i)).not.toBeInTheDocument();
   });
 
   it('shows a "Cancels <date>" chip and a Reactivate action for a pending-cancel subscription', async () => {

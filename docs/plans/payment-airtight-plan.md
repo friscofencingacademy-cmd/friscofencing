@@ -1,8 +1,47 @@
 # Airtight Payments — Proration Rule, Admin Charge Modes, Parent Billing Page
 
-**Status:** PR 1 MERGED TO DEVELOP 2026-08-30 (PR #79). PR 2 BUILT 2026-08-30 on branch
-`feature/charge-modes-and-month-guard`, not yet committed — pending owner local testing + review
-before commit, per Hard Rule 5. PR 3 not started.
+**Status:** PR 1 MERGED TO DEVELOP 2026-08-30 (PR #79). PR 2 MERGED TO DEVELOP 2026-08-30
+(PR #80). PR 3 BUILT 2026-08-31 on branch `feature/parent-billing-history`, not yet committed —
+pending owner local testing + review before commit, per Hard Rule 5. All three PRs of this plan
+now built.
+
+**PR 3 completion notes:** All of D10–D11 built as specced. `registration.service.js` gained
+`listHistory(parentId)` — reads only the `Registration` collection, across every billing shape,
+newest first (secondary-sorted by `_id` to break a same-millisecond `createdAt` tie, a real
+correctness improvement the frozen-clock test suite itself exposed, not just a test workaround) —
+routed at `GET /registrations/history` (registered before `/:id/invoice`, same route-shadowing
+discipline as `/mine`/`/preview`). `listMine` (parent) and `subscription.service.js`'s `listAll`
+(admin) both gained a `lastPayment` enrichment sourced from the most recent `completed` ledger row
+— the real total actually charged, fee included, replacing `Subscription.lastChargeAmount` (which
+is deliberately fee-free) everywhere it was displayed as "what you paid." New `PaymentHistoryTable`
+(`app/components/ui/PaymentHistoryTable/`) — props-driven, no fetching of its own, ready for the
+admin user-detail page to reuse later — backs the new `/parent/billing` page. Portal nav split the
+old single "Billing" entry into "My Registrations" (`/parent/subscriptions`, unchanged) and
+"Payment History" (`/parent/billing`, new) in the sidebar; the mobile bottom nav was left at 4 items
+(still `/parent/subscriptions`). "Last Charge" relabeled to "Last Payment" on both the parent
+subscriptions page and `/admin/subscriptions`, each with a "Manual" chip when the last payment's
+`chargeMethod` is `'manual'` — the admin page's now-redundant "+ $X registration fee" note (folded
+into the single ledger-sourced total) was removed.
+
+Tests: `registration.routes.test.js` gained a `GET /api/v1/registrations/history` describe block
+(4 tests: role gating, ownership scoping with a real class description, newest-first ordering +
+`invoiceAvailable` reflecting a non-completed row) and a `lastPayment` test in the existing `GET
+/mine` block — all built on a new `seedScheduleEveryDayWithFee` fixture helper, needed because a
+single-weekday schedule can legitimately prorate to $0 (below Stripe's minimum) depending on which
+real calendar day this suite's frozen clock's local-vs-UTC reading resolves to on a given host (the
+same pre-existing class noted above) — every-weekday coverage sidesteps it without touching
+`computeProration` itself. `subscription.routes.test.js` gained one `lastPayment` test on the admin
+list endpoint. Frontend: new `app/parent/billing/__tests__/page.test.tsx` (5 tests); `admin/
+subscriptions` and `parent/subscriptions` suites updated for the `lastPayment` fixture field and
+relabeled assertions, with one now-vacuous test (the old registration-fee-note check, which tested
+a UI affordance that no longer exists in any form) removed as fully subsumed by a new one. Full
+backend suite: 697/729 — the 32 failures reverified via `git stash` as byte-identical to unmodified
+`develop` (692/724 there), the same pre-existing local-machine-timezone class documented under PR 1/
+PR 2, unrelated to this PR. Full frontend suite: 389/389. `tsc --noEmit` clean both sides. Docs
+closed out: `docs/features/parent-portal.md` (new page + nav split), `docs/features/admin.md`
+(Last Payment relabel + a future-reuse note for `PaymentHistoryTable`), `docs/TEST_COVERAGE.md`
+(current suite/test counts refreshed honestly — no fabricated coverage-percentage numbers, since no
+fresh `--coverage` run was taken).
 
 **PR 2 completion notes:** All of D4–D9 built as specced. `registration.model.js`'s base schema
 gained `chargeMethod`/`manualNote`/`recordedBy`; the `subscription_cycle` discriminator gained

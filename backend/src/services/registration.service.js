@@ -8,6 +8,7 @@ const Price = require('../models/price.model');
 const Registration = require('../models/registration.model');
 const { SubscriptionCycleRegistration } = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
+const PrivateClassSession = require('../models/privateClassSession.model');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
@@ -527,20 +528,29 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
   };
 }
 
-// Enriches every ACTIVE subscription with a LIVE current-discount snapshot —
-// the same calculateChargeAmount() the actual charge (create()) and the
-// pre-registration preview (previewChargeAmount()) use, called fresh here
-// too rather than reading back lastChargeAmount/lastSiblingDiscountApplied
-// (a record of what happened at that subscription's own last charge, which
-// goes stale the moment a sibling's situation changes and is never
-// retroactively corrected — see registration.service.js's module doc and
-// ADR 001's "re-verified every time" principle). This mirrors CKQ's
-// calculateUpcomingPayment()->upcoming-payments-preview pattern: one
-// function is the source of truth for both what a subscriber WILL be
-// charged and what the list page DISPLAYS, so the two can never disagree.
-// `currentCharge` is display-only, additive, and never written back to the
-// Subscription document — the real charge is still computed independently,
-// live, at actual renewal time.
+// Enriches every subscription with a LIVE current-discount snapshot (active
+// rows only) and its own most recent PAYMENT (docs/plans/payment-airtight-
+// plan.md D11) — the same calculateChargeAmount() the actual charge
+// (create()) and the pre-registration preview (previewChargeAmount()) use,
+// called fresh here too rather than reading back lastChargeAmount/
+// lastSiblingDiscountApplied (a record of what happened at that
+// subscription's own last charge, which goes stale the moment a sibling's
+// situation changes and is never retroactively corrected — see
+// registration.service.js's module doc and ADR 001's "re-verified every
+// time" principle). This mirrors CKQ's calculateUpcomingPayment()->
+// upcoming-payments-preview pattern: one function is the source of truth
+// for both what a subscriber WILL be charged and what the list page
+// DISPLAYS, so the two can never disagree. `currentCharge`/`lastPayment`
+// are display-only, additive, and never written back to the Subscription
+// document — the real charge is still computed independently, live, at
+// actual renewal time.
+//
+// `lastPayment` is sourced from the Registration LEDGER (the most recent
+// `completed` subscription_cycle row), not `Subscription.lastChargeAmount`
+// — that field is deliberately fee-free (the recurring amount only, never
+// including a bundled one-time registration fee, per chargeFinalization
+// .service.js's own contract), so it understates what a parent's card was
+// actually charged. The ledger row's `amount` is the real, complete truth.
 async function listMine(parentId) {
   const children = await User.find({ role: 'student', parentId }, '_id');
   const childIds = children.map((child) => child._id);
@@ -552,14 +562,27 @@ async function listMine(parentId) {
 
   return Promise.all(
     subscriptions.map(async (subscription) => {
+      const lastCompletedRow = await SubscriptionCycleRegistration.findOne({
+        subscriptionId: subscription._id,
+        status: 'completed',
+      }).sort({ paidAt: -1 });
+
+      const lastPayment = lastCompletedRow
+        ? {
+            amount: lastCompletedRow.amount,
+            paidAt: lastCompletedRow.paidAt,
+            chargeMethod: lastCompletedRow.chargeMethod || 'card',
+          }
+        : null;
+
       if (subscription.status !== 'active' || !subscription.scheduleId) {
-        return subscription;
+        return { ...subscription, lastPayment };
       }
 
       const currentFee = await resolveCurrentFee({ scheduleId: subscription.scheduleId._id });
 
       if (currentFee === null) {
-        return subscription;
+        return { ...subscription, lastPayment };
       }
 
       const student = { _id: subscription.studentId._id, parentId };
@@ -572,7 +595,96 @@ async function listMine(parentId) {
 
       return {
         ...subscription,
+        lastPayment,
         currentCharge: { amount, siblingDiscountApplied, siblingDiscountAmount, reason },
+      };
+    })
+  );
+}
+
+// The description each billing shape gets on the parent payment-history
+// page (docs/plans/payment-airtight-plan.md D10) — composed here, server-
+// side, from real populated data (never invented); the frontend only ever
+// renders the string, never re-derives it from raw refs. Degrades
+// gracefully on a broken schedule/session chain (orphaned-reference
+// discipline, matching invoice.service.js's own D9), never throws.
+const HISTORY_EVENT_TYPE_LABELS = {
+  initial: 'Group Class Registration',
+  renewal: 'Group Class Renewal',
+  legacy: 'Group Class Charge',
+};
+
+async function describeHistoryRow(row) {
+  if (row.billingShape === 'subscription_cycle') {
+    const schedule = row.scheduleId ? await GroupClassSchedule.findById(row.scheduleId) : null;
+    const groupClass = schedule ? await GroupClass.findById(schedule.classId) : null;
+    const level = groupClass ? await Level.findById(groupClass.levelId) : null;
+
+    const className = groupClass ? groupClass.name : 'Group class';
+    const levelSuffix = level ? ` (${level.name})` : '';
+
+    return {
+      description: `${HISTORY_EVENT_TYPE_LABELS[row.eventType] || 'Group Class Charge'} — ${className}${levelSuffix}`,
+      periodStart: row.periodStart,
+      periodEnd: row.periodEnd,
+      sessionDate: null,
+    };
+  }
+
+  if (row.billingShape === 'per_session') {
+    const session = row.sessionId ? await PrivateClassSession.findById(row.sessionId) : null;
+    const coach = session ? await User.findById(session.coachId) : null;
+
+    return {
+      description: `Private Lesson${coach ? ` with ${coach.firstName} ${coach.lastName}` : ''}`,
+      periodStart: null,
+      periodEnd: null,
+      sessionDate: session ? session.startDate : null,
+    };
+  }
+
+  // one_time_event — schema-only today (docs/plans/service-registry-
+  // unified-ledger-plan.md), no real consumer writes this shape yet.
+  return { description: 'Charge', periodStart: null, periodEnd: null, sessionDate: null };
+}
+
+// Single source of truth for a parent's payment history (docs/plans/
+// payment-airtight-plan.md D10) — every ledger row for `parentId`, across
+// EVERY billing shape, newest first. Reads ONLY the Registration
+// collection; never `Subscription.lastChargeAmount` or anything else that
+// could drift from what was actually charged. `GET /registrations/history`
+// is this function's only caller.
+async function listHistory(parentId) {
+  const rows = await Registration.find({ parentId })
+    .populate('studentId', 'firstName lastName')
+    // Secondary sort by _id (MongoDB ObjectIds are monotonically
+    // increasing) — createdAt alone can tie when two charges genuinely
+    // happen in the same millisecond (a same-instant sibling registration,
+    // a batch renewal run), which would otherwise leave "newest first"
+    // undefined between them.
+    .sort({ createdAt: -1, _id: -1 })
+    .lean();
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const { description, periodStart, periodEnd, sessionDate } = await describeHistoryRow(row);
+
+      return {
+        _id: row._id,
+        billingShape: row.billingShape,
+        status: row.status,
+        amount: row.amount,
+        chargeMethod: row.chargeMethod || 'card',
+        manualNote: row.manualNote || null,
+        paidAt: row.paidAt,
+        createdAt: row.createdAt,
+        studentName: row.studentId ? `${row.studentId.firstName} ${row.studentId.lastName}` : 'Student no longer available',
+        description,
+        periodStart,
+        periodEnd,
+        sessionDate,
+        breakdown: row.billingShape === 'subscription_cycle' ? row.breakdown : null,
+        invoiceAvailable: row.status === 'completed',
       };
     })
   );
@@ -608,4 +720,4 @@ async function getInvoice(registrationId, requestingUser) {
   return { pdf, invoiceNumber: invoiceData.invoiceNumber };
 }
 
-module.exports = { create, previewChargeAmount, listMine, getInvoice };
+module.exports = { create, previewChargeAmount, listMine, listHistory, getInvoice };

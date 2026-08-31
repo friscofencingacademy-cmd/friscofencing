@@ -31,6 +31,17 @@ async function listMine(req, res) {
   }
 }
 
+// Parent payment history (docs/plans/payment-airtight-plan.md D10).
+async function history(req, res) {
+  try {
+    const rows = await registrationService.listHistory(req.user._id);
+    return res.status(200).json({ history: rows });
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to list payment history' });
+  }
+}
+
 // PDF invoice download (docs/plans/manual-charge-and-pdf-invoice-plan.md
 // PR 2) — streams the buffer directly rather than JSON.
 async function invoice(req, res) {
@@ -46,4 +57,4 @@ async function invoice(req, res) {
   }
 }
 
-module.exports = { create, preview, listMine, invoice };
+module.exports = { create, preview, listMine, history, invoice };

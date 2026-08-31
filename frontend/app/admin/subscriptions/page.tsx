@@ -557,7 +557,7 @@ export default function AdminSubscriptionsPage() {
                 <th className={styles.th}>Class</th>
                 <th className={styles.th}>Schedule</th>
                 <th className={styles.th}>Next billing</th>
-                <th className={styles.th}>Last charge</th>
+                <th className={styles.th}>Last payment</th>
                 <th className={styles.th}>Status</th>
                 <th className={styles.th} style={{ width: 240 }} />
               </tr>
@@ -597,7 +597,17 @@ export default function AdminSubscriptionsPage() {
                       </td>
                       <td className={styles.td}>{formatDateLabel(row.nextBillingDate)}</td>
                       <td className={styles.td}>
-                        {row.lastChargeAmount != null ? `$${row.lastChargeAmount.toFixed(2)}` : '—'}
+                        {/* Sourced from the Registration ledger (docs/plans/
+                            payment-airtight-plan.md D11) — the real total
+                            actually charged, fee included. Never
+                            Subscription.lastChargeAmount, which is
+                            deliberately fee-free. */}
+                        {row.lastPayment != null ? `$${row.lastPayment.amount.toFixed(2)}` : '—'}
+                        {row.lastPayment?.chargeMethod === 'manual' ? (
+                          <span className={styles.chipMuted} style={{ marginLeft: 6 }}>
+                            Manual
+                          </span>
+                        ) : null}
                         {row.lastSiblingDiscountApplied ? (
                           <span className={styles.chipMuted} style={{ marginLeft: 6 }}>
                             10% sibling
@@ -607,11 +617,6 @@ export default function AdminSubscriptionsPage() {
                           <span className={styles.chipMuted} style={{ marginLeft: 6 }}>
                             Prorated first month
                           </span>
-                        ) : null}
-                        {row.registrationFeeCharged ? (
-                          <div className={styles.cellMuted}>
-                            + ${row.registrationFeeCharged.toFixed(2)} registration fee
-                          </div>
                         ) : null}
                       </td>
                       <td className={styles.td}>

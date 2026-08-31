@@ -204,6 +204,63 @@ async function seedScheduleWithFee(monthlyFee, { levelName = 'Level', levelOrder
   return scheduleRes.body.schedule._id;
 }
 
+// A level with a class day on EVERY weekday — used only by a test that
+// needs a real, successful Stripe charge from a registration whose EXACT
+// dollar amount doesn't matter (unlike the proration-focused tests above,
+// which anchor deliberately to prove a specific day-count). A single-
+// weekday level can legitimately prorate to $0 depending on which real
+// calendar day computeProration's OWN local-Date-getter reading of
+// FROZEN_NOW resolves to on a given host (a documented pre-existing
+// quirk — computeProration is correct under TZ=UTC, prod/CI's actual
+// runtime, but a non-UTC dev machine can read a UTC-midnight sentinel as
+// the PREVIOUS calendar day) — below Stripe's minimum chargeable amount,
+// which would make an unrelated test flaky depending on the host it runs
+// on. Every day being a class day makes remainingClassDays >= 1
+// unconditionally, so the charge is always well above the minimum.
+async function seedScheduleEveryDayWithFee(monthlyFee, { levelName = 'Level', levelOrder = 1 } = {}) {
+  const level = await Level.create({ name: levelName, order: levelOrder });
+  const location = await Location.create({ name: `Frisco HQ ${levelName}`, address: '123 Main St' });
+  const groupClass = await GroupClass.create({
+    name: `${levelName} Foil`,
+    levelId: level._id,
+    locationId: location._id,
+    capacity: 10,
+  });
+
+  await Price.create({ levelId: level._id, monthlyFee });
+
+  const coach = await User.create({
+    role: 'coach',
+    firstName: 'Coach',
+    lastName: levelName,
+    email: `coach-${levelName}-${Date.now()}@example.com`,
+    passwordHash: await hashPassword(TEST_PASSWORD),
+  });
+
+  await seedUser({ role: 'admin', email: `admin-${levelName}-setup@example.com` });
+  const adminAgent = await loginAgent(`admin-${levelName}-setup@example.com`);
+
+  let scheduleId;
+
+  for (let dayOfWeek = 0; dayOfWeek <= 6; dayOfWeek += 1) {
+    // eslint-disable-next-line no-await-in-loop -- test setup, negligible fan-out
+    const scheduleRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+      classId: groupClass._id.toString(),
+      coachId: coach._id.toString(),
+      dayOfWeek,
+      startTime: '17:00',
+      endTime: '18:00',
+      students: [],
+    });
+
+    expect(scheduleRes.status).toBe(201);
+
+    if (dayOfWeek === 4) scheduleId = scheduleRes.body.schedule._id; // the one the caller registers against
+  }
+
+  return { scheduleId, levelId: level._id };
+}
+
 // Every real-Stripe registration test in this suite runs with `now` frozen
 // to the 1st of a month (docs/decisions/007-calendar-month-billing.md).
 // Under always-on proration (the Setting.prorationEnabled toggle is
@@ -2043,6 +2100,181 @@ describe('Registration routes', () => {
       expect(mineRes.body.subscriptions[0].status).toBe('cancelled');
       expect(mineRes.body.subscriptions[0].currentCharge).toBeUndefined();
     });
+
+    it(
+      "lastPayment reflects what the ledger row actually charged (fee INCLUDED), never Subscription.lastChargeAmount " +
+        '(deliberately fee-free) — docs/plans/payment-airtight-plan.md D11',
+      async () => {
+        await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 0 });
+
+        // Every-weekday level (not seedSchedule()'s single Wednesday) —
+        // this test isn't about proration math, so it shouldn't be exposed
+        // to the small chance a single-weekday level prorates to $0 on a
+        // given real calendar day (see seedScheduleEveryDayWithFee's own
+        // comment).
+        const { scheduleId } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
+          levelName: 'MineLastPayment',
+          levelOrder: 38,
+        });
+        const { student } = await seedParentAndStudent('reg-mine-last-payment@example.com');
+        const parentAgent = await loginAgent('reg-mine-last-payment@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const regRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+        expect(regRes.status).toBe(201);
+        expect(regRes.body.paymentStatus).toBe('completed');
+        // Never hardcode the raw MONTHLY_FEE here — the first month may be
+        // prorated depending on which real calendar day this test happens
+        // to run on (docs/plans/payment-airtight-plan.md D1); the actual
+        // relationship under test is chargeAmount + fee === totalChargeAmount,
+        // and that lastPayment/lastChargeAmount each reflect their own real
+        // half of it, whatever the real prorated amount turns out to be.
+        expect(regRes.body.totalChargeAmount).toBe(regRes.body.chargeAmount + 25);
+        expect(regRes.body.registrationFeeCharged).toBe(25);
+
+        const mineRes = await parentAgent.get('/api/v1/registrations/mine');
+        expect(mineRes.status).toBe(200);
+
+        const row = mineRes.body.subscriptions[0];
+        // Subscription.lastChargeAmount stays fee-free by design.
+        expect(row.lastChargeAmount).toBe(regRes.body.chargeAmount);
+        // lastPayment, sourced from the ledger row, is the real total —
+        // fee included.
+        expect(row.lastPayment).toEqual(
+          expect.objectContaining({ amount: regRes.body.totalChargeAmount, chargeMethod: 'card' })
+        );
+      },
+      30000
+    );
+  });
+
+  describe('GET /api/v1/registrations/history', () => {
+    it('returns 401 unauthenticated and 403 for a non-parent role', async () => {
+      const unauthRes = await request(app).get('/api/v1/registrations/history');
+      expect(unauthRes.status).toBe(401);
+
+      await seedUser({ role: 'admin', email: 'reg-history-403@example.com' });
+      const adminAgent = await loginAgent('reg-history-403@example.com');
+      const adminRes = await adminAgent.get('/api/v1/registrations/history');
+      expect(adminRes.status).toBe(403);
+    });
+
+    it(
+      "returns only the requesting parent's own rows, newest first, with a real class description and " +
+        'invoiceAvailable reflecting status',
+      async () => {
+        const { scheduleId, levelId } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
+          levelName: 'HistoryOwnRows',
+          levelOrder: 39,
+        });
+        const { student } = await seedParentAndStudent('reg-history-own@example.com');
+        const parentAgent = await loginAgent('reg-history-own@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        // A second, unrelated parent's own registration must never appear —
+        // its own distinct level (levels are globally uniquely named/
+        // ordered), also every-weekday for the same real-Stripe-charge
+        // reliability reason.
+        const { scheduleId: otherScheduleId } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
+          levelName: 'HistoryOtherParent',
+          levelOrder: 40,
+        });
+        const { student: otherStudent } = await seedParentAndStudent('reg-history-other@example.com');
+        const otherAgent = await loginAgent('reg-history-other@example.com');
+        await savePaymentMethodFor(otherAgent);
+        const otherRes = await otherAgent.post('/api/v1/registrations').send({
+          studentId: otherStudent._id.toString(),
+          scheduleId: otherScheduleId,
+        });
+        expect(otherRes.status).toBe(201);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+        expect(res.status).toBe(201);
+        expect(res.body.paymentStatus).toBe('completed');
+
+        const historyRes = await parentAgent.get('/api/v1/registrations/history');
+        expect(historyRes.status).toBe(200);
+        expect(historyRes.body.history).toHaveLength(1);
+
+        const row = historyRes.body.history[0];
+        expect(row.billingShape).toBe('subscription_cycle');
+        expect(row.status).toBe('completed');
+        expect(row.amount).toBe(res.body.totalChargeAmount);
+        expect(row.chargeMethod).toBe('card');
+        expect(row.studentName).toBe(`${student.firstName} ${student.lastName}`);
+        expect(row.description).toContain('Group Class Registration');
+        expect(row.periodStart).toBeTruthy();
+        expect(row.periodEnd).toBeTruthy();
+        expect(row.invoiceAvailable).toBe(true);
+        expect(row.breakdown.monthlyFee).toBe(MONTHLY_FEE);
+
+        // Confirm the level really is this student's, proving the
+        // description was resolved from real data, not invented.
+        const level = await Level.findById(levelId);
+        expect(row.description).toContain(level.name);
+      },
+      30000
+    );
+
+    it(
+      'newest-first ordering across two registrations, and invoiceAvailable is false for a non-completed row',
+      async () => {
+        const { scheduleId: scheduleA } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
+          levelName: 'HistoryOrderA',
+          levelOrder: 41,
+        });
+        const { scheduleId: scheduleB } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
+          levelName: 'HistoryOrderB',
+          levelOrder: 42,
+        });
+        const { parent, student: studentA } = await seedParentAndStudent('reg-history-order@example.com');
+        const parentAgent = await loginAgent('reg-history-order@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const studentB = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'HistoryOrder',
+          parentId: parent._id,
+        });
+
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: studentA._id.toString(),
+          scheduleId: scheduleA,
+        });
+        expect(firstRes.status).toBe(201);
+
+        const secondRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: studentB._id.toString(),
+          scheduleId: scheduleB,
+        });
+        expect(secondRes.status).toBe(201);
+
+        // Simulates a charge that never completed (a declined card, a
+        // pending retry) — invoiceAvailable must reflect the REAL status,
+        // never assume every row is downloadable.
+        await Registration.findByIdAndUpdate(secondRes.body.registration._id, { status: 'failed' });
+
+        const historyRes = await parentAgent.get('/api/v1/registrations/history');
+        expect(historyRes.status).toBe(200);
+        expect(historyRes.body.history).toHaveLength(2);
+        // Newest first — the second registration's row comes before the first's.
+        expect(historyRes.body.history[0]._id).toBe(secondRes.body.registration._id);
+        expect(historyRes.body.history[1]._id).toBe(firstRes.body.registration._id);
+
+        expect(historyRes.body.history[0].status).toBe('failed');
+        expect(historyRes.body.history[0].invoiceAvailable).toBe(false);
+        expect(historyRes.body.history[1].status).toBe('completed');
+        expect(historyRes.body.history[1].invoiceAvailable).toBe(true);
+      },
+      30000
+    );
   });
 
   // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2, §2.4.

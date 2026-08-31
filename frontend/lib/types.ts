@@ -252,6 +252,39 @@ export interface Registration {
   paidAt: string | null;
 }
 
+// GET /registrations/history (registration.service.js's listHistory,
+// docs/plans/payment-airtight-plan.md D10) — the single source of a
+// parent's payment history, reading only the Registration ledger. One
+// uniform row shape across every billing shape (group-class or private-
+// lesson), so the payment-history table never needs shape-specific
+// rendering branches.
+export type PaymentHistoryBillingShape = 'subscription_cycle' | 'per_session' | 'one_time_event';
+
+export interface PaymentHistoryRow {
+  _id: string;
+  billingShape: PaymentHistoryBillingShape;
+  status: RegistrationStatus;
+  amount: number;
+  chargeMethod: 'card' | 'manual';
+  manualNote: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  studentName: string;
+  // Backend-composed, e.g. "Group Class Registration — Beginner Foil
+  // (Beginner)" or "Private Lesson with Dana Coach" — never re-derived on
+  // the frontend.
+  description: string;
+  // subscription_cycle only — calendar-day sentinels, format via
+  // formatDateOnly. null for any other shape.
+  periodStart: string | null;
+  periodEnd: string | null;
+  // per_session only — a real instant, format via formatInstant. null for
+  // any other shape.
+  sessionDate: string | null;
+  breakdown: RegistrationBreakdown | null;
+  invoiceAvailable: boolean;
+}
+
 export type SubscriptionStatus = 'active' | 'cancelled';
 
 // GET /registrations/mine (registration.service.js's listMine) populates
@@ -293,6 +326,13 @@ export interface Subscription {
     siblingDiscountAmount: number;
     reason: string | null;
   };
+  // The most recent COMPLETED Registration ledger row for this subscription
+  // (docs/plans/payment-airtight-plan.md D11) — the real total actually
+  // charged, fee included. Distinct from lastChargeAmount above, which is
+  // deliberately fee-free and therefore understates what the parent's card
+  // was actually charged. null when this subscription has never
+  // successfully charged.
+  lastPayment: { amount: number; paidAt: string; chargeMethod: 'card' | 'manual' } | null;
 }
 
 export interface PaymentMethodInfo {
@@ -441,6 +481,9 @@ export interface AdminSubscriptionRow {
   registrationFeeCharged?: number;
   // See Subscription's own field for the full doc comment.
   firstChargeProrated?: boolean;
+  // See Subscription's own lastPayment field for the full doc comment
+  // (docs/plans/payment-airtight-plan.md D11).
+  lastPayment: { amount: number; paidAt: string; chargeMethod: 'card' | 'manual' } | null;
 }
 
 export interface AdminSubscriptionListResponse {
