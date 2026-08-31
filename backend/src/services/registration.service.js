@@ -19,6 +19,7 @@ const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.servi
 const { todayDateOnly } = require('../utils/billingDates');
 const { dateOnlyUTC } = require('../utils/dateShapes');
 const { addStudentToRoster } = require('./roster.service');
+const holidayService = require('./holiday.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
 const mailService = require('./mail.service');
@@ -113,6 +114,18 @@ async function resolveStartDate(scheduleId, startDate) {
 
   if (!session) {
     throw badRequestError('startDate is not an upcoming session for this schedule');
+  }
+
+  // Defense in depth (docs/plans/holiday-blocking-plan.md D7) — the parent
+  // pickers never show a holiday-date session at all (listUpcomingByClass
+  // filters it out), but a direct API call or a stale open tab could still
+  // submit one. Covers both create() and previewChargeAmount(), which both
+  // call resolveStartDate. The `startDate` omitted case (billing-anchor
+  // fallback to todayDateOnly()) is deliberately NOT guarded here — that
+  // path never resolves a session at all, so it never reaches this check.
+  const holidays = await holidayService.getHolidaysInRange(parsed, parsed);
+  if (holidayService.findHolidayForDate(parsed, holidays)) {
+    throw badRequestError('startDate falls on an academy holiday');
   }
 
   return parsed;

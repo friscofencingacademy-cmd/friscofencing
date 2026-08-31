@@ -30,6 +30,12 @@ Columns: Level (resolved via a levels lookup), Monthly Fee, Registration Fee. Fi
 
 Columns: Name, Level, Location, Capacity (level/location resolved via lookups). Fields: name, levelId (select), locationId (select), capacity (number). Backend delete guard: 409 if any `GroupClassSchedule` references the class (added in this phase — previously `remove()` had no guard at all).
 
+## Holidays (`/admin/holidays`)
+
+Pattern A. Columns: Name, Start Date, End Date. Fields: name, startDate/endDate (`<input type="date">`, sent/received as `'YYYY-MM-DD'` strings — the backend normalizes into calendar-day sentinels). Backend validates: end on or after start, ≤31-day duration, unique name, no overlap with an existing holiday (409, listing the conflicting name(s)) — no delete guard, nothing else references a `Holiday` by id. Admin/superadmin only, on every route including list (stricter than most Pattern A pages, matching `/admin/settings`'s bar). See `docs/plans/holiday-blocking-plan.md`.
+
+A holiday blocks three things, entirely server-enforced (never client-side date math): a parent never sees a holiday-covered date in the trial (`/parent/book-trial`) or registration (`/parent/register`) start-date pickers — both consume the same `GET /group-class-sessions/by-class/:classId`, which filters holiday dates out server-side; attendance cannot be marked on a holiday-date session (`PATCH .../attendance` and the walk-in `POST .../students` both 400); a direct API call submitting a holiday date to trial booking or registration also 400s. No billing interaction whatsoever — a holiday never changes a monthly fee, proration, or renewal (a deliberate simplification from the CKQ reference this was adapted from).
+
 ## Schedules (`/admin/schedules`) — deferred edit/delete (moving a student is now supported elsewhere)
 
 Restyled onto the shell + `admin.module.css` table classes + `AdminPageHeader`, but **intentionally stays create + list only**. The create form was moved into a modal for visual consistency with Pattern A, but there is no edit or delete UI, and the backend has no corresponding guard work here — deleting/editing a schedule has ripple effects on already-generated `GroupClassSession` docs and student rosters that are out of scope for this plan. A muted table-footer note communicates this: "Schedules can't be edited once created — create a new one instead." Each row links to `/admin/schedules/:id/sessions`.
@@ -76,9 +82,13 @@ Pattern A minus edit. List: coach, `$/hr` billed to parent, `$/hr` coach compens
 
 Restyled table + header only (no CRUD — sessions are generated automatically when a schedule is created). Each row links to `/sessions/:id/attendance` to mark attendance. The "Students" count is computed live from `Visit` (docs/plans/premium-registration-and-attendance-plan.md §1) rather than a stored roster on the session doc — `GroupClassSession` itself has no roster field any more.
 
+**Holiday rows** (docs/plans/holiday-blocking-plan.md) — a session whose date falls on a `Holiday` is annotated (`isHoliday`/`holidayName`, additive fields), not dropped: its row renders muted with a `Holiday — {name}` chip in place of the student count, and no "Mark Attendance" link at all — the coach page (`/coach/schedules/:id/sessions`) renders the identical treatment. Display-only; the real guarantee is the attendance endpoint's own 400 below.
+
 ## Attendance (`/sessions/:id/attendance`)
 
 Shared with the coach role, still renders inside the legacy `AppShell`. Attendance is `Visit`-backed (docs/plans/premium-registration-and-attendance-plan.md §1) — marking a checkbox and saving upserts each student's `Visit.status` (`attended`/`missed`) rather than mutating an embedded roster array; the wire contract (`GET`/`PATCH .../attendance`'s `{studentId, isPresent}[]` shape) is unchanged.
+
+**Holiday block** (docs/plans/holiday-blocking-plan.md) — when the fetched session has `isHoliday: true`, the page renders an error `Alert` ("This session falls on {holidayName} — attendance is disabled.") in place of the roster/Save button entirely. `PATCH .../attendance` and the walk-in `POST .../students` both reject a holiday-date session with a 400 regardless of what the UI shows — the frontend state is display-only, not the enforcement.
 
 **Add Student (walk-in, Phase 3)** — a premium student attending a sibling schedule of their level (not their "home" one) isn't pre-listed; the coach/admin picks them from `GET .../eligible-students` (every student with an active subscription anywhere at the same class, **not gated on `isPremium`** — matches CKQ's own `getStudentsByLevel` exactly, excluding anyone already on this session's own roster or already marked) and adds them via `POST .../students`. Creates the `Visit` as `attended` and tags it `isMakeupClass: true`, which is what lets **Remove** (`DELETE .../students/:studentId`) undo a mistaken pick — a genuine roster student (a real `Subscription` on this exact schedule) can never be removed this way, only a walk-in.
 

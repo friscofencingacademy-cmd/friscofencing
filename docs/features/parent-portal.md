@@ -64,6 +64,8 @@ Both wizards keep local step state (`useState(0)`) — no URL-driven step routin
 
 **Payment-critical guarantee**: both wizards call the exact same Phase-0 mutation services (`bookTrialClass({ studentId, sessionId })` → `POST /trial-classes`; `createRegistration({ studentId, scheduleId })` → `POST /registrations`) with the exact same payload shape as the pre-wizard single-page forms — only the surrounding UI changed. The existing payload-assertion tests were adapted (not weakened) to drive the new step UI before asserting the same `expect(postPayload).toEqual(...)`.
 
+**Holiday dates never appear** (docs/plans/holiday-blocking-plan.md) — both wizards' session pickers consume `GET /group-class-sessions/by-class/:classId`, which server-filters out any session whose date falls on an admin-configured `Holiday`; a parent simply never sees the date as an option, never a greyed-out/disabled one. A direct API call submitting a holiday date to either mutation still 400s (defense in depth).
+
 ### Book a Trial (`/parent/book-trial`) — 3 steps
 
 `Who` (`ChildPickerCards` from `ParentPortalContext`) → `Pick a Class` (class → session — **no separate schedule step**: picking a class fetches every upcoming session across ALL of that class's schedules via `GET /group-class-sessions/by-class/:classId`, next 30 days, today-inclusive, server-filtered — the parent picks a session directly via `PillRow`, not a recurring weekly schedule first) → `Confirmation` (`FlowConfirmation` with child + session date/time, links to Dashboard/Register). The summary rail's CTA reads "Continue" on step 0 and "Book Trial Class" on step 1. Register (below) still has an explicit schedule step — payload/wire-shape unchanged — but its copy now reflects premium billing (see below).

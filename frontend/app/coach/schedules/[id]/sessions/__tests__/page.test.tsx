@@ -57,6 +57,30 @@ describe('CoachSessionsPage', () => {
     });
   });
 
+  // docs/plans/holiday-blocking-plan.md D6 — a holiday-date session is
+  // annotated and rendered with no attendance link, not dropped.
+  describe('holiday-date session (docs/plans/holiday-blocking-plan.md D6)', () => {
+    it('renders a "Holiday — <name>" chip instead of the student count, with no Mark Attendance link', async () => {
+      const holidaySession = {
+        _id: 'session-2',
+        date: '2026-12-25T00:00:00.000Z',
+        students: [],
+        isHoliday: true,
+        holidayName: 'Christmas',
+      };
+      server.use(
+        http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>
+          HttpResponse.json({ sessions: [holidaySession] })
+        )
+      );
+
+      renderPage();
+
+      expect(await screen.findByText('Holiday — Christmas')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /mark attendance/i })).not.toBeInTheDocument();
+    });
+  });
+
   it('shows an error message on a failed fetch', async () => {
     server.use(
       http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>

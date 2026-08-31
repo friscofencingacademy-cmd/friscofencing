@@ -42,17 +42,31 @@ export default function SessionsPage() {
               ) : !sessions || sessions.length === 0 ? (
                 <AdminEmptyRow colSpan={3} message="No sessions found" />
               ) : (
-                sessions.map((session) => (
-                  <tr key={session._id} className={styles.trHover}>
-                    <td className={styles.td}>{formatDateOnly(session.date)}</td>
-                    <td className={styles.td}>{session.students.length}</td>
-                    <td className={`${styles.td} ${styles.tdRight}`}>
-                      <Button as="a" href={`/sessions/${session._id}/attendance`} size="sm" variant="secondary">
-                        Mark Attendance
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                sessions.map((session) =>
+                  session.isHoliday ? (
+                    // Holiday-date session (docs/plans/holiday-blocking-plan.md
+                    // D6) — annotated, not dropped, so the row still explains
+                    // itself; no attendance link is rendered at all, since
+                    // markAttendance rejects a holiday date with a 400 anyway.
+                    <tr key={session._id} className={styles.trHover}>
+                      <td className={`${styles.td} ${styles.cellMuted}`}>{formatDateOnly(session.date)}</td>
+                      <td className={styles.td}>
+                        <span className={`${styles.chip} ${styles.chipMuted}`}>Holiday — {session.holidayName}</span>
+                      </td>
+                      <td className={`${styles.td} ${styles.tdRight}`} />
+                    </tr>
+                  ) : (
+                    <tr key={session._id} className={styles.trHover}>
+                      <td className={styles.td}>{formatDateOnly(session.date)}</td>
+                      <td className={styles.td}>{session.students.length}</td>
+                      <td className={`${styles.td} ${styles.tdRight}`}>
+                        <Button as="a" href={`/sessions/${session._id}/attendance`} size="sm" variant="secondary">
+                          Mark Attendance
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                )
               )}
             </tbody>
           </table>

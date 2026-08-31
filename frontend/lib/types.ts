@@ -43,6 +43,16 @@ export interface Level {
   order: number;
 }
 
+// docs/plans/holiday-blocking-plan.md — dates are calendar-day sentinels
+// (ISO strings at UTC midnight), same shape as GroupClassSession.date.
+// Display ONLY through lib/formatDate.ts's sentinel-safe formatters.
+export interface Holiday {
+  _id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface GroupClass {
   _id: string;
   name: string;
@@ -112,6 +122,12 @@ export interface GroupClassSession {
   scheduleId: string;
   date: string;
   students: SessionStudentEntry[];
+  // Additive (docs/plans/holiday-blocking-plan.md D6) — lets the admin/coach
+  // sessions list render a holiday row greyed with no attendance link,
+  // rather than silently dropping it. Absent/undefined on any pre-existing
+  // caller that doesn't know this field.
+  isHoliday?: boolean;
+  holidayName?: string | null;
 }
 
 // GET /group-class-sessions/:id (attendance page) populates each entry's
@@ -133,6 +149,10 @@ export interface GroupClassSessionDetail {
   _id: string;
   date: string;
   students: PopulatedSessionStudentEntry[];
+  // Additive (docs/plans/holiday-blocking-plan.md D6) — lets the attendance
+  // page render its blocked state without a second fetch.
+  isHoliday?: boolean;
+  holidayName?: string | null;
 }
 
 // GET /group-class-sessions/by-class/:classId — trial booking's session

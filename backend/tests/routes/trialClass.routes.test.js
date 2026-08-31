@@ -16,6 +16,7 @@ const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
 const Visit = require('../../src/models/visit.model');
+const Holiday = require('../../src/models/holiday.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const mailService = require('../../src/services/mail.service');
@@ -197,6 +198,35 @@ describe('TrialClass routes', () => {
       });
 
       expect(secondRes.status).toBe(409);
+    });
+
+    it('returns 400 booking a trial for a session that falls on an academy holiday (docs/plans/holiday-blocking-plan.md D7)', async () => {
+      const { sessionId } = await seedSession();
+
+      const session = await GroupClassSession.findById(sessionId);
+      await Holiday.create({ name: 'Holiday', startDate: session.date, endDate: session.date });
+
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-holiday@example.com',
+        phone: '555-123-4567',
+      });
+      const student = await User.create({
+        role: 'student',
+        firstName: 'Kid',
+        lastName: 'Holiday',
+        parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
+      });
+      const parentAgent = await loginAgent('trial-holiday@example.com');
+
+      const res = await parentAgent.post('/api/v1/trial-classes').send({
+        studentId: student._id.toString(),
+        sessionId,
+      });
+
+      expect(res.status).toBe(400);
+      expect(await Visit.findOne({ studentId: student._id, groupClassSessionId: sessionId })).toBeNull();
     });
 
     it('returns 404 for a nonexistent sessionId', async () => {

@@ -33,6 +33,11 @@ interface SessionDetail {
   _id: string;
   date: string;
   students: SessionStudentEntry[];
+  // Additive (docs/plans/holiday-blocking-plan.md D6) — lets this page
+  // render its blocked state without a second fetch. The backend's own
+  // markAttendance guard (400) is the real enforcement; this is display-only.
+  isHoliday?: boolean;
+  holidayName?: string | null;
 }
 
 function AttendancePageContent() {
@@ -181,6 +186,12 @@ function AttendancePageContent() {
 
       {loading ? (
         <p>Loading...</p>
+      ) : session?.isHoliday ? (
+        <Card>
+          <Alert variant="error">
+            This session falls on {session.holidayName} — attendance is disabled.
+          </Alert>
+        </Card>
       ) : session ? (
         <Card>
           <table className={styles.table}>

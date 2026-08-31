@@ -29,6 +29,7 @@ const Registration = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const Setting = require('../../src/models/setting.model');
+const Holiday = require('../../src/models/holiday.model');
 const { computeProration } = require('../../src/services/billing/proration.service');
 const { retryOne, renewOne, runRenewals, previewRenewal } = require('../../src/services/renewal.service');
 const { todayDateOnly } = require('../../src/utils/billingDates');
@@ -1612,6 +1613,43 @@ describe('Registration routes', () => {
       expect(res.status).toBe(400);
       expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
       expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+    });
+
+    it('returns 400 and creates/charges nothing when startDate falls on an academy holiday (docs/plans/holiday-blocking-plan.md D7)', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('startdate-holiday@example.com');
+      const parentAgent = await loginAgent('startdate-holiday@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      const session = await GroupClassSession.findOne({ scheduleId });
+      await Holiday.create({ name: 'Holiday', startDate: session.date, endDate: session.date });
+
+      const res = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+        startDate: session.date.toISOString(),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
+      expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+    });
+
+    it('GET /preview returns 400 when startDate falls on an academy holiday', async () => {
+      const { scheduleId } = await seedSchedule();
+      const { student } = await seedParentAndStudent('startdate-holiday-preview@example.com');
+      const parentAgent = await loginAgent('startdate-holiday-preview@example.com');
+
+      const session = await GroupClassSession.findOne({ scheduleId });
+      await Holiday.create({ name: 'Holiday', startDate: session.date, endDate: session.date });
+
+      const res = await parentAgent.get('/api/v1/registrations/preview').query({
+        studentId: student._id.toString(),
+        scheduleId,
+        startDate: session.date.toISOString(),
+      });
+
+      expect(res.status).toBe(400);
     });
 
     it('returns 400 when startDate is a real session date but in the past', async () => {

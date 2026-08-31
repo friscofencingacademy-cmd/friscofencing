@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   CalendarDays,
+  CalendarOff,
   CreditCard,
   DollarSign,
   FileSignature,
@@ -50,6 +51,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: '/admin/classes', label: 'Classes', icon: <Swords size={15} /> },
       { href: '/admin/levels', label: 'Levels', icon: <GraduationCap size={15} /> },
       { href: '/admin/schedules', label: 'Schedules', icon: <CalendarDays size={15} /> },
+      { href: '/admin/holidays', label: 'Holidays', icon: <CalendarOff size={15} /> },
       { href: '/admin/subscriptions', label: 'Subscriptions', icon: <CreditCard size={15} /> },
       { href: '/admin/private-classes', label: 'Private Classes', icon: <Swords size={15} /> },
       { href: '/admin/coach-contracts', label: 'Coach Contracts', icon: <FileSignature size={15} /> },

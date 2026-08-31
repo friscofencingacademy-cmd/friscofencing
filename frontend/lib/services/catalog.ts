@@ -1,5 +1,5 @@
 import api from '../api';
-import type { GroupClass, Level, Location, Price, PublicLevel, PublicLocation } from '../types';
+import type { GroupClass, Holiday, Level, Location, Price, PublicLevel, PublicLocation } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
 
 // ── Public (no auth) ─────────────────────────────────────────────────────
@@ -167,5 +167,48 @@ export async function deletePrice(id: string): Promise<MutationResult<undefined>
     return { status: 'success', data: undefined };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to delete price.') };
+  }
+}
+
+// ── Holidays (docs/plans/holiday-blocking-plan.md) ──────────────────────────
+// startDate/endDate are sent/received as 'YYYY-MM-DD' strings — the backend
+// normalizes them into calendar-day sentinels (holiday.service.js's
+// parseSentinel). Never format these client-side except through
+// lib/formatDate.ts's sentinel-safe helpers.
+
+export async function fetchHolidays(): Promise<Holiday[]> {
+  const res = await api.get<{ holidays: Holiday[] }>('/holidays');
+  return res.data.holidays;
+}
+
+export async function createHoliday(
+  data: Pick<Holiday, 'name' | 'startDate' | 'endDate'>
+): Promise<MutationResult<Holiday>> {
+  try {
+    const res = await api.post<{ holiday: Holiday }>('/holidays', data);
+    return { status: 'success', data: res.data.holiday };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to create holiday.') };
+  }
+}
+
+export async function updateHoliday(
+  id: string,
+  data: Partial<Pick<Holiday, 'name' | 'startDate' | 'endDate'>>
+): Promise<MutationResult<Holiday>> {
+  try {
+    const res = await api.put<{ holiday: Holiday }>(`/holidays/${id}`, data);
+    return { status: 'success', data: res.data.holiday };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to update holiday.') };
+  }
+}
+
+export async function deleteHoliday(id: string): Promise<MutationResult<undefined>> {
+  try {
+    await api.delete(`/holidays/${id}`);
+    return { status: 'success', data: undefined };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to delete holiday.') };
   }
 }

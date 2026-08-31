@@ -25,6 +25,15 @@ Login is email+password for `parent`/`coach`/`admin`/`superadmin` only — stude
 
 Deleting a `Location` or `Level` still referenced by a `GroupClass` is rejected (409).
 
+## `Holiday` — implemented (`docs/plans/holiday-blocking-plan.md`)
+| Field | Type | Notes |
+|---|---|---|
+| `name` | String | required, **unique**, trimmed |
+| `startDate` | Date | required — **calendar-day sentinel**, same shape as `GroupClassSession.date`, built only via `dateShapes.js`'s `dateOnlyUTC`, compared only against another sentinel |
+| `endDate` | Date | required, inclusive — a one-day holiday has `startDate === endDate`. Range validated ≤31 days, no overlap with an existing holiday (409), enforced at the service layer, not the schema |
+
+No `scope`/`locations` (single-location academy — CKQ's own Holiday has both), no `isMakeUpAllowed` (no billing interaction here — a deliberate simplification from CKQ, whose Holiday feeds its monthly-cost calculation), no soft-delete (hard delete like every other catalog model in this codebase — nothing else references a `Holiday` by id). Consumed read-only by `holiday.service.js`'s `getHolidaysInRange`/`findHolidayForDate` to: filter holiday-date sessions out of the parent trial/registration pickers (`groupClassSession.service.js`'s `listUpcomingByClass`), annotate `isHoliday`/`holidayName` on admin/coach session lists (`listBySchedule`/`getById`), and block attendance marking and the registration/trial-booking start-date guards (`resolveStartDate`, trial `create`) with a 400. Admin/superadmin only, on every route including list.
+
 ## `Price` — implemented
 | Field | Type | Notes |
 |---|---|---|
