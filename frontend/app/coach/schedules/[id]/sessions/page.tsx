@@ -16,6 +16,10 @@ interface SessionItem {
   _id: string;
   date: string;
   students: { studentId: string; isPresent: boolean }[];
+  // Additive (docs/plans/holiday-blocking-plan.md D6) — a holiday-date
+  // session is annotated, not dropped, so the row still explains itself.
+  isHoliday?: boolean;
+  holidayName?: string | null;
 }
 
 function CoachSessionsPageContent() {
@@ -81,22 +85,32 @@ function CoachSessionsPageContent() {
               </tr>
             </thead>
             <tbody>
-              {sessions.map((session) => (
-                <tr key={session._id}>
-                  <td>{formatDateOnly(session.date)}</td>
-                  <td>{session.students.length}</td>
-                  <td>
-                    <Button
-                      as="a"
-                      href={`/sessions/${session._id}/attendance`}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      Mark Attendance
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {sessions.map((session) =>
+                session.isHoliday ? (
+                  <tr key={session._id}>
+                    <td style={{ color: 'var(--color-muted)' }}>{formatDateOnly(session.date)}</td>
+                    <td>
+                      <span className={`${styles.chip} ${styles.chipMuted}`}>Holiday — {session.holidayName}</span>
+                    </td>
+                    <td />
+                  </tr>
+                ) : (
+                  <tr key={session._id}>
+                    <td>{formatDateOnly(session.date)}</td>
+                    <td>{session.students.length}</td>
+                    <td>
+                      <Button
+                        as="a"
+                        href={`/sessions/${session._id}/attendance`}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        Mark Attendance
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              )}
             </tbody>
           </table>
         </Card>

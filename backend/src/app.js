@@ -27,6 +27,7 @@ const testimonialRoutes = require('./routes/testimonial.routes');
 const auditRunRoutes = require('./routes/auditRun.routes');
 const evaluationRoutes = require('./routes/evaluation.routes');
 const settingRoutes = require('./routes/setting.routes');
+const holidayRoutes = require('./routes/holiday.routes');
 
 configurePassport(passport);
 
@@ -82,5 +83,6 @@ app.use('/api/v1/testimonials', testimonialRoutes);
 app.use('/api/v1/audit-runs', auditRunRoutes);
 app.use('/api/v1/evaluations', evaluationRoutes);
 app.use('/api/v1/settings', settingRoutes);
+app.use('/api/v1/holidays', holidayRoutes);
 
 module.exports = app;

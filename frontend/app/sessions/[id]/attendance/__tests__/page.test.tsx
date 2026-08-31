@@ -105,6 +105,27 @@ describe('AttendancePage', () => {
     expect(await screen.findByText('Attendance saved.')).toBeInTheDocument();
   });
 
+  // docs/plans/holiday-blocking-plan.md D6/§2.5 — a holiday-date session
+  // renders a blocked alert with no checkbox list or Save button. The
+  // backend's own markAttendance 400 (D7) is the real guarantee; this is
+  // display-only.
+  describe('holiday-date session (docs/plans/holiday-blocking-plan.md)', () => {
+    it('renders a blocked alert instead of the roster, with no Save Attendance button', async () => {
+      server.use(
+        http.get('*/group-class-sessions/session-1', () =>
+          HttpResponse.json({ session: { ...SESSION, isHoliday: true, holidayName: 'Winter Break' } })
+        )
+      );
+
+      renderAttendancePage();
+
+      expect(await screen.findByText(/winter break/i)).toBeInTheDocument();
+      expect(screen.getByText(/attendance is disabled/i)).toBeInTheDocument();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /save attendance/i })).not.toBeInTheDocument();
+    });
+  });
+
   it('offers Evaluate only for a trial student already marked present, and submits the evaluation', async () => {
     renderAttendancePage();
 

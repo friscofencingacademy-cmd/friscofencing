@@ -15,7 +15,7 @@ test.describe('admin shell', () => {
 
     const sidebar = page.getByRole('navigation', { name: 'Admin sidebar' });
     await expect(sidebar).toBeVisible();
-    for (const label of ['Dashboard', 'Users', 'Classes', 'Levels', 'Subscriptions', 'Audits']) {
+    for (const label of ['Dashboard', 'Users', 'Classes', 'Levels', 'Holidays', 'Subscriptions', 'Audits']) {
       await expect(sidebar.getByText(label, { exact: true })).toBeVisible();
     }
   });

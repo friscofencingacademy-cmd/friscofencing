@@ -4,9 +4,14 @@ const GroupClass = require('../../src/models/groupClass.model');
 const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
 const User = require('../../src/models/user.model');
+const Holiday = require('../../src/models/holiday.model');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
-const { generateInitialSessions, listUpcomingByClass } = require('../../src/services/groupClassSession.service');
+const {
+  generateInitialSessions,
+  listUpcomingByClass,
+  listBySchedule,
+} = require('../../src/services/groupClassSession.service');
 
 // Fakes ONLY Date (via `now`) and explicitly leaves every timer function
 // real — faking setTimeout/setImmediate/nextTick here would hang the real
@@ -172,5 +177,82 @@ describe('groupClassSession.service — listUpcomingByClass', () => {
     const sessions = await listUpcomingByClass(groupClass._id, 30);
 
     expect(sessions).toHaveLength(1);
+  });
+
+  // docs/plans/holiday-blocking-plan.md D5 — a single filter here covers
+  // both the trial picker AND the register wizard's start-date picker,
+  // since both consume this exact function via fetchSessionsByClass.
+  describe('holiday filtering (docs/plans/holiday-blocking-plan.md D5)', () => {
+    it('drops a session that falls inside a holiday range, keeping its neighbors', async () => {
+      freezeAt('2026-08-25T12:00:00.000Z'); // Tuesday
+
+      const groupClass = await seedClass();
+      const schedule = await seedSchedule(groupClass._id, 2); // Tuesday
+      await GroupClassSession.insertMany(generateInitialSessions(schedule));
+
+      // Second generated session (2026-09-01) sits inside the holiday.
+      await Holiday.create({
+        name: 'Labor Day',
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-01T00:00:00.000Z'),
+      });
+
+      const sessions = await listUpcomingByClass(groupClass._id, 30);
+
+      const dates = sessions.map((s) => s.date.toISOString());
+      expect(dates).not.toContain('2026-09-01T00:00:00.000Z');
+      expect(dates).toContain('2026-08-25T00:00:00.000Z');
+      expect(dates).toContain('2026-09-08T00:00:00.000Z');
+    });
+
+    it('a session reappears once its covering holiday is deleted', async () => {
+      freezeAt('2026-08-25T12:00:00.000Z');
+
+      const groupClass = await seedClass();
+      const schedule = await seedSchedule(groupClass._id, 2);
+      await GroupClassSession.insertMany(generateInitialSessions(schedule));
+
+      const holiday = await Holiday.create({
+        name: 'Labor Day',
+        startDate: new Date('2026-09-01T00:00:00.000Z'),
+        endDate: new Date('2026-09-01T00:00:00.000Z'),
+      });
+
+      const beforeDelete = await listUpcomingByClass(groupClass._id, 30);
+      expect(beforeDelete.map((s) => s.date.toISOString())).not.toContain('2026-09-01T00:00:00.000Z');
+
+      await Holiday.deleteOne({ _id: holiday._id });
+
+      const afterDelete = await listUpcomingByClass(groupClass._id, 30);
+      expect(afterDelete.map((s) => s.date.toISOString())).toContain('2026-09-01T00:00:00.000Z');
+    });
+  });
+});
+
+describe('groupClassSession.service — listBySchedule holiday annotation (D6)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('annotates the holiday-covered session with isHoliday/holidayName, leaving neighbors unannotated', async () => {
+    freezeAt('2026-08-25T12:00:00.000Z');
+
+    const groupClass = await seedClass();
+    const schedule = await seedSchedule(groupClass._id, 2);
+    await GroupClassSession.insertMany(generateInitialSessions(schedule));
+
+    await Holiday.create({
+      name: 'Labor Day',
+      startDate: new Date('2026-09-01T00:00:00.000Z'),
+      endDate: new Date('2026-09-01T00:00:00.000Z'),
+    });
+
+    const sessions = await listBySchedule(schedule._id);
+    const byDate = new Map(sessions.map((s) => [s.date.toISOString(), s]));
+
+    expect(byDate.get('2026-09-01T00:00:00.000Z').isHoliday).toBe(true);
+    expect(byDate.get('2026-09-01T00:00:00.000Z').holidayName).toBe('Labor Day');
+    expect(byDate.get('2026-08-25T00:00:00.000Z').isHoliday).toBe(false);
+    expect(byDate.get('2026-08-25T00:00:00.000Z').holidayName).toBeNull();
   });
 });

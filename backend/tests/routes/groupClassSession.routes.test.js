@@ -12,6 +12,7 @@ const GroupClassSession = require('../../src/models/groupClassSession.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const Visit = require('../../src/models/visit.model');
 const Subscription = require('../../src/models/subscription.model');
+const Holiday = require('../../src/models/holiday.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { todayAtMidnight } = require('../../src/utils/billingDates');
@@ -574,6 +575,66 @@ describe('GroupClassSession routes', () => {
         `/api/v1/group-class-sessions/${sessionAId}/students/${studentA._id}`
       );
       expect(removeRoster.status).toBe(400);
+    });
+
+    it('returns 400 adding a walk-in to a holiday-date session, writing no Visit (docs/plans/holiday-blocking-plan.md D7)', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, studentB, sessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      const session = await GroupClassSession.findById(sessionAId);
+      await Holiday.create({ name: 'Holiday', startDate: session.date, endDate: session.date });
+
+      const res = await coachAAgent
+        .post(`/api/v1/group-class-sessions/${sessionAId}/students`)
+        .send({ studentId: studentB._id.toString() });
+
+      expect(res.status).toBe(400);
+      expect(await Visit.findOne({ groupClassSessionId: sessionAId, studentId: studentB._id })).toBeNull();
+    });
+  });
+
+  describe('Holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
+    it('returns 400 marking attendance on a holiday-date session, writing no Visit', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+
+      const { coach, student1, sessionId } = await seedScheduleWithSession(adminAgent);
+      const coachAgent = await loginAgent(coach.email);
+
+      const session = await GroupClassSession.findById(sessionId);
+      await Holiday.create({ name: 'Holiday', startDate: session.date, endDate: session.date });
+
+      const res = await coachAgent
+        .patch(`/api/v1/group-class-sessions/${sessionId}/attendance`)
+        .send({ students: [{ studentId: student1._id.toString(), isPresent: true }] });
+
+      expect(res.status).toBe(400);
+      const visit = await Visit.findOne({ groupClassSessionId: sessionId, studentId: student1._id });
+      // A Visit already exists from roster enrollment (status 'scheduled') —
+      // the guard must fire before markAttendance() ever changes it.
+      expect(visit.status).toBe('scheduled');
+    });
+
+    it('GET /:id and GET /by-schedule/:scheduleId annotate isHoliday/holidayName', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+
+      const { sessionId, scheduleId } = await seedScheduleWithSession(adminAgent);
+      const session = await GroupClassSession.findById(sessionId);
+      await Holiday.create({ name: 'Founders Day', startDate: session.date, endDate: session.date });
+
+      const byIdRes = await adminAgent.get(`/api/v1/group-class-sessions/${sessionId}`);
+      expect(byIdRes.status).toBe(200);
+      expect(byIdRes.body.session.isHoliday).toBe(true);
+      expect(byIdRes.body.session.holidayName).toBe('Founders Day');
+
+      const byScheduleRes = await adminAgent.get(`/api/v1/group-class-sessions/by-schedule/${scheduleId}`);
+      expect(byScheduleRes.status).toBe(200);
+      const annotated = byScheduleRes.body.sessions.find((s) => s._id === sessionId);
+      expect(annotated.isHoliday).toBe(true);
+      expect(annotated.holidayName).toBe('Founders Day');
     });
   });
 });

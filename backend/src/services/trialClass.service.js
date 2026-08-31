@@ -7,6 +7,7 @@ const Level = require('../models/level.model');
 const Location = require('../models/location.model');
 const mailService = require('./mail.service');
 const visitService = require('./visit.service');
+const holidayService = require('./holiday.service');
 
 function notFoundError(message) {
   const error = new Error(message);
@@ -88,6 +89,15 @@ async function create({ studentId, sessionId }, requestingUser) {
 
   if (!session) {
     throw notFoundError('Group class session not found');
+  }
+
+  // Defense in depth (docs/plans/holiday-blocking-plan.md D7) — the trial
+  // picker never shows a holiday-date session at all (listUpcomingByClass
+  // filters it out), but a direct API call or a stale open tab could still
+  // submit one.
+  const holidays = await holidayService.getHolidaysInRange(session.date, session.date);
+  if (holidayService.findHolidayForDate(session.date, holidays)) {
+    throw badRequestError('This session falls on an academy holiday');
   }
 
   await visitService.createScheduledVisit(studentId, sessionId, session.scheduleId, 'trial');

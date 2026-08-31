@@ -41,17 +41,16 @@ number that actually matters, and it's solid. Full reasoning in `docs/TESTING_ST
 
 ## Backend (`backend/`)
 
-**Current state: 65 test suites / 729 tests, last run on this (non-`TZ=UTC`) dev machine 2026-08-31
-(after PR 3 of `docs/plans/payment-airtight-plan.md`). 697 pass; the 32 failures are ALL the same
-pre-existing, local-machine-timezone-dependent class first documented under that plan's PR 1 — not
-a single narrow $0-proration edge case any more, but several related root causes across
-`registration.routes.test.js` (14), `scheduleOccurrence.test.js`, `billingDates.test.js`,
-`realignBillingAnchors.test.js`, and `groupClassSchedule.routes.test.js` (18 more), all stemming
-from date-math code that reads a UTC-midnight calendar-day sentinel via a Date's LOCAL getters —
-correct when the process runs under `TZ=UTC` (true in CI and production), wrong on a non-UTC dev
-host. Reverified via `git stash` at every PR of that plan: byte-identical failure count/set on
-unmodified `develop`, so none of these are regressions from that plan's own changes. Run this suite
-itself under `TZ=UTC` (as documented below) to see the CI-true, all-green count.**
+**Current state: 69 test suites / 775 tests, all passing under `TZ=UTC` — re-run in full 2026-08-31
+after `docs/plans/holiday-blocking-plan.md`'s backend PR (new `holiday.service.test.js` /
+`holiday.routes.test.js`; holiday-filtering/annotation/attendance-block coverage extended into
+`groupClassSession.{service,routes}.test.js`, `registration.routes.test.js`, and
+`trialClass.routes.test.js`), zero failures, zero regressions. Previously documented here: on a
+non-`TZ=UTC` local dev host, a class of tests reads a UTC-midnight calendar-day sentinel via a
+Date's LOCAL getters and fails (`registration.routes.test.js`, `scheduleOccurrence.test.js`,
+`billingDates.test.js`, `realignBillingAnchors.test.js`, `groupClassSchedule.routes.test.js`) —
+correct under `TZ=UTC` (true in CI and production), wrong otherwise. This full run was itself under
+`TZ=UTC`, confirming the CI-true, all-green count holds with the holiday-blocking changes included.**
 
 ```
 cd backend && TZ=UTC npm test
@@ -65,7 +64,8 @@ cd backend && TZ=UTC npm test
 | Unit | `tests/models/registration.model.test.js` | `periodMonth` derivation (schema pre-validate hook), `manualNote` validation, Guard B's re-keyed unique index — incl. the exact same-month-different-day collision case the old index missed (docs/plans/payment-airtight-plan.md D7) | Yes (memory) |
 | Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
 | Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
-| Route-integration | `tests/routes/*.routes.test.js` (20 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing), prices, students, users, trial-classes, registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
+| Service | `tests/services/holiday.service.test.js` | CRUD incl. date-sentinel normalization, ≤31-day duration cap, unique-name + inclusive-overlap 409s (self-excluded on update), `getHolidaysInRange`/`findHolidayForDate` boundary inclusivity (`docs/plans/holiday-blocking-plan.md`) | Yes (memory) |
+| Route-integration | `tests/routes/*.routes.test.js` (21 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing, **holiday-date filtering/annotation, attendance/walk-in blocked on a holiday**), prices, students, users, trial-classes (**incl. holiday-blocked booking**), registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race, holiday-blocked `startDate`**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`), holidays (admin/superadmin-only CRUD, `docs/plans/holiday-blocking-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
 | Script | `tests/scripts/lib/migrateRegistrationsToLedger.test.js` | The one-time old-shape-Registration → payment-ledger migration script (`docs/plans/registration-ledger-plan.md` D8): dry-run writes nothing, live run rewrites matched docs (incl. the prorated-periodEnd variant), orphaned docs left untouched and reported, safe to re-run | Yes (memory) |
 | Script | `tests/scripts/lib/migratePeriodMonth.test.js` | The one-time `periodMonth` backfill + Guard B index re-key (docs/plans/payment-airtight-plan.md D7): dry-run vs. live, idempotent re-run, collision abort with zero writes, a `failed` row never blocks | Yes (memory) |
 | Smoke | `tests/health.test.js` | `/health` endpoint | No |
@@ -78,7 +78,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 55 test suites / 389 tests, all passing, 2026-08-31 (after PR 3 of `docs/plans/payment-airtight-plan.md` — the `/parent/billing` payment-history page).**
+**Current state: 56 test suites / 400 tests, all passing, 2026-08-31 (after `docs/plans/holiday-blocking-plan.md`'s frontend PR — the new `/admin/holidays` Pattern A page, plus holiday-row/blocked-attendance coverage extended into the admin/coach sessions pages and the shared attendance page). `tsc --noEmit` clean, `next build` succeeds.**
 
 ```
 cd frontend && TZ=UTC npm test
@@ -86,7 +86,7 @@ cd frontend && TZ=UTC npm test
 
 | Layer | Location | What it tests | Network |
 |---|---|---|---|
-| Component — admin | `app/admin/**/__tests__/*.test.tsx` (layout, dashboard, redirect page, 4 Pattern-A CRUD pages, schedules, sessions, **subscriptions, coach-contracts, private-classes**) | Shell role-gate, dashboard counts, full CRUD (create/edit/delete/blocked-delete) per entity, subscriptions list/filter/change-schedule/cancel/reactivate, coach-contract create/deactivate, private-class enrollment-cancel + schedule add/delete guards | MSW |
+| Component — admin | `app/admin/**/__tests__/*.test.tsx` (layout, dashboard, redirect page, 5 Pattern-A CRUD pages incl. **holidays**, schedules, sessions, **subscriptions, coach-contracts, private-classes**) | Shell role-gate, dashboard counts, full CRUD (create/edit/delete/blocked-delete) per entity — **holidays incl. `YYYY-MM-DD` payload round-trip and a 409-overlap "Cannot Delete"-shaped error** — subscriptions list/filter/change-schedule/cancel/reactivate, coach-contract create/deactivate, private-class enrollment-cancel + schedule add/delete guards, **admin/coach sessions pages render a holiday row's muted `Holiday — <name>` chip with no Mark Attendance link** | MSW |
 | Component — portal shell | `app/components/portal/{PortalLayout,ParentPortalShell,AddChildModal}/__tests__/*.test.tsx` | Nav rendering/active-state, per-child rows + status lines, modal payload/validation/error, Private Lessons nav item | MSW (shell tests), none (pure `AddChildModal` unit tests) |
 | Component — flow kit | `app/components/portal/flow/__tests__/flow.test.tsx` | Stepper done/active/upcoming states, `OrderSummary` CTA disabled/loading, `ChildPickerCards` selection, `FlowConfirmation` rendering | None (pure component tests) |
 | Component — parent pages | `app/parent/**/__tests__/*.test.tsx` (layout, dashboard, children, child detail, book-trial wizard, register wizard, subscriptions, **billing**, payment-method, register-private wizard) | Full wizard walkthroughs with exact payload assertions, context-driven rendering, tab/not-found states, guard behavior, private-lessons section (charges list + cancel), 409 slot-taken recovery; **`/parent/billing`** (docs/plans/payment-airtight-plan.md D10): row rendering across billing shapes, the manual-payment chip + note, failed-row status with no download link, a real invoice-download `<a href>`, empty state | MSW (+ Stripe SDK module mock for `payment-method`) |
@@ -94,7 +94,7 @@ cd frontend && TZ=UTC npm test
 | Component — public/coach | `app/private-classes/__tests__/page.test.tsx`, `app/coach/private-students/__tests__/page.test.tsx` | Public availability browse page (empty state, book-slot href); coach attendance page (unmarked list, confirm-dialog amount, attended/missed PATCH payloads, failed-charge Retry) | MSW |
 | Component — shared UI | `app/components/ui/{Button,LoadError}/__tests__/*.test.tsx`, `app/components/__tests__/ProtectedRoute.test.tsx` | Design-system primitives, route guard | None |
 | Component — auth/public | `app/{login,register}/__tests__/*.test.tsx` | Login/register forms | MSW |
-| Component — coach/shared | `app/sessions/[id]/attendance/__tests__/page.test.tsx` | Shared attendance-marking page (coach + admin) | MSW |
+| Component — coach/shared | `app/sessions/[id]/attendance/__tests__/page.test.tsx` | Shared attendance-marking page (coach + admin), incl. **the holiday-blocked state (no roster/Save, `docs/plans/holiday-blocking-plan.md`)** | MSW |
 | Hook | `lib/hooks/__tests__/useLoadState.test.ts` | Success/error/retry/data-reset, `getErrorMessage` status-code branching | None |
 | Service | `lib/services/__tests__/catalog.test.ts` | Query-throws / mutation-never-throws contract | MSW |
 | Context | `app/context/__tests__/ParentPortalContext.test.tsx` | `privateEnrollments` added to the `Promise.allSettled` set; its failure degrades to `[]` without setting `error` | MSW |
@@ -112,13 +112,21 @@ cd frontend && TZ=UTC npm test
 - **Schedule edit/delete** (group classes) — deliberately deferred (ripple effects on generated `GroupClassSession` docs and rosters); there is no UI to test because there is no feature. (The narrow "move a student between same-level schedules" case IS now covered — see the Subscriptions rows above.)
 ## E2E (Playwright)
 
-Built 2026-08-28 (Phase 1, `docs/plans/e2e-testing-plan.md`) — 5 spec files, 20 active tests + 2
+Built 2026-08-28 (Phase 1, `docs/plans/e2e-testing-plan.md`) — 6 spec files, 26 active tests + 2
 intentionally skipped (visual-regression baselines pending a Docker-generated bootstrap), CI-gated
 on every PR/push to `develop`/`main`. Real Chromium against a real Next.js server, fully mocked
 network — no istanbul %-coverage number applies to this layer (it isn't measuring code paths
 exercised, it's proving real DOM/routing/accessibility behavior). Full spec-by-spec breakdown, the
 two known-and-ratcheted accessibility findings, and run instructions live in
 `docs/TESTING_STRATEGY.md`'s E2E section — not duplicated here.
+
+`holiday-blocking.spec.ts` (added `docs/plans/holiday-blocking-plan.md`): admin creates/lists/
+deletes a holiday through the real Pattern A UI; the register and book-trial wizards' pickers never
+offer a date the mocked backend response already excludes (the real server-side filtering is the
+backend suite's job — this layer proves the frontend renders correctly for whatever the backend
+hands it); coach attendance renders its blocked state for an `isHoliday` session; the admin sessions
+list renders a holiday row's muted chip with no Mark Attendance link. `admin-shell.spec.ts`'s nav
+assertion also gained `Holidays` to its expected label list.
 
 **Phase 2, not yet built**: subscriptions management, the private-class coach-contract → booking →
 attendance-charge chain, the register-private wizard, spotlight admin content, cross-browser/mobile

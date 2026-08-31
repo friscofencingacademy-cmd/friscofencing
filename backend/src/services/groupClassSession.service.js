@@ -3,6 +3,7 @@ const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const Subscription = require('../models/subscription.model');
 const Visit = require('../models/visit.model');
 const visitService = require('./visit.service');
+const holidayService = require('./holiday.service');
 const { todayDateOnly } = require('../utils/billingDates');
 const { nextDateOnlyOnOrAfter, addDaysToDateOnly } = require('../utils/dateShapes');
 
@@ -75,6 +76,11 @@ function generateInitialSessions(schedule) {
 // snapshot moved out of the schema. `isPresent` maps 1:1 from Visit.status:
 // true only for 'attended' — 'scheduled'/'missed' both read as false,
 // matching today's exact "unmarked reads as unchecked" default.
+//
+// Also annotates `isHoliday`/`holidayName` (additive, docs/plans/holiday-
+// blocking-plan.md D6) — the admin/coach sessions list renders these rows
+// greyed with no attendance link, rather than silently dropping them. This
+// is display-only; the real guarantee is markAttendance's own guard below.
 async function attachRosterToSessions(sessions) {
   if (sessions.length === 0) return sessions;
 
@@ -95,9 +101,20 @@ async function attachRosterToSessions(sessions) {
     });
   });
 
+  const dates = sessions.map((session) => session.date.getTime());
+  const rangeStart = new Date(Math.min(...dates));
+  const rangeEnd = new Date(Math.max(...dates));
+  const holidays = await holidayService.getHolidaysInRange(rangeStart, rangeEnd);
+
   return sessions.map((session) => {
     const plain = session.toObject ? session.toObject() : session;
-    return { ...plain, students: bySession.get(String(session._id)) || [] };
+    const holiday = holidayService.findHolidayForDate(session.date, holidays);
+    return {
+      ...plain,
+      students: bySession.get(String(session._id)) || [],
+      isHoliday: holiday !== null,
+      holidayName: holiday ? holiday.name : null,
+    };
   });
 }
 
@@ -131,12 +148,21 @@ async function listUpcomingByClass(classId, days = DEFAULT_UPCOMING_WINDOW_DAYS)
   const rangeStart = todayDateOnly();
   const rangeEnd = addDaysToDateOnly(rangeStart, days);
 
-  return GroupClassSession.find({
+  const sessions = await GroupClassSession.find({
     scheduleId: { $in: scheduleIds },
     date: { $gte: rangeStart, $lte: rangeEnd },
   })
     .sort({ date: 1, scheduleId: 1 })
     .populate('scheduleId', 'dayOfWeek startTime endTime');
+
+  // Holiday dates simply don't appear (docs/plans/holiday-blocking-plan.md
+  // D5) — this single filter covers BOTH the trial picker (/parent/book-
+  // trial) and the register wizard's start-date picker, since both consume
+  // this exact endpoint via fetchSessionsByClass. One DB call for the whole
+  // window, not one per session.
+  const holidays = await holidayService.getHolidaysInRange(rangeStart, rangeEnd);
+
+  return sessions.filter((session) => holidayService.findHolidayForDate(session.date, holidays) === null);
 }
 
 async function getById(id) {
@@ -157,8 +183,15 @@ async function getById(id) {
     classType: visit.classType,
   }));
 
+  // isHoliday/holidayName (additive, docs/plans/holiday-blocking-plan.md
+  // D6) — lets the attendance page render its blocked state without a
+  // second fetch. Display-only; markAttendance's own guard is the real
+  // enforcement.
+  const holidays = await holidayService.getHolidaysInRange(session.date, session.date);
+  const holiday = holidayService.findHolidayForDate(session.date, holidays);
+
   const plain = session.toObject();
-  return { ...plain, students };
+  return { ...plain, students, isHoliday: holiday !== null, holidayName: holiday ? holiday.name : null };
 }
 
 // Coach-marks-their-own-session-attendance mutation. Admins/superadmins may
@@ -195,6 +228,15 @@ async function markAttendance(sessionId, studentUpdates, requestingUser) {
 
   if (!isAdmin && !isAssignedCoach) {
     throw forbiddenError('You are not the assigned coach for this session');
+  }
+
+  // Defense in depth (docs/plans/holiday-blocking-plan.md D7) — the UI never
+  // renders a Save button for a holiday-date session (§attachRosterToSessions/
+  // getById's isHoliday annotation), but a direct API call or a stale open
+  // tab must still be rejected before any Visit write.
+  const holidaysForSession = await holidayService.getHolidaysInRange(session.date, session.date);
+  if (holidayService.findHolidayForDate(session.date, holidaysForSession)) {
+    throw badRequestError('Attendance cannot be marked on an academy holiday');
   }
 
   const updates = studentUpdates || [];
@@ -350,6 +392,14 @@ async function addStudentToSession(sessionId, studentId, requestingUser) {
   }
 
   await assertCoachOrAdmin(schedule, requestingUser);
+
+  // Defense in depth (docs/plans/holiday-blocking-plan.md D7) — a walk-in
+  // add is itself a form of attendance marking (creates an 'attended'
+  // Visit), so it gets the same guard as markAttendance above.
+  const holidaysForSession = await holidayService.getHolidaysInRange(session.date, session.date);
+  if (holidayService.findHolidayForDate(session.date, holidaysForSession)) {
+    throw badRequestError('Attendance cannot be marked on an academy holiday');
+  }
 
   const existingVisit = await visitService.findActiveVisit(studentId, sessionId);
 
