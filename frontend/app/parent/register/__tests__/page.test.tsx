@@ -336,6 +336,105 @@ describe('RegisterPage wizard', () => {
     expect(screen.getByText(/card on file/i)).toBeInTheDocument();
   });
 
+  // docs/plans/booking-and-private-class-fixes-plan.md §1 — a
+  // server-decided `student.enrollment` (student.service.js's
+  // attachEnrollment()) now blocks an already-enrolled child at the Who
+  // step, instead of only failing at the final Register & Pay submit via
+  // the backend's one-active-subscription-per-student guard.
+  describe('RegisterPage wizard — already-enrolled child (booking-and-private-class-fixes plan §1)', () => {
+    const ENROLLED_STUDENT = {
+      _id: 'student-enrolled',
+      firstName: 'Sana',
+      lastName: 'Sarath',
+      enrollment: {
+        status: 'enrolled',
+        canBookTrial: false,
+        schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+      },
+    };
+    const NOT_ENROLLED_STUDENT = {
+      _id: 'student-fresh',
+      firstName: 'Fresh',
+      lastName: 'Kid',
+      enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
+    };
+
+    it('shows an "Already enrolled" chip on the enrolled child\'s card, and none on a not-yet-enrolled child\'s', async () => {
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({ students: [ENROLLED_STUDENT, NOT_ENROLLED_STUDENT] })
+        )
+      );
+
+      renderRegisterPage();
+
+      expect(await screen.findByText('Already enrolled')).toBeInTheDocument();
+    });
+
+    it('selecting the enrolled child shows a blocking notice instead of the Level section', async () => {
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({ students: [ENROLLED_STUDENT, NOT_ENROLLED_STUDENT] })
+        )
+      );
+
+      renderRegisterPage();
+      fireEvent.click(await screen.findByRole('radio', { name: /sana sarath/i }));
+
+      expect(await screen.findByText(/sana is already enrolled/i)).toBeInTheDocument();
+      expect(screen.getByText(/every wednesday.*4:00 pm.*5:00 pm/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /my registrations/i })).toHaveAttribute(
+        'href',
+        '/parent/subscriptions'
+      );
+      expect(screen.queryByRole('radiogroup', { name: /select a level/i })).not.toBeInTheDocument();
+      // The selected child card stays visible/checked — same "no dead-end
+      // navigation" pattern the rest of this wizard already follows.
+      expect(screen.getByRole('radio', { name: /sana sarath/i })).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('a ?child= deep link to the enrolled child lands on the same notice', async () => {
+      mockSearchParams = new URLSearchParams({ child: ENROLLED_STUDENT._id });
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({ students: [ENROLLED_STUDENT, NOT_ENROLLED_STUDENT] })
+        )
+      );
+
+      renderRegisterPage();
+
+      expect(await screen.findByText(/sana is already enrolled/i)).toBeInTheDocument();
+    });
+
+    it('renders the notice with no day/time line, and without crashing, when the schedule reference is orphaned', async () => {
+      const orphanedSchedule = {
+        ...ENROLLED_STUDENT,
+        enrollment: { ...ENROLLED_STUDENT.enrollment, schedule: null },
+      };
+      server.use(http.get('*/students/mine', () => HttpResponse.json({ students: [orphanedSchedule] })));
+
+      renderRegisterPage();
+      fireEvent.click(await screen.findByRole('radio', { name: /sana sarath/i }));
+
+      expect(await screen.findByText(/sana is already enrolled\./i)).toBeInTheDocument();
+      expect(screen.queryByText(/every/i)).not.toBeInTheDocument();
+    });
+
+    it('a not-yet-enrolled child still advances to the Level step normally — regression guard', async () => {
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({ students: [ENROLLED_STUDENT, NOT_ENROLLED_STUDENT] })
+        )
+      );
+
+      renderRegisterPage();
+      fireEvent.click(await screen.findByRole('radio', { name: /fresh kid/i }));
+
+      expect(await screen.findByRole('radiogroup', { name: /select a level/i })).toBeInTheDocument();
+      expect(screen.queryByText(/is already enrolled/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('adding a card inline at checkout', () => {
     it('shows the inline card form (not a dead-end link elsewhere) when no card is on file, and unblocks Register & Pay once one is added', async () => {
       server.use(http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })));

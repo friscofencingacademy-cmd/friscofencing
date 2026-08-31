@@ -9,9 +9,15 @@ export interface ChildPickerCardsProps {
   students: StudentBase[];
   selectedId: string;
   onSelect: (id: string) => void;
+  // Optional per-card status chip (e.g. "Already enrolled") — the caller
+  // decides from its own full Student data (enrollment, in particular);
+  // this component still never reads that field itself, only renders
+  // whatever string (or null, for "no chip") the caller hands back per
+  // student (docs/plans/booking-and-private-class-fixes-plan.md §1).
+  getBadge?: (student: StudentBase) => string | null;
 }
 
-export default function ChildPickerCards({ students, selectedId, onSelect }: ChildPickerCardsProps) {
+export default function ChildPickerCards({ students, selectedId, onSelect, getBadge }: ChildPickerCardsProps) {
   return (
     <div className={styles.childGrid} role="radiogroup" aria-label="Select a child">
       {students.map((student, index) => {
@@ -23,6 +29,7 @@ export default function ChildPickerCards({ students, selectedId, onSelect }: Chi
         const metaParts = [student.age != null ? `Age ${student.age}` : null, student.skillLevel].filter(
           Boolean
         );
+        const badge = getBadge?.(student) ?? null;
 
         return (
           <button
@@ -41,6 +48,7 @@ export default function ChildPickerCards({ students, selectedId, onSelect }: Chi
                 {student.firstName} {student.lastName}
               </div>
               {metaParts.length > 0 ? <div className={styles.childMeta}>{metaParts.join(' · ')}</div> : null}
+              {badge ? <div className={styles.childBadge}>{badge}</div> : null}
             </span>
           </button>
         );

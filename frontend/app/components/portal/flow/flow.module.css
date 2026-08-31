@@ -268,6 +268,42 @@
   margin-top: var(--space-4);
 }
 
+/* Scoped CTA-contrast fix for THIS dark panel only (docs/plans/booking-and-
+   private-class-fixes-plan.md §2, owner report 2026-08-31: "the button is
+   dark blue in a dark blue card"). The shared Button component's disabled
+   state (Button.module.css: opacity: 0.5) is correct on every LIGHT
+   surface in the app — the bug is specific to compositing brand crimson
+   at 50% opacity onto --color-navy-deep (#00142F), which produces ~#5B162B,
+   an almost-invisible dark-on-dark blob. Targeted by the native `disabled`
+   attribute (not Button's own CSS-module class, which is scoped/hashed and
+   unreachable from this file) — always a real <button> here, OrderSummary
+   never renders the CTA as="a". Specificity (.summaryCtaWrap + button +
+   :disabled) beats Button.module.css's own single-class rule, so no
+   !important is needed.
+
+   Disabled: opacity reset to 1 and swapped for a translucent-white pill
+   instead of dimmed crimson — reads unmistakably as "waiting on the form
+   above," not a color glitch. Verified: rgba(255,255,255,0.14) over
+   #00142F composites to ~#24354C; rgba(255,255,255,0.6) label text over
+   that composites to ~#A7AEB7 — 5.56:1, comfortably legible (WCAG doesn't
+   mandate a ratio for disabled controls at all).
+
+   Enabled: kept solid brand crimson (the WP site's own CTA color, per
+   OrderSummary's existing comment) but given a visible boundary ring so
+   its SHAPE clears WCAG 1.4.11's 3:1 non-text/component contrast bar
+   against the navy panel — solid crimson alone is only ~1.9:1 there.
+   Verified: rgba(255,255,255,0.45) over #00142F composites to ~#737E8D,
+   which is 4.47:1 against #00142F — clears the 3:1 bar with margin. */
+.summaryCtaWrap button:disabled {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.summaryCtaWrap button:not(:disabled) {
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.45);
+}
+
 /* ── ChildPickerCards ────────────────────────────────────────── */
 .childGrid {
   display: grid;
@@ -344,6 +380,24 @@
 .childMeta {
   font-size: 0.78rem;
   color: var(--color-muted);
+}
+
+/* Optional per-card status chip (docs/plans/booking-and-private-class-
+   fixes-plan.md §1) — e.g. "Already enrolled" on the register wizard's Who
+   step, so a parent learns this before picking a level, not at the final
+   payment step. Same light-surface chip token childCard's own
+   .childCardSelected/checkmark treatment lives alongside — plain crimson
+   passes AA here (this card is a white surface, not the dark admin
+   sidebar). */
+.childBadge {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-chip);
+  color: var(--color-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 /* ── PillRow ─────────────────────────────────────────────────── */
