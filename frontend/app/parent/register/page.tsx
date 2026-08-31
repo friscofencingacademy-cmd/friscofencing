@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Elements } from '@stripe/react-stripe-js';
 
 import { useParentPortal } from '../../context/ParentPortalContext';
@@ -14,6 +15,7 @@ import {
   fetchRegistrationPricePreview,
 } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
+import { DAY_LABELS } from '../../../lib/constants';
 import {
   formatDateOnly,
   todayInAcademyTZ,
@@ -239,6 +241,20 @@ export default function RegisterPage() {
   }, [levelId, groupClasses]);
 
   const selectedStudent = students.find((student) => student._id === studentId);
+  // Server-decided (student.service.js's attachEnrollment(), see
+  // docs/features/parent-portal.md) — never derived from
+  // subscriptions/trialClasses here. Optional-chained throughout below:
+  // enrollment is always present on a real /students/mine response, but
+  // this stays defensive rather than assuming every caller/fixture sends
+  // it (docs/plans/booking-and-private-class-fixes-plan.md §1).
+  const alreadyEnrolled = selectedStudent?.enrollment?.status === 'enrolled';
+  // Built from the full `Student[]` (never a StudentBase cast) so
+  // ChildPickerCards' getBadge callback — typed against the narrower
+  // StudentBase it actually accepts — can look a student up by id without
+  // reading a field its own prop type doesn't carry.
+  const enrolledStudentIds = new Set(
+    students.filter((student) => student.enrollment?.status === 'enrolled').map((student) => student._id)
+  );
   const selectedPrice = levelId ? prices.find((price) => price.levelId === levelId) ?? null : null;
   const selectedSession = sessionId ? sessions.find((session) => session._id === sessionId) ?? null : null;
   const scheduleId = selectedSession?.scheduleId._id ?? '';
@@ -533,10 +549,40 @@ export default function RegisterPage() {
         ) : (
           <>
             <FlowSection title="Who is registering?">
-              <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
+              <ChildPickerCards
+                students={students}
+                selectedId={studentId}
+                onSelect={setStudentId}
+                getBadge={(student) => (enrolledStudentIds.has(student._id) ? 'Already enrolled' : null)}
+              />
             </FlowSection>
 
-            {studentId ? (
+            {studentId && alreadyEnrolled ? (
+              // Surfaced here — the moment a child is picked — rather than
+              // only at the final Register & Pay step, where the backend's
+              // one-active-subscription-per-student guard (ADR 005) would
+              // otherwise be the parent's first sign of it (docs/plans/
+              // booking-and-private-class-fixes-plan.md §1). The Level/
+              // start-date/payment sections below simply never mount for
+              // this child — levelId stays unset.
+              <FlowSection title="Already enrolled">
+                <p>
+                  {selectedStudent?.firstName} is already enrolled
+                  {selectedStudent?.enrollment?.schedule
+                    ? ` — Every ${DAY_LABELS[selectedStudent.enrollment.schedule.dayOfWeek]}, ${formatTime(
+                        selectedStudent.enrollment.schedule.startTime
+                      )} – ${formatTime(selectedStudent.enrollment.schedule.endTime)}.`
+                    : // Orphaned schedule reference (parent-portal.md's
+                      // degradation contract) — still says enrolled, just
+                      // without a day/time line, never a crash.
+                      '.'}
+                </p>
+                <p>
+                  Manage or cancel this registration in{' '}
+                  <Link href="/parent/subscriptions">My Registrations</Link>.
+                </p>
+              </FlowSection>
+            ) : studentId ? (
               <FlowSection title="Choose your level">
                 <LevelPickerCards levels={levels} prices={prices} selectedId={levelId} onSelect={handleLevelChange} />
               </FlowSection>

@@ -162,6 +162,30 @@ describe('ChildPickerCards', () => {
     expect(screen.getByText('beginner')).toBeInTheDocument();
     expect(screen.queryByText(/age/i)).not.toBeInTheDocument();
   });
+
+  // docs/plans/booking-and-private-class-fixes-plan.md §1 — optional
+  // per-card status chip, decided entirely by the caller (this component
+  // still never reads `enrollment` itself).
+  describe('getBadge', () => {
+    it('renders the badge returned for a student, and nothing for a student whose badge is null', () => {
+      render(
+        <ChildPickerCards
+          students={STUDENTS}
+          selectedId=""
+          onSelect={jest.fn()}
+          getBadge={(student) => (student._id === 's1' ? 'Already enrolled' : null)}
+        />
+      );
+
+      expect(screen.getByText('Already enrolled')).toBeInTheDocument();
+    });
+
+    it('renders no badge for anyone when getBadge is omitted', () => {
+      render(<ChildPickerCards students={STUDENTS} selectedId="" onSelect={jest.fn()} />);
+
+      expect(screen.queryByText('Already enrolled')).not.toBeInTheDocument();
+    });
+  });
 });
 
 describe('PillRow', () => {

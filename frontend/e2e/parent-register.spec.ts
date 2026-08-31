@@ -6,7 +6,7 @@
 
 import { test, expect } from '@playwright/test';
 
-import { mockApi, json, FIXTURE_GROUP_CLASS_A, type MockRule } from './fixtures/mock-api';
+import { mockApi, json, FIXTURE_GROUP_CLASS_A, FIXTURE_STUDENT, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
 // Directly reproduces this session's two real breaks (docs/plans/
@@ -134,5 +134,45 @@ test.describe('parent register wizard', () => {
     await expect(page.getByText('Registration received')).toBeVisible();
     await expect(page.getByText(/we'll automatically retry/i)).toBeVisible();
     await expect(page.getByText('Registration complete!')).toHaveCount(0);
+  });
+
+  // docs/plans/booking-and-private-class-fixes-plan.md §1 — an already-
+  // enrolled child must be blocked the moment they're selected, not only at
+  // the final Register & Pay submit (the pre-fix behavior: the wizard let
+  // an enrolled child sail through Level/date/payment and only failed via
+  // the backend's 409 at submit).
+  test('an already-enrolled child is blocked with a notice at the Who step, never reaching Level', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2025-03-05T12:00:00.000Z'));
+
+    const enrolledStudent = {
+      ...FIXTURE_STUDENT,
+      enrollment: {
+        status: 'enrolled' as const,
+        canBookTrial: false,
+        schedule: { dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
+      },
+    };
+
+    await loginAs(page, 'parent', [
+      sessionsFixture(['2025-03-10T21:00:00.000Z']),
+      {
+        method: 'GET',
+        path: '/students/mine',
+        handler: (route) => json(route, 200, { students: [enrolledStudent] }),
+      },
+    ]);
+
+    await page.goto('/parent/register');
+
+    await page.getByRole('radio', { name: /test child/i }).click();
+
+    await expect(page.getByText(/test is already enrolled/i)).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: /select a level/i })).toHaveCount(0);
+    // Scoped to the notice's own paragraph — the portal sidebar nav also
+    // has its own "My Registrations" link, so an unscoped role query here
+    // is ambiguous (strict-mode violation).
+    await expect(
+      page.getByText(/manage or cancel this registration/i).getByRole('link', { name: /my registrations/i })
+    ).toHaveAttribute('href', '/parent/subscriptions');
   });
 });
