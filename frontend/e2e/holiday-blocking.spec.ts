@@ -16,7 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 
-import { mockApi, json, FIXTURE_GROUP_CLASS_A, type MockRule } from './fixtures/mock-api';
+import { mockApi, json, FIXTURE_GROUP_CLASS_A, FIXTURE_LEVEL_A, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
 function sessionsByClassFixture(sessions: { _id: string; date: string }[]) {
@@ -118,7 +118,11 @@ test.describe('holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
     // Unlike the register wizard, book-trial does not auto-advance on
     // picking a child — its OrderSummary CTA reads "Continue" for step 0.
     await page.getByRole('button', { name: 'Continue' }).click();
-    await page.getByLabel('Class').selectOption(FIXTURE_GROUP_CLASS_A._id);
+    // Level-driven, not class-driven (a GroupClass's own name can go stale
+    // relative to its Level's name) — FIXTURE_GROUP_CLASS_A.levelId points
+    // at FIXTURE_LEVEL_A, so picking this level resolves to that class
+    // internally.
+    await page.getByLabel('Level').selectOption(FIXTURE_LEVEL_A._id);
 
     const sessionGroup = page.getByRole('radiogroup', { name: 'Select a session' });
     await expect(sessionGroup).toBeVisible();

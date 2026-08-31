@@ -5,12 +5,12 @@ import { useSearchParams } from 'next/navigation';
 
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
-import { fetchGroupClasses } from '../../../lib/services/catalog';
+import { fetchGroupClasses, fetchLevels } from '../../../lib/services/catalog';
 import { fetchSessionsByClass } from '../../../lib/services/scheduling';
 import { bookTrialClass } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
 import { formatDateOnly } from '../../../lib/formatDate';
-import type { GroupClass, GroupClassSessionWithSchedule } from '../../../lib/types';
+import type { GroupClass, GroupClassSessionWithSchedule, Level } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import LoadError from '../../components/ui/LoadError/LoadError';
@@ -23,11 +23,11 @@ import {
   PillRow,
 } from '../../components/portal/flow';
 
-const STEPS = ['Who', 'Pick a Class', 'Confirmation'];
+const STEPS = ['Who', 'Pick a Level', 'Confirmation'];
 
 async function fetchBookingOptions() {
-  const groupClasses = await fetchGroupClasses();
-  return { groupClasses };
+  const [groupClasses, levels] = await Promise.all([fetchGroupClasses(), fetchLevels()]);
+  return { groupClasses, levels };
 }
 
 // A session carries its own schedule's day/time now (no separate schedule
@@ -60,16 +60,18 @@ export default function BookTrialPage() {
 
   const { data, error, isLoading, retry } = useLoadState(fetchBookingOptions, []);
   const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
+  const [levels, setLevels] = useState<Level[]>([]);
 
   useEffect(() => {
     if (data) {
       setGroupClasses(data.groupClasses);
+      setLevels(data.levels);
     }
   }, [data]);
 
   const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
-  const [classId, setClassId] = useState('');
+  const [levelId, setLevelId] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<GroupClassSessionWithSchedule[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -85,8 +87,21 @@ export default function BookTrialPage() {
     }
   }, [searchParams]);
 
+  // A level maps 1:1 to a GroupClass in practice (confirmed against real
+  // schedule data — className always equals levelName), but the data model
+  // doesn't strictly enforce that — a GroupClass's own `name` is an
+  // independent field that goes stale the moment a Level is renamed without
+  // also renaming its class. This step used to show that stale class name
+  // directly; it now resolves every class under the selected level (usually
+  // exactly one) rather than assuming a single id, and shows the level's own
+  // (always-live) name instead — the parent never sees "class" as a concept
+  // at all, matching register/page.tsx's identical LevelPickerCards pattern.
+  const classIdsForLevel = levelId
+    ? groupClasses.filter((groupClass) => groupClass.levelId === levelId).map((groupClass) => groupClass._id)
+    : [];
+
   useEffect(() => {
-    if (!classId) {
+    if (classIdsForLevel.length === 0) {
       setSessions([]);
       return;
     }
@@ -96,14 +111,17 @@ export default function BookTrialPage() {
     async function loadSessions() {
       setSessionsLoading(true);
       try {
-        // Next 30 days, today-inclusive, across ALL of this class's
-        // schedules — server-filtered (see backend/src/services/
-        // groupClassSession.service.js's listUpcomingByClass), not
-        // client-side date math.
-        const result = await fetchSessionsByClass(classId);
+        // Next 30 days, today-inclusive, merged across every class at the
+        // chosen level — server-filtered per class (see backend/src/
+        // services/groupClassSession.service.js's listUpcomingByClass), not
+        // client-side date math. Same merge pattern as register/page.tsx.
+        const results = await Promise.all(classIdsForLevel.map((id) => fetchSessionsByClass(id)));
         if (cancelled) return;
 
-        setSessions(result);
+        const merged = results
+          .flat()
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        setSessions(merged);
       } catch {
         if (!cancelled) {
           setStepError('Failed to load sessions.');
@@ -120,10 +138,15 @@ export default function BookTrialPage() {
     return () => {
       cancelled = true;
     };
-  }, [classId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- classIdsForLevel
+    // is recomputed fresh every render from levelId + the stable groupClasses
+    // array; depending on levelId + groupClasses directly is equivalent and
+    // avoids a new-array-every-render dependency (same rationale as
+    // register/page.tsx's identical effect).
+  }, [levelId, groupClasses]);
 
-  const handleClassChange = useCallback((value: string) => {
-    setClassId(value);
+  const handleLevelChange = useCallback((value: string) => {
+    setLevelId(value);
     setSessionId('');
   }, []);
 
@@ -170,14 +193,9 @@ export default function BookTrialPage() {
               { label: 'Session', value: booked?.sessionLine },
             ]}
             links={
-              <>
-                <Button as="a" href="/parent/dashboard">
-                  Back to Dashboard
-                </Button>
-                <Button as="a" href="/parent/register" variant="secondary">
-                  Register for a Class
-                </Button>
-              </>
+              <Button as="a" href="/parent/dashboard">
+                Back to Dashboard
+              </Button>
             }
           />
         </FlowMain>
@@ -217,29 +235,29 @@ export default function BookTrialPage() {
           </FlowSection>
         ) : (
           <>
-            <FlowSection title="Choose a class">
+            <FlowSection title="Choose a level">
               <select
-                aria-label="Class"
-                value={classId}
-                onChange={(e) => handleClassChange(e.target.value)}
+                aria-label="Level"
+                value={levelId}
+                onChange={(e) => handleLevelChange(e.target.value)}
                 required
               >
-                <option value="">Select a class</option>
-                {groupClasses.map((groupClass) => (
-                  <option key={groupClass._id} value={groupClass._id}>
-                    {groupClass.name}
+                <option value="">Select a level</option>
+                {levels.map((level) => (
+                  <option key={level._id} value={level._id}>
+                    {level.name}
                   </option>
                 ))}
               </select>
             </FlowSection>
 
-            {classId ? (
+            {levelId ? (
               <FlowSection title="Choose a session">
                 {sessionsLoading ? (
                   <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>Loading sessions...</p>
                 ) : sessions.length === 0 ? (
                   <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
-                    No upcoming trial sessions for this class in the next 30 days.
+                    No upcoming trial sessions for this level in the next 30 days.
                   </p>
                 ) : (
                   <PillRow
