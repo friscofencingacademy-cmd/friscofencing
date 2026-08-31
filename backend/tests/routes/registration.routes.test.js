@@ -2205,14 +2205,57 @@ describe('Registration routes', () => {
   });
 
   describe('GET /api/v1/registrations/history', () => {
-    it('returns 401 unauthenticated and 403 for a non-parent role', async () => {
+    it('returns 401 unauthenticated and 403 for a role that is neither parent nor admin/superadmin', async () => {
       const unauthRes = await request(app).get('/api/v1/registrations/history');
       expect(unauthRes.status).toBe(401);
 
-      await seedUser({ role: 'admin', email: 'reg-history-403@example.com' });
-      const adminAgent = await loginAgent('reg-history-403@example.com');
-      const adminRes = await adminAgent.get('/api/v1/registrations/history');
-      expect(adminRes.status).toBe(403);
+      await seedUser({ role: 'coach', email: 'reg-history-403@example.com' });
+      const coachAgent = await loginAgent('reg-history-403@example.com');
+      const coachRes = await coachAgent.get('/api/v1/registrations/history');
+      expect(coachRes.status).toBe(403);
+    });
+
+    // Admin/superadmin viewing a family's history from /admin/subscriptions
+    // (docs/plans/manual-charge-and-pdf-invoice-plan.md's 2026-08-31
+    // addendum) — reuses listHistory() verbatim, so this is purely a
+    // controller-level access-scoping test, not a re-test of listHistory's
+    // own row-shaping logic (already covered by the parent-role tests below).
+    it("lets an admin view a specific parent's history via ?parentId=, and a parent's own parentId query param is ignored (never lets a parent snoop another family's)", async () => {
+      const { scheduleId } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
+        levelName: 'HistoryAdminView',
+        levelOrder: 43,
+      });
+      const { parent, student } = await seedParentAndStudent('reg-history-admin-target@example.com');
+      const parentAgent = await loginAgent('reg-history-admin-target@example.com');
+      await savePaymentMethodFor(parentAgent);
+
+      const res = await parentAgent.post('/api/v1/registrations').send({
+        studentId: student._id.toString(),
+        scheduleId,
+      });
+      expect(res.status).toBe(201);
+
+      await seedUser({ role: 'admin', email: 'reg-history-admin-viewer@example.com' });
+      const adminAgent = await loginAgent('reg-history-admin-viewer@example.com');
+
+      const adminRes = await adminAgent
+        .get('/api/v1/registrations/history')
+        .query({ parentId: parent._id.toString() });
+      expect(adminRes.status).toBe(200);
+      expect(adminRes.body.history).toHaveLength(1);
+      expect(adminRes.body.history[0].studentName).toBe(`${student.firstName} ${student.lastName}`);
+
+      // Security guard: a parent sending ?parentId= (their own, or anyone
+      // else's) still only ever gets their OWN history — the query param is
+      // never honored for that role, so an attacker can't snoop by simply
+      // appending a different id.
+      const { parent: otherParent } = await seedParentAndStudent('reg-history-admin-other@example.com');
+      const spoofRes = await parentAgent
+        .get('/api/v1/registrations/history')
+        .query({ parentId: otherParent._id.toString() });
+      expect(spoofRes.status).toBe(200);
+      expect(spoofRes.body.history).toHaveLength(1);
+      expect(spoofRes.body.history[0].studentName).toBe(`${student.firstName} ${student.lastName}`);
     });
 
     it(
