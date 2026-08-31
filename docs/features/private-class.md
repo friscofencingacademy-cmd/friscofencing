@@ -77,6 +77,17 @@ unconditional `.coachId._id` read after a null populate. Two layers now guard ag
   (the staging reset tool) was extended so it can never itself become a source of new orphans: it
   cleans up `PrivateClassEnrollment`/`PrivateClassSession`/`Evaluation` rows and frees or deletes
   `PrivateClassSchedule`/`CoachContract` rows for every user it deletes.
+- **`refresh-staging-data.js`'s wipe used to miss this collection family entirely**
+  (docs/plans/booking-and-private-class-fixes-plan.md §3, 2026-08-31) — `wipeDatabase()` enumerated
+  collections from `mongoose.connection.collections` (only populated for a model this *process*
+  had `require()`d), and that script's require graph never loads `PrivateClassSchedule`/
+  `PrivateClassSession`. Every refresh therefore wiped `users` and recreated coaches/students with
+  new `_id`s while old private-class rows kept pointing at the now-deleted ones — the real source
+  of a live "coach not available" report. `wipeDatabase()` now enumerates via
+  `mongoose.connection.db.listCollections()` (the database's own truth), and
+  `legacy-import.config.js`'s `IMPORT_PRIVATE_CLASS_ENROLLMENTS` flag (default `false`) stops the
+  legacy import from re-creating a fresh, slotless `PrivateClassEnrollment` for the one legacy
+  private-class student on every single refresh.
 
 ## Pricing — `backend/src/utils/privateClassPricing.js`
 
@@ -200,7 +211,7 @@ yet. See `docs/plans/deployment-launch-plan.md`'s deferred-cron note.
 | `POST /private-class-schedules` | coach (self) \| admin (any, body `coachId`) | requires an active contract (400); duplicate slot 409 |
 | `GET /private-class-schedules/mine` | coach | own slots (registered before `/:id`-style routes) |
 | `GET /private-class-schedules` | admin, superadmin | all slots, filters `coachId`, `available=true` |
-| `DELETE /private-class-schedules/:id` | coach-own \| admin | only if `studentId === null`, else 409 |
+| `DELETE /private-class-schedules/:id` | coach-own \| admin | free (no claim at all) always deletes; a claim (`studentId` and/or `enrollmentId` set) 409s only if it resolves to a still-`active` `PrivateClassEnrollment` — a stale claim (enrollment cancelled/deleted, or `enrollmentId` never set while `studentId` was) self-heals into a successful delete instead of 409ing forever (docs/plans/booking-and-private-class-fixes-plan.md §4) |
 | `GET /private-class-schedules/public` | none | see below |
 | `POST /private-class-enrollments` | parent | self-register — see below |
 | `GET /private-class-enrollments/mine` | parent | own enrollments + slot + last 10 charges each |

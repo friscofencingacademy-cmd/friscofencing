@@ -1,4 +1,5 @@
 const PrivateClassSchedule = require('../models/privateClassSchedule.model');
+const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const coachContractService = require('./coachContract.service');
 const { computeSessionPrice } = require('../utils/privateClassPricing');
 const { nextOccurrenceStrictlyAfter } = require('../utils/scheduleOccurrence');
@@ -81,6 +82,17 @@ async function listAll({ coachId, available } = {}) {
 
 // Admin/superadmin may delete any slot; a coach only their own. Only a
 // free slot (no enrolled student) may be deleted.
+//
+// The guard checks REALITY (is there a live, active enrollment claiming
+// this slot?) rather than trusting the denormalized studentId/enrollmentId
+// fields alone (docs/plans/booking-and-private-class-fixes-plan.md §4) —
+// cancel(), in privateClassEnrollment.service.js, frees a slot by matching
+// `enrollmentId`, so any slot whose `studentId` is set but whose
+// `enrollmentId` doesn't point at a still-active enrollment (a stale claim
+// — e.g. from data that predates a fix, or any future partial write) used
+// to 409 forever with no way to ever delete it. A stale claim now
+// self-heals — since the whole document is deleted right below, "freeing"
+// a stale claim here just means not blocking the delete on it.
 async function remove(id, requestingUser) {
   const schedule = await PrivateClassSchedule.findById(id);
 
@@ -96,8 +108,19 @@ async function remove(id, requestingUser) {
     throw forbiddenError('This slot does not belong to you');
   }
 
-  if (schedule.studentId) {
-    throw conflictError('Slot has an enrolled student');
+  if (schedule.studentId || schedule.enrollmentId) {
+    const enrollment = schedule.enrollmentId
+      ? await PrivateClassEnrollment.findById(schedule.enrollmentId)
+      : null;
+
+    if (enrollment && enrollment.status === 'active') {
+      throw conflictError('Slot has an enrolled student');
+    }
+
+    // Stale claim (enrollment cancelled, deleted outright, or
+    // enrollmentId was never set while studentId was) — fall through to
+    // the delete below instead of 409ing on data that no longer reflects
+    // an active enrollment.
   }
 
   await PrivateClassSchedule.findByIdAndDelete(id);

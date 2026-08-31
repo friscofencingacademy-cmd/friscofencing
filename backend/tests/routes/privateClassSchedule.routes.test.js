@@ -7,6 +7,8 @@ const mongoose = require('mongoose');
 const app = require('../../src/app');
 const User = require('../../src/models/user.model');
 const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
+const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
+const CoachContract = require('../../src/models/coachContract.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { computeSessionPrice } = require('../../src/utils/privateClassPricing');
@@ -168,7 +170,14 @@ describe('Private class schedule routes', () => {
       expect(await PrivateClassSchedule.findById(createRes.body.schedule._id)).toBeNull();
     });
 
-    it('returns 409 when the slot has an enrolled student', async () => {
+    // docs/plans/booking-and-private-class-fixes-plan.md §4 — real
+    // production claims always set BOTH studentId and enrollmentId
+    // together (privateClassEnrollment.service.js's atomic slot claim),
+    // and a real active PrivateClassEnrollment doc backs the claim. This
+    // fixture matches that shape (previously it set only studentId, which
+    // never occurs from a real claim — see the "stale claim" tests below
+    // for what the guard now does with data that only has studentId set).
+    it('returns 409 when the slot has an active enrolled student', async () => {
       const coach = await seedCoachWithContract({ email: 'pcs-del2@example.com' });
       const coachAgent = await loginAgent('pcs-del2@example.com');
 
@@ -177,13 +186,125 @@ describe('Private class schedule routes', () => {
         .send({ dayOfWeek: 1, startTime: '15:00' });
 
       const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'Occupied' });
+      const contract = await CoachContract.findOne({ coachId: coach._id, isActive: true });
+      const enrollment = await PrivateClassEnrollment.create({
+        studentId: student._id,
+        parentId: student._id,
+        coachId: coach._id,
+        coachContractId: contract._id,
+        agreedHourlyRate: contract.studentBillingRate,
+        status: 'active',
+      });
       await PrivateClassSchedule.findByIdAndUpdate(createRes.body.schedule._id, {
         studentId: student._id,
+        enrollmentId: enrollment._id,
       });
 
       const res = await coachAgent.delete(`/api/v1/private-class-schedules/${createRes.body.schedule._id}`);
       expect(res.status).toBe(409);
       expect(await PrivateClassSchedule.findById(createRes.body.schedule._id)).not.toBeNull();
+    });
+
+    // docs/plans/booking-and-private-class-fixes-plan.md §4 — the real bug
+    // report: after cancelling a private enrollment, the schedule stayed
+    // undeletable. cancel() frees a slot by matching enrollmentId; the old
+    // guard 409'd on the raw studentId field alone and never re-checked
+    // reality, so any stale claim was permanently stuck. Four shapes of
+    // "stale" all self-heal into a successful delete now.
+    describe('stale-claim self-heal', () => {
+      async function seedOccupiedSlot(coachEmail) {
+        const coach = await seedCoachWithContract({ email: coachEmail });
+        const coachAgent = await loginAgent(coachEmail);
+        const createRes = await coachAgent
+          .post('/api/v1/private-class-schedules')
+          .send({ dayOfWeek: 1, startTime: '15:00' });
+        const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'Stale' });
+        const contract = await CoachContract.findOne({ coachId: coach._id, isActive: true });
+
+        return { coach, coachAgent, scheduleId: createRes.body.schedule._id, student, contract };
+      }
+
+      it('deletes a slot whose claiming enrollment is cancelled', async () => {
+        const { coachAgent, scheduleId, student, contract, coach } = await seedOccupiedSlot('pcs-stale1@example.com');
+
+        const enrollment = await PrivateClassEnrollment.create({
+          studentId: student._id,
+          parentId: student._id,
+          coachId: coach._id,
+          coachContractId: contract._id,
+          agreedHourlyRate: contract.studentBillingRate,
+          status: 'cancelled',
+        });
+        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, {
+          studentId: student._id,
+          enrollmentId: enrollment._id,
+        });
+
+        const res = await coachAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
+
+        expect(res.status).toBe(200);
+        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
+      });
+
+      it('deletes a slot with studentId set but enrollmentId null (denormalization drift)', async () => {
+        const { coachAgent, scheduleId, student } = await seedOccupiedSlot('pcs-stale2@example.com');
+
+        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, { studentId: student._id });
+
+        const res = await coachAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
+
+        expect(res.status).toBe(200);
+        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
+      });
+
+      it('deletes a slot whose enrollmentId points at a deleted enrollment document', async () => {
+        const { coachAgent, scheduleId, student, contract, coach } = await seedOccupiedSlot('pcs-stale3@example.com');
+
+        const enrollment = await PrivateClassEnrollment.create({
+          studentId: student._id,
+          parentId: student._id,
+          coachId: coach._id,
+          coachContractId: contract._id,
+          agreedHourlyRate: contract.studentBillingRate,
+          status: 'active',
+        });
+        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, {
+          studentId: student._id,
+          enrollmentId: enrollment._id,
+        });
+        await PrivateClassEnrollment.deleteOne({ _id: enrollment._id });
+
+        const res = await coachAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
+
+        expect(res.status).toBe(200);
+        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
+      });
+
+      it('still 403s a non-owning coach on a stale-claimed slot — ownership is checked before the claim is', async () => {
+        const { scheduleId, student } = await seedOccupiedSlot('pcs-stale4-owner@example.com');
+        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, { studentId: student._id });
+
+        await seedCoachWithContract({ email: 'pcs-stale4-other@example.com' });
+        const otherAgent = await loginAgent('pcs-stale4-other@example.com');
+
+        const res = await otherAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
+
+        expect(res.status).toBe(403);
+        expect(await PrivateClassSchedule.findById(scheduleId)).not.toBeNull();
+      });
+
+      it('lets an admin delete a stale-claimed slot too', async () => {
+        const { scheduleId, student } = await seedOccupiedSlot('pcs-stale5@example.com');
+        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, { studentId: student._id });
+
+        await seedUser({ role: 'admin', email: 'pcs-stale5-admin@example.com' });
+        const adminAgent = await loginAgent('pcs-stale5-admin@example.com');
+
+        const res = await adminAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
+
+        expect(res.status).toBe(200);
+        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
+      });
     });
 
     it("returns 403 when a different coach tries to delete someone else's slot", async () => {

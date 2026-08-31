@@ -337,6 +337,11 @@ async function runLegacyImport({ csvText, config }) {
     studentsWithNoProgram: 0,
     studentsWithUnmappedProgram: 0,
     privateClassEnrollmentsCreated: 0,
+    // Only ever non-zero when config.IMPORT_PRIVATE_CLASS_ENROLLMENTS is
+    // false (docs/plans/booking-and-private-class-fixes-plan.md §3) — kept
+    // as its own honest summary field rather than silently folding into
+    // privateClassEnrollmentsCreated staying 0 with no explanation.
+    privateClassEnrollmentsSkipped: 0,
     warnings: [],
   };
 
@@ -373,7 +378,9 @@ async function runLegacyImport({ csvText, config }) {
       }
 
       if (studentPlan.hasPrivateClass) {
-        if (studentPlan.privateCoachKey) {
+        if (!config.IMPORT_PRIVATE_CLASS_ENROLLMENTS) {
+          summary.privateClassEnrollmentsSkipped += 1;
+        } else if (studentPlan.privateCoachKey) {
           // eslint-disable-next-line no-await-in-loop
           const result = await enrollStudentInPrivateClass({
             studentId: student._id,
