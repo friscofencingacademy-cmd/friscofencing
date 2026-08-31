@@ -31,9 +31,17 @@ Supporting files:
   content, which is already-escaped structured data by the time it reaches the layout).
   Unresolved tokens stay visible in the output and are `console.warn`ed — a loud failure mode by
   design, never a silently blank subject line.
-- **`dates.js`** — the *only* date/time formatters emails may use: `dateFull(date)` →
-  `Monday, Aug 25, 2026`, `timeOfDay('HH:mm')` → `4:00 PM`, `dayOfWeekLabel(n)` → `Monday`. All
-  via `Intl.DateTimeFormat`/string parsing, `timeZone: 'America/Chicago'`.
+- **`dates.js`** — the *only* date/time formatters emails may use. Two shape-matched formatters
+  (`docs/plans/utc-date-standard-plan.md`), never interchangeable: `dateFull(date)` →
+  `Monday, Aug 25, 2026`, `timeZone: 'America/Chicago'` — for **real instants** only (a private-
+  lesson's `startDate`, a charge's `paidAt`, `Subscription.nextRetryAt`). `dateOnlyFull(date)` →
+  same format, `timeZone: 'UTC'` — for **calendar-day sentinels** only (`GroupClassSession.date`,
+  `Subscription`/`Registration` period fields). Rendering a sentinel via `dateFull` shifts it onto
+  the wrong calendar day for a recipient east of it — this was a real, shipped bug (the trial-
+  confirmation email stating "Sunday" for a Monday class) before the split existed. `monthLabel`
+  → `September 2026` is UTC-anchored too (its one real caller, the renewal receipt, always feeds
+  it a period-start sentinel). `timeOfDay('HH:mm')` → `4:00 PM` and `dayOfWeekLabel(n)` →
+  `Monday` round out the set. All via `Intl.DateTimeFormat`/string parsing.
 - **`index.js`** — the public API: `renderEmail(key, data)` → `{ subject, preheader, html, text }`,
   `hasTemplate(key)`, `listTemplates()`. Pure — data in, strings out; no fetching, no sending.
 - **`sampleData.js`** — one realistic `SAMPLE_DATA[key]` fixture per template, used by both the

@@ -95,9 +95,10 @@ anywhere except `PrivateClassCharge.amount` — always computed at the point of 
 `backend/src/utils/scheduleOccurrence.js` — `nextOccurrenceStrictlyAfter(fromDate, dayOfWeek)`:
 the first occurrence of a weekday **strictly after** the given date (never today itself, unlike
 `GroupClassSession`'s on-or-after generator). Shared by the public availability preview and
-session generation so both use the exact same rule. Disclosed MVP simplification: operates on the
-server process's local `Date`, not a full IANA `America/Chicago` conversion — matches the rest of
-the codebase's date math; test suites run under `TZ=UTC`.
+session generation so both use the exact same rule. Resolves via real IANA timezone math
+(`moment-timezone`, `DEFAULT_TIMEZONE` from `config/timezone.js`) — corrected by
+`docs/plans/timezone-consistency-plan.md` D4 (this section previously, incorrectly, described it
+as server-local-only; see `tests/utils/scheduleOccurrence.test.js` for the proof).
 
 ## The four CKQ-BUG-FIXes
 
@@ -172,6 +173,18 @@ occurrence of the slot's `dayOfWeek` strictly after today (mirrors group's 8-wee
 `generateInitialSessions` window rather than CKQ's 10, for consistency). Idempotent: in-memory
 dedup against existing session start times, backstopped by the model's unique
 `(scheduleId, startDate)` index — safe to re-run.
+
+`startDate`/`endDate` are **real instants**, not calendar-day sentinels (`docs/plans/utc-date-
+standard-plan.md`) — every one is built via `dateShapes.js`'s `combineDayAndTimeInTZ`, which
+resolves the slot's Central wall-clock `startTime` to a true UTC instant via real IANA math, with
+each of the 8 weekly occurrences stepped *inside* the Central-anchored `moment` chain (never
+`setDate()` on an already-resolved instant) so the run stays DST-safe across a transition. This
+supersedes the previous `combineDateAndTime()`, which used server-local `setHours()` — on Vercel's
+UTC production server, that wrote a "16:45 Central" slot's raw clock numbers directly into the
+UTC field, storing every session hours early and silently widening the attendance/per-session-
+charge window (`markAttendance`'s `session.startDate <= now` gate) before the lesson actually
+happened. Confirmed against real staging data before the fix shipped: every stored session was
+off by exactly the Central/UTC offset.
 
 `backend/scripts/extend-private-sessions.js` (npm script `extend-private-sessions`) re-runs
 generation for every active enrollment — same manual-run model as `run-renewals.js`, no scheduler

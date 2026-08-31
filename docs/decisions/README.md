@@ -12,6 +12,7 @@ Index of every ADR in this directory, newest first isn't required — kept in nu
 | 006 | [Sibling discount is a family discount — highest payer excluded, applied immediately](./006-sibling-discount-family-rule.md) | Implemented | 2026-08-28 |
 | 007 | [Calendar-month billing — all renewals on the 1st (CKQ model)](./007-calendar-month-billing.md) | Implemented | 2026-08-28 |
 | 008 | [Initial registration reserves the Subscription and creates a pending ledger row BEFORE charging Stripe](./008-registration-create-pending-first.md) | Implemented | 2026-08-28 |
+| 009 | [UTC date-storage standard — two shapes, one gate module per side](./009-utc-date-storage-standard.md) | Implemented | 2026-08-30 |
 
 ## Status definitions
 
