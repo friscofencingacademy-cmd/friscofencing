@@ -190,7 +190,7 @@ const TEMPLATES = [
           total: v.chargeAmount,
         },
       },
-      { t: 'text', html: 'Charged to your saved card.', muted: true, size: 'sm' },
+      { t: 'text', html: esc(v.paymentMethodLabel), muted: true, size: 'sm' },
       { t: 'button', label: 'Open your parent portal', href: ORG().portalUrl, variant: 'ghost' },
     ],
   },

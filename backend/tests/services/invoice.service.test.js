@@ -171,6 +171,51 @@ describe('invoice.service — buildInvoiceData', () => {
 
       expect(data.location).toEqual({ name: academy.name, addressLines: academy.addressLines });
     });
+
+    // docs/plans/payment-airtight-plan.md D9 — the method-aware invoice line.
+    it('renders "Payment recorded by the academy — {note}" for a manual row, and "Charged to card on file." otherwise', async () => {
+      const groupClassesService = await Service.findOne({ code: 'group-classes' });
+      const { schedule } = await seedGroupClassChain({ order: 3 });
+      const { parent, student } = await seedParentAndStudent('invoice-method-aware@example.com');
+
+      const manualRow = await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: new mongoose.Types.ObjectId(),
+        scheduleId: schedule._id,
+        studentId: student._id,
+        parentId: parent._id,
+        eventType: 'renewal',
+        status: 'completed',
+        amount: 100,
+        chargeMethod: 'manual',
+        manualNote: 'Paid by check #1042',
+        breakdown: { monthlyFee: 100, siblingDiscountApplied: false, siblingDiscountAmount: 0, registrationFeeCharged: 0 },
+        periodStart: new Date('2026-02-01T00:00:00.000Z'),
+        periodEnd: new Date('2026-03-01T00:00:00.000Z'),
+        paidAt: new Date(),
+      });
+
+      const cardRow = await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: new mongoose.Types.ObjectId(),
+        scheduleId: schedule._id,
+        studentId: student._id,
+        parentId: parent._id,
+        eventType: 'renewal',
+        status: 'completed',
+        amount: 100,
+        breakdown: { monthlyFee: 100, siblingDiscountApplied: false, siblingDiscountAmount: 0, registrationFeeCharged: 0 },
+        periodStart: new Date('2026-02-01T00:00:00.000Z'),
+        periodEnd: new Date('2026-03-01T00:00:00.000Z'),
+        paidAt: new Date(),
+      });
+
+      const manualData = await buildInvoiceData(manualRow);
+      const cardData = await buildInvoiceData(cardRow);
+
+      expect(manualData.paymentMethodLabel).toBe('Payment recorded by the academy — Paid by check #1042.');
+      expect(cardData.paymentMethodLabel).toBe('Charged to card on file.');
+    });
   });
 
   describe('per_session rows', () => {

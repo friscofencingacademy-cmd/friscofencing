@@ -1,5 +1,5 @@
 const subscriptionService = require('../services/subscription.service');
-const { previewRenewal, chargeNow } = require('../services/renewal.service');
+const { previewRenewal, chargeNow, recordManualPayment } = require('../services/renewal.service');
 
 async function list(req, res) {
   try {
@@ -58,9 +58,12 @@ async function chargePreview(req, res) {
   }
 }
 
+// `period` ('full' | 'prorated', docs/plans/payment-airtight-plan.md D4) —
+// defaults to 'full' when omitted, matching chargeNow's own default.
 async function charge(req, res) {
   try {
-    const result = await chargeNow(req.params.id);
+    const period = req.body && req.body.period === 'prorated' ? 'prorated' : 'full';
+    const result = await chargeNow(req.params.id, { period, adminUser: req.user });
     return res.status(200).json(result);
   } catch (error) {
     const status = error.status || 500;
@@ -68,4 +71,19 @@ async function charge(req, res) {
   }
 }
 
-module.exports = { list, cancel, reactivate, changeSchedule, chargePreview, charge };
+// The manual/offline payment path (D5) — recordManualPayment never throws
+// for a validation or billing STATE (invalid_amount/invalid_note/
+// invalid_period/not_found/skipped_*/etc. all come back as a 200 outcome
+// object), same posture as chargePreview/charge above.
+async function recordPayment(req, res) {
+  try {
+    const { amount, note, period } = req.body || {};
+    const result = await recordManualPayment(req.params.id, { amount, note, period }, req.user);
+    return res.status(200).json(result);
+  } catch (error) {
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message || 'Failed to record payment' });
+  }
+}
+
+module.exports = { list, cancel, reactivate, changeSchedule, chargePreview, charge, recordPayment };

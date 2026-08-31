@@ -459,6 +459,30 @@ export interface ChargeBreakdown {
   monthlyFee: number;
   siblingDiscountApplied: boolean;
   siblingDiscountAmount: number;
+  // Only set on the "prorated from today" option (docs/plans/payment-
+  // airtight-plan.md D4) — absent/undefined on a full-month breakdown.
+  prorated?: boolean;
+  proratedAmount?: number | null;
+}
+
+// One selectable period option in the Charge dialog (D4) — 'full' rolls
+// currentPeriodEnd -> +1 month; 'prorated' is today -> the 1st of next
+// month. `prorated` is null when the level/schedule chain can't be
+// resolved (a broken data link) — the dialog then only offers 'full'.
+export interface ChargeOption {
+  amount: number;
+  breakdown: ChargeBreakdown;
+  periodStart: string;
+  periodEnd: string;
+}
+
+// The current Central month's own completed ledger row, if this
+// subscription has already been paid for it via ANY pathway (D8) — the
+// Charge dialog greys the prorated/manual options and states this instead.
+export interface MonthAlreadyPaid {
+  amount: number;
+  paidAt: string;
+  chargeMethod: 'card' | 'manual';
 }
 
 export interface ChargePreview {
@@ -474,10 +498,17 @@ export interface ChargePreview {
   attemptsRemaining?: number;
   amount?: number;
   breakdown?: ChargeBreakdown;
+  // Absent while inDunning (D4: dunning bypasses both period choices) or on
+  // a non-'previewable' outcome.
+  options?: { fullMonth: ChargeOption; prorated: ChargeOption | null };
+  monthAlreadyPaid?: MonthAlreadyPaid | null;
 }
 
-// Every outcome renewOne/retryOne can return, verbatim — the button never
-// invents its own vocabulary, it displays whichever of these came back.
+// Every outcome renewOne/retryOne/chargeProratedNow/recordManualPayment can
+// return, verbatim — the dialog never invents its own vocabulary, it
+// displays whichever of these came back. The last three (invalid_*) are
+// recordManualPayment's own input-validation outcomes (docs/plans/payment-
+// airtight-plan.md D5) — never returned by any card-charge path.
 export type ChargeOutcome =
   | 'not_found'
   | 'skipped_inactive'
@@ -490,7 +521,10 @@ export type ChargeOutcome =
   | 'failed_no_price'
   | 'failed_no_payment_method'
   | 'failed_payment'
-  | 'charged';
+  | 'charged'
+  | 'invalid_amount'
+  | 'invalid_note'
+  | 'invalid_period';
 
 export interface ChargeResult {
   subscriptionId: string;

@@ -74,6 +74,31 @@ const DEFAULT_CHARGE_PREVIEW = {
   inDunning: false,
   amount: 150,
   breakdown: { monthlyFee: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0 },
+  // docs/plans/payment-airtight-plan.md D4 — the Charge dialog's card/
+  // manual x full/prorated matrix reads these, not the top-level amount/
+  // breakdown above (which stay only as the dunning-branch fallback, since
+  // the real backend never populates `options` for a dunning preview).
+  options: {
+    fullMonth: {
+      amount: 150,
+      breakdown: { monthlyFee: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0 },
+      periodStart: '2026-02-01T00:00:00.000Z',
+      periodEnd: '2026-03-01T00:00:00.000Z',
+    },
+    prorated: {
+      amount: 75,
+      breakdown: {
+        monthlyFee: 150,
+        prorated: true,
+        proratedAmount: 75,
+        siblingDiscountApplied: false,
+        siblingDiscountAmount: 0,
+      },
+      periodStart: '2026-01-15T00:00:00.000Z',
+      periodEnd: '2026-02-01T00:00:00.000Z',
+    },
+  },
+  monthAlreadyPaid: null,
 };
 
 let rows: unknown[] = [makeRow()];
@@ -85,6 +110,9 @@ let scheduleRouteMessage = 'Failed';
 let chargePreviewResponse: Record<string, unknown> = DEFAULT_CHARGE_PREVIEW;
 let chargeResponse: Record<string, unknown> = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 150 };
 let chargedId: string | null = null;
+let chargePayload: unknown = null;
+let recordPaymentResponse: Record<string, unknown> = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 90 };
+let recordPaymentPayload: unknown = null;
 
 const server = setupServer(
   http.get('*/auth/me', () =>
@@ -113,9 +141,15 @@ const server = setupServer(
     return HttpResponse.json({ subscription: makeRow({ cancelAtPeriodEnd: false }) });
   }),
   http.get('*/subscriptions/:id/charge-preview', () => HttpResponse.json(chargePreviewResponse)),
-  http.post('*/subscriptions/:id/charge', ({ params }) => {
+  http.post('*/subscriptions/:id/charge', async ({ params, request }) => {
     chargedId = params.id as string;
+    chargePayload = await request.json();
     return HttpResponse.json(chargeResponse);
+  }),
+  http.post('*/subscriptions/:id/record-payment', async ({ params, request }) => {
+    chargedId = params.id as string;
+    recordPaymentPayload = await request.json();
+    return HttpResponse.json(recordPaymentResponse);
   })
 );
 
@@ -131,6 +165,9 @@ afterEach(() => {
   chargePreviewResponse = DEFAULT_CHARGE_PREVIEW;
   chargeResponse = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 150 };
   chargedId = null;
+  chargePayload = null;
+  recordPaymentResponse = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 90 };
+  recordPaymentPayload = null;
   authUser = {
     _id: 'super-1',
     role: 'superadmin',
@@ -385,6 +422,12 @@ describe('AdminSubscriptionsPage', () => {
         inDunning: true,
         retryCount: 1,
         attemptsRemaining: 2,
+        // The real backend never computes options/monthAlreadyPaid for a
+        // dunning preview (previewRenewal returns early on that branch) —
+        // dropped here so this test exercises the SAME fallback-to-
+        // preview.breakdown path the real dunning response takes.
+        options: undefined,
+        monthAlreadyPaid: undefined,
       };
       const user = userEvent.setup();
       renderPage();
@@ -450,6 +493,109 @@ describe('AdminSubscriptionsPage', () => {
 
       expect(await within(dialog).findByText(/your card was declined/i)).toBeInTheDocument();
       expect(within(dialog).getByText(/a retry is scheduled for/i)).toBeInTheDocument();
+    });
+
+    // docs/plans/payment-airtight-plan.md D4 — the card/manual x full/
+    // prorated matrix.
+    it('selecting "Prorated from today" shows the prorated total and posts period: "prorated" on charge', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await within(dialog).findByText('Monthly fee: $150.00');
+
+      await user.click(within(dialog).getByRole('radio', { name: /prorated from today/i }));
+      expect(within(dialog).getByText('Total: $75.00')).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: /confirm charge/i }));
+
+      await waitFor(() => expect(chargePayload).toEqual({ period: 'prorated' }));
+    });
+
+    it('disables the "Prorated from today" radio when the option is unavailable (a broken schedule/level chain)', async () => {
+      chargePreviewResponse = { ...DEFAULT_CHARGE_PREVIEW, options: { fullMonth: DEFAULT_CHARGE_PREVIEW.options.fullMonth, prorated: null } };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await within(dialog).findByText('Monthly fee: $150.00');
+
+      expect(within(dialog).getByRole('radio', { name: /prorated from today/i })).toBeDisabled();
+      expect(within(dialog).getByText(/\(unavailable\)/i)).toBeInTheDocument();
+    });
+
+    it('greys the prorated option and states the already-paid amount/date/method when monthAlreadyPaid is set', async () => {
+      chargePreviewResponse = {
+        ...DEFAULT_CHARGE_PREVIEW,
+        monthAlreadyPaid: { amount: 75, paidAt: '2026-01-15T18:00:00.000Z', chargeMethod: 'manual' },
+      };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await within(dialog).findByText('Monthly fee: $150.00');
+
+      await user.click(within(dialog).getByRole('radio', { name: /prorated from today/i }));
+
+      const alreadyPaidAlert = await within(dialog).findByText(/this month is already paid/i);
+      expect(alreadyPaidAlert.textContent).toContain('$75.00');
+      expect(alreadyPaidAlert.textContent).toContain('(manual)');
+      expect(within(dialog).getByRole('button', { name: /confirm charge/i })).toBeDisabled();
+    });
+
+    it('"Record offline payment" prefills the amount from the selected period, requires a note, and posts to record-payment', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await within(dialog).findByText('Monthly fee: $150.00');
+
+      await user.click(within(dialog).getByRole('radio', { name: /record offline payment/i }));
+
+      const amountInput = within(dialog).getByLabelText(/amount/i) as HTMLInputElement;
+      expect(amountInput.value).toBe('150.00');
+
+      // No note yet — Record Payment stays disabled.
+      expect(within(dialog).getByRole('button', { name: /record payment/i })).toBeDisabled();
+
+      await user.type(within(dialog).getByLabelText(/note/i), 'Paid by check #1042');
+      expect(within(dialog).getByRole('button', { name: /record payment/i })).toBeEnabled();
+
+      await user.click(within(dialog).getByRole('button', { name: /record payment/i }));
+
+      await waitFor(() =>
+        expect(recordPaymentPayload).toEqual({ amount: 150, note: 'Paid by check #1042', period: 'full' })
+      );
+      expect(await within(dialog).findByText(/charged \$90\.00/i)).toBeInTheDocument();
+    });
+
+    it('switching period while in manual mode re-prefills the amount', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+      await within(dialog).findByText('Monthly fee: $150.00');
+
+      await user.click(within(dialog).getByRole('radio', { name: /record offline payment/i }));
+      await user.click(within(dialog).getByRole('radio', { name: /prorated from today/i }));
+
+      const amountInput = within(dialog).getByLabelText(/amount/i) as HTMLInputElement;
+      expect(amountInput.value).toBe('75.00');
     });
   });
 });

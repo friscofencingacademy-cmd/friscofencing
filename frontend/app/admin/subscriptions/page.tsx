@@ -13,12 +13,14 @@ import {
   fetchChargePreview,
   fetchSubscriptions,
   reactivateSubscription,
+  recordManualPayment,
   type AdminSubscriptionStatusFilter,
 } from '../../../lib/services/subscriptionsAdmin';
 import { formatTime } from '../../../lib/formatTime';
 import { formatDateOnly, formatInstant } from '../../../lib/formatDate';
 import type {
   AdminSubscriptionRow,
+  ChargeOption,
   ChargePreview,
   ChargeResult,
   GroupClass,
@@ -122,9 +124,27 @@ function describeChargeOutcome(result: ChargeResult): { variant: 'success' | 'er
       return { variant: 'error', message: 'No failed charge was found to retry.' };
     case 'not_found':
       return { variant: 'error', message: 'Subscription not found.' };
+    case 'invalid_amount':
+      return { variant: 'error', message: 'Enter an amount greater than $0.' };
+    case 'invalid_note':
+      return { variant: 'error', message: 'A note is required to record a manual payment.' };
+    case 'invalid_period':
+      return { variant: 'error', message: 'Choose a period before recording the payment.' };
     default:
       return { variant: 'error', message: 'Unexpected outcome — nothing was charged.' };
   }
+}
+
+type ChargeMethod = 'card' | 'manual';
+type ChargePeriod = 'full' | 'prorated';
+
+// The dollar figure + breakdown for whichever period is selected — the
+// SAME shape whether it came from options.fullMonth or options.prorated,
+// so the display code below never needs to branch on which one it's
+// showing (docs/plans/payment-airtight-plan.md D4).
+function optionFor(preview: ChargePreview | null, period: ChargePeriod): ChargeOption | null {
+  if (!preview || !preview.options) return null;
+  return period === 'prorated' ? preview.options.prorated : preview.options.fullMonth;
 }
 
 interface ChargeDialogState {
@@ -133,6 +153,13 @@ interface ChargeDialogState {
   loading: boolean;
   preview: ChargePreview | null;
   loadError: string | null;
+  // Charge card on file vs. record an offline payment (docs/plans/payment-
+  // airtight-plan.md D4) — and, within the card/manual choice, which
+  // period this charge covers.
+  method: ChargeMethod;
+  period: ChargePeriod;
+  manualAmount: string;
+  manualNote: string;
   charging: boolean;
   chargeError: string | null;
   result: ChargeResult | null;
@@ -144,6 +171,10 @@ const EMPTY_CHARGE_DIALOG: ChargeDialogState = {
   loading: false,
   preview: null,
   loadError: null,
+  method: 'card',
+  period: 'full',
+  manualAmount: '',
+  manualNote: '',
   charging: false,
   chargeError: null,
   result: null,
@@ -369,12 +400,62 @@ export default function AdminSubscriptionsPage() {
     setChargeDialog(EMPTY_CHARGE_DIALOG);
   }
 
+  // In dunning, a manual recording always targets the SAME overdue period
+  // the locked failed row already targets ('full' — recordManualPayment's
+  // own meaning for that period is exactly "the subscription's currently-
+  // due period"), so there is no period to pick in that one combination.
+  function effectivePeriodFor(preview: ChargePreview | null, method: ChargeMethod, period: ChargePeriod): ChargePeriod {
+    return preview?.inDunning && method === 'manual' ? 'full' : period;
+  }
+
+  // Switching payment method re-prefills the manual amount from whichever
+  // period is currently in effect — editable afterward, never re-clobbered
+  // by anything else (docs/plans/payment-airtight-plan.md D4: "prefilled,
+  // editable"). In dunning, the only sensible prefill is the locked
+  // failed-row amount itself (preview.amount) — options aren't computed
+  // for a dunning preview at all (renewal.service.js's previewRenewal
+  // returns early on that branch).
+  function selectMethod(method: ChargeMethod) {
+    setChargeDialog((prev) => {
+      if (method !== 'manual') {
+        return { ...prev, method };
+      }
+
+      const effectivePeriod = effectivePeriodFor(prev.preview, method, prev.period);
+      const prefill = prev.preview?.inDunning
+        ? prev.preview.amount ?? 0
+        : optionFor(prev.preview, effectivePeriod)?.amount ?? 0;
+
+      return { ...prev, method, manualAmount: prefill.toFixed(2) };
+    });
+  }
+
+  function selectPeriod(period: ChargePeriod) {
+    setChargeDialog((prev) => {
+      if (prev.method !== 'manual') {
+        return { ...prev, period };
+      }
+
+      return { ...prev, period, manualAmount: (optionFor(prev.preview, period)?.amount ?? 0).toFixed(2) };
+    });
+  }
+
   async function submitCharge() {
     if (!chargeDialog.subscription) return;
 
     setChargeDialog((prev) => ({ ...prev, charging: true, chargeError: null }));
 
-    const result = await chargeSubscription(chargeDialog.subscription._id);
+    const { subscription, preview, method, period, manualAmount, manualNote } = chargeDialog;
+    const effectivePeriod = effectivePeriodFor(preview, method, period);
+
+    const result =
+      method === 'manual'
+        ? await recordManualPayment(subscription._id, {
+            amount: Number(manualAmount),
+            note: manualNote,
+            period: effectivePeriod,
+          })
+        : await chargeSubscription(subscription._id, effectivePeriod);
 
     if (result.status === 'success') {
       setChargeDialog((prev) => ({ ...prev, charging: false, result: result.data }));
@@ -387,18 +468,51 @@ export default function AdminSubscriptionsPage() {
     }
   }
 
-  // Gating for the Confirm button. `inDunning` intentionally bypasses the
-  // `due` check — retryOne (unlike renewOne) never gates on nextBillingDate,
-  // so a dunning charge is always actionable from this button, matching
+  // Gating for the Confirm button. `inDunning` + card intentionally
+  // bypasses the `due` check — retryOne (unlike renewOne) never gates on
+  // nextBillingDate, so a dunning card retry is always actionable, matching
   // what the backend actually enforces.
   const preview = chargeDialog.preview;
+  const { method, period } = chargeDialog;
+  const inDunningCardLock = Boolean(preview?.inDunning) && method === 'card';
+  const effectivePeriod = effectivePeriodFor(preview, method, period);
+  const selectedOption = preview ? optionFor(preview, effectivePeriod) : null;
+
+  // "Already paid/not due" per period — 'full' stays gated by `due`
+  // (unchanged from the original single-option dialog); 'prorated' is
+  // gated by the ledger-sourced monthAlreadyPaid instead (D8), since it
+  // deliberately bypasses `due`. Neither applies while in dunning (that
+  // period is, definitionally, already overdue — not "not due yet") or
+  // during a pending-cancellation finalize.
+  const periodAlreadyPaid =
+    !preview || preview.willFinalizeCancellation || preview.inDunning
+      ? false
+      : effectivePeriod === 'full'
+        ? !preview.due
+        : Boolean(preview.monthAlreadyPaid);
+
+  // The "prorated from today" option is entirely absent when the
+  // schedule/class/level chain can't be resolved (previewRenewal degrades
+  // gracefully rather than failing the whole preview) — never true for the
+  // dunning+manual case, which never offers 'prorated' as a choice at all.
+  const periodUnavailable = !preview?.inDunning && effectivePeriod === 'prorated' && !selectedOption;
+
+  const manualAmountNumber = Number(chargeDialog.manualAmount);
+  const manualInvalid =
+    method === 'manual' &&
+    (!chargeDialog.manualAmount ||
+      !Number.isFinite(manualAmountNumber) ||
+      manualAmountNumber <= 0 ||
+      chargeDialog.manualNote.trim().length === 0);
+
   const chargeConfirmDisabled =
     chargeDialog.loading ||
     chargeDialog.charging ||
     !preview ||
     preview.outcome !== 'previewable' ||
-    (!preview.willFinalizeCancellation && !preview.inDunning && !preview.due) ||
-    (!preview.willFinalizeCancellation && !preview.paymentMethod);
+    (!preview.willFinalizeCancellation && method === 'card' && !preview.paymentMethod) ||
+    (!preview.willFinalizeCancellation && !inDunningCardLock && (periodAlreadyPaid || periodUnavailable)) ||
+    (!preview.willFinalizeCancellation && !inDunningCardLock && method === 'manual' && manualInvalid);
 
   return (
     <main>
@@ -780,7 +894,9 @@ export default function AdminSubscriptionsPage() {
                   ? 'Processing…'
                   : preview?.willFinalizeCancellation
                     ? 'Finalize'
-                    : 'Confirm Charge'}
+                    : chargeDialog.method === 'manual'
+                      ? 'Record Payment'
+                      : 'Confirm Charge'}
               </button>
             </>
           )
@@ -810,29 +926,111 @@ export default function AdminSubscriptionsPage() {
 
         {!chargeDialog.result && preview && preview.outcome === 'previewable' ? (
           <>
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Billing period</label>
-              <div className={styles.cellMuted}>
-                {preview.periodStart ? formatDateLabel(preview.periodStart) : ''} –{' '}
-                {preview.periodEnd ? formatDateLabel(preview.periodEnd) : ''}
-              </div>
-            </div>
-
             {preview.willFinalizeCancellation ? (
-              <Alert variant="success">
-                This subscription is pending cancellation. Processing will finalize the cancellation —
-                nothing is charged.
-              </Alert>
+              <>
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Billing period</label>
+                  <div className={styles.cellMuted}>
+                    {preview.periodStart ? formatDateLabel(preview.periodStart) : ''} –{' '}
+                    {preview.periodEnd ? formatDateLabel(preview.periodEnd) : ''}
+                  </div>
+                </div>
+                <Alert variant="success">
+                  This subscription is pending cancellation. Processing will finalize the cancellation —
+                  nothing is charged.
+                </Alert>
+              </>
             ) : (
               <>
-                {preview.inDunning ? (
-                  <Alert variant="error">
-                    Retry attempt {preview.retryCount} of {(preview.retryCount ?? 0) + (preview.attemptsRemaining ?? 0)} —
-                    charging the locked amount from the failed charge.
-                  </Alert>
-                ) : null}
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>How to collect</label>
+                  <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="radio"
+                        name="charge-method"
+                        checked={method === 'card'}
+                        onChange={() => selectMethod('card')}
+                      />
+                      Charge card on file
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="radio"
+                        name="charge-method"
+                        checked={method === 'manual'}
+                        onChange={() => selectMethod('manual')}
+                      />
+                      Record offline payment
+                    </label>
+                  </div>
+                </div>
 
-                {preview.breakdown ? (
+                {inDunningCardLock ? (
+                  <Alert variant="error">
+                    Retry attempt {preview.retryCount} of{' '}
+                    {(preview.retryCount ?? 0) + (preview.attemptsRemaining ?? 0)} — charging the locked amount
+                    from the failed charge.
+                  </Alert>
+                ) : preview.inDunning ? (
+                  <Alert variant="error">
+                    This subscription is in dunning (retry {preview.retryCount} of{' '}
+                    {(preview.retryCount ?? 0) + (preview.attemptsRemaining ?? 0)}). Recording a payment below
+                    clears the retry cycle.
+                  </Alert>
+                ) : (
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Period covered</label>
+                    <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="charge-period"
+                          checked={period === 'full'}
+                          onChange={() => selectPeriod('full')}
+                        />
+                        Full month{preview.options ? ` — ${formatMoney(preview.options.fullMonth.amount)}` : ''}
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="radio"
+                          name="charge-period"
+                          checked={period === 'prorated'}
+                          disabled={!preview.options?.prorated}
+                          onChange={() => selectPeriod('prorated')}
+                        />
+                        Prorated from today
+                        {preview.options?.prorated ? ` — ${formatMoney(preview.options.prorated.amount)}` : ' (unavailable)'}
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Billing period</label>
+                  <div className={styles.cellMuted}>
+                    {selectedOption
+                      ? `${formatDateLabel(selectedOption.periodStart)} – ${formatDateLabel(selectedOption.periodEnd)}`
+                      : preview.periodStart && preview.periodEnd
+                        ? `${formatDateLabel(preview.periodStart)} – ${formatDateLabel(preview.periodEnd)}`
+                        : ''}
+                  </div>
+                </div>
+
+                {selectedOption ? (
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Breakdown</label>
+                    <div className={styles.cellMuted}>Monthly fee: {formatMoney(selectedOption.breakdown.monthlyFee)}</div>
+                    {selectedOption.breakdown.siblingDiscountApplied ? (
+                      <div className={styles.cellMuted}>
+                        − {formatMoney(selectedOption.breakdown.siblingDiscountAmount)} sibling discount (10%)
+                      </div>
+                    ) : null}
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', marginTop: 'var(--space-2)' }}>
+                      Total: {formatMoney(selectedOption.amount)}
+                    </div>
+                  </div>
+                ) : preview.inDunning && preview.breakdown ? (
                   <div className={styles.formGroup}>
                     <label className={styles.label}>Breakdown</label>
                     <div className={styles.cellMuted}>Monthly fee: {formatMoney(preview.breakdown.monthlyFee)}</div>
@@ -847,18 +1045,65 @@ export default function AdminSubscriptionsPage() {
                   </div>
                 ) : null}
 
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>Card on file</label>
-                  {preview.paymentMethod ? (
-                    <div className={styles.cellMuted}>{formatCardLabel(preview.paymentMethod)}</div>
-                  ) : (
-                    <Alert variant="error">No card on file — this charge will fail.</Alert>
-                  )}
-                </div>
+                {method === 'card' ? (
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Card on file</label>
+                    {preview.paymentMethod ? (
+                      <div className={styles.cellMuted}>{formatCardLabel(preview.paymentMethod)}</div>
+                    ) : (
+                      <Alert variant="error">No card on file — this charge will fail.</Alert>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label} htmlFor="manual-amount">
+                        Amount
+                      </label>
+                      <input
+                        id="manual-amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        className={styles.input}
+                        value={chargeDialog.manualAmount}
+                        onChange={(e) => setChargeDialog((prev) => ({ ...prev, manualAmount: e.target.value }))}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label} htmlFor="manual-note">
+                        Note
+                      </label>
+                      <textarea
+                        id="manual-note"
+                        className={styles.input}
+                        style={{ minHeight: 64 }}
+                        placeholder="e.g. Paid by check #1042"
+                        value={chargeDialog.manualNote}
+                        onChange={(e) => setChargeDialog((prev) => ({ ...prev, manualNote: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
 
-                {!preview.due ? (
+                {periodAlreadyPaid && effectivePeriod === 'full' ? (
                   <p className={styles.cellMuted}>
                     Not due until {preview.nextBillingDate ? formatDateLabel(preview.nextBillingDate) : '—'}.
+                  </p>
+                ) : null}
+
+                {periodAlreadyPaid && effectivePeriod === 'prorated' && preview.monthAlreadyPaid ? (
+                  <Alert variant="success">
+                    This month is already paid — {formatMoney(preview.monthAlreadyPaid.amount)} on{' '}
+                    {formatInstant(preview.monthAlreadyPaid.paidAt)} (
+                    {preview.monthAlreadyPaid.chargeMethod === 'manual' ? 'manual' : 'card'}).
+                  </Alert>
+                ) : null}
+
+                {periodUnavailable ? (
+                  <p className={styles.cellMuted}>
+                    Couldn&apos;t resolve a schedule/level for this subscription — the prorated option is
+                    unavailable.
                   </p>
                 ) : null}
               </>

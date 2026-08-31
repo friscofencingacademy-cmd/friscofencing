@@ -149,6 +149,19 @@ async function buildInvoiceData(registrationRowOrId) {
   const shapeData =
     row.billingShape === 'per_session' ? await buildPerSessionData(row) : await buildSubscriptionCycleData(row);
 
+  // Method-aware line (docs/plans/payment-airtight-plan.md D9) — a manual
+  // recording is only possible on a subscription_cycle row (per_session
+  // rows never go through recordManualPayment), but this reads
+  // `row.chargeMethod` directly rather than branching on billingShape, so
+  // it degrades correctly either way. `!== 'manual'` (not `=== 'card'`) on
+  // purpose — a row created before this field existed reads back as
+  // `undefined` and must still render as a card charge, no migration
+  // needed for this field (see the schema's own comment).
+  const paymentMethodLabel =
+    row.chargeMethod === 'manual'
+      ? `Payment recorded by the academy${row.manualNote ? ` — ${row.manualNote}` : ''}.`
+      : 'Charged to card on file.';
+
   return {
     invoiceNumber: `INV-${row._id}`,
     invoiceDate: row.paidAt,
@@ -159,6 +172,7 @@ async function buildInvoiceData(registrationRowOrId) {
     },
     serviceName: service ? service.name : '',
     total: row.amount,
+    paymentMethodLabel,
     academy,
     ...shapeData,
   };
@@ -215,6 +229,7 @@ function renderInvoicePdf(data) {
     doc
       .fontSize(10)
       .text(`Paid${data.invoiceDate ? ` on ${dateFull(data.invoiceDate)}` : ''} — thank you.`);
+    if (data.paymentMethodLabel) doc.text(data.paymentMethodLabel);
 
     doc.end();
   });

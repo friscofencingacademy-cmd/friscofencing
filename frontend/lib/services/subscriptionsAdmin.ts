@@ -76,11 +76,30 @@ export async function fetchChargePreview(id: string): Promise<MutationResult<Cha
   }
 }
 
-export async function chargeSubscription(id: string): Promise<MutationResult<ChargeResult>> {
+// `period` (docs/plans/payment-airtight-plan.md D4) — 'full' | 'prorated',
+// defaults to 'full' server-side when omitted.
+export async function chargeSubscription(
+  id: string,
+  period: 'full' | 'prorated' = 'full'
+): Promise<MutationResult<ChargeResult>> {
   try {
-    const res = await api.post<ChargeResult>(`/subscriptions/${id}/charge`);
+    const res = await api.post<ChargeResult>(`/subscriptions/${id}/charge`, { period });
     return { status: 'success', data: res.data };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to charge the subscription.') };
+  }
+}
+
+// The manual/offline payment path (D5) — admin-entered amount + required
+// note, no Stripe call.
+export async function recordManualPayment(
+  id: string,
+  payload: { amount: number; note: string; period: 'full' | 'prorated' }
+): Promise<MutationResult<ChargeResult>> {
+  try {
+    const res = await api.post<ChargeResult>(`/subscriptions/${id}/record-payment`, payload);
+    return { status: 'success', data: res.data };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to record the payment.') };
   }
 }

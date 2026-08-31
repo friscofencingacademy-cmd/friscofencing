@@ -101,6 +101,19 @@ already-successful charge. Full design (location fallback rules, the hard-coded 
 the on-demand `GET /registrations/:id/invoice` download endpoint): `docs/features/private-class.md`
 and the plan doc above.
 
+## Method-aware receipt/invoice line (docs/plans/payment-airtight-plan.md D9)
+
+The renewal receipt (`renewalReceipt` template) and the invoice PDF both carry one line describing
+HOW the charge was collected — "Charged to your saved card." (email) / "Charged to card on file."
+(PDF) for every card charge (the default; a `Registration` row that predates the `chargeMethod`
+field reads back as `undefined`, which renders the same as `'card'` — every consumer branches on
+`=== 'manual'`, never `=== 'card'`), or "Payment recorded by the academy — {manualNote}." for a
+manual recording. `mail.service.js`'s `sendRenewalReceiptEmail` accepts a `paymentMethodLabel` param
+(default the card-charge line) that `renewal.service.js`'s `sendReceiptEmail`/`recordManualPayment`
+supply; `invoice.service.js`'s `buildInvoiceData` computes its own PDF-side label from
+`row.chargeMethod`/`row.manualNote` directly. Registration-confirmation email is unaffected — an
+initial registration is always a card charge, never manual.
+
 ## Staging email gate (`APP_ENV`, fail-closed)
 
 ```js

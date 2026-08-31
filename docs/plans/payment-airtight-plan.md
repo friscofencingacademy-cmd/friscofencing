@@ -1,7 +1,48 @@
 # Airtight Payments — Proration Rule, Admin Charge Modes, Parent Billing Page
 
-**Status:** PR 1 BUILT 2026-08-30 on branch `feature/proration-month-rule` (not yet committed —
-pending owner local testing + review before commit, per Hard Rule 5). PR 2 and PR 3 not started.
+**Status:** PR 1 MERGED TO DEVELOP 2026-08-30 (PR #79). PR 2 BUILT 2026-08-30 on branch
+`feature/charge-modes-and-month-guard`, not yet committed — pending owner local testing + review
+before commit, per Hard Rule 5. PR 3 not started.
+
+**PR 2 completion notes:** All of D4–D9 built as specced. `registration.model.js`'s base schema
+gained `chargeMethod`/`manualNote`/`recordedBy`; the `subscription_cycle` discriminator gained
+`periodMonth` (derived by a pre-validate hook from `periodStart`, never accepted from a caller) and
+Guard B's unique index moved from `{subscriptionId, periodStart}` to `{subscriptionId,
+periodMonth}` — verified with a real cross-pathway test proving a manual "prorated" payment now
+blocks a later card "prorated from today" charge for the same month, the exact gap the old exact-
+day index missed. `renewal.service.js` gained `chargeProratedNow` (the card prorated-from-today
+path) and `recordManualPayment` (the offline path); `previewRenewal` gained `options.fullMonth`/
+`options.prorated`/`monthAlreadyPaid`; `renewOne`'s own dedup pre-check moved to the `periodMonth`
+key. New `scripts/migrate-period-month.js` (+ `scripts/lib/migratePeriodMonth.js`), dry-run-first,
+backfills `periodMonth` and swaps the index, aborting with zero writes on any detected same-month
+collision — not yet run anywhere (staging first, per the plan, at ship time). Admin Charge dialog
+(`app/admin/subscriptions/page.tsx`) reworked into the card/manual × full/prorated matrix; `Record
+offline payment` prefills its amount from the selected period and requires a note. Invoice PDF +
+renewal receipt email both gained a method-aware line ("Charged to card on file." vs. "Payment
+recorded by the academy — {note}").
+
+Tests: new `tests/models/registration.model.test.js` (10/10 — periodMonth derivation, manualNote
+validation, Guard B collision/non-collision incl. the cross-day-same-month case); new
+`tests/scripts/lib/migratePeriodMonth.test.js` (5/5 — dry-run, live, idempotent re-run, collision
+abort, failed-row-never-blocks); `tests/routes/subscription.routes.test.js` extended with a new
+`POST .../record-payment` describe block (9 new tests: role gating, invalid_amount/invalid_note,
+full-period happy path incl. dunning-clearing, prorated-period-despite-broken-chain, already-paid
+rejection) — full file 36/36; `tests/services/renewal.previewAndCharge.test.js` extended (7 new
+tests: `options`/`monthAlreadyPaid` shape, `chargeProratedNow` happy path + inactive rejection, and
+three Guard-B cross-pathway proofs) — full file 18/18, real Stripe TEST-mode; `tests/services/
+invoice.service.test.js` (+1) and `tests/services/mail.service.test.js` (+1) for the method-aware
+line. `app/admin/subscriptions/__tests__/page.test.tsx` extended (+6: prorated selection, disabled-
+when-unavailable, already-paid alert, manual prefill/validation/submit, period-switch re-prefill) —
+full file 28/28. Full backend suite: 692/724 passing — the 32 failures reverified via `git stash` as
+byte-identical to unmodified `develop` (same count, same tests: the 14 pre-existing
+`registration.routes.test.js` failures already documented under PR 1, plus 18 more across 4
+unrelated suites — `scheduleOccurrence`/`billingDates`/`realignBillingAnchors`/
+`groupClassSchedule.routes` — all pre-existing on `develop` before this PR, same "today"/local-
+machine-TZ-dependent flakiness class, confirmed via the same stash-and-rerun discipline). Full
+frontend suite: 384/384. `tsc --noEmit` clean both sides. Docs closed out: ADR 001 addendum
+(2026-08-30(2)), `DATABASE_SCHEMA_DOCUMENTATION.md`'s `Registration` section, `docs/features/
+admin.md`'s Subscriptions → Charge section, `docs/modules/email.md`'s new "Method-aware receipt/
+invoice line" section.
 
 **PR 1 completion notes:** `billing/proration.service.js` gained `resolveFirstChargePeriod()` — the
 single new branch point (D1) — leaving `computeProration()` itself untouched, as planned.

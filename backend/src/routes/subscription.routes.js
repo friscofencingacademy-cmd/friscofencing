@@ -7,6 +7,7 @@ const {
   changeSchedule,
   chargePreview,
   charge,
+  recordPayment,
 } = require('../controllers/subscription.controller');
 const { requireAuth, requireRole } = require('../middlewares/auth');
 
@@ -21,5 +22,8 @@ router.patch('/:id/schedule', requireAuth, requireRole('admin', 'superadmin'), c
 // step beyond the dialog itself, same sensitivity class as /admin/settings.
 router.get('/:id/charge-preview', requireAuth, requireRole('superadmin'), chargePreview);
 router.post('/:id/charge', requireAuth, requireRole('superadmin'), charge);
+// Manual/offline payment recording (docs/plans/payment-airtight-plan.md
+// D5) — same sensitivity class and role gate as the card Charge action.
+router.post('/:id/record-payment', requireAuth, requireRole('superadmin'), recordPayment);
 
 module.exports = router;

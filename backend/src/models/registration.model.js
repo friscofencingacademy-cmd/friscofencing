@@ -90,12 +90,51 @@ const registrationSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // How this charge was collected (docs/plans/payment-airtight-plan.md
+    // D5) — 'card' covers every existing row (the schema default; a row
+    // created before this field existed reads back as `undefined`, which
+    // every consumer treats the same as 'card' — never re-check `=== 'card'`
+    // directly, always branch on `=== 'manual'` so old rows degrade
+    // correctly with no migration needed for this field). 'manual' is set
+    // ONLY by renewal.service.js's recordManualPayment — never by any real
+    // Stripe charge path.
+    chargeMethod: {
+      type: String,
+      enum: ['card', 'manual'],
+      default: 'card',
+    },
+    // Required, non-empty, ONLY when chargeMethod is 'manual' (validated
+    // below) — the admin's own note on why/how this was collected outside
+    // Stripe (e.g. "paid by check #1042"). Null for every card charge.
+    manualNote: {
+      type: String,
+      default: null,
+    },
+    // The superadmin who triggered this charge, for audit — set on a
+    // manual recording AND on an admin-triggered card charge (the Charge
+    // dialog, either period option); left null for the unscheduled cron's
+    // own renewOne/retryOne calls and for a parent's own initial
+    // registration, none of which have an acting admin. Set once at row
+    // creation, never touched by the pending->completed|failed transition.
+    recordedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,
     discriminatorKey: 'billingShape',
   }
 );
+
+registrationSchema.path('manualNote').validate(function manualNoteRequiredForManualCharge(value) {
+  if (this.chargeMethod !== 'manual') {
+    return true;
+  }
+
+  return typeof value === 'string' && value.trim().length > 0;
+}, 'manualNote is required and must be non-empty when chargeMethod is "manual"');
 
 const Registration = mongoose.model('Registration', registrationSchema);
 
@@ -142,6 +181,45 @@ const subscriptionCycleSchema = new Schema({
     type: Date,
     required: true,
   },
+  // Derived, immutable, 'YYYY-MM' bucket of `periodStart` (docs/plans/
+  // payment-airtight-plan.md D7) — Guard B's dedup key below. Computed by
+  // this schema's own pre-validate hook from periodStart's UTC calendar
+  // parts, NEVER accepted from a caller, so it can never structurally
+  // disagree with periodStart. Exists so "one payment per subscription per
+  // calendar month, through every pathway" is a DB invariant even now that
+  // a payment can be anchored mid-month (the admin Charge dialog's
+  // "prorated from today" option, or a manual recording) rather than
+  // always exactly on periodStart's own boundary — the OLD unique index on
+  // the exact (subscriptionId, periodStart) pair would let two rows for
+  // the same month, anchored on different days, both slip through.
+  periodMonth: {
+    type: String,
+    required: true,
+  },
+});
+
+// The single source of a ledger row's periodMonth bucket — the schema hook
+// below AND any read-side code that needs to query by the same key (e.g.
+// renewal.service.js's per-month dedup pre-check) must call this exact
+// function, never reimplement the 'YYYY-MM' format inline. UTC getters,
+// deliberately — periodStart is always a calendar-day sentinel (a
+// UTC-midnight Date), and reading it via UTC parts is correct regardless of
+// the host's own local timezone (dateShapes.js's convention), unlike a
+// LOCAL-getter reading, which only agrees with the sentinel's real calendar
+// day when the host itself runs in UTC.
+function periodMonthOf(periodStart) {
+  const year = periodStart.getUTCFullYear();
+  const month = periodStart.getUTCMonth() + 1;
+
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+subscriptionCycleSchema.pre('validate', function derivePeriodMonth(next) {
+  if (this.periodStart) {
+    this.periodMonth = periodMonthOf(this.periodStart);
+  }
+
+  next();
 });
 
 // Retry's "most recent failed row for this subscription" lookup
@@ -150,14 +228,17 @@ const subscriptionCycleSchema = new Schema({
 subscriptionCycleSchema.index({ subscriptionId: 1, createdAt: -1 });
 
 // Guard B — durable renewal dedup (CKQ's fourth double-charge protection
-// layer). At most one pending-or-completed row per subscription+period;
-// 'failed' is deliberately excluded so a failed charge never blocks its own
-// retry. `subscriptionId: { $exists: true }` scopes this index to rows of
-// THIS shape only — a per_session or one_time_event row has no
-// subscriptionId at all, so it can never collide here (same $exists-scoping
-// idiom CKQ's own group registration index uses).
+// layer), re-keyed from the exact (subscriptionId, periodStart) pair to
+// (subscriptionId, periodMonth) — docs/plans/payment-airtight-plan.md D7 —
+// so a duplicate payment for the same calendar month collides regardless of
+// which day within that month either row anchors to. 'failed' is
+// deliberately excluded so a failed charge never blocks its own retry.
+// `subscriptionId: { $exists: true }` scopes this index to rows of THIS
+// shape only — a per_session or one_time_event row has no subscriptionId
+// at all, so it can never collide here (same $exists-scoping idiom CKQ's
+// own group registration index uses).
 subscriptionCycleSchema.index(
-  { subscriptionId: 1, periodStart: 1 },
+  { subscriptionId: 1, periodMonth: 1 },
   {
     unique: true,
     partialFilterExpression: {
@@ -257,3 +338,4 @@ module.exports.BILLING_SHAPES = BILLING_SHAPES;
 module.exports.SubscriptionCycleRegistration = SubscriptionCycleRegistration;
 module.exports.PerSessionRegistration = PerSessionRegistration;
 module.exports.OneTimeEventRegistration = OneTimeEventRegistration;
+module.exports.periodMonthOf = periodMonthOf;

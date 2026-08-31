@@ -18,8 +18,13 @@ const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const Subscription = require('../../src/models/subscription.model');
+const Registration = require('../../src/models/registration.model');
+const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
+const { getServiceByCode } = require('../../src/services/serviceCatalog.service');
+const { addOneMonth } = require('../../src/utils/billingDates');
 
 const TEST_PASSWORD = 'correct-password';
 
@@ -537,5 +542,185 @@ describe('Subscription routes', () => {
     // Service-catalog + Price/schedule fixture renewal.service.test.js
     // already builds — covered at the service level
     // (renewal.previewAndCharge.test.js) rather than duplicated here.
+  });
+
+  // docs/plans/payment-airtight-plan.md D5 — the manual/offline payment
+  // path. Never calls Stripe, so these run fast without the real-Stripe
+  // fixtures renewal.service.test.js needs; the full "period: 'full' vs
+  // 'prorated'" amount MATH (not just wiring/validation) is covered there
+  // instead, alongside chargeProratedNow's own card-path tests.
+  describe('POST /api/v1/subscriptions/:id/record-payment', () => {
+    it('returns 401 unauthenticated', async () => {
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await request(app)
+        .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+        .send({ amount: 100, note: 'Paid by check', period: 'full' });
+
+      expect(res.status).toBe(401);
+    });
+
+    it.each(['parent', 'admin', 'coach'])('returns 403 for role %s', async (role) => {
+      const email = `record-payment-403-${role}@example.com`;
+      await seedUser({ role, email });
+      const agent = await loginAgent(email);
+
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await agent
+        .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+        .send({ amount: 100, note: 'Paid by check', period: 'full' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns invalid_amount and creates/changes nothing for a zero or negative amount', async () => {
+      await seedUser({ role: 'superadmin', email: 'record-payment-invalid-amount@example.com' });
+      const superAgent = await loginAgent('record-payment-invalid-amount@example.com');
+
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await superAgent
+        .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+        .send({ amount: 0, note: 'Paid by check', period: 'full' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('invalid_amount');
+
+      const inDb = await Subscription.findById(subscription._id);
+      expect(inDb.currentPeriodEnd.toISOString()).toBe(subscription.currentPeriodEnd.toISOString());
+      expect(await Registration.countDocuments({ subscriptionId: subscription._id })).toBe(0);
+    });
+
+    it('returns invalid_note and creates nothing when note is missing/blank', async () => {
+      await seedUser({ role: 'superadmin', email: 'record-payment-invalid-note@example.com' });
+      const superAgent = await loginAgent('record-payment-invalid-note@example.com');
+
+      const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+      const res = await superAgent
+        .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+        .send({ amount: 100, note: '   ', period: 'full' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('invalid_note');
+      expect(await Registration.countDocuments({ subscriptionId: subscription._id })).toBe(0);
+    });
+
+    it(
+      'records a "full" period manual payment: completes the ledger row with chargeMethod/manualNote/recordedBy, ' +
+        'rolls the subscription period forward, and clears dunning state',
+      async () => {
+        await seedServices();
+        const superadmin = await seedUser({ role: 'superadmin', email: 'record-payment-full@example.com' });
+        const superAgent = await loginAgent('record-payment-full@example.com');
+
+        const currentPeriodEnd = new Date('2026-02-01T00:00:00.000Z');
+        const subscription = await buildSubscription({
+          parentId: new mongoose.Types.ObjectId(),
+          currentPeriodEnd,
+          nextBillingDate: currentPeriodEnd,
+          // Already mid-dunning from a prior failed card attempt — the
+          // manual recording below must clear this (D6).
+          retryCount: 2,
+          nextRetryAt: new Date('2026-01-20T00:00:00.000Z'),
+        });
+
+        const res = await superAgent
+          .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+          .send({ amount: 137.5, note: 'Paid by check #1042', period: 'full' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.outcome).toBe('charged');
+        expect(res.body.chargeAmount).toBe(137.5);
+
+        // Expected value computed via the SAME shared addOneMonth helper
+        // recordManualPayment's own 'full' branch uses (not a hardcoded
+        // literal) — addOneMonth's rollover math is local-timezone-
+        // dependent (JS Date's own getMonth/setMonth), matching renewal
+        // .service.test.js's own established convention for this exact
+        // reason.
+        const expectedNewPeriodEnd = addOneMonth(currentPeriodEnd);
+
+        const inDb = await Subscription.findById(subscription._id);
+        expect(inDb.currentPeriodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
+        expect(inDb.currentPeriodEnd.toISOString()).toBe(expectedNewPeriodEnd.toISOString());
+        expect(inDb.lastChargeAmount).toBe(137.5);
+        expect(inDb.retryCount).toBe(0);
+        expect(inDb.nextRetryAt).toBeNull();
+
+        const row = await Registration.findOne({ subscriptionId: subscription._id });
+        expect(row.status).toBe('completed');
+        expect(row.chargeMethod).toBe('manual');
+        expect(row.manualNote).toBe('Paid by check #1042');
+        expect(row.recordedBy.toString()).toBe(superadmin._id.toString());
+        expect(row.stripePaymentIntentId).toBeNull();
+        expect(row.periodMonth).toBe('2026-02');
+      }
+    );
+
+    it(
+      'records a "prorated" period manual payment even when the schedule/level chain is unresolvable — ' +
+        'never blocks on the informational breakdown math (D5)',
+      async () => {
+        await seedServices();
+        await seedUser({ role: 'superadmin', email: 'record-payment-prorated-broken@example.com' });
+        const superAgent = await loginAgent('record-payment-prorated-broken@example.com');
+
+        // buildSubscription's bare scheduleId never resolves to a real
+        // GroupClassSchedule/GroupClass/Price chain.
+        const subscription = await buildSubscription({ parentId: new mongoose.Types.ObjectId() });
+
+        const res = await superAgent
+          .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+          .send({ amount: 60, note: 'Partial catch-up payment', period: 'prorated' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.outcome).toBe('charged');
+
+        const row = await Registration.findOne({ subscriptionId: subscription._id });
+        expect(row.chargeMethod).toBe('manual');
+        expect(row.amount).toBe(60);
+        expect(row.breakdown.prorated).toBe(true);
+        expect(row.breakdown.proratedAmount).toBe(60);
+      }
+    );
+
+    it('returns skipped_already_charged and writes nothing new when the target month is already completed', async () => {
+      await seedServices();
+      await seedUser({ role: 'superadmin', email: 'record-payment-already-paid@example.com' });
+      const superAgent = await loginAgent('record-payment-already-paid@example.com');
+
+      const currentPeriodEnd = new Date('2026-02-01T00:00:00.000Z');
+      const subscription = await buildSubscription({
+        parentId: new mongoose.Types.ObjectId(),
+        currentPeriodEnd,
+        nextBillingDate: currentPeriodEnd,
+      });
+
+      const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
+      await SubscriptionCycleRegistration.create({
+        serviceId: groupClassesService._id,
+        subscriptionId: subscription._id,
+        scheduleId: subscription.scheduleId,
+        studentId: subscription.studentId,
+        parentId: subscription.parentId,
+        eventType: 'renewal',
+        status: 'completed',
+        amount: 150,
+        breakdown: { monthlyFee: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0, registrationFeeCharged: 0 },
+        periodStart: currentPeriodEnd,
+        periodEnd: new Date('2026-03-01T00:00:00.000Z'),
+        paidAt: new Date('2026-01-15T00:00:00.000Z'),
+      });
+
+      const res = await superAgent
+        .post(`/api/v1/subscriptions/${subscription._id}/record-payment`)
+        .send({ amount: 150, note: 'Duplicate attempt', period: 'full' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('skipped_already_charged');
+      expect(await Registration.countDocuments({ subscriptionId: subscription._id })).toBe(1);
+    });
   });
 });
