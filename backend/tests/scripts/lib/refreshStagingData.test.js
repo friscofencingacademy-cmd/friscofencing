@@ -1,9 +1,13 @@
+const mongoose = require('mongoose');
+
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtils/db');
 const User = require('../../../src/models/user.model');
 const Level = require('../../../src/models/level.model');
 const GroupClass = require('../../../src/models/groupClass.model');
 const Service = require('../../../src/models/service.model');
 const PaymentMethod = require('../../../src/models/paymentMethod.model');
+const PrivateClassEnrollment = require('../../../src/models/privateClassEnrollment.model');
+const PrivateClassSchedule = require('../../../src/models/privateClassSchedule.model');
 const { comparePassword } = require('../../../src/utils/password');
 const { STAGING_TEST_PASSWORD } = require('../../../scripts/lib/setStagingTestPasswords');
 
@@ -121,6 +125,40 @@ describe('scripts/lib/refreshStagingData', () => {
       expect(await User.countDocuments({ stripeCustomerId: { $exists: true } })).toBe(0);
     }
   );
+
+  // docs/plans/booking-and-private-class-fixes-plan.md §3 — a real staging
+  // incident: pre-existing PrivateClassSchedule rows survived every refresh
+  // (wipeDatabase()'s old model-registry enumeration never touched them,
+  // this test file's own require graph never having loaded that model
+  // either — the exact real-world condition), and the legacy import
+  // recreated a fresh, slotless enrollment for the private-class-flagged
+  // row on every run. This asserts the composed fix end-to-end: both are
+  // gone after a refresh, using the real (undefined -> falsy -> skipped)
+  // TEST_CONFIG, matching the real config's own default.
+  it('wipes pre-existing private-class data and creates none from a private-class-flagged CSV row (IMPORT_PRIVATE_CLASS_ENROLLMENTS unset -> skipped)', async () => {
+    await PrivateClassSchedule.create({
+      coachId: new mongoose.Types.ObjectId(),
+      dayOfWeek: 2,
+      startTime: '16:00',
+      durationMinutes: 60,
+    });
+    expect(await PrivateClassSchedule.countDocuments({})).toBe(1);
+
+    const csvWithPrivateRow =
+      'PIN,First Name,Last Name,Family Name,Phone Number,Age,Birthdate,Programs,Email Address(es),Guardian(s)\n' +
+      '9002,Sana,Sarath,,,,,"Private Classes - Coach Chris, Advanced",,';
+
+    const result = await refreshStagingData({ csvText: csvWithPrivateRow, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
+
+    expect(await PrivateClassSchedule.countDocuments({})).toBe(0);
+    expect(result.importSummary.privateClassEnrollmentsCreated).toBe(0);
+    expect(result.importSummary.privateClassEnrollmentsSkipped).toBe(1);
+    expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
+    // The rest of the row still imported normally — only the private-class
+    // branch is gated, not the whole student/group-class enrollment.
+    const student = await User.findOne({ firstName: 'Sana' });
+    expect(student).not.toBeNull();
+  });
 
   it('is safe to run twice in a row: the second run wipes the first run\'s own data and rebuilds it identically', async () => {
     await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });

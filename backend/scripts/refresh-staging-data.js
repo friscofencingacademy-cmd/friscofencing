@@ -147,6 +147,12 @@ async function main() {
     console.log(`  Students enrolled in a level: ${importSummary.studentsEnrolledInLevel}`);
     console.log(`  Students with no program:     ${importSummary.studentsWithNoProgram}`);
     console.log(`  Private-class enrollments:    ${importSummary.privateClassEnrollmentsCreated}`);
+    // Only ever non-zero when IMPORT_PRIVATE_CLASS_ENROLLMENTS is false in
+    // legacy-import.config.js (docs/plans/booking-and-private-class-fixes-
+    // plan.md §3) — the real config's default, so this line is expected to
+    // read >0 on a normal staging refresh whenever the CSV has a private-
+    // class-flagged row, not a warning sign.
+    console.log(`  Private-class enrollments skipped (flag off): ${importSummary.privateClassEnrollmentsSkipped}`);
     if (importSummary.warnings.length > 0) {
       console.log(`  Warnings (${importSummary.warnings.length}):`);
       importSummary.warnings.forEach((warning) => console.log(`    - ${warning}`));
