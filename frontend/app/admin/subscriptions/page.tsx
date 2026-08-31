@@ -11,6 +11,7 @@ import {
   changeSubscriptionSchedule,
   chargeSubscription,
   fetchChargePreview,
+  fetchPaymentHistoryForParent,
   fetchSubscriptions,
   reactivateSubscription,
   recordManualPayment,
@@ -25,12 +26,14 @@ import type {
   ChargeResult,
   GroupClass,
   GroupClassSchedule,
+  PaymentHistoryRow,
 } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
 import Modal from '../../components/ui/Modal/Modal';
+import PaymentHistoryTable from '../../components/ui/PaymentHistoryTable/PaymentHistoryTable';
 import styles from '../../components/admin/admin.module.css';
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -212,6 +215,26 @@ interface ReactivateDialogState {
   error: string | null;
 }
 
+// Payment History (docs/plans/manual-charge-and-pdf-invoice-plan.md's
+// 2026-08-31 addendum) — read-only, no "saving" state at all. `rows` is the
+// WHOLE FAMILY's history (every child under this row's parent), fed by the
+// same PaymentHistoryTable + invoiceDownloadUrl the parent portal uses.
+interface HistoryDialogState {
+  open: boolean;
+  subscription: AdminSubscriptionRow | null;
+  loading: boolean;
+  rows: PaymentHistoryRow[];
+  error: string | null;
+}
+
+const EMPTY_HISTORY_DIALOG: HistoryDialogState = {
+  open: false,
+  subscription: null,
+  loading: false,
+  rows: [],
+  error: null,
+};
+
 async function fetchScheduleOptionsData() {
   const [schedules, groupClasses] = await Promise.all([fetchSchedules(), fetchGroupClasses()]);
   return { schedules, groupClasses };
@@ -285,6 +308,7 @@ export default function AdminSubscriptionsPage() {
     error: null,
   });
   const [chargeDialog, setChargeDialog] = useState<ChargeDialogState>(EMPTY_CHARGE_DIALOG);
+  const [historyDialog, setHistoryDialog] = useState<HistoryDialogState>(EMPTY_HISTORY_DIALOG);
 
   function openChangeSchedule(subscription: AdminSubscriptionRow) {
     setChangeDialog({
@@ -398,6 +422,25 @@ export default function AdminSubscriptionsPage() {
   function closeCharge() {
     if (chargeDialog.charging) return;
     setChargeDialog(EMPTY_CHARGE_DIALOG);
+  }
+
+  // Payment History (docs/plans/manual-charge-and-pdf-invoice-plan.md's
+  // 2026-08-31 addendum) — loads the row's WHOLE FAMILY's history (same
+  // scope the parent themselves sees at /parent/billing), not just this one
+  // student's rows.
+  async function openHistory(subscription: AdminSubscriptionRow) {
+    setHistoryDialog({ ...EMPTY_HISTORY_DIALOG, open: true, subscription, loading: true });
+
+    try {
+      const rows = await fetchPaymentHistoryForParent(subscription.parentId._id);
+      setHistoryDialog((prev) => ({ ...prev, loading: false, rows }));
+    } catch (err) {
+      setHistoryDialog((prev) => ({ ...prev, loading: false, error: getErrorMessage(err) }));
+    }
+  }
+
+  function closeHistory() {
+    setHistoryDialog(EMPTY_HISTORY_DIALOG);
   }
 
   // In dunning, a manual recording always targets the SAME overdue period
@@ -632,6 +675,9 @@ export default function AdminSubscriptionsPage() {
                       </td>
                       <td className={`${styles.td} ${styles.tdRight}`}>
                         <div className={styles.actionBtns}>
+                          <button type="button" className={styles.btnSecondary} onClick={() => openHistory(row)}>
+                            Payment History
+                          </button>
                           {(isActive || isPendingCancel) && !row.isPremium && (
                             <button
                               type="button"
@@ -1129,6 +1175,30 @@ export default function AdminSubscriptionsPage() {
         ) : null}
 
         {chargeDialog.chargeError ? <Alert variant="error">{chargeDialog.chargeError}</Alert> : null}
+      </Modal>
+
+      <Modal
+        open={historyDialog.open && historyDialog.subscription !== null}
+        onClose={closeHistory}
+        title="Payment History"
+        footer={
+          <button type="button" className={styles.btnPrimary} onClick={closeHistory}>
+            Close
+          </button>
+        }
+      >
+        {historyDialog.subscription ? (
+          <p className={styles.cellMuted} style={{ marginTop: 0 }}>
+            Every payment on file for {historyDialog.subscription.parentId.firstName}{' '}
+            {historyDialog.subscription.parentId.lastName}&apos;s family, straight from our billing records.
+          </p>
+        ) : null}
+
+        {historyDialog.error ? (
+          <Alert variant="error">{historyDialog.error}</Alert>
+        ) : (
+          <PaymentHistoryTable rows={historyDialog.rows} loading={historyDialog.loading} />
+        )}
       </Modal>
     </main>
   );

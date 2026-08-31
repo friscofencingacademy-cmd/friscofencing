@@ -31,10 +31,18 @@ async function listMine(req, res) {
   }
 }
 
-// Parent payment history (docs/plans/payment-airtight-plan.md D10).
+// Parent payment history (docs/plans/payment-airtight-plan.md D10) — an
+// admin/superadmin may pass ?parentId= to view a specific family's history
+// on the admin subscriptions page (docs/plans/manual-charge-and-pdf-invoice
+// -plan.md's 2026-08-31 addendum), reusing listHistory() verbatim rather
+// than duplicating it. A parent role ALWAYS gets their own req.user._id,
+// regardless of any parentId it sends — that query param is only ever
+// honored for an admin/superadmin caller, never trusted from a parent.
 async function history(req, res) {
   try {
-    const rows = await registrationService.listHistory(req.user._id);
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+    const parentId = isAdmin && req.query.parentId ? req.query.parentId : req.user._id;
+    const rows = await registrationService.listHistory(parentId);
     return res.status(200).json({ history: rows });
   } catch (error) {
     const status = error.status || 500;

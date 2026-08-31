@@ -4,6 +4,7 @@ import type {
   AdminSubscriptionRow,
   ChargePreview,
   ChargeResult,
+  PaymentHistoryRow,
 } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
 
@@ -23,6 +24,19 @@ export async function fetchSubscriptions(
 ): Promise<AdminSubscriptionListResponse> {
   const res = await api.get<AdminSubscriptionListResponse>('/subscriptions', { params });
   return res.data;
+}
+
+// QUERY — throws on failure. Admin/superadmin-only ?parentId= on the same
+// GET /registrations/history a parent's own /parent/billing page calls
+// (docs/plans/manual-charge-and-pdf-invoice-plan.md's 2026-08-31 addendum);
+// returns that WHOLE FAMILY's history (every child under that parent), not
+// just one student's — same scope the parent themselves sees. Reuses
+// PaymentHistoryTable verbatim, per that component's own doc comment.
+export async function fetchPaymentHistoryForParent(parentId: string): Promise<PaymentHistoryRow[]> {
+  const res = await api.get<{ history: PaymentHistoryRow[] }>('/registrations/history', {
+    params: { parentId },
+  });
+  return res.data.history;
 }
 
 // MUTATIONS — never throw; resolve to a MutationResult.

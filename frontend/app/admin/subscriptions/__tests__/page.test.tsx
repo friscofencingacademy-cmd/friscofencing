@@ -114,6 +114,8 @@ let chargedId: string | null = null;
 let chargePayload: unknown = null;
 let recordPaymentResponse: Record<string, unknown> = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 90 };
 let recordPaymentPayload: unknown = null;
+let paymentHistoryResponse: { history: unknown[] } | null = { history: [] };
+let paymentHistoryRequestedParentId: string | null = null;
 
 const server = setupServer(
   http.get('*/auth/me', () =>
@@ -151,6 +153,13 @@ const server = setupServer(
     chargedId = params.id as string;
     recordPaymentPayload = await request.json();
     return HttpResponse.json(recordPaymentResponse);
+  }),
+  http.get('*/registrations/history', ({ request }) => {
+    paymentHistoryRequestedParentId = new URL(request.url).searchParams.get('parentId');
+    if (paymentHistoryResponse === null) {
+      return HttpResponse.json({ message: 'Failed to list payment history' }, { status: 500 });
+    }
+    return HttpResponse.json(paymentHistoryResponse);
   })
 );
 
@@ -169,6 +178,8 @@ afterEach(() => {
   chargePayload = null;
   recordPaymentResponse = { subscriptionId: 'sub-1', outcome: 'charged', chargeAmount: 90 };
   recordPaymentPayload = null;
+  paymentHistoryResponse = { history: [] };
+  paymentHistoryRequestedParentId = null;
   authUser = {
     _id: 'super-1',
     role: 'superadmin',
@@ -612,6 +623,87 @@ describe('AdminSubscriptionsPage', () => {
 
       const amountInput = within(dialog).getByLabelText(/amount/i) as HTMLInputElement;
       expect(amountInput.value).toBe('75.00');
+    });
+  });
+
+  // docs/plans/manual-charge-and-pdf-invoice-plan.md's 2026-08-31 addendum —
+  // reuses PaymentHistoryTable + GET /registrations/history?parentId=
+  // verbatim; these tests cover the admin-page wiring only (the table's own
+  // rendering is covered by its own component test, the endpoint's own
+  // scoping by registration.routes.test.js).
+  describe('Payment History', () => {
+    it('is visible to a plain (non-superadmin) admin, unlike Charge', async () => {
+      authUser = { _id: 'admin-1', role: 'admin', firstName: 'Regular', lastName: 'Admin', email: 'admin@example.com' };
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      expect(screen.getByRole('button', { name: /payment history/i })).toBeInTheDocument();
+    });
+
+    it("requests the row's parent id and shows that family's history, including a Download link for a completed row", async () => {
+      paymentHistoryResponse = {
+        history: [
+          {
+            _id: 'reg-1',
+            billingShape: 'subscription_cycle',
+            status: 'completed',
+            amount: 150,
+            chargeMethod: 'card',
+            manualNote: null,
+            paidAt: '2026-01-01T12:00:00.000Z',
+            createdAt: '2026-01-01T12:00:00.000Z',
+            studentName: 'Sam Rivera',
+            description: 'Group Class Registration — Beginner Foil A (Beginner)',
+            periodStart: '2026-01-01T00:00:00.000Z',
+            periodEnd: '2026-02-01T00:00:00.000Z',
+            sessionDate: null,
+            invoiceAvailable: true,
+          },
+        ],
+      };
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /payment history/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /payment history/i });
+      await waitFor(() => expect(paymentHistoryRequestedParentId).toBe('parent-1'));
+      expect(within(dialog).getByText(/pat rivera's family/i)).toBeInTheDocument();
+      expect(await within(dialog).findByText('Group Class Registration — Beginner Foil A (Beginner)')).toBeInTheDocument();
+      expect(within(dialog).getByText('$150.00')).toBeInTheDocument();
+      expect(within(dialog).getByRole('link', { name: /download/i })).toBeInTheDocument();
+    });
+
+    it('shows an inline error, not a crash, when the history request fails', async () => {
+      paymentHistoryResponse = null;
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /payment history/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /payment history/i });
+      // A 500 deliberately shows the generic message, never the raw backend
+      // string (getErrorMessage's own contract — only a 4xx is user-facing).
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(/something went wrong/i);
+    });
+
+    it('closes via the footer Close button', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await screen.findByText('Sam Rivera');
+      await user.click(screen.getByRole('button', { name: /payment history/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /payment history/i });
+      // Two buttons share the accessible name "Close" here: the Modal's own
+      // header X (aria-label="Close") and this dialog's footer button — the
+      // footer one is the later of the two in DOM order.
+      const closeButtons = within(dialog).getAllByRole('button', { name: /^close$/i });
+      await user.click(closeButtons[closeButtons.length - 1]);
+
+      expect(screen.queryByRole('dialog', { name: /payment history/i })).not.toBeInTheDocument();
     });
   });
 });
