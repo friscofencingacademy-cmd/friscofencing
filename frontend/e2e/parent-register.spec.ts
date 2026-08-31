@@ -17,6 +17,14 @@ import { loginAs } from './fixtures/auth';
 // "Select a time" to "Select a start date". Both real UI states the wizard
 // can be in (D5) are covered on purpose, via a frozen clock, rather than
 // depending on whatever day this happens to run.
+//
+// The wizard was restructured again (docs/plans/booking-flow-sequential-
+// plan.md): every section (Who -> Level -> Start date -> Payment) now
+// renders sequentially in one column, all at once as each prerequisite
+// selection is made — there is no "step" to advance through at all, and the
+// CTA is always "Register & Pay". A "Continue" button (or any other
+// intermediate CTA) reappearing here would be a REGRESSION, not a fix — do
+// not add one back.
 
 function sessionsFixture(dates: string[]) {
   return {
@@ -44,9 +52,10 @@ test.describe('parent register wizard', () => {
     await page.goto('/parent/register');
 
     await page.getByRole('radio', { name: /test child/i }).click();
-    // No "Continue" click here — picking a child auto-advances straight to
-    // the level/date step. If this ever needs to come back, this spec will
-    // hang here and fail loudly rather than silently pass.
+    // No "Continue" click here — the Level section is already on screen,
+    // sequentially, the moment a child is picked. If a "Continue" step ever
+    // comes back, this spec will hang here and fail loudly rather than
+    // silently pass.
     await page.getByRole('radio', { name: /fencing foundation/i }).click();
 
     const dateGroup = page.getByRole('radiogroup', { name: 'Select a start date' });

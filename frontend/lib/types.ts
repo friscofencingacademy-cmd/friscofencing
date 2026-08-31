@@ -407,6 +407,16 @@ export interface RegistrationPreviewSavings {
   total: number;
 }
 
+// One counted sibling's current plan, for the register wizard's quote-panel
+// family breakdown (docs/plans/booking-flow-sequential-plan.md) —
+// server-computed by calculateChargeAmount()'s registration mode, never
+// re-derived on the frontend (Hard Rule 7).
+export interface SiblingComparisonEntry {
+  studentId: string;
+  studentName: string;
+  monthlyFee: number;
+}
+
 // GET /registrations/preview — read-only pricing/discount estimate for the
 // register wizard's summary, before the parent commits to paying. Same
 // fields calculateChargeAmount() computes for the real charge (see
@@ -422,6 +432,12 @@ export interface RegistrationPricePreview extends ProrationInfo {
   registrationFeeCharged: number;
   registrationFeeWaived: boolean;
   registrationFeeReason: string | null;
+  // Family-breakdown fields (docs/plans/booking-flow-sequential-plan.md) —
+  // present only when a sibling discount applied; absent (not sent at all —
+  // JSON drops undefined values) otherwise. Optional so the wizard renders
+  // fine against a backend response that predates this addition.
+  siblingComparison?: SiblingComparisonEntry[];
+  discountBase?: number | null;
   savings: RegistrationPreviewSavings;
 }
 

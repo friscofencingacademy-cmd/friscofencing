@@ -74,37 +74,46 @@ function renderBookTrialPage() {
 }
 
 describe('BookTrialPage wizard', () => {
-  it('walks Who -> Pick a Level -> Confirmation and submits { studentId, sessionId }', async () => {
+  it('walks the sequential Who -> Level -> Session form and submits { studentId, sessionId }, with a single always-visible "Book Trial Class" CTA', async () => {
     renderBookTrialPage();
 
-    // Step 0: Who
+    // No "Continue" button ever renders — the CTA is always the final
+    // action (docs/plans/booking-flow-sequential-plan.md D3).
+    expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument();
+    const cta = screen.getByRole('button', { name: /book trial class/i });
+    expect(cta).toBeDisabled();
+
+    // Picking a child reveals the Level section below it — the child card
+    // stays on screen, never replaced.
     const childCard = await screen.findByRole('radio', { name: /kid one/i });
     fireEvent.click(childCard);
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
-    // Step 1: Pick a Level — no separate class/schedule step any more;
-    // picking a level resolves to its class(es) internally and goes
-    // straight to a session picker (pills), merged across all of them.
     await screen.findByLabelText('Level');
+    expect(childCard).toBeInTheDocument();
+    expect(childCard).toHaveAttribute('aria-checked', 'true');
+
+    // Picking a level reveals the Session section below it — Who and Level
+    // both stay on screen.
     fireEvent.change(screen.getByLabelText('Level'), { target: { value: LEVEL_BEGINNER._id } });
 
     const sessionA = await screen.findByRole('radio', { name: /4:00 PM–5:00 PM/i });
     const sessionB = screen.getByRole('radio', { name: /6:00 PM–7:00 PM/i });
     expect(sessionA).toBeInTheDocument();
     expect(sessionB).toBeInTheDocument();
+    expect(screen.getByLabelText('Level')).toBeInTheDocument();
 
     fireEvent.click(sessionA);
+    expect(cta).not.toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: /book trial class/i }));
+    fireEvent.click(cta);
 
     await waitFor(() => {
       expect(postPayload).toEqual({ studentId: STUDENT._id, sessionId: SESSION_A._id });
     });
 
-    // Step 2: Confirmation — a single "Back to Dashboard" CTA only. A
-    // second "Register for a Class" link used to render alongside it; the
-    // owner asked for a clean trial-only confirmation with no register
-    // prompt.
+    // Confirmation — a single "Back to Dashboard" CTA only. A second
+    // "Register for a Class" link used to render alongside it; the owner
+    // asked for a clean trial-only confirmation with no register prompt.
     expect(await screen.findByText('Trial class booked!')).toBeInTheDocument();
     expect(screen.getByText('Kid One')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to dashboard/i })).toBeInTheDocument();
@@ -120,7 +129,6 @@ describe('BookTrialPage wizard', () => {
       renderBookTrialPage();
 
       fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-      fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
       const levelSelect = await screen.findByLabelText('Level');
       expect(within(levelSelect).getByText(LEVEL_BEGINNER.name)).toBeInTheDocument();
@@ -130,33 +138,37 @@ describe('BookTrialPage wizard', () => {
     });
   });
 
-  it('preselects the child from the ?child= deep link', async () => {
+  it('preselects the child from the ?child= deep link, revealing the Level section immediately', async () => {
     mockSearchParams = new URLSearchParams({ child: STUDENT._id });
 
     renderBookTrialPage();
 
     const childCard = await screen.findByRole('radio', { name: /kid one/i });
     expect(childCard).toHaveAttribute('aria-checked', 'true');
+    expect(await screen.findByLabelText('Level')).toBeInTheDocument();
   });
 
-  it('back-navigation from step 1 to step 0 preserves the selected child', async () => {
+  it('picking a different child keeps the Level/Session sections in place, not a separate navigable step', async () => {
     renderBookTrialPage();
 
     fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
-
     await screen.findByLabelText('Level');
-    fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
+    fireEvent.change(screen.getByLabelText('Level'), { target: { value: LEVEL_BEGINNER._id } });
+    await screen.findByRole('radio', { name: /4:00 PM–5:00 PM/i });
 
-    const childCard = await screen.findByRole('radio', { name: /kid one/i });
-    expect(childCard).toHaveAttribute('aria-checked', 'true');
+    // Re-clicking the (only) child card doesn't hide anything that was
+    // already chosen — there's no "back" step to navigate away from.
+    fireEvent.click(screen.getByRole('radio', { name: /kid one/i }));
+
+    expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByLabelText('Level')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /4:00 PM–5:00 PM/i })).toBeInTheDocument();
   });
 
-  it('shows an inline error on a booking failure without crashing, and stays on the same step', async () => {
+  it('shows an inline error on a booking failure without crashing, and keeps the form on screen', async () => {
     renderBookTrialPage();
 
     fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
     await screen.findByLabelText('Level');
     fireEvent.change(screen.getByLabelText('Level'), { target: { value: LEVEL_BEGINNER._id } });
