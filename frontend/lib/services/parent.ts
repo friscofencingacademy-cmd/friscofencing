@@ -1,6 +1,7 @@
 import api from '../api';
 import type {
   NewStudent,
+  PaymentHistoryRow,
   PaymentMethodInfo,
   RegistrationCreateResponse,
   RegistrationPricePreview,
@@ -91,6 +92,25 @@ export async function cancelSubscription(id: string): Promise<MutationResult<und
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to cancel. Please try again.') };
   }
+}
+
+// ── Payment history (docs/plans/payment-airtight-plan.md D10) ────────────
+// Reads ONLY the Registration ledger — the single source of truth for what
+// a parent has actually been charged, across every billing shape.
+
+export async function fetchMyPaymentHistory(): Promise<PaymentHistoryRow[]> {
+  const res = await api.get<{ history: PaymentHistoryRow[] }>('/registrations/history');
+  return res.data.history;
+}
+
+// A real file download, not a JSON call — same-origin (the Next.js rewrite
+// proxy `api`'s own baseURL already goes through), so the browser attaches
+// the httpOnly auth cookie automatically for a plain <a href> navigation;
+// no need to fetch-as-blob. Mirrors `api`'s own baseURL resolution exactly
+// so this works identically whether NEXT_PUBLIC_API_URL is unset (the
+// relative rewrite-proxy path) or set to an absolute backend origin.
+export function invoiceDownloadUrl(registrationId: string): string {
+  return `${api.defaults.baseURL}/registrations/${registrationId}/invoice`;
 }
 
 // ── Payment method ───────────────────────────────────────────────────────

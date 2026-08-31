@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarPlus, ClipboardList, CreditCard, Home, LogOut, Swords, Wallet } from 'lucide-react';
+import { CalendarPlus, ClipboardList, CreditCard, Home, LogOut, Receipt, Swords, Wallet } from 'lucide-react';
 
 import { useAuth } from '../../../context/AuthContext';
 import { useParentPortal } from '../../../context/ParentPortalContext';
@@ -23,7 +23,12 @@ const ACADEMY_ITEMS: PortalNavItem[] = [
     icon: <Swords size={18} />,
     href: '/private-classes',
   },
-  { key: 'billing', label: 'Billing', icon: <CreditCard size={18} />, href: '/parent/subscriptions' },
+  { key: 'registrations', label: 'My Registrations', icon: <CreditCard size={18} />, href: '/parent/subscriptions' },
+  // Payment history (docs/plans/payment-airtight-plan.md D10) — a distinct
+  // page/concept from "My Registrations" above (what you're signed up for
+  // and will be charged next) — this is what's ALREADY been charged, read
+  // straight from the Registration ledger.
+  { key: 'payment-history', label: 'Payment History', icon: <Receipt size={18} />, href: '/parent/billing' },
   { key: 'payment-method', label: 'Payment Method', icon: <Wallet size={18} />, href: '/parent/payment-method' },
 ];
 

@@ -2,6 +2,7 @@ const Subscription = require('../models/subscription.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const User = require('../models/user.model');
+const { SubscriptionCycleRegistration } = require('../models/registration.model');
 const { todayDateOnly } = require('../utils/billingDates');
 const { addStudentToRoster, removeStudentFromRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
@@ -65,9 +66,13 @@ async function listAll({ status, q, page, limit } = {}) {
     filter.status = 'cancelled';
   }
 
-  let subscriptions = await populateSubscriptionQuery(Subscription.find(filter)).sort({
-    createdAt: -1,
-  });
+  // .lean() here (list-only — getPopulatedSubscription's own mutation-
+  // return callers below are untouched) so lastPayment can be spread onto
+  // each plain row below; a real Mongoose document's toJSON() would drop an
+  // ad hoc extra property that isn't a schema path.
+  let subscriptions = await populateSubscriptionQuery(Subscription.find(filter))
+    .sort({ createdAt: -1 })
+    .lean();
 
   if (q && q.trim()) {
     const needle = q.trim().toLowerCase();
@@ -98,9 +103,34 @@ async function listAll({ status, q, page, limit } = {}) {
   const totalPages = Math.max(1, Math.ceil(total / limitNum));
   const currentPage = Math.min(Math.max(1, pageNum), totalPages);
   const start = (currentPage - 1) * limitNum;
+  const pageRows = subscriptions.slice(start, start + limitNum);
+
+  // lastPayment (docs/plans/payment-airtight-plan.md D11) — sourced from
+  // the Registration ledger, the real total actually charged (fee
+  // included), never Subscription.lastChargeAmount (deliberately
+  // fee-free). Computed only for the current PAGE, not every match, since
+  // pagination already bounds this to a small, real page size.
+  const enrichedRows = await Promise.all(
+    pageRows.map(async (subscription) => {
+      const lastCompletedRow = await SubscriptionCycleRegistration.findOne({
+        subscriptionId: subscription._id,
+        status: 'completed',
+      }).sort({ paidAt: -1 });
+
+      const lastPayment = lastCompletedRow
+        ? {
+            amount: lastCompletedRow.amount,
+            paidAt: lastCompletedRow.paidAt,
+            chargeMethod: lastCompletedRow.chargeMethod || 'card',
+          }
+        : null;
+
+      return { ...subscription, lastPayment };
+    })
+  );
 
   return {
-    subscriptions: subscriptions.slice(start, start + limitNum),
+    subscriptions: enrichedRows,
     total,
     totalPages,
     currentPage,

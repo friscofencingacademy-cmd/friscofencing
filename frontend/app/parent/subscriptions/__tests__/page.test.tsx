@@ -31,6 +31,7 @@ const ACTIVE_SUBSCRIPTION = {
   currentPeriodEnd: '2026-02-01T00:00:00.000Z',
   nextBillingDate: '2026-02-01T00:00:00.000Z',
   lastChargeAmount: 150,
+  lastPayment: { amount: 150, paidAt: '2026-01-01T12:00:00.000Z', chargeMethod: 'card' },
 };
 
 const CANCELLED_SUBSCRIPTION = {
@@ -42,6 +43,7 @@ const CANCELLED_SUBSCRIPTION = {
   currentPeriodEnd: '2026-01-01T00:00:00.000Z',
   nextBillingDate: '2026-01-01T00:00:00.000Z',
   lastChargeAmount: null,
+  lastPayment: null,
 };
 
 const PRIVATE_ENTRY = {
@@ -272,7 +274,14 @@ describe('SubscriptionsPage', () => {
     server.use(
       http.get('*/registrations/mine', () =>
         HttpResponse.json({
-          subscriptions: [{ ...ACTIVE_SUBSCRIPTION, lastChargeAmount: 135, lastSiblingDiscountApplied: true }],
+          subscriptions: [
+            {
+              ...ACTIVE_SUBSCRIPTION,
+              lastChargeAmount: 135,
+              lastSiblingDiscountApplied: true,
+              lastPayment: { amount: 135, paidAt: '2026-01-01T12:00:00.000Z', chargeMethod: 'card' },
+            },
+          ],
         })
       )
     );

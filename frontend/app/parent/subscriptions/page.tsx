@@ -262,7 +262,7 @@ function SubscriptionsPageContent() {
                 <th>Status</th>
                 <th>Current Period End</th>
                 <th>Next Billing Date</th>
-                <th>Last Charge</th>
+                <th>Last Payment</th>
                 <th>Sibling Discount (Current)</th>
                 <th>Action</th>
               </tr>
@@ -278,9 +278,18 @@ function SubscriptionsPageContent() {
                   <td>{formatDate(subscription.currentPeriodEnd)}</td>
                   <td>{formatDate(subscription.nextBillingDate)}</td>
                   <td>
-                    {subscription.lastChargeAmount !== null
-                      ? `$${subscription.lastChargeAmount.toFixed(2)}`
-                      : '—'}
+                    {/* Sourced from the Registration ledger (docs/plans/
+                        payment-airtight-plan.md D11) — the real total
+                        actually charged, fee included. Never
+                        Subscription.lastChargeAmount, which is deliberately
+                        fee-free and would understate a real payment that
+                        bundled a one-time registration fee. */}
+                    {subscription.lastPayment ? `$${subscription.lastPayment.amount.toFixed(2)}` : '—'}
+                    {subscription.lastPayment?.chargeMethod === 'manual' ? (
+                      <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
+                        Manual
+                      </span>
+                    ) : null}
                     {subscription.lastSiblingDiscountApplied ? (
                       <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
                         10% sibling

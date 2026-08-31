@@ -426,6 +426,83 @@ describe('Subscription routes', () => {
       const qMissRes = await adminAgent.get('/api/v1/subscriptions?q=nobody-matches-this');
       expect(qMissRes.body.total).toBe(0);
     });
+
+    it(
+      "lastPayment is sourced from the Registration ledger's most recent completed row (fee included), " +
+        'and null when no completed row exists yet — docs/plans/payment-airtight-plan.md D11',
+      async () => {
+        await seedServices();
+        const { schedule } = await seedSchedule({ levelName: 'ListLastPayment', levelOrder: 31 });
+        const parent = await seedUser({ role: 'parent', email: 'list-last-payment@example.com' });
+        const paidStudent = await User.create({
+          role: 'student',
+          firstName: 'Paid',
+          lastName: 'List',
+          parentId: parent._id,
+        });
+        const neverPaidStudent = await User.create({
+          role: 'student',
+          firstName: 'NeverPaid',
+          lastName: 'List',
+          parentId: parent._id,
+        });
+
+        const paidSubscription = await Subscription.create({
+          studentId: paidStudent._id,
+          scheduleId: schedule._id,
+          parentId: parent._id,
+          status: 'active',
+          cancelAtPeriodEnd: false,
+          currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+          currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+          nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+        });
+        await Subscription.create({
+          studentId: neverPaidStudent._id,
+          scheduleId: schedule._id,
+          parentId: parent._id,
+          status: 'active',
+          cancelAtPeriodEnd: false,
+          currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+          currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+          nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+        });
+
+        const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
+        await SubscriptionCycleRegistration.create({
+          serviceId: groupClassesService._id,
+          subscriptionId: paidSubscription._id,
+          scheduleId: schedule._id,
+          studentId: paidStudent._id,
+          parentId: parent._id,
+          eventType: 'initial',
+          status: 'completed',
+          amount: 175, // monthly fee + a one-time registration fee bundled in
+          chargeMethod: 'manual',
+          manualNote: 'Paid by check',
+          breakdown: { monthlyFee: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0, registrationFeeCharged: 25 },
+          periodStart: new Date('2026-01-01T00:00:00.000Z'),
+          periodEnd: new Date('2026-02-01T00:00:00.000Z'),
+          paidAt: new Date('2026-01-01T12:00:00.000Z'),
+        });
+
+        await seedUser({ role: 'admin', email: 'list-last-payment-admin@example.com' });
+        const adminAgent = await loginAgent('list-last-payment-admin@example.com');
+
+        const res = await adminAgent.get('/api/v1/subscriptions?q=list-last-payment');
+        expect(res.status).toBe(200);
+        expect(res.body.total).toBe(2);
+
+        const paidRow = res.body.subscriptions.find((s) => s.studentId.firstName === 'Paid');
+        const neverPaidRow = res.body.subscriptions.find((s) => s.studentId.firstName === 'NeverPaid');
+
+        // The real total (fee included), never Subscription.lastChargeAmount.
+        expect(paidRow.lastPayment).toEqual(
+          expect.objectContaining({ amount: 175, chargeMethod: 'manual' })
+        );
+        expect(neverPaidRow.lastPayment).toBeNull();
+      }
+    );
   });
 
   // Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md
