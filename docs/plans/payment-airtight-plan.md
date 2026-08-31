@@ -54,7 +54,12 @@ path) and `recordManualPayment` (the offline path); `previewRenewal` gained `opt
 `options.prorated`/`monthAlreadyPaid`; `renewOne`'s own dedup pre-check moved to the `periodMonth`
 key. New `scripts/migrate-period-month.js` (+ `scripts/lib/migratePeriodMonth.js`), dry-run-first,
 backfills `periodMonth` and swaps the index, aborting with zero writes on any detected same-month
-collision — not yet run anywhere (staging first, per the plan, at ship time). Admin Charge dialog
+collision. **2026-08-31 update:** now also wired into `scripts/lib/refreshStagingData.js`'s standard
+wipe-and-reseed sequence (runs `{apply: true}` right after the wipe, before anything else — a clean
+no-op on the data side every time, since it's acting on an empty `registrations` collection, but it
+still ensures the current index exists and the stale pre-migration one is dropped every single
+reseed). Still not yet run against staging's own *current, non-empty* data outside that reseed flow —
+that first real run is still pending, at ship time, per the plan. Admin Charge dialog
 (`app/admin/subscriptions/page.tsx`) reworked into the card/manual × full/prorated matrix; `Record
 offline payment` prefills its amount from the selected period and requires a note. Invoice PDF +
 renewal receipt email both gained a method-aware line ("Charged to card on file." vs. "Payment
@@ -321,6 +326,43 @@ Branch: `feature/parent-billing-history`
   `lastPayment` enrichment; component/page tests; `docs/features/parent-portal.md` (new page +
   nav), `docs/features/admin.md` (future-reuse note for the table), `docs/TEST_COVERAGE.md`
   refresh.
+
+---
+
+## Follow-on — staging reseed hardening (2026-08-31)
+
+Prompted by the owner asking, ahead of a staging wipe-and-reseed, what the reseed script actually
+does and whether it needed updating for everything shipped since. Two real gaps found and closed,
+both folded into `scripts/lib/refreshStagingData.js`'s standard sequence (not one-off manual steps):
+
+- **The `periodMonth`/Guard B index migration (D7 above)** is now step 2 of the sequence — see the
+  PR 2 completion notes' 2026-08-31 update above.
+- **Stripe scrub** (`scripts/lib/scrubStripeFields.js`) — production has no real Stripe data yet,
+  so nothing leaks into staging today, but that's currently an ACCIDENT of the reseed's only data
+  source being a CSV file, never a live copy of production Mongo. The moment any future workflow
+  clones/syncs production data into staging — even partially — a subtler import that doesn't start
+  from a full wipe could carry real `stripeCustomerId` (User), `PaymentMethod` documents, or
+  `stripePaymentIntentId` (Registration) into a lower-trust environment. This step makes that
+  guarantee an explicit, standing part of every reseed instead of relying on the accident holding
+  forever.
+- **Staging test passwords** (`scripts/lib/setStagingTestPasswords.js`) — every login-capable user
+  (parent/coach/admin/superadmin) gets the password `Test@123` after the reseed, for testing
+  convenience. Closes a real gap: a migrated parent otherwise gets NO password at all
+  (`runLegacyImport.js`'s own `findOrCreateParent` — "a migrated parent can't log in until they set
+  a password via the real signup/reset flow," correct for the real go-live import, useless for
+  staging testing), and each real coach gets its own distinct `ChangeMe-*` password from
+  `legacy-import.config.js`. Students are never touched — not a login-capable role in this system.
+  **Staging/local only** — both new steps have no opinion on staging vs. production themselves (same
+  discipline as `wipeDatabase()`), relying entirely on the CLI wrapper's existing
+  `assertStagingOrLocal` guard; setting one shared, known password across every real family's
+  account would be a severe incident if either ever ran against production.
+
+The CLI wrapper (`scripts/refresh-staging-data.js`) now reports all 7 steps (wipe → index migration
+→ Services → legacy import → superadmin → Stripe scrub → test passwords). Tests: new
+`tests/scripts/lib/{scrubStripeFields,setStagingTestPasswords}.test.js` (4 + 3 tests, unit-level —
+seed data directly, no wipe, so the scrub/password logic itself is exercised in isolation);
+`tests/scripts/lib/refreshStagingData.test.js` extended (+2) to prove both steps are wired into the
+real sequence and the post-refresh invariants hold.
 
 ---
 
