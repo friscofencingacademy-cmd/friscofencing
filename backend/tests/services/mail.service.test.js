@@ -259,6 +259,30 @@ describe('mail.service', () => {
       expect(call.cc).toBeUndefined();
       expect(call.subject).toContain('Jamie');
       expect(call.text).toContain('150');
+      expect(call.text).toContain('Charged to your saved card.');
+    });
+
+    // docs/plans/payment-airtight-plan.md D9 — the method-aware receipt
+    // line, used by a manual recording.
+    it('renders a custom paymentMethodLabel when provided, instead of the default card-charge line', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendRenewalReceiptEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Jamie' },
+        schedule: {},
+        groupClass: {},
+        monthLabel: 'September 2026',
+        chargeAmount: 150,
+        monthlyFee: 150,
+        siblingDiscountAmount: 0,
+        paymentMethodLabel: 'Payment recorded by the academy — Paid by check #1042.',
+      });
+
+      expect(result).not.toBe(false);
+      const call = sendMail.mock.calls[0][0];
+      expect(call.text).toContain('Payment recorded by the academy — Paid by check #1042.');
+      expect(call.text).not.toContain('Charged to your saved card.');
     });
 
     // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.

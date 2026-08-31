@@ -3,19 +3,20 @@ const User = require('../models/user.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const Price = require('../models/price.model');
-const { SubscriptionCycleRegistration } = require('../models/registration.model');
+const { SubscriptionCycleRegistration, periodMonthOf } = require('../models/registration.model');
 const { monthLabel: formatMonthLabel } = require('../email/dates');
 const stripe = require('../config/stripe');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
+const { computeProration } = require('./billing/proration.service');
 const {
   chargeAndFinalize,
   finalizeSuccessfulCharge,
   advanceSubscriptionPeriod,
 } = require('./billing/chargeFinalization.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
-const { addOneMonth, todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
+const { addOneMonth, firstOfNextMonth, todayAtMidnight, todayDateOnly } = require('../utils/billingDates');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 const { removeStudentFromRoster } = require('./roster.service');
 const mailService = require('./mail.service');
@@ -48,6 +49,46 @@ async function resolveMonthlyFee(subscription) {
   return price.monthlyFee;
 }
 
+// Resolves a subscription's schedule -> class -> LEVEL chain, mirroring
+// resolveMonthlyFee's exact same walk — used by the admin Charge dialog's
+// "prorated from today" preview/charge (docs/plans/payment-airtight-plan.md
+// D4), which needs computeProration()'s own levelId param. Kept as a
+// separate function rather than changing resolveMonthlyFee's return shape,
+// to avoid touching that already-tested function's contract. null on any
+// broken link, same discipline.
+async function resolveLevelId(subscription) {
+  const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
+
+  if (!schedule) {
+    return null;
+  }
+
+  const groupClass = await GroupClass.findById(schedule.classId);
+
+  if (!groupClass) {
+    return null;
+  }
+
+  return groupClass.levelId;
+}
+
+// Shared by every charge pathway that writes a subscription_cycle ledger
+// row (renewOne, chargeProratedNow, recordManualPayment) — the ledger-level
+// half of "one payment per subscription per calendar month" (Guard B,
+// docs/plans/payment-airtight-plan.md D7). Finds any pending/completed row
+// already targeting `periodMonthValue`, regardless of which day within
+// that month its own periodStart happens to be. This pre-check exists so
+// each caller can return a friendly outcome instead of a raw duplicate-key
+// error — the schema's own unique index on (subscriptionId, periodMonth)
+// is the actual, race-proof backstop, not a substitute for it.
+async function findExistingRowForMonth(subscriptionId, periodMonthValue) {
+  return SubscriptionCycleRegistration.findOne({
+    subscriptionId,
+    periodMonth: periodMonthValue,
+    status: { $in: ['pending', 'completed'] },
+  });
+}
+
 // Fire-and-forget receipt email — never throws, never affects the outcome
 // (mail.service.js's send-function contract). Populate failures are
 // deliberately kept inside this try/catch, alongside the send itself, so a
@@ -68,7 +109,20 @@ async function resolveMonthlyFee(subscription) {
 // chargeAndFinalize update the DB row via findByIdAndUpdate without mutating
 // the in-memory doc, so re-fetching by id here (inside buildInvoiceData) is
 // what actually sees the just-written 'completed' status.
-async function sendReceiptEmail(subscription, parent, student, chargeAmount, siblingDiscountAmount, monthlyFee, newPeriodStart, registrationId) {
+// `paymentMethodLabel` (docs/plans/payment-airtight-plan.md D9) defaults to
+// the card-charge line every existing call site still means — only
+// recordManualPayment passes a different one.
+async function sendReceiptEmail(
+  subscription,
+  parent,
+  student,
+  chargeAmount,
+  siblingDiscountAmount,
+  monthlyFee,
+  newPeriodStart,
+  registrationId,
+  paymentMethodLabel = 'Charged to your saved card.'
+) {
   try {
     const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
     const groupClass = schedule ? await GroupClass.findById(schedule.classId) : null;
@@ -98,6 +152,7 @@ async function sendReceiptEmail(subscription, parent, student, chargeAmount, sib
       chargeAmount,
       monthlyFee: monthlyFee ?? 0,
       siblingDiscountAmount: siblingDiscountAmount || 0,
+      paymentMethodLabel,
       invoiceNumber,
       invoicePdf,
     });
@@ -290,17 +345,84 @@ async function previewRenewal(subscriptionId) {
   }
 
   const student = await User.findById(subscription.studentId);
-  const { amount, siblingDiscountApplied, siblingDiscountAmount } = await calculateChargeAmount(
-    student,
-    monthlyFee,
-    { mode: 'renewal', subscription }
-  );
+  const fullMonthCharge = await calculateChargeAmount(student, monthlyFee, { mode: 'renewal', subscription });
+
+  // "Prorated from today" (docs/plans/payment-airtight-plan.md D4) — the
+  // SAME computeProration() the registration flow uses, anchored at TODAY
+  // rather than this subscription's own currentPeriodEnd. A broken
+  // schedule/class chain (levelId unresolvable) degrades to omitting this
+  // option rather than failing the whole preview — the full-month option
+  // still works either way.
+  const levelId = await resolveLevelId(subscription);
+  let proratedOption = null;
+
+  if (levelId !== null) {
+    const today = todayDateOnly();
+    const proration = await computeProration({ levelId, monthlyFee, registrationDate: today });
+    const proratedCharge = await calculateChargeAmount(student, proration.proratedAmount, {
+      mode: 'renewal',
+      subscription,
+    });
+
+    proratedOption = {
+      amount: proratedCharge.amount,
+      breakdown: {
+        monthlyFee,
+        prorated: proration.prorated,
+        proratedAmount: proration.proratedAmount,
+        siblingDiscountApplied: proratedCharge.siblingDiscountApplied,
+        siblingDiscountAmount: proratedCharge.siblingDiscountAmount,
+      },
+      periodStart: today,
+      periodEnd: proration.periodEnd,
+    };
+  }
+
+  // The current Central month's own ledger row, if this subscription has
+  // ALREADY been paid for it via ANY pathway — cron, Charge button (either
+  // period), or a manual recording (D8). The full-month option is already
+  // independently gated by `due`/`willFinalizeCancellation` above (which
+  // self-corrects after any successful charge, since advanceSubscription-
+  // Period always rolls currentPeriodEnd/nextBillingDate forward from
+  // whatever period actually got paid); this is the ledger-sourced check
+  // the "prorated from today" and manual-recording paths need, since
+  // neither one gates on nextBillingDate.
+  const monthAlreadyPaidRow = await SubscriptionCycleRegistration.findOne({
+    subscriptionId,
+    periodMonth: periodMonthOf(todayDateOnly()),
+    status: 'completed',
+  });
+  const monthAlreadyPaid = monthAlreadyPaidRow
+    ? {
+        amount: monthAlreadyPaidRow.amount,
+        paidAt: monthAlreadyPaidRow.paidAt,
+        chargeMethod: monthAlreadyPaidRow.chargeMethod || 'card',
+      }
+    : null;
 
   return {
     ...base,
     inDunning: false,
-    amount,
-    breakdown: { monthlyFee, siblingDiscountApplied, siblingDiscountAmount },
+    amount: fullMonthCharge.amount,
+    breakdown: {
+      monthlyFee,
+      siblingDiscountApplied: fullMonthCharge.siblingDiscountApplied,
+      siblingDiscountAmount: fullMonthCharge.siblingDiscountAmount,
+    },
+    options: {
+      fullMonth: {
+        amount: fullMonthCharge.amount,
+        breakdown: {
+          monthlyFee,
+          siblingDiscountApplied: fullMonthCharge.siblingDiscountApplied,
+          siblingDiscountAmount: fullMonthCharge.siblingDiscountAmount,
+        },
+        periodStart,
+        periodEnd,
+      },
+      prorated: proratedOption,
+    },
+    monthAlreadyPaid,
   };
 }
 
@@ -310,7 +432,13 @@ async function previewRenewal(subscriptionId) {
 // cancelled between being listed as a candidate and being processed here
 // must not be charged" a directly testable property of this function alone,
 // not something only provable by racing real concurrency.
-async function renewOne(subscriptionId) {
+// `recordedBy` (docs/plans/payment-airtight-plan.md D5) is null for every
+// cron-driven call (runRenewals never passes it) and the admin's own user
+// id when this was triggered via the Charge dialog's "Full month" + "Charge
+// card on file" combination (chargeNow threads it through) — set once at
+// the new ledger row's creation below, for audit only, never read back by
+// any charge-decision logic.
+async function renewOne(subscriptionId, { recordedBy = null } = {}) {
   const subscription = await Subscription.findById(subscriptionId);
 
   if (!subscription) {
@@ -356,13 +484,15 @@ async function renewOne(subscriptionId) {
     return { subscriptionId, outcome: 'cancelled_finalized' };
   }
 
-  // Ledger dedup check (D4 step 2), BEFORE computing anything — a prior run
-  // may have already written a row for this exact period.
-  const existingRow = await SubscriptionCycleRegistration.findOne({
-    subscriptionId,
-    periodStart: subscription.currentPeriodEnd,
-    status: { $in: ['pending', 'completed'] },
-  });
+  // Ledger dedup check (registration-ledger-plan.md D4 step 2), BEFORE
+  // computing anything — a prior run may have already written a row for
+  // this calendar month. Keyed on periodMonth, not the exact periodStart
+  // (docs/plans/payment-airtight-plan.md D7) — a month can now also have
+  // been paid via a mid-month-anchored row (the Charge dialog's "prorated
+  // from today" option, or a manual recording), which this must still
+  // recognize even though its own periodStart differs from
+  // currentPeriodEnd.
+  const existingRow = await findExistingRowForMonth(subscriptionId, periodMonthOf(subscription.currentPeriodEnd));
 
   const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
   assertBillingShape(groupClassesService, 'subscription_cycle');
@@ -437,7 +567,7 @@ async function renewOne(subscriptionId) {
   const newPeriodEnd = addOneMonth(newPeriodStart);
 
   // Create the ledger row BEFORE charging (D4 step 4) — Guard B (the
-  // {subscriptionId, periodStart} partial unique index on the discriminator
+  // {subscriptionId, periodMonth} partial unique index on the discriminator
   // schema) makes a concurrent duplicate insert impossible; a race loser
   // catches E11000 here and skips without ever reaching Stripe.
   let registration;
@@ -452,6 +582,7 @@ async function renewOne(subscriptionId) {
       eventType: 'renewal',
       status: 'pending',
       amount,
+      recordedBy,
       breakdown: {
         monthlyFee,
         registrationFeeCharged: 0,
@@ -482,14 +613,265 @@ async function renewOne(subscriptionId) {
   });
 }
 
+// The Charge dialog's "prorated from today" card option (docs/plans/
+// payment-airtight-plan.md D4) — a superadmin-triggered catch-up charge for
+// a lapsed/mid-month situation, anchored at TODAY rather than the
+// subscription's own currentPeriodEnd. Mirrors renewOne's exact guard
+// sequence (fresh fetch, active check, per-month ledger dedup via Guard B's
+// periodMonth key, pending-row-first, THEN charge) — the only real
+// differences are which period/amount get computed and that this does NOT
+// gate on nextBillingDate, deliberately: it is an off-cycle tool, not the
+// scheduled renewal.
+async function chargeProratedNow(subscriptionId, adminUser) {
+  const subscription = await Subscription.findById(subscriptionId);
+
+  if (!subscription) {
+    return { subscriptionId, outcome: 'not_found' };
+  }
+
+  if (subscription.status !== 'active') {
+    return { subscriptionId, outcome: 'skipped_inactive' };
+  }
+
+  const levelId = await resolveLevelId(subscription);
+  const monthlyFee = await resolveMonthlyFee(subscription);
+
+  if (levelId === null || monthlyFee === null) {
+    return { subscriptionId, outcome: 'failed_no_price' };
+  }
+
+  const today = todayDateOnly();
+  const targetPeriodMonth = periodMonthOf(today);
+
+  const existingRow = await findExistingRowForMonth(subscriptionId, targetPeriodMonth);
+
+  if (existingRow && existingRow.status === 'completed') {
+    return { subscriptionId, outcome: 'skipped_already_charged' };
+  }
+
+  const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
+  assertBillingShape(groupClassesService, 'subscription_cycle');
+
+  const student = await User.findById(subscription.studentId);
+  const parent = await User.findById(subscription.parentId);
+
+  const proration = await computeProration({ levelId, monthlyFee, registrationDate: today });
+  const { amount, siblingDiscountApplied, siblingDiscountAmount } = await calculateChargeAmount(
+    student,
+    proration.proratedAmount,
+    { mode: 'renewal', subscription }
+  );
+
+  const paymentMethod = await paymentMethodService.getMine(subscription.parentId);
+
+  if (!paymentMethod) {
+    return { subscriptionId, outcome: 'failed_no_payment_method' };
+  }
+
+  const stripeCustomerId = await ensureStripeCustomer(parent);
+
+  let registration;
+
+  try {
+    registration = await SubscriptionCycleRegistration.create({
+      serviceId: groupClassesService._id,
+      subscriptionId,
+      scheduleId: subscription.scheduleId,
+      studentId: subscription.studentId,
+      parentId: subscription.parentId,
+      eventType: 'renewal',
+      status: 'pending',
+      amount,
+      recordedBy: adminUser._id,
+      breakdown: {
+        monthlyFee,
+        prorated: proration.prorated,
+        proratedAmount: proration.proratedAmount,
+        registrationFeeCharged: 0,
+        siblingDiscountApplied,
+        siblingDiscountAmount,
+      },
+      periodStart: today,
+      periodEnd: proration.periodEnd,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return { subscriptionId, outcome: 'skipped_concurrent' };
+    }
+
+    throw error;
+  }
+
+  return chargeAndEmail({
+    row: registration,
+    subscription,
+    student,
+    parent,
+    paymentMethod,
+    stripeCustomerId,
+    monthlyFee,
+    siblingDiscountApplied,
+    siblingDiscountAmount,
+  });
+}
+
+// The superadmin's manual/offline payment path (docs/plans/payment-airtight
+// -plan.md D5) — an admin-entered amount + required note, no Stripe call.
+// Same guard sequence and pending-row-first discipline as every other
+// charge pathway (fresh fetch, active check, per-month ledger dedup via
+// Guard B's periodMonth key), so Guard B applies identically — this can
+// never double-pay a month any other pathway already completed. Finalizes
+// immediately via the SAME finalizeSuccessfulCharge every real Stripe
+// charge uses, which is what actually clears dunning state
+// (advanceSubscriptionPeriod resets retryCount/nextRetryAt) — recording a
+// manual payment while a subscription is in dunning ends the dunning cycle,
+// per D6.
+//
+// `period` is 'full' (the subscription's own next scheduled period,
+// currentPeriodEnd -> +1 month — the SAME period a card "Full month" charge
+// would target, even mid-dunning) or 'prorated' (today -> the 1st of next
+// month, for a lapsed/mid-month restart). Unlike the card paths, a broken
+// schedule/class chain does NOT block a 'prorated' recording — the admin's
+// own entered amount is what actually gets recorded either way; only the
+// informational breakdown.monthlyFee/prorated math degrades gracefully.
+async function recordManualPayment(subscriptionId, { amount, note, period }, adminUser) {
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+    return { subscriptionId, outcome: 'invalid_amount' };
+  }
+
+  const trimmedNote = typeof note === 'string' ? note.trim() : '';
+
+  if (trimmedNote.length === 0) {
+    return { subscriptionId, outcome: 'invalid_note' };
+  }
+
+  if (period !== 'full' && period !== 'prorated') {
+    return { subscriptionId, outcome: 'invalid_period' };
+  }
+
+  const subscription = await Subscription.findById(subscriptionId);
+
+  if (!subscription) {
+    return { subscriptionId, outcome: 'not_found' };
+  }
+
+  if (subscription.status !== 'active') {
+    return { subscriptionId, outcome: 'skipped_inactive' };
+  }
+
+  let periodStart;
+  let periodEnd;
+  let breakdown;
+
+  if (period === 'full') {
+    periodStart = subscription.currentPeriodEnd;
+    periodEnd = addOneMonth(periodStart);
+    breakdown = {
+      monthlyFee: amount,
+      prorated: false,
+      proratedAmount: null,
+      registrationFeeCharged: 0,
+      siblingDiscountApplied: false,
+      siblingDiscountAmount: 0,
+    };
+  } else {
+    const today = todayDateOnly();
+    periodStart = today;
+
+    const levelId = await resolveLevelId(subscription);
+    const monthlyFee = await resolveMonthlyFee(subscription);
+    const proration =
+      levelId !== null && monthlyFee !== null
+        ? await computeProration({ levelId, monthlyFee, registrationDate: today })
+        : null;
+
+    periodEnd = proration ? proration.periodEnd : firstOfNextMonth(today);
+    breakdown = {
+      monthlyFee: monthlyFee ?? amount,
+      prorated: true,
+      proratedAmount: amount,
+      registrationFeeCharged: 0,
+      siblingDiscountApplied: false,
+      siblingDiscountAmount: 0,
+    };
+  }
+
+  const existingRow = await findExistingRowForMonth(subscriptionId, periodMonthOf(periodStart));
+
+  if (existingRow && existingRow.status === 'completed') {
+    return { subscriptionId, outcome: 'skipped_already_charged' };
+  }
+
+  const groupClassesService = await getServiceByCode('group-classes', { requireActive: true });
+  assertBillingShape(groupClassesService, 'subscription_cycle');
+
+  let registration;
+
+  try {
+    registration = await SubscriptionCycleRegistration.create({
+      serviceId: groupClassesService._id,
+      subscriptionId,
+      scheduleId: subscription.scheduleId,
+      studentId: subscription.studentId,
+      parentId: subscription.parentId,
+      eventType: 'renewal',
+      status: 'pending',
+      amount,
+      chargeMethod: 'manual',
+      manualNote: trimmedNote,
+      recordedBy: adminUser._id,
+      breakdown,
+      periodStart,
+      periodEnd,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return { subscriptionId, outcome: 'skipped_concurrent' };
+    }
+
+    throw error;
+  }
+
+  const result = await finalizeSuccessfulCharge({
+    row: registration,
+    subscription,
+    paymentIntentId: null,
+    chargeAmount: amount,
+    siblingDiscountApplied: false,
+  });
+
+  const student = await User.findById(subscription.studentId);
+  const parent = await User.findById(subscription.parentId);
+
+  await sendReceiptEmail(
+    subscription,
+    parent,
+    student,
+    amount,
+    0,
+    breakdown.monthlyFee,
+    periodStart,
+    registration._id,
+    `Payment recorded by the academy — ${trimmedNote}`
+  );
+
+  return result;
+}
+
 // Superadmin manual Charge button's write path (docs/plans/manual-charge-
-// and-pdf-invoice-plan.md D2) — routes to the exact same functions the
-// unscheduled `npm run renewals` job would call, based on the SAME signal
-// runRenewals/runRetries split their two phases on (retryCount > 0 = in
-// dunning). Zero new charge logic: every guard (fresh re-fetch, not-due
-// skip, ledger dedup, stale-pending recovery, idempotency keys, dunning
-// state, emails) lives entirely in renewOne/retryOne, unchanged.
-async function chargeNow(subscriptionId) {
+// and-pdf-invoice-plan.md D2; docs/plans/payment-airtight-plan.md D4 for
+// the period/method options) — `period` ('full' | 'prorated', default
+// 'full') routes to renewOne's own full-month math or the new
+// chargeProratedNow above; dunning (retryCount > 0) always bypasses both
+// and retries the locked failed-row amount via retryOne, unchanged — the
+// SAME signal runRenewals/runRetries split their two phases on. Zero new
+// charge logic beyond chargeProratedNow itself: every other guard (fresh
+// re-fetch, not-due skip, ledger dedup, stale-pending recovery, idempotency
+// keys, dunning state, emails) lives entirely in renewOne/retryOne,
+// unchanged. `adminUser` is threaded into renewOne/chargeProratedNow as
+// `recordedBy` for audit (D5) — never into retryOne, which never creates a
+// new ledger row.
+async function chargeNow(subscriptionId, { period = 'full', adminUser } = {}) {
   const subscription = await Subscription.findById(subscriptionId);
 
   if (!subscription) {
@@ -500,7 +882,11 @@ async function chargeNow(subscriptionId) {
     return retryOne(subscriptionId);
   }
 
-  return renewOne(subscriptionId);
+  if (period === 'prorated') {
+    return chargeProratedNow(subscriptionId, adminUser);
+  }
+
+  return renewOne(subscriptionId, { recordedBy: adminUser ? adminUser._id : null });
 }
 
 // Cancels a subscription that has exhausted its retries — ported verbatim
@@ -710,4 +1096,13 @@ async function runRetries() {
   return { total: candidates.length, results };
 }
 
-module.exports = { renewOne, runRenewals, retryOne, runRetries, previewRenewal, chargeNow };
+module.exports = {
+  renewOne,
+  runRenewals,
+  retryOne,
+  runRetries,
+  previewRenewal,
+  chargeNow,
+  chargeProratedNow,
+  recordManualPayment,
+};

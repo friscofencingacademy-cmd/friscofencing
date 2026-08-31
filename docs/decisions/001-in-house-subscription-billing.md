@@ -177,6 +177,42 @@ guards, same idempotency; nothing about this addendum makes running it dangerous
 manual charges (Guard B's ledger dedup means a manual charge and a later `npm run renewals` run can
 never double-charge the same period either way).
 
+## Addendum — 2026-08-30(2): card/manual × full/prorated Charge dialog; Guard B re-keyed to the calendar month
+
+Full plan: `docs/plans/payment-airtight-plan.md`. The Charge button (previous addendum) grows two
+independent choices: **how to collect** — Charge card on file (unchanged) or Record offline
+payment (new: an admin-entered amount + required note, no Stripe call) — and **which period** —
+Full month (currentPeriodEnd → +1 month, the standard renewal, still gated on `due`) or Prorated
+from today (`computeProration()` anchored at today rather than currentPeriodEnd — an off-cycle
+catch-up tool for a lapsed/mid-month situation, deliberately never gated on `due`). Four real
+pathways can now write a `subscription_cycle` ledger row for a subscription's current month:
+the cron/button's full-month renewal, the button's card-prorated-from-today charge
+(`chargeProratedNow`), and a manual recording of either period (`recordManualPayment`) — all four
+funnel through the identical pending-row-first → finalize sequence this ADR's safeguards already
+govern; no new charge logic beyond computing which amount/period applies.
+
+This broke a previously-implicit assumption: Guard B's unique index was keyed on the EXACT
+`(subscriptionId, periodStart)` pair, which was only ever "one row per calendar month" because
+every existing pathway happened to always anchor `periodStart` identically for a given month
+(`currentPeriodEnd`, stepped forward by exactly one month each time). A prorated-from-today row's
+`periodStart` is `today`, a different day than `currentPeriodEnd` — so the two could structurally
+coexist under the old index despite covering the *same* month. Fixed by adding a derived,
+immutable `periodMonth` field (`'YYYY-MM'`, computed from `periodStart` in a schema pre-validate
+hook — never accepted from a caller) to every `subscription_cycle` row, and re-keying Guard B to
+`(subscriptionId, periodMonth)`. "One payment per subscription per calendar month, through every
+pathway" is now a real DB invariant, not an accident of how few pathways used to exist. A
+dry-run-first migration (`scripts/migrate-period-month.js`) backfills `periodMonth` on existing
+rows and swaps the index; it aborts with zero writes if it finds any two pending/completed rows
+for the same subscription that would collide in the same month bucket (verified never to happen
+against real data, not merely assumed).
+
+A manual recording's ledger row carries `chargeMethod: 'manual'`, a required `manualNote`, and
+`recordedBy` (the acting superadmin) — `chargeMethod` defaults `'card'` for every pre-existing row
+and every real Stripe charge; consumers branch on `=== 'manual'`, never `=== 'card'`, so old rows
+degrade correctly with no backfill needed for that field. `recordedBy` is also now set on an
+admin-triggered card charge (both periods), for audit — still `null` for the unscheduled cron's own
+calls, which have no acting admin.
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.

@@ -276,6 +276,7 @@ async function sendRenewalReceiptEmail({
   chargeAmount,
   monthlyFee,
   siblingDiscountAmount,
+  paymentMethodLabel,
   invoiceNumber,
   invoicePdf,
 }) {
@@ -288,6 +289,7 @@ async function sendRenewalReceiptEmail({
       monthlyFee,
       siblingDiscountAmount: siblingDiscountAmount || 0,
       chargeAmount,
+      paymentMethodLabel: paymentMethodLabel || 'Charged to your saved card.',
     };
 
     const { subject, html, text } = renderEmail('renewalReceipt', data);
