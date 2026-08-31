@@ -442,6 +442,113 @@ describe('AdminSubscriptionsPage', () => {
       expect(within(dialog).getByRole('button', { name: /confirm charge/i })).toBeDisabled();
     });
 
+    // docs/plans/booking-and-private-class-fixes-plan.md §5 — the fix
+    // itself: the "not due" explanation is now a real, prominent Alert
+    // (role="status" for the 'success' variant), positioned at the TOP of
+    // the dialog above the method radios, not a barely-visible muted line
+    // near the bottom.
+    describe('blocked-state messaging', () => {
+      it('renders the "not due" explanation as a real Alert, visible before any method/period is touched', async () => {
+        chargePreviewResponse = { ...DEFAULT_CHARGE_PREVIEW, due: false, nextBillingDate: '2099-01-01T00:00:00.000Z' };
+        const user = userEvent.setup();
+        renderPage();
+
+        await screen.findByText('Sam Rivera');
+        await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+        const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+        const alert = await within(dialog).findByRole('status');
+        expect(alert).toHaveTextContent(/already paid through this period/i);
+        expect(alert).toHaveTextContent(/not due until/i);
+        expect(alert).toHaveTextContent('Jan 1, 2099');
+      });
+
+      it('renders the already-paid explanation as the same top Alert when "Prorated from today" is selected', async () => {
+        chargePreviewResponse = {
+          ...DEFAULT_CHARGE_PREVIEW,
+          monthAlreadyPaid: { amount: 75, paidAt: '2026-01-15T18:00:00.000Z', chargeMethod: 'manual' },
+        };
+        const user = userEvent.setup();
+        renderPage();
+
+        await screen.findByText('Sam Rivera');
+        await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+        const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+        await within(dialog).findByText('Monthly fee: $150.00');
+        // Not shown yet — the currently-selected period ('full') isn't the
+        // already-paid one.
+        expect(within(dialog).queryByText(/this month is already paid/i)).not.toBeInTheDocument();
+
+        await user.click(within(dialog).getByRole('radio', { name: /prorated from today/i }));
+
+        const alert = await within(dialog).findByRole('status');
+        expect(alert).toHaveTextContent(/this month is already paid/i);
+        expect(alert).toHaveTextContent('$75.00');
+        expect(alert).toHaveTextContent('(manual)');
+      });
+
+      it('never shows the already-paid explanation during a dunning card retry — that path has its own Alert', async () => {
+        chargePreviewResponse = {
+          ...DEFAULT_CHARGE_PREVIEW,
+          due: false,
+          inDunning: true,
+          retryCount: 1,
+          attemptsRemaining: 2,
+          options: undefined,
+          monthAlreadyPaid: undefined,
+        };
+        renderPage();
+
+        await screen.findByText('Sam Rivera');
+        await userEvent.setup().click(screen.getByRole('button', { name: /^charge$/i }));
+
+        const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+        await within(dialog).findByText(/retry attempt 1 of 3/i);
+        expect(within(dialog).queryByText(/already paid through this period/i)).not.toBeInTheDocument();
+      });
+
+      it('never shows the already-paid explanation while finalizing a pending cancellation', async () => {
+        chargePreviewResponse = {
+          ...DEFAULT_CHARGE_PREVIEW,
+          willFinalizeCancellation: true,
+          amount: undefined,
+          breakdown: undefined,
+        };
+        renderPage();
+
+        await screen.findByText('Sam Rivera');
+        await userEvent.setup().click(screen.getByRole('button', { name: /^charge$/i }));
+
+        const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+        await within(dialog).findByText(/will finalize the cancellation/i);
+        expect(within(dialog).queryByText(/already paid through this period/i)).not.toBeInTheDocument();
+      });
+
+      it('shows a note-required hint on the manual path when the note is empty, and clears it once one is typed', async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await screen.findByText('Sam Rivera');
+        await user.click(screen.getByRole('button', { name: /^charge$/i }));
+
+        const dialog = await screen.findByRole('dialog', { name: /charge subscription/i });
+        await within(dialog).findByText('Monthly fee: $150.00');
+
+        await user.click(within(dialog).getByRole('radio', { name: /record offline payment/i }));
+
+        expect(within(dialog).getByText(/a note is required to record an offline payment/i)).toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: /record payment/i })).toBeDisabled();
+
+        await user.type(within(dialog).getByLabelText(/note/i), 'Paid by check #1042');
+
+        expect(
+          within(dialog).queryByText(/a note is required to record an offline payment/i)
+        ).not.toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: /record payment/i })).toBeEnabled();
+      });
+    });
+
     it('shows the dunning note and keeps Confirm enabled (retryOne never gates on due date)', async () => {
       chargePreviewResponse = {
         ...DEFAULT_CHARGE_PREVIEW,

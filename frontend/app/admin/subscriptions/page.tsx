@@ -993,6 +993,35 @@ export default function AdminSubscriptionsPage() {
               </>
             ) : (
               <>
+                {/* Prominent, always-visible explanation whenever the
+                    currently selected period is already paid (docs/plans/
+                    booking-and-private-class-fixes-plan.md §5) — promoted
+                    from a barely-visible muted line near the bottom of the
+                    dialog to the top, above the method radios. Guard B
+                    (one payment per subscription per calendar month, built
+                    after a real $403.82 double-charge incident) is correct
+                    and stays exactly as-is; what was broken was the
+                    COMMUNICATION, not the rule — no override is added
+                    here. Never shown during the dunning-card-lock path,
+                    which has its own explanation below and deliberately
+                    bypasses this due-date reasoning (retryOne never gates
+                    on nextBillingDate). */}
+                {!inDunningCardLock && periodAlreadyPaid ? (
+                  <Alert variant="success">
+                    {effectivePeriod === 'full'
+                      ? `Already paid through this period. Not due until ${
+                          preview.nextBillingDate ? formatDateLabel(preview.nextBillingDate) : '—'
+                        } — the Confirm button unlocks then.`
+                      : preview.monthAlreadyPaid
+                        ? `This month is already paid — ${formatMoney(
+                            preview.monthAlreadyPaid.amount
+                          )} on ${formatInstant(preview.monthAlreadyPaid.paidAt)} (${
+                            preview.monthAlreadyPaid.chargeMethod === 'manual' ? 'manual' : 'card'
+                          }).`
+                        : null}
+                  </Alert>
+                ) : null}
+
                 <div className={styles.formGroup}>
                   <label className={styles.label}>How to collect</label>
                   <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
@@ -1133,23 +1162,19 @@ export default function AdminSubscriptionsPage() {
                         value={chargeDialog.manualNote}
                         onChange={(e) => setChargeDialog((prev) => ({ ...prev, manualNote: e.target.value }))}
                       />
+                      {/* A due period's Confirm can look stuck for no
+                          visible reason when the only thing blocking it is
+                          an empty note (docs/plans/booking-and-private-
+                          class-fixes-plan.md §5) — this hint stays
+                          accurate regardless of what else is or isn't
+                          blocking, since a note actually is always
+                          required to record a manual payment. */}
+                      {chargeDialog.manualNote.trim().length === 0 ? (
+                        <p className={styles.cellMuted}>A note is required to record an offline payment.</p>
+                      ) : null}
                     </div>
                   </>
                 )}
-
-                {periodAlreadyPaid && effectivePeriod === 'full' ? (
-                  <p className={styles.cellMuted}>
-                    Not due until {preview.nextBillingDate ? formatDateLabel(preview.nextBillingDate) : '—'}.
-                  </p>
-                ) : null}
-
-                {periodAlreadyPaid && effectivePeriod === 'prorated' && preview.monthAlreadyPaid ? (
-                  <Alert variant="success">
-                    This month is already paid — {formatMoney(preview.monthAlreadyPaid.amount)} on{' '}
-                    {formatInstant(preview.monthAlreadyPaid.paidAt)} (
-                    {preview.monthAlreadyPaid.chargeMethod === 'manual' ? 'manual' : 'card'}).
-                  </Alert>
-                ) : null}
 
                 {periodUnavailable ? (
                   <p className={styles.cellMuted}>
