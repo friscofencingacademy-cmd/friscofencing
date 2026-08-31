@@ -1,3 +1,23 @@
+// pdfkit's built-in fonts (Helvetica, etc.) load through a dynamic subpath
+// import (`#standard-fonts/*`, resolved via pdfkit's own package.json
+// `imports` map + a runtime-created `require`) that Vercel's build-time file
+// tracer cannot follow statically — it never bundles those files into the
+// deployed serverless function on its own, even though pdfkit itself is a
+// real, listed dependency. This shipped once already: production/staging
+// threw `Cannot find module '.../pdfkit/js/standard-fonts/Helvetica.cjs'` on
+// every invoice download, invisible to the Jest suite (which runs against a
+// real, complete node_modules on disk, not a Vercel bundle). Fixed by
+// `backend/vercel.json`'s `functions["api/index.js"].includeFiles` glob,
+// which force-includes `node_modules/pdfkit/js/standard-fonts/**` regardless
+// of what the tracer can see. `pdfkit` is pinned to an EXACT version in
+// package.json (no `^`) because that glob targets this version's specific
+// internal file layout — pdfkit has already restructured how it ships
+// standard fonts once before (older versions read raw `.afm` files directly
+// via `fs`, this version embeds them as `.cjs` modules instead), and an
+// unpinned bump could silently move the files the glob targets with zero
+// test coverage catching it (this whole failure mode is Vercel-bundling-only
+// and structurally invisible to Jest). Bumping pdfkit requires re-verifying
+// this glob still matches a real path, via a real deploy, not just tests.
 const PDFDocument = require('pdfkit');
 
 const Registration = require('../models/registration.model');
