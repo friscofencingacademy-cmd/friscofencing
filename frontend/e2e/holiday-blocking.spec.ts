@@ -115,9 +115,9 @@ test.describe('holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
     await page.goto('/parent/book-trial');
 
     await page.getByRole('radio', { name: /test child/i }).click();
-    // Unlike the register wizard, book-trial does not auto-advance on
-    // picking a child — its OrderSummary CTA reads "Continue" for step 0.
-    await page.getByRole('button', { name: 'Continue' }).click();
+    // The Level section is already on screen, sequentially, the moment a
+    // child is picked (docs/plans/booking-flow-sequential-plan.md) — no
+    // "Continue" step exists in either wizard any more.
     // Level-driven, not class-driven (a GroupClass's own name can go stale
     // relative to its Level's name) — FIXTURE_GROUP_CLASS_A.levelId points
     // at FIXTURE_LEVEL_A, so picking this level resolves to that class

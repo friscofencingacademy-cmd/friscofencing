@@ -69,7 +69,6 @@ export default function BookTrialPage() {
     }
   }, [data]);
 
-  const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
   const [levelId, setLevelId] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -166,7 +165,6 @@ export default function BookTrialPage() {
         childName: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '',
         sessionLine: selectedSession ? formatSessionLine(selectedSession) : '',
       });
-      setStep(2);
       reload();
     } else {
       setStepError(result.message);
@@ -181,7 +179,7 @@ export default function BookTrialPage() {
     );
   }
 
-  if (step === 2) {
+  if (booked) {
     return (
       <main>
         <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }]} title="Book a Trial" steps={STEPS} current={2} singleColumn>
@@ -189,8 +187,8 @@ export default function BookTrialPage() {
             title="Trial class booked!"
             subtitle="We look forward to seeing you."
             lines={[
-              { label: 'Child', value: booked?.childName },
-              { label: 'Session', value: booked?.sessionLine },
+              { label: 'Child', value: booked.childName },
+              { label: 'Session', value: booked.sessionLine },
             ]}
             links={
               <Button as="a" href="/parent/dashboard">
@@ -203,16 +201,21 @@ export default function BookTrialPage() {
     );
   }
 
+  // Derived, not stored — the stepper reflects how far the parent has
+  // gotten through the sequential form below, never a separately-tracked
+  // "current step" that could drift out of sync with it.
+  const currentStep = studentId ? 1 : 0;
+
   const summary = (
     <OrderSummary
       lines={[
         { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
         { label: 'Session', value: selectedSession ? formatSessionLine(selectedSession) : '—' },
       ]}
-      cta={step === 0 ? 'Continue' : 'Book Trial Class'}
-      ctaDisabled={step === 0 ? !studentId : !sessionId}
+      cta="Book Trial Class"
+      ctaDisabled={!sessionId}
       ctaLoading={submitting}
-      onCta={step === 0 ? () => setStep(1) : handleSubmit}
+      onCta={handleSubmit}
     />
   );
 
@@ -222,34 +225,36 @@ export default function BookTrialPage() {
         crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }]}
         title="Book a Trial"
         steps={STEPS}
-        current={step}
+        current={currentStep}
         summary={summary}
       >
         {stepError ? <Alert variant="error">{stepError}</Alert> : null}
 
         {isLoading ? (
           <p>Loading...</p>
-        ) : step === 0 ? (
-          <FlowSection title="Who is this trial for?">
-            <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
-          </FlowSection>
         ) : (
           <>
-            <FlowSection title="Choose a level">
-              <select
-                aria-label="Level"
-                value={levelId}
-                onChange={(e) => handleLevelChange(e.target.value)}
-                required
-              >
-                <option value="">Select a level</option>
-                {levels.map((level) => (
-                  <option key={level._id} value={level._id}>
-                    {level.name}
-                  </option>
-                ))}
-              </select>
+            <FlowSection title="Who is this trial for?">
+              <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
             </FlowSection>
+
+            {studentId ? (
+              <FlowSection title="Choose a level">
+                <select
+                  aria-label="Level"
+                  value={levelId}
+                  onChange={(e) => handleLevelChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select a level</option>
+                  {levels.map((level) => (
+                    <option key={level._id} value={level._id}>
+                      {level.name}
+                    </option>
+                  ))}
+                </select>
+              </FlowSection>
+            ) : null}
 
             {levelId ? (
               <FlowSection title="Choose a session">
@@ -272,10 +277,6 @@ export default function BookTrialPage() {
                 )}
               </FlowSection>
             ) : null}
-
-            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
-              Back
-            </Button>
           </>
         )}
       </FlowMain>

@@ -163,7 +163,6 @@ export default function RegisterPage() {
     }
   }, [data]);
 
-  const [step, setStep] = useState(0);
   const [studentId, setStudentId] = useState('');
   const [levelId, setLevelId] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -174,13 +173,13 @@ export default function RegisterPage() {
   const [registered, setRegistered] = useState<RegisteredInfo | null>(null);
   const [pricePreview, setPricePreview] = useState<RegistrationPricePreview | null>(null);
 
-  // Deep-link preselect: /parent/register?child=<studentId> — skips
-  // straight to the Level step, same as picking a child normally does.
+  // Deep-link preselect: /parent/register?child=<studentId> — the Level
+  // section below appears automatically once studentId is set, same as
+  // picking a child normally does.
   useEffect(() => {
     const preselect = searchParams.get('child');
     if (preselect) {
       setStudentId(preselect);
-      setStep(1);
     }
   }, [searchParams]);
 
@@ -290,13 +289,6 @@ export default function RegisterPage() {
     };
   }, [studentId, scheduleId, startDate]);
 
-  // Selecting a child auto-advances straight to the Level step — no
-  // separate "Continue" click needed for a step that's just one choice.
-  const handleStudentSelect = useCallback((id: string) => {
-    setStudentId(id);
-    setStep(1);
-  }, []);
-
   const handleLevelChange = useCallback((value: string) => {
     setLevelId(value);
     setSessionId('');
@@ -330,7 +322,6 @@ export default function RegisterPage() {
         periodEnd: result.data.periodEnd,
         savings: result.data.savings,
       });
-      setStep(2);
       reload();
     } else {
       setStepError(result.message);
@@ -345,7 +336,7 @@ export default function RegisterPage() {
     );
   }
 
-  if (step === 2) {
+  if (registered) {
     return (
       <main>
         <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]} title="Register" steps={STEPS} current={2} singleColumn>
@@ -420,27 +411,66 @@ export default function RegisterPage() {
     );
   }
 
+  // Derived, not stored — the stepper reflects how far the parent has
+  // gotten through the sequential form below, never a separately-tracked
+  // "current step" that could drift out of sync with it.
+  const currentStep = studentId ? 1 : 0;
+
   // Family Scorecard checkout quote panel (docs/plans/wordpress-ui-
   // alignment-plan.md, Phase 3) — every dollar amount and savings figure
   // below is read straight from pricePreview, never computed here (Hard
   // Rule 7); `kind` only chooses OrderSummary's presentation.
+  // Family-breakdown footnote (docs/plans/booking-flow-sequential-plan.md,
+  // owner's exact ask) — shown only when the sibling-discount row itself is
+  // shown, so a family with no discount never sees a footnote with nothing
+  // to explain.
+  const SIBLING_DISCOUNT_NOTE =
+    '* The 10% sibling discount always applies to the lower-priced plan in your family — the higher-priced plan is billed in full.';
+
   const summaryLines: OrderSummaryLine[] = [
     { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
     { label: 'Level', value: levelId ? levelName(levels, levelId) : '—' },
     { label: 'Start Date', value: selectedSession ? formatSessionLine(selectedSession) : '—' },
     { label: 'Monthly Fee', value: selectedPrice ? `$${selectedPrice.monthlyFee}` : '—' },
+    // Family breakdown — every active sibling's own current plan, listed
+    // above the discount line so it's clear where the 10% is coming from
+    // (owner's ask: "show parents where the calculation is coming from").
+    // siblingComparison is undefined against a backend that predates this
+    // field — falls back to no rows, never a crash.
+    ...(pricePreview?.siblingDiscountApplied
+      ? (pricePreview.siblingComparison ?? []).map((sibling) => ({
+          label: `${sibling.studentName} — current plan`,
+          value: `$${sibling.monthlyFee}/mo`,
+        }))
+      : []),
     ...(pricePreview?.siblingDiscountApplied
       ? [
-          { label: 'Sibling Discount', value: `-$${pricePreview.siblingDiscountAmount.toFixed(2)}`, kind: 'discount' as const },
+          {
+            label:
+              pricePreview.discountBase != null
+                ? `Sibling Discount (10% of $${pricePreview.discountBase.toFixed(2)})*`
+                : 'Sibling Discount',
+            value: `-$${pricePreview.siblingDiscountAmount.toFixed(2)}`,
+            kind: 'discount' as const,
+          },
           { label: "You'll Pay", value: `$${pricePreview.chargeAmount.toFixed(2)}` },
         ]
       : []),
-    // This month's charge is prorated to the class days remaining — shown
-    // right under "Monthly Fee" so it's clear the full list price above
-    // isn't what's actually being charged today. Suppressed for a
-    // next-month enrollment — see isNextMonthEnrollment's own comment.
+    // This month's charge is prorated to the class days remaining, at the
+    // per-day rate — shown right under "Monthly Fee" so it's clear the full
+    // list price above isn't what's actually being charged today.
+    // Suppressed for a next-month enrollment — see isNextMonthEnrollment's
+    // own comment.
     ...(pricePreview?.prorated && !isNextMonthEnrollment
-      ? [{ label: 'Prorated', value: `${pricePreview.remainingClassDays} of ${pricePreview.totalClassDays} class days this month` }]
+      ? [
+          {
+            label: 'Prorated',
+            value:
+              pricePreview.dailyRate != null
+                ? `${pricePreview.remainingClassDays} of ${pricePreview.totalClassDays} class days · $${pricePreview.dailyRate.toFixed(2)}/day`
+                : `${pricePreview.remainingClassDays} of ${pricePreview.totalClassDays} class days this month`,
+          },
+        ]
       : []),
     // One-time fee, itemized separately — never folded into "Monthly Fee"
     // above, so a parent always sees exactly what it's for.
@@ -476,27 +506,14 @@ export default function RegisterPage() {
       : []),
   ];
 
-  let cta: string;
-  let ctaDisabled: boolean;
-  let onCta: () => void;
-
-  if (step === 0) {
-    cta = 'Continue';
-    ctaDisabled = !studentId;
-    onCta = () => setStep(1);
-  } else {
-    cta = 'Register & Pay';
-    ctaDisabled = !sessionId || !selectedPrice || !paymentMethod;
-    onCta = handleSubmit;
-  }
-
   const summary = (
     <OrderSummary
       lines={summaryLines}
-      cta={cta}
-      ctaDisabled={ctaDisabled}
+      cta="Register & Pay"
+      ctaDisabled={!sessionId || !selectedPrice || !paymentMethod}
       ctaLoading={submitting}
-      onCta={onCta}
+      onCta={handleSubmit}
+      note={pricePreview?.siblingDiscountApplied ? SIBLING_DISCOUNT_NOTE : undefined}
     />
   );
 
@@ -506,22 +523,24 @@ export default function RegisterPage() {
         crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Register' }]}
         title="Register for a Class"
         steps={STEPS}
-        current={step}
+        current={currentStep}
         summary={summary}
       >
         {stepError ? <Alert variant="error">{stepError}</Alert> : null}
 
         {isLoading ? (
           <p>Loading...</p>
-        ) : step === 0 ? (
-          <FlowSection title="Who is registering?">
-            <ChildPickerCards students={students} selectedId={studentId} onSelect={handleStudentSelect} />
-          </FlowSection>
         ) : (
           <>
-            <FlowSection title="Choose your level">
-              <LevelPickerCards levels={levels} prices={prices} selectedId={levelId} onSelect={handleLevelChange} />
+            <FlowSection title="Who is registering?">
+              <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
             </FlowSection>
+
+            {studentId ? (
+              <FlowSection title="Choose your level">
+                <LevelPickerCards levels={levels} prices={prices} selectedId={levelId} onSelect={handleLevelChange} />
+              </FlowSection>
+            ) : null}
 
             {levelId ? (
               <FlowSection title="Choose your start date">
@@ -569,20 +588,6 @@ export default function RegisterPage() {
                     </div>
                   </>
                 )}
-                {pricePreview?.siblingDiscountApplied ? (
-                  <p>10% sibling discount applied — ${pricePreview.chargeAmount.toFixed(2)}/month</p>
-                ) : pricePreview?.siblingDiscountReason ? (
-                  <p>{pricePreview.siblingDiscountReason}</p>
-                ) : null}
-                {pricePreview && isNextMonthEnrollment ? (
-                  <p>Full monthly price — ${pricePreview.totalChargeAmount.toFixed(2)} due today.</p>
-                ) : pricePreview?.prorated ? (
-                  <p>
-                    {pricePreview.remainingClassDays} of {pricePreview.totalClassDays} class days remain this
-                    month — ${pricePreview.dailyRate?.toFixed(2)}/day → ${pricePreview.totalChargeAmount.toFixed(2)}{' '}
-                    due today. Full price starts {formatDateLabel(pricePreview.periodEnd)}.
-                  </p>
-                ) : null}
               </FlowSection>
             ) : null}
 
@@ -600,10 +605,6 @@ export default function RegisterPage() {
                 )}
               </FlowSection>
             ) : null}
-
-            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
-              Back
-            </Button>
           </>
         )}
       </FlowMain>

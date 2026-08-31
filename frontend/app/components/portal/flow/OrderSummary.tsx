@@ -73,7 +73,10 @@ export default function OrderSummary({
 
       {cta ? (
         <div className={styles.summaryCtaWrap}>
-          <Button type="button" fullWidth disabled={ctaDisabled} loading={ctaLoading} onClick={onCta}>
+          {/* accent (solid crimson) — the WP site's own CTA color — reads
+              clearly against this panel's navy background, unlike the
+              default primary variant (--color-ink, itself a dark navy). */}
+          <Button type="button" variant="accent" fullWidth disabled={ctaDisabled} loading={ctaLoading} onClick={onCta}>
             {cta}
           </Button>
         </div>

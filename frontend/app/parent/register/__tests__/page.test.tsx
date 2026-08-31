@@ -202,24 +202,30 @@ async function goToPayableState() {
 }
 
 describe('RegisterPage wizard', () => {
-  it('selecting a child auto-advances to the Level step — no explicit "Continue" click needed', async () => {
+  it('selecting a child reveals the Level section below it — no explicit "Continue" click, and the child stays on screen', async () => {
     renderRegisterPage();
 
-    // Before selecting anyone, the Level picker isn't rendered at all.
+    // Before selecting anyone, the Level picker isn't rendered at all, and
+    // the CTA is always "Register & Pay" — no "Continue" step exists.
     expect(screen.queryByRole('radiogroup', { name: /select a level/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^continue$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
 
     await selectChildAndReachLevelStep();
 
-    // Landed on Level without ever clicking a "Continue" button.
+    // Landed on Level without ever clicking a "Continue" button, and the
+    // selected child card is still visible and checked.
     expect(screen.queryByRole('button', { name: /^continue$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('a ?child= deep link skips straight to the Level step too', async () => {
+  it('a ?child= deep link reveals the Level section too', async () => {
     mockSearchParams = new URLSearchParams({ child: STUDENT._id });
 
     renderRegisterPage();
 
     expect(await screen.findByRole('radiogroup', { name: /select a level/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('shows every upcoming session (start date) for the chosen level as pickable options, not just one time slot', async () => {
@@ -300,14 +306,13 @@ describe('RegisterPage wizard', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /register & pay/i })).not.toBeDisabled());
   });
 
-  it('back-navigation from Level to Who preserves the selected child', async () => {
+  it('picking a level and start date keeps the child card visible and checked — no separate navigable step', async () => {
     renderRegisterPage();
-    await selectChildAndReachLevelStep();
+    await goToPayableState();
 
-    fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
-
-    const childCard = await screen.findByRole('radio', { name: /kid one/i });
-    expect(childCard).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radiogroup', { name: /select a level/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^back$/i })).not.toBeInTheDocument();
   });
 
   it('shows an inline error when the student is already registered for the schedule (409), without crashing', async () => {
@@ -327,7 +332,7 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('This student is already registered for this schedule');
     });
 
-    // Still on the same (Level) step — no dead-end navigation.
+    // The form stays on screen — no dead-end navigation.
     expect(screen.getByText(/card on file/i)).toBeInTheDocument();
   });
 
@@ -415,6 +420,10 @@ describe('RegisterPage wizard', () => {
             registrationFeeCharged: 87.21,
             registrationFeeWaived: false,
             savings: { siblingDiscount: 11.03, registrationFeeWaived: 0, total: 11.03 },
+            // Family-breakdown fields (docs/plans/booking-flow-sequential-
+            // plan.md) — distinctive, non-round values too, same discipline.
+            discountBase: 110.3,
+            siblingComparison: [{ studentId: 'sibling-verbatim', studentName: 'Verbatim Sibling', monthlyFee: 220.6 }],
           })
         )
       );
@@ -427,6 +436,9 @@ describe('RegisterPage wizard', () => {
       expect(screen.getByText('$87.21')).toBeInTheDocument();
       expect(screen.getByText('$199.68')).toBeInTheDocument();
       expect(screen.getByText('$11.03')).toBeInTheDocument();
+      expect(screen.getByText('Verbatim Sibling — current plan')).toBeInTheDocument();
+      expect(screen.getByText('$220.6/mo')).toBeInTheDocument();
+      expect(screen.getByText('Sibling Discount (10% of $110.30)*')).toBeInTheDocument();
       // Never a derived/summed figure this page didn't receive verbatim.
       expect(screen.queryByText('$210.71')).not.toBeInTheDocument(); // 123.47 + 87.21
       expect(screen.queryByText('$134.50')).not.toBeInTheDocument(); // 123.47 + 11.03
@@ -453,8 +465,12 @@ describe('RegisterPage wizard', () => {
       renderRegisterPage();
       await goToPayableState();
 
-      expect(await screen.findByText(/10% sibling discount applied — \$135\.00\/month/)).toBeInTheDocument();
-      expect(screen.getByText('Sibling Discount')).toBeInTheDocument();
+      // The discount line lives only in the quote panel now — no duplicate
+      // sentence on the left (docs/plans/booking-flow-sequential-plan.md
+      // point 3/4). Falls back to the plain "Sibling Discount" label (no
+      // "(10% of $X)" suffix) since this fixture doesn't include
+      // discountBase — proven by the server-verbatim guard test below too.
+      expect(await screen.findByText('Sibling Discount')).toBeInTheDocument();
       expect(screen.getByText('-$15.00')).toBeInTheDocument();
       expect(screen.getByText("You'll Pay")).toBeInTheDocument();
       // $135.00 appears twice here — "You'll Pay" (the recurring monthly
@@ -468,6 +484,12 @@ describe('RegisterPage wizard', () => {
       // straight from the backend's own sum.
       expect(screen.getByText('You Save')).toBeInTheDocument();
       expect(screen.getByText('$15.00')).toBeInTheDocument();
+      // The footnote (owner's exact ask, docs/plans/booking-flow-sequential
+      // -plan.md) shows whenever the discount row shows, even without
+      // discountBase/siblingComparison from an older backend.
+      expect(
+        screen.getByText(/the 10% sibling discount always applies to the lower-priced plan/i)
+      ).toBeInTheDocument();
     });
 
     it('shows no discount lines when the preview reports none', async () => {
@@ -476,6 +498,39 @@ describe('RegisterPage wizard', () => {
 
       expect(screen.queryByText('Sibling Discount')).not.toBeInTheDocument();
       expect(screen.queryByText("You'll Pay")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/the 10% sibling discount always applies to the lower-priced plan/i)
+      ).not.toBeInTheDocument();
+    });
+
+    it('lists each active sibling\'s own current plan and shows the discount base in the label, so the 10% calculation is traceable (docs/plans/booking-flow-sequential-plan.md point 4)', async () => {
+      server.use(
+        http.get('*/registrations/preview', () =>
+          HttpResponse.json({
+            ...DEFAULT_PREVIEW,
+            chargeAmount: 135,
+            totalChargeAmount: 135,
+            siblingDiscountApplied: true,
+            siblingDiscountAmount: 15,
+            siblingDiscountReason:
+              'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+            discountBase: 150,
+            siblingComparison: [{ studentId: 'sibling-1', studentName: 'Sibling One', monthlyFee: 200 }],
+            savings: { siblingDiscount: 15, registrationFeeWaived: 0, total: 15 },
+          })
+        )
+      );
+
+      renderRegisterPage();
+      await goToPayableState();
+
+      expect(await screen.findByText('Sibling One — current plan')).toBeInTheDocument();
+      expect(screen.getByText('$200/mo')).toBeInTheDocument();
+      expect(screen.getByText('Sibling Discount (10% of $150.00)*')).toBeInTheDocument();
+      expect(screen.getByText('-$15.00')).toBeInTheDocument();
+      expect(
+        screen.getByText(/the 10% sibling discount always applies to the lower-priced plan/i)
+      ).toBeInTheDocument();
     });
 
     it('still registers successfully when the discount-preview endpoint fails — the preview is best-effort only', async () => {
@@ -668,16 +723,15 @@ describe('RegisterPage wizard', () => {
       renderRegisterPage();
       await goToPayableState();
 
-      expect(
-        await screen.findByText(/8 of 15 class days remain this month — \$20\.00\/day → \$160\.00 due today/)
-      ).toBeInTheDocument();
-      expect(screen.getByText(/full price starts aug 31, 2026/i)).toBeInTheDocument();
-
+      // The per-day rate now lives in the Prorated row itself — no
+      // duplicate sentence on the left (docs/plans/booking-flow-sequential
+      // -plan.md points 3/4).
+      expect(await screen.findByText('8 of 15 class days · $20.00/day')).toBeInTheDocument();
       expect(screen.getByText('Prorated')).toBeInTheDocument();
-      expect(screen.getByText('8 of 15 class days this month')).toBeInTheDocument();
       expect(screen.getByText('Due at enrollment')).toBeInTheDocument();
       expect(screen.getByText('$160.00')).toBeInTheDocument();
       expect(screen.getByText('Full price starts')).toBeInTheDocument();
+      expect(screen.getByText('Aug 31, 2026')).toBeInTheDocument();
     });
 
     it('itemizes the prorated charge and the full-price start date on the confirmation screen', async () => {
@@ -843,9 +897,10 @@ describe('RegisterPage wizard', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: /enroll for next month/i }));
 
-        // Full-price framing shown, never the "X of Y class days" sentence.
-        await screen.findByText(/full monthly price — \$150\.00 due today/i);
-        expect(screen.queryByText(/class days remain this month/)).not.toBeInTheDocument();
+        // Full-price framing in the quote panel — "Due at enrollment" shows
+        // the full fee, and no "Prorated" row appears at all.
+        expect(await screen.findByText('$150.00')).toBeInTheDocument();
+        expect(screen.queryByText('Prorated')).not.toBeInTheDocument();
 
         await screen.findByText(/card on file: visa ending in 4242/i);
         fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
