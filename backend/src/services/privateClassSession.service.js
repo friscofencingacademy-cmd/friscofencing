@@ -1,3 +1,4 @@
+const moment = require('moment-timezone');
 const PrivateClassSchedule = require('../models/privateClassSchedule.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
@@ -9,6 +10,8 @@ const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const { computeSessionPrice, sessionDurationMinutes } = require('../utils/privateClassPricing');
 const { nextOccurrenceStrictlyAfter } = require('../utils/scheduleOccurrence');
+const { combineDayAndTimeInTZ } = require('../utils/dateShapes');
+const { DEFAULT_TIMEZONE } = require('../config/timezone');
 const mailService = require('./mail.service');
 const invoiceService = require('./invoice.service');
 
@@ -40,21 +43,30 @@ function conflictError(message) {
   return error;
 }
 
-// Combines a midnight-normalized calendar date with an "HH:mm" wall-clock
-// string into one Date instant.
-function combineDateAndTime(date, hhmm) {
-  const [hours, minutes] = String(hhmm).split(':').map(Number);
-  const result = new Date(date);
-  result.setHours(hours, minutes, 0, 0);
-  return result;
-}
-
 // Generates the next 8 weekly occurrences for every claimed active slot of
 // `enrollmentId`, starting from the first occurrence of the slot's
 // dayOfWeek STRICTLY AFTER today. Idempotent: skips any startDate that
 // already has a session (in-memory dedup, backstopped by the model's
 // unique (scheduleId, startDate) index) — safe to re-run (see
 // scripts/extend-private-sessions.js).
+//
+// PrivateClassSession.startDate/endDate are real instants, not calendar-day
+// sentinels (docs/plans/utc-date-standard-plan.md) — every one is built via
+// the dateShapes.js gate (combineDayAndTimeInTZ), which resolves a Central
+// wall-clock time to a true UTC instant via real IANA math. This replaces
+// the previous combineDateAndTime()'s server-local setHours(), which on a
+// UTC production server wrote a "16:45 Central" slot's raw clock numbers
+// directly into the UTC field — the stored instant was hours early,
+// silently opening the attendance/per-session-charge gate before the
+// lesson actually happened. Confirmed against real staging data before
+// this fix: every stored session was off by exactly the Central/UTC
+// offset.
+//
+// Weekly stepping happens INSIDE the tz-anchored moment chain (never
+// setDate()/getDate() on an already-resolved instant, which is the same
+// DST-unsafe pattern billingDates.js's addOneDay exists to avoid) — so an
+// 8-week run of sessions stays genuinely 7 Central calendar days apart
+// even across a DST transition, not drifted by an hour.
 async function generateSessions({ enrollmentId }) {
   const enrollment = await PrivateClassEnrollment.findById(enrollmentId);
 
@@ -70,6 +82,7 @@ async function generateSessions({ enrollmentId }) {
 
   for (const schedule of schedules) {
     const firstOccurrence = nextOccurrenceStrictlyAfter(today, schedule.dayOfWeek);
+    const firstOccurrenceCentral = moment.tz(firstOccurrence, DEFAULT_TIMEZONE);
 
     // eslint-disable-next-line no-await-in-loop -- sequential over a small
     // (typically single-element) list of a student's own claimed slots.
@@ -79,10 +92,9 @@ async function generateSessions({ enrollmentId }) {
     const toCreate = [];
 
     for (let i = 0; i < SESSION_WEEKS; i += 1) {
-      const occurrenceDate = new Date(firstOccurrence);
-      occurrenceDate.setDate(occurrenceDate.getDate() + i * 7);
+      const occurrenceDay = firstOccurrenceCentral.clone().add(i * 7, 'days').format('YYYY-MM-DD');
 
-      const startDate = combineDateAndTime(occurrenceDate, schedule.startTime);
+      const startDate = combineDayAndTimeInTZ(occurrenceDay, schedule.startTime);
       const endDate = new Date(startDate.getTime() + schedule.durationMinutes * 60000);
 
       if (existingTimes.has(startDate.getTime())) {
@@ -124,7 +136,10 @@ async function generateSessions({ enrollmentId }) {
       }
     }
 
-    const scheduleFirstSessionDate = combineDateAndTime(firstOccurrence, schedule.startTime);
+    const scheduleFirstSessionDate = combineDayAndTimeInTZ(
+      firstOccurrenceCentral.format('YYYY-MM-DD'),
+      schedule.startTime
+    );
 
     if (!firstSessionDate || scheduleFirstSessionDate < firstSessionDate) {
       firstSessionDate = scheduleFirstSessionDate;
