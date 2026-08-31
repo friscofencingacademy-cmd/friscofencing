@@ -312,25 +312,107 @@ describe('invoice.service — buildInvoiceData', () => {
   });
 });
 
-describe('invoice.service — renderInvoicePdf', () => {
-  it('resolves a non-empty Buffer starting with the PDF magic bytes', async () => {
-    const data = {
-      invoiceNumber: 'INV-smoke',
-      invoiceDate: new Date('2026-02-01T00:00:00.000Z'),
-      billTo: { parentName: 'Pat Rivera', parentEmail: 'pat@example.com', studentName: 'Sam Rivera' },
-      serviceName: 'Group Classes',
-      serviceLabel: 'Group Class Monthly Renewal',
-      location: { name: 'Frisco HQ', addressLines: ['123 Main St'] },
-      lineItems: [{ label: 'Monthly fee', amount: 150 }],
-      periodLabel: 'Feb 1 – Mar 1',
-      total: 150,
-      academy,
-    };
+// A real, minimal 1x1 transparent PNG — pdfkit's doc.image() actually
+// parses image bytes to determine format, so a fake/garbage buffer would
+// hit the same "unsupported format" path a genuinely broken LOGO_URL does.
+// This is the standard minimal-valid-PNG fixture used across the JS
+// ecosystem for exactly this kind of test.
+const MINIMAL_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-    const buffer = await renderInvoicePdf(data);
+describe('invoice.service — renderInvoicePdf', () => {
+  const baseData = {
+    invoiceNumber: 'INV-smoke',
+    invoiceDate: new Date('2026-02-01T00:00:00.000Z'),
+    billTo: { parentName: 'Pat Rivera', parentEmail: 'pat@example.com', studentName: 'Sam Rivera' },
+    serviceName: 'Group Classes',
+    serviceLabel: 'Group Class Monthly Renewal',
+    location: { name: 'Frisco HQ', addressLines: ['123 Main St'] },
+    lineItems: [{ label: 'Monthly fee', amount: 150 }],
+    periodLabel: 'Feb 1 – Mar 1',
+    total: 150,
+    academy,
+  };
+
+  const originalFetch = global.fetch;
+  const originalLogoUrl = process.env.LOGO_URL;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    if (originalLogoUrl === undefined) {
+      delete process.env.LOGO_URL;
+    } else {
+      process.env.LOGO_URL = originalLogoUrl;
+    }
+  });
+
+  it('resolves a non-empty Buffer starting with the PDF magic bytes', async () => {
+    const buffer = await renderInvoicePdf(baseData);
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.length).toBeGreaterThan(0);
+    expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  });
+
+  it('never fetches a logo when LOGO_URL is unset — the same fallback the email header uses', async () => {
+    delete process.env.LOGO_URL;
+    global.fetch = jest.fn();
+
+    await renderInvoicePdf(baseData);
+
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('embeds the logo (a larger PDF results) when LOGO_URL is set and resolves a real image', async () => {
+    process.env.LOGO_URL = 'https://example.com/logo.png';
+    const pngBuffer = Buffer.from(MINIMAL_PNG_BASE64, 'base64');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => pngBuffer.buffer.slice(pngBuffer.byteOffset, pngBuffer.byteOffset + pngBuffer.byteLength),
+    });
+
+    const withLogo = await renderInvoicePdf(baseData);
+
+    delete process.env.LOGO_URL;
+    const withoutLogo = await renderInvoicePdf({ ...baseData, invoiceNumber: 'INV-no-logo' });
+
+    expect(global.fetch).toHaveBeenCalledWith('https://example.com/logo.png', expect.any(Object));
+    expect(withLogo.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    // Not a rigorous "the image is really embedded" proof (that needs a PDF
+    // parser this suite deliberately avoids depending on — see this file's
+    // other tests' own discipline), but a real embedded PNG unavoidably
+    // adds bytes; this is a real, meaningful signal the image path ran.
+    expect(withLogo.length).toBeGreaterThan(withoutLogo.length);
+  });
+
+  it('never throws and still renders a valid PDF when the logo fetch rejects (network error)', async () => {
+    process.env.LOGO_URL = 'https://example.com/logo.png';
+    global.fetch = jest.fn().mockRejectedValue(new Error('network exploded'));
+
+    const buffer = await renderInvoicePdf(baseData);
+
+    expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  });
+
+  it('never throws and still renders a valid PDF when the logo URL responds non-OK', async () => {
+    process.env.LOGO_URL = 'https://example.com/missing-logo.png';
+    global.fetch = jest.fn().mockResolvedValue({ ok: false });
+
+    const buffer = await renderInvoicePdf(baseData);
+
+    expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  });
+
+  it('never throws and still renders a valid PDF when the fetched content is not a real image', async () => {
+    process.env.LOGO_URL = 'https://example.com/logo.png';
+    const garbage = Buffer.from('not an image');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => garbage.buffer.slice(garbage.byteOffset, garbage.byteOffset + garbage.byteLength),
+    });
+
+    const buffer = await renderInvoicePdf(baseData);
+
     expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
   });
 });
