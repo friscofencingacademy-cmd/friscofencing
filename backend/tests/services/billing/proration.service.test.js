@@ -3,7 +3,7 @@ const Location = require('../../../src/models/location.model');
 const GroupClass = require('../../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../../src/models/groupClassSchedule.model');
 const User = require('../../../src/models/user.model');
-const { computeProration } = require('../../../src/services/billing/proration.service');
+const { computeProration, resolveFirstChargePeriod } = require('../../../src/services/billing/proration.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtils/db');
 
 let mongod;
@@ -172,5 +172,87 @@ describe('computeProration', () => {
     // "prorated" vs. "not prorated."
     expect(result.periodEnd.getMonth()).toBe(8); // September
     expect(result.periodEnd.getDate()).toBe(1);
+  });
+});
+
+describe('resolveFirstChargePeriod', () => {
+  // "Today" frozen at Oct 1, 2026, 10am Central — the same FROZEN_NOW shape
+  // registration.routes.test.js uses. Real timers stay real for everything
+  // but Date.now() (this suite hits mongodb-memory-server, which still
+  // needs real setTimeout/setInterval to function).
+  beforeEach(() => {
+    jest.useFakeTimers({
+      now: new Date('2026-10-01T15:00:00.000Z'),
+      doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick'],
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('delegates to computeProration for a CURRENT-month anchor, with periodStart set to anchorDate itself', async () => {
+    const level = await seedLevelWithSchedules([3], { name: 'ResolveCurrentMonth' }); // Wednesday
+    const anchorDate = new Date(2026, 9, 21); // a Wednesday in October — the current month
+
+    const expected = await computeProration({ levelId: level._id, monthlyFee: 300, registrationDate: anchorDate });
+    const result = await resolveFirstChargePeriod({ levelId: level._id, monthlyFee: 300, anchorDate });
+
+    expect(result).toEqual({ ...expected, periodStart: anchorDate });
+    // A real partial month, not a coincidental full one — proves this
+    // actually delegated to (and didn't short-circuit around) proration.
+    expect(result.remainingClassDays).toBeLessThan(result.totalClassDays);
+  });
+
+  it(
+    'charges the FULL fee flat for a FUTURE-month anchor — never calls computeProration, regardless of ' +
+      'which day within that month is chosen (docs/plans/payment-airtight-plan.md D1)',
+    async () => {
+      // Deliberately a level with NO schedules at all — this branch must
+      // never need to resolve weekdays to answer "full fee, whole month".
+      const level = await Level.create({ name: 'ResolveFutureMonth', order: 50 });
+      const anchorDate = new Date(2026, 10, 18); // November 18 — a future month
+
+      const result = await resolveFirstChargePeriod({ levelId: level._id, monthlyFee: 300, anchorDate });
+
+      expect(result).toEqual({
+        prorated: false,
+        totalClassDays: 0,
+        remainingClassDays: 0,
+        dailyRate: 0,
+        proratedAmount: 300,
+        periodStart: new Date(Date.UTC(2026, 10, 1)),
+        periodEnd: new Date(Date.UTC(2026, 11, 1)),
+      });
+    }
+  );
+
+  it('bills the full fee flat for ANY day of a future month, not just its 1st', async () => {
+    const level = await Level.create({ name: 'ResolveFutureMonthAnyDay', order: 51 });
+
+    const midMonth = await resolveFirstChargePeriod({
+      levelId: level._id,
+      monthlyFee: 300,
+      anchorDate: new Date(2026, 10, 18),
+    });
+    const lastDay = await resolveFirstChargePeriod({
+      levelId: level._id,
+      monthlyFee: 300,
+      anchorDate: new Date(2026, 10, 30),
+    });
+
+    // Same period + amount regardless of which November day was picked —
+    // the billing period is always the WHOLE calendar month.
+    expect(midMonth).toEqual(lastDay);
+  });
+
+  it('treats the LAST day of the CURRENT month as still-current (prorated), the exact seam D1 relies on', async () => {
+    const level = await seedLevelWithSchedules([3], { name: 'ResolveCurrentMonthSeam' }); // Wednesday
+    const anchorDate = new Date(2026, 9, 31); // Oct 31 — still October, the current month
+
+    const result = await resolveFirstChargePeriod({ levelId: level._id, monthlyFee: 300, anchorDate });
+
+    expect(result.prorated).toBe(true);
+    expect(result.periodStart.toISOString()).toBe(anchorDate.toISOString());
   });
 });
