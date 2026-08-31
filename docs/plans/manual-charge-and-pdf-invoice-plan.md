@@ -359,3 +359,17 @@ admin-only `?parentId=` query param (a parent role always gets their own `req.us
 regardless of any `parentId` it sends — never honored for that role), and `/admin/subscriptions`
 gained a "Payment History" row action opening the shared `Modal` around that same table,
 showing the row's whole family's history exactly as the parent themselves sees it.
+
+**Logo on the invoice** (owner ask, same day) — the EIN line was already present, unconditionally
+rendered from `config/academy.js`'s placeholder (D7); nothing new needed there. The logo reuses
+`email/tokens.js`'s existing `LOGO_URL` env var verbatim (same optional-URL, same "unset -> no
+logo, text/branding still renders" fallback the email header already established) rather than
+inventing a second mechanism or shipping a logo file in the repo — a bundled file would need the
+exact same Vercel file-tracing care this doc's pdfkit fix just needed, for zero benefit, since no
+logo file exists to commit yet anyway. `invoice.service.js`'s `renderInvoicePdf` fetches it at
+render time (5s timeout via `AbortSignal.timeout`, Node's built-in `fetch`, no new dependency) and
+embeds it via `doc.image()`; a missing/unset URL, a network failure, a non-OK response, or a
+fetched-but-unparseable image all degrade to "no logo, invoice unaffected" — never a broken
+invoice, covered by 5 new tests in `invoice.service.test.js` (unset -> fetch never called; a real
+minimal-PNG fixture actually embeds, proven by a real size increase over a no-logo render; reject,
+non-OK, and garbage-content all still resolve a valid PDF).

@@ -102,7 +102,7 @@ Vercel environments to tick when adding:
 | `MAIL_FROM_ADDRESS` | verified Brevo sender (e.g. `friscofencingacademy@gmail.com`) | All (Step 6) |
 | `APP_ENV` | `production` | **Production only** — leave unset (or `staging`) on Preview. Fail-closed staging email gate (`ckq-parity-plan.md` Phase 1) — anything other than `production` blocks real SMTP sends from `mail.service.js` so staging never emails a real parent. |
 | `ADMIN_EMAIL` | `friscofencingacademy@gmail.com` | All |
-| `LOGO_URL` | absolute logo image URL (optional) | All — omit to use the text-wordmark email header fallback |
+| `LOGO_URL` | absolute logo image URL (optional) | All — used by both the email header and the PDF invoice (docs/plans/manual-charge-and-pdf-invoice-plan.md); omit to render without a logo on either |
 
 Do NOT set `NODE_ENV` (Vercel manages it) or `PORT` (serverless). `SUPERADMIN_*` /
 `COACH_*` are not needed on Vercel — seed scripts run from your machine.

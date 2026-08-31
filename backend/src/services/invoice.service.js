@@ -29,6 +29,7 @@ const Location = require('../models/location.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
 const { sessionDurationMinutes } = require('../utils/privateClassPricing');
 const { dateFull, dateOnlyFull } = require('../email/dates');
+const { LOGO_URL } = require('../email/tokens');
 const academy = require('../config/academy');
 
 // docs/plans/manual-charge-and-pdf-invoice-plan.md, PR 2 — the invoice PDF
@@ -198,11 +199,37 @@ async function buildInvoiceData(registrationRowOrId) {
   };
 }
 
-// Pure layout, no DB access — a Buffer collected off the doc's own stream,
-// no filesystem writes (serverless-safe). Never throws for a missing
-// optional field; every value read below already has a safe default from
-// buildInvoiceData above.
-function renderInvoicePdf(data) {
+// Same LOGO_URL env var the email header already uses (email/tokens.js) —
+// one source of truth for "the academy's logo," same fallback (unset ->
+// nothing rendered) as the email header's text-wordmark fallback. Fetched
+// at render time rather than bundled as a file: an image asset shipped in
+// the repo would need the exact same Vercel file-tracing care pdfkit's own
+// fonts just needed (see this file's top comment) for zero benefit, since
+// the owner doesn't have a logo file to commit today anyway. Never throws —
+// a missing/unset URL, a network failure, or a slow/unreachable host all
+// degrade to "no logo," never a broken invoice; timeboxed so a slow/dead
+// LOGO_URL can't stall PDF generation, which runs inline in the download
+// request and in the fire-and-forget email-attachment path.
+async function fetchLogoBuffer() {
+  const logoUrl = LOGO_URL();
+  if (!logoUrl) return null;
+
+  try {
+    const response = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return null;
+    return Buffer.from(await response.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+// Pure layout (plus one best-effort logo fetch) — a Buffer collected off
+// the doc's own stream, no filesystem writes (serverless-safe). Never
+// throws for a missing optional field; every value read below already has
+// a safe default from buildInvoiceData above.
+async function renderInvoicePdf(data) {
+  const logoBuffer = await fetchLogoBuffer();
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
     const chunks = [];
@@ -210,6 +237,17 @@ function renderInvoicePdf(data) {
     doc.on('data', (chunk) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+
+    if (logoBuffer) {
+      try {
+        doc.image(logoBuffer, { width: 100 });
+        doc.moveDown(0.5);
+      } catch {
+        // Fetched content wasn't a real/supported image (wrong URL, an
+        // error page, an unsupported format) — never let a bad logo break
+        // the whole invoice.
+      }
+    }
 
     doc.fontSize(18).text(data.academy.name);
     doc.fontSize(10);
