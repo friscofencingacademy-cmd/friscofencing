@@ -325,3 +325,37 @@ Backend:
 
 Standard hard rules apply throughout: tests before commit, owner tests locally before any
 commit, no auto-fixing failures.
+
+## Addendum (2026-08-31) — Vercel bundling bug + admin download UI
+
+**Incident**: the owner reported invoice download not working on staging's `/parent/billing`
+page. Reproduced exactly: `{"message":"Cannot find module '/var/task/backend/node_modules/
+pdfkit/js/standard-fonts/Helvetica.cjs'"}`. Root cause: pdfkit's built-in fonts load through a
+dynamic subpath import (`#standard-fonts/*`, resolved via pdfkit's own `package.json` `imports`
+map + a runtime-created `require`) that Vercel's build-time file tracer can't follow statically,
+so those files never get bundled into the deployed serverless function — invisible to the Jest
+suite (real `node_modules` on disk, not a Vercel bundle) and to local dev (same reason). Fixed on
+`fix/pdfkit-vercel-invoice-bundling`:
+- `backend/vercel.json` — `functions["api/index.js"].includeFiles` force-includes
+  `node_modules/pdfkit/js/standard-fonts/**`.
+- `backend/package.json` — `pdfkit` pinned to the exact tested version (`0.20.2`, no `^`), since
+  the glob targets this version's specific internal file layout and pdfkit has already
+  restructured how it ships standard fonts once before.
+- `invoice.service.js` gained a header comment cross-referencing both, for the next person who
+  finds this file without this doc.
+- Verification: could not run `vercel build` locally to prove the bundle before deploying (this
+  session's shell couldn't spawn `cmd.exe` for the Vercel CLI's own subprocess — an environment
+  limitation, not a finding about the fix) — closed the loop instead via a real staging redeploy
+  + a real Download click.
+
+**Admin download UI** — this out-of-scope line above ("Frontend invoice-download UI (parent
+portal or admin) — endpoint only, UI later if wanted") is now partially closed: the owner asked
+for the admin side while this bug was being fixed. Built on `feature/admin-payment-history`,
+reusing everything `docs/plans/payment-airtight-plan.md`'s PR 3 already built for the parent
+side rather than duplicating it — `PaymentHistoryTable` was written generic for exactly this
+reuse (see its own header comment), and `GET /:id/invoice` already allowed admin/superadmin
+(see that PR's route). The only new surface: `GET /registrations/history` now accepts an
+admin-only `?parentId=` query param (a parent role always gets their own `req.user._id`
+regardless of any `parentId` it sends — never honored for that role), and `/admin/subscriptions`
+gained a "Payment History" row action opening the shared `Modal` around that same table,
+showing the row's whole family's history exactly as the parent themselves sees it.
