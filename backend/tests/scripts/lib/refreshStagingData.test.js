@@ -3,6 +3,9 @@ const User = require('../../../src/models/user.model');
 const Level = require('../../../src/models/level.model');
 const GroupClass = require('../../../src/models/groupClass.model');
 const Service = require('../../../src/models/service.model');
+const PaymentMethod = require('../../../src/models/paymentMethod.model');
+const { comparePassword } = require('../../../src/utils/password');
+const { STAGING_TEST_PASSWORD } = require('../../../scripts/lib/setStagingTestPasswords');
 
 const { refreshStagingData } = require('../../../scripts/lib/refreshStagingData');
 
@@ -68,7 +71,56 @@ describe('scripts/lib/refreshStagingData', () => {
     // refresh always leaves a fully-seeded registry.
     expect(await Service.countDocuments()).toBe(4);
     expect(result.serviceSeedResults.results.every((r) => r.action === 'created')).toBe(true);
+
+    // periodMonth/Guard B index migration (docs/plans/payment-airtight-
+    // plan.md D7) ran, cleanly, against the just-wiped (empty) ledger.
+    expect(result.periodMonthMigration.aborted).toBe(false);
+    expect(result.periodMonthMigration.changeCount).toBe(0);
+
+    // Every login-capable user this refresh just created (the real
+    // students' migrated parent gets none, coaches do, superadmin does) is
+    // logged in with the same known staging password — including the coach
+    // account, which the legacy import itself gave a real, distinct
+    // password (`pw123456` in TEST_CONFIG above) before this step
+    // overwrote it (docs/plans/payment-airtight-plan.md, owner request
+    // 2026-08-31).
+    const coach = await User.findOne({ email: 'coach-chris@test.local' });
+    expect(await comparePassword(STAGING_TEST_PASSWORD, coach.passwordHash)).toBe(true);
+    const superadminUser = await User.findOne({ role: 'superadmin' });
+    expect(await comparePassword(STAGING_TEST_PASSWORD, superadminUser.passwordHash)).toBe(true);
   });
+
+  it(
+    'wires the Stripe scrub step into the sequence and leaves no Stripe field behind — pre-existing data is ' +
+      'already gone by step 1 (the wipe), so this proves the post-condition invariant + result shape, not the ' +
+      "scrub step's own logic in isolation (that's scrubStripeFields.test.js's job, seeding data WITHOUT a wipe " +
+      'first). docs/plans/payment-airtight-plan.md, owner request 2026-08-31.',
+    async () => {
+      // Any pre-existing Stripe data (simulating what a future production-
+      // to-staging clone could carry in) is wiped by step 1 regardless of
+      // whether the scrub step exists at all — that's expected, not a gap
+      // in this test: the scrub step exists as a standing guarantee for
+      // whatever import path runs AFTER the wipe, not to catch data from
+      // before it.
+      await User.create({
+        role: 'parent',
+        firstName: 'Old',
+        lastName: 'Family',
+        email: 'old-family@example.com',
+        stripeCustomerId: 'cus_leftover123',
+      });
+
+      const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
+
+      expect(result.stripeScrubResult).toEqual({
+        stripeCustomerIdsCleared: 0,
+        paymentMethodsDeleted: 0,
+        stripePaymentIntentIdsCleared: 0,
+      });
+      expect(await PaymentMethod.countDocuments({})).toBe(0);
+      expect(await User.countDocuments({ stripeCustomerId: { $exists: true } })).toBe(0);
+    }
+  );
 
   it('is safe to run twice in a row: the second run wipes the first run\'s own data and rebuilds it identically', async () => {
     await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
