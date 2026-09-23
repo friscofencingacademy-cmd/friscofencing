@@ -14,7 +14,23 @@ const groupClassSessionSchema = new Schema(
       ref: 'GroupClassSchedule',
       required: true,
     },
+    // Calendar-day sentinel (UTC midnight) — the day key: holidays,
+    // uniqueness, day-grouped display.
     date: {
+      type: Date,
+      required: true,
+    },
+    // Real UTC instants (docs/plans/session-start-time-cutoff-plan.md D3) —
+    // `date` + the schedule's "HH:mm" resolved in the academy timezone at
+    // generation time, the same shape PrivateClassSession.startDate/endDate
+    // already store. Every "has this session started / is it upcoming" query
+    // reads these. Only groupClassSession.service.js's generator and
+    // groupClassSchedule.service.js's update() may write them.
+    startsAt: {
+      type: Date,
+      required: true,
+    },
+    endsAt: {
       type: Date,
       required: true,
     },
@@ -26,6 +42,7 @@ const groupClassSessionSchema = new Schema(
 
 // One session per schedule per date.
 groupClassSessionSchema.index({ scheduleId: 1, date: 1 }, { unique: true });
+groupClassSessionSchema.index({ scheduleId: 1, startsAt: 1 });
 
 const GroupClassSession = mongoose.model('GroupClassSession', groupClassSessionSchema);
 

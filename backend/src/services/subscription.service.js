@@ -3,7 +3,6 @@ const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const User = require('../models/user.model');
 const { SubscriptionCycleRegistration } = require('../models/registration.model');
-const { todayDateOnly } = require('../utils/billingDates');
 const { addStudentToRoster, removeStudentFromRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const mailService = require('./mail.service');
@@ -313,13 +312,6 @@ async function changeSchedule(subscriptionId, newScheduleId) {
   // one subscription, so no other active doc for this student can exist to
   // collide with. A check here would be permanently unreachable dead code.
 
-  // A calendar-day sentinel, matching GroupClassSession.date's own shape
-  // (docs/plans/utc-date-standard-plan.md bug 5) — both roster calls below
-  // filter session dates via $gte, which must stay sentinel-shaped, never
-  // todayAtMidnight()'s real-instant shape (which would silently exclude a
-  // session dated exactly today from the roster pull/push below).
-  const today = todayDateOnly();
-
   // Writes, in this order (originally docs/plans/ckq-parity-plan.md §4.1;
   // step (b) — repointing the student's active Registration's scheduleId —
   // was removed when Registration became an immutable payment ledger, see
@@ -331,10 +323,10 @@ async function changeSchedule(subscriptionId, newScheduleId) {
   await subscription.save();
 
   // b. pull from the old schedule's roster + its future sessions
-  await removeStudentFromRoster(oldSchedule, subscription.studentId, today);
+  await removeStudentFromRoster(oldSchedule, subscription.studentId);
 
   // c. add to the new schedule's roster + its future sessions
-  await addStudentToRoster(newSchedule, subscription.studentId, today);
+  await addStudentToRoster(newSchedule, subscription.studentId);
 
   // Fire-and-forget confirmation email — never affects the writes above.
   try {

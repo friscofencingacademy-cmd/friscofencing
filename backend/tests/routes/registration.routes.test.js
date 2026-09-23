@@ -1673,6 +1673,90 @@ describe('Registration routes', () => {
       expect(res.status).toBe(400);
     });
 
+    // docs/plans/session-start-time-cutoff-plan.md — a session whose class
+    // began earlier TODAY is not a valid start date even though its calendar
+    // day hasn't passed. Clock set to Wed 2026-10-07 17:00 CDT (22:00Z),
+    // after the 16:00 Central class started, BEFORE the schedule is seeded
+    // so its first generated session is that very day.
+    describe('same-day session that has already started', () => {
+      async function seedStartedToday() {
+        jest.setSystemTime(new Date('2026-10-07T22:00:00.000Z'));
+
+        const { scheduleId } = await seedSchedule();
+        const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+
+        expect(sessions[0].date.toISOString()).toBe('2026-10-07T00:00:00.000Z');
+        expect(sessions[0].startsAt.toISOString()).toBe('2026-10-07T21:00:00.000Z'); // 16:00 CDT
+
+        return { scheduleId, started: sessions[0], upcoming: sessions[1] };
+      }
+
+      it('POST returns 400 with the "already started" message and creates nothing', async () => {
+        const { scheduleId, started } = await seedStartedToday();
+        const { student } = await seedParentAndStudent('startdate-started-post@example.com');
+        const parentAgent = await loginAgent('startdate-started-post@example.com');
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+          startDate: started.date.toISOString(),
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe('startDate is a session that has already started');
+        expect(await Registration.countDocuments({ studentId: student._id })).toBe(0);
+        expect(await Subscription.countDocuments({ studentId: student._id })).toBe(0);
+      });
+
+      it('GET /preview returns 400 for the started session but 200 for next week\'s', async () => {
+        const { scheduleId, started, upcoming } = await seedStartedToday();
+        const { student } = await seedParentAndStudent('startdate-started-preview@example.com');
+        const parentAgent = await loginAgent('startdate-started-preview@example.com');
+
+        const startedRes = await parentAgent.get('/api/v1/registrations/preview').query({
+          studentId: student._id.toString(),
+          scheduleId,
+          startDate: started.date.toISOString(),
+        });
+        expect(startedRes.status).toBe(400);
+        expect(startedRes.body.message).toBe('startDate is a session that has already started');
+
+        const upcomingRes = await parentAgent.get('/api/v1/registrations/preview').query({
+          studentId: student._id.toString(),
+          scheduleId,
+          startDate: upcoming.date.toISOString(),
+        });
+        expect(upcomingRes.status).toBe(200);
+      });
+
+      it('does not give a late registrant a Visit for today\'s already-started session, only for later ones', async () => {
+        const { scheduleId, started } = await seedStartedToday();
+        const { student } = await seedParentAndStudent('startdate-started-visits@example.com');
+        const parentAgent = await loginAgent('startdate-started-visits@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const res = await parentAgent.post('/api/v1/registrations').send({
+          studentId: student._id.toString(),
+          scheduleId,
+        });
+        expect(res.status).toBe(201);
+
+        expect(await Visit.findOne({ studentId: student._id, groupClassSessionId: started._id })).toBeNull();
+
+        const laterSessionIds = (await GroupClassSession.find({ scheduleId, date: { $gt: started.date } })).map(
+          (session) => session._id
+        );
+        expect(laterSessionIds.length).toBeGreaterThan(0);
+        expect(
+          await Visit.countDocuments({
+            studentId: student._id,
+            groupClassSessionId: { $in: laterSessionIds },
+            status: { $ne: 'cancelled' },
+          })
+        ).toBe(laterSessionIds.length);
+      }, 30000);
+    });
+
     it('GET /preview anchors proration to a provided startDate the same way the real charge does', async () => {
       const { scheduleId, levelId } = await seedSchedule();
       const { student } = await seedParentAndStudent('startdate-preview@example.com');

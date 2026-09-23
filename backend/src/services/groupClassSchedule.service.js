@@ -2,7 +2,7 @@ const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const GroupClassSession = require('../models/groupClassSession.model');
 const User = require('../models/user.model');
-const { generateInitialSessions } = require('./groupClassSession.service');
+const { generateInitialSessions, sessionInstantsFor } = require('./groupClassSession.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
 
 function notFoundError(message) {
@@ -71,6 +71,12 @@ async function getById(id) {
   return schedule;
 }
 
+// A schedule's `dayOfWeek` cannot change (plan D6): it decides which calendar
+// days its sessions exist on, so changing it is a regenerate-and-re-roster
+// operation docs/features/admin.md defers. A `startTime`/`endTime` change
+// re-resolves `startsAt`/`endsAt` for every not-yet-started session so the
+// stored instants never drift from the rule; started sessions are history
+// and are left as they were.
 async function update(id, data) {
   if (data.classId !== undefined) {
     await assertClassExists(data.classId);
@@ -80,6 +86,14 @@ async function update(id, data) {
     await assertCoachValid(data.coachId);
   }
 
+  if (data.dayOfWeek !== undefined) {
+    const existing = await GroupClassSchedule.findById(id);
+
+    if (existing && existing.dayOfWeek !== Number(data.dayOfWeek)) {
+      throw badRequestError("Changing a schedule's day is not supported — create a new schedule");
+    }
+  }
+
   const schedule = await GroupClassSchedule.findByIdAndUpdate(id, data, {
     new: true,
     runValidators: true,
@@ -87,6 +101,21 @@ async function update(id, data) {
 
   if (!schedule) {
     throw notFoundError('Group class schedule not found');
+  }
+
+  if (data.startTime !== undefined || data.endTime !== undefined) {
+    const upcoming = await GroupClassSession.find({ scheduleId: schedule._id, startsAt: { $gt: new Date() } }, 'date');
+
+    if (upcoming.length > 0) {
+      await GroupClassSession.bulkWrite(
+        upcoming.map((session) => ({
+          updateOne: {
+            filter: { _id: session._id },
+            update: { $set: sessionInstantsFor(session.date, schedule) },
+          },
+        }))
+      );
+    }
   }
 
   return schedule;

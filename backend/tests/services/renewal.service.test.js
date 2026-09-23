@@ -116,7 +116,7 @@ async function enrollStudentOnRosterAndSessions(schedule, studentId) {
   const sessions = generateInitialSessions(schedule);
   await GroupClassSession.insertMany(sessions);
 
-  await addStudentToRoster(schedule, studentId, todayAtMidnight());
+  await addStudentToRoster(schedule, studentId);
 
   return GroupClassSession.find({ scheduleId: schedule._id }).sort({ date: 1 });
 }
@@ -1417,7 +1417,7 @@ describe('retryOne', () => {
       // path does.
       const sessions = generateInitialSessions(schedule);
       await GroupClassSession.insertMany(sessions);
-      await addStudentToRoster(schedule, student._id, todayAtMidnight());
+      await addStudentToRoster(schedule, student._id);
 
       // Mock call counts accumulate across this whole test file (no
       // clearAllMocks between tests) — measure the DELTA this test's own

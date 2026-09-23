@@ -38,6 +38,12 @@ Applied per field:
 - `docs/plans/timezone-consistency-plan.md` is **not** superseded wholesale — only its `GroupClassSession.date` generation choice (D4/D5) changed; its `todayAtMidnight`/`todayDateOnly`/`addOneDay`/D9/D10 reasoning is the foundation this ADR builds on and remains correct.
 - If real private-class data is ever contaminated in a live environment before another fix ships, `scripts/lib/normalizeDateSentinels.js` is a directly copyable template (it already handles the general "truncate a contaminated instant, dry-run first, abort on ambiguity, skip on unique-index collision" shape) — not built preemptively, but the pattern is proven and available.
 
+## Addendum (2026-09-23): `GroupClassSession` carries both shapes
+
+`GroupClassSession.date` alone answered "which day," never "has it started" — the time of day lives on the schedule (`"HH:mm"`), and nothing combined the two, so every upcoming/past check was a day comparison and a 4 pm class stayed bookable until midnight (`docs/plans/session-start-time-cutoff-plan.md`). The session now stores **both**: `date` (calendar-day sentinel — the day key for holidays, uniqueness, day-grouped display) and `startsAt`/`endsAt` (real UTC instants — the time key), written together by one generator via `dateShapes.js`'s `sentinelDayString` + `combineDayAndTimeInTZ`. Every "has it started / is it upcoming" query is now instant-vs-instant on `startsAt`, exactly as private classes already were; group and private sessions share one contract. This matches CKQ's own model (`GroupClassSession.startDate`/`endDate` are UTC instants) and the calendaring standard (RFC 5545 / Google Calendar / MS Graph: the recurrence rule in local wall-clock + IANA tz, each expanded occurrence stored as an absolute instant).
+
+This supersedes this ADR's original reasoning for keeping group sessions sentinel-only ("instants rendered a Monday as Sunday"): that was a browser-local rendering bug, fixed by the formatter gate (`formatInstant`/`formatDateOnly`), not a defect of storing an instant. Existing rows are backfilled by `scripts/backfill-session-instants.js` (dry-run first); `PUT /group-class-schedules/:id` keeps stored instants in sync with a schedule's times and rejects `dayOfWeek` changes.
+
 ## Alternatives considered
 
 - **Central-midnight instants for `GroupClassSession.date`** (the pre-existing choice) — rejected: disagrees with every other sentinel field in the codebase, and renders wrong in any formatter/comparison that assumes UTC midnight.

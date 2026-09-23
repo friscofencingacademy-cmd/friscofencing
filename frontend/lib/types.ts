@@ -121,6 +121,10 @@ export interface GroupClassSession {
   _id: string;
   scheduleId: string;
   date: string;
+  // Real UTC instants (docs/plans/session-start-time-cutoff-plan.md) — the
+  // API sends them; nothing on the frontend reads them yet.
+  startsAt?: string;
+  endsAt?: string;
   students: SessionStudentEntry[];
   // Additive (docs/plans/holiday-blocking-plan.md D6) — lets the admin/coach
   // sessions list render a holiday row greyed with no attendance link,
@@ -148,6 +152,8 @@ export interface PopulatedSessionStudentEntry {
 export interface GroupClassSessionDetail {
   _id: string;
   date: string;
+  startsAt?: string;
+  endsAt?: string;
   students: PopulatedSessionStudentEntry[];
   // Additive (docs/plans/holiday-blocking-plan.md D6) — lets the attendance
   // page render its blocked state without a second fetch.
@@ -162,6 +168,8 @@ export interface GroupClassSessionDetail {
 export interface GroupClassSessionWithSchedule {
   _id: string;
   date: string;
+  startsAt?: string;
+  endsAt?: string;
   scheduleId: {
     _id: string;
     dayOfWeek: number;

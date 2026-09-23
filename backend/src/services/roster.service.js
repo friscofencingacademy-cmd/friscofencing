@@ -16,14 +16,13 @@ const visitService = require('./visit.service');
 // schedule.students itself is untouched — still the enrollment roster,
 // still what capacity checks and "whose home schedule is this" read.
 //
-// `today` (both functions below) MUST be a calendar-day sentinel — the same
-// UTC-midnight shape GroupClassSession.date itself uses (docs/plans/
-// utc-date-standard-plan.md) — never a real instant like billingDates.js's
-// todayAtMidnight(). It feeds a `date: { $gte: today }` query directly;
-// passing an instant silently excludes a session dated exactly today (bug
-// 5 in that plan). Every current caller passes todayDateOnly().
+// Both functions act on every session of the schedule that has NOT YET
+// STARTED (`startsAt` still ahead of now — docs/plans/session-start-time-
+// cutoff-plan.md D8). A started session's Visit is history: it is never
+// created here for a late registrant, and never cancelled here for a
+// departing student (which would erase real attendance).
 
-async function addStudentToRoster(schedule, studentId, today) {
+async function addStudentToRoster(schedule, studentId) {
   const alreadyOnRoster = schedule.students.some((id) => String(id) === String(studentId));
 
   if (!alreadyOnRoster) {
@@ -32,7 +31,7 @@ async function addStudentToRoster(schedule, studentId, today) {
   }
 
   const futureSessions = await GroupClassSession.find(
-    { scheduleId: schedule._id, date: { $gte: today } },
+    { scheduleId: schedule._id, startsAt: { $gt: new Date() } },
     '_id'
   );
 
@@ -43,7 +42,7 @@ async function addStudentToRoster(schedule, studentId, today) {
   );
 }
 
-async function removeStudentFromRoster(schedule, studentId, today) {
+async function removeStudentFromRoster(schedule, studentId) {
   const onSchedule = schedule.students.some((id) => String(id) === String(studentId));
 
   if (onSchedule) {
@@ -52,7 +51,7 @@ async function removeStudentFromRoster(schedule, studentId, today) {
   }
 
   const futureSessions = await GroupClassSession.find(
-    { scheduleId: schedule._id, date: { $gte: today } },
+    { scheduleId: schedule._id, startsAt: { $gt: new Date() } },
     '_id'
   );
 

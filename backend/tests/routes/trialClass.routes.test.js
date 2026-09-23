@@ -19,6 +19,7 @@ const Visit = require('../../src/models/visit.model');
 const Holiday = require('../../src/models/holiday.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { createSession } = require('../testUtils/sessions');
 const mailService = require('../../src/services/mail.service');
 
 const TEST_PASSWORD = 'correct-password';
@@ -93,7 +94,11 @@ async function seedSession() {
   const scheduleId = scheduleRes.body.schedule._id;
   const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
 
-  return { sessionId: sessions[0]._id.toString(), scheduleId };
+  // The LAST generated session — always weeks in the future. sessions[0] may
+  // be today's occurrence, which (docs/plans/session-start-time-cutoff-
+  // plan.md) is un-bookable once its start time has passed, so using it
+  // would make this suite depend on what time of day it runs.
+  return { sessionId: sessions[sessions.length - 1]._id.toString(), scheduleId };
 }
 
 describe('TrialClass routes', () => {
@@ -166,11 +171,10 @@ describe('TrialClass routes', () => {
     it('returns 409 when booking a second trial for the same student, even for a different session', async () => {
       const { sessionId, scheduleId } = await seedSession();
 
-      const secondSession = await GroupClassSession.create({
-        scheduleId,
-        date: new Date('2030-01-01'),
-        students: [],
-      });
+      const secondSession = await createSession(
+        { _id: scheduleId, startTime: '16:00', endTime: '17:00' },
+        new Date('2030-01-01')
+      );
 
       const parent = await seedUser({
         role: 'parent',
@@ -226,6 +230,45 @@ describe('TrialClass routes', () => {
       });
 
       expect(res.status).toBe(400);
+      expect(await Visit.findOne({ studentId: student._id, groupClassSessionId: sessionId })).toBeNull();
+    });
+
+    // docs/plans/session-start-time-cutoff-plan.md — a session whose start
+    // instant has passed is not bookable, whether it began earlier today or
+    // ran on a past day. Fixed historical instants, no clock dependence.
+    it('returns 400 booking a trial into a session that has already started', async () => {
+      const { sessionId } = await seedSession();
+
+      await GroupClassSession.updateOne(
+        { _id: sessionId },
+        {
+          date: new Date('2020-01-01T00:00:00.000Z'),
+          startsAt: new Date('2020-01-01T22:00:00.000Z'),
+          endsAt: new Date('2020-01-01T23:00:00.000Z'),
+        }
+      );
+
+      const parent = await seedUser({
+        role: 'parent',
+        email: 'trial-started@example.com',
+        phone: '555-123-4567',
+      });
+      const student = await User.create({
+        role: 'student',
+        firstName: 'Kid',
+        lastName: 'Started',
+        parentId: parent._id,
+        dateOfBirth: new Date('2018-01-01'),
+      });
+      const parentAgent = await loginAgent('trial-started@example.com');
+
+      const res = await parentAgent.post('/api/v1/trial-classes').send({
+        studentId: student._id.toString(),
+        sessionId,
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('This session has already started — choose a later date');
       expect(await Visit.findOne({ studentId: student._id, groupClassSessionId: sessionId })).toBeNull();
     });
 

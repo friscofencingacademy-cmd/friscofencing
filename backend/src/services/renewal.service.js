@@ -473,12 +473,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
     const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
 
     if (schedule) {
-      // A calendar-day sentinel, NOT the billing-instant `today` above
-      // (docs/plans/utc-date-standard-plan.md bug 5) — removeStudentFromRoster
-      // filters session dates via $gte, which must stay sentinel-shaped;
-      // `today` (todayAtMidnight()) is deliberately kept as-is for this
-      // function's own due-check earlier.
-      await removeStudentFromRoster(schedule, subscription.studentId, todayDateOnly());
+      await removeStudentFromRoster(schedule, subscription.studentId);
     }
 
     return { subscriptionId, outcome: 'cancelled_finalized' };
@@ -920,10 +915,7 @@ async function cancelAfterExhaustion(subscription, failedRow) {
   const schedule = await GroupClassSchedule.findById(subscription.scheduleId);
 
   if (schedule) {
-    // A calendar-day sentinel, not a real instant — same fix as renewOne's
-    // own cancellation-finalize branch above (docs/plans/utc-date-standard-
-    // plan.md bug 5).
-    await removeStudentFromRoster(schedule, subscription.studentId, todayDateOnly());
+    await removeStudentFromRoster(schedule, subscription.studentId);
   }
 
   const student = await User.findById(subscription.studentId);

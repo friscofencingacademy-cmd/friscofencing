@@ -91,6 +91,14 @@ async function create({ studentId, sessionId }, requestingUser) {
     throw notFoundError('Group class session not found');
   }
 
+  // The picker never offers a started session (listUpcomingByClass filters
+  // on startsAt), but a direct API call or a stale open tab could still
+  // submit one — including a session from a past day
+  // (docs/plans/session-start-time-cutoff-plan.md).
+  if (session.startsAt <= new Date()) {
+    throw badRequestError('This session has already started — choose a later date');
+  }
+
   // Defense in depth (docs/plans/holiday-blocking-plan.md D7) — the trial
   // picker never shows a holiday-date session at all (listUpcomingByClass
   // filters it out), but a direct API call or a stale open tab could still

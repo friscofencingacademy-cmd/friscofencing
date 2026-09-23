@@ -5,7 +5,12 @@ const Visit = require('../models/visit.model');
 const visitService = require('./visit.service');
 const holidayService = require('./holiday.service');
 const { todayDateOnly } = require('../utils/billingDates');
-const { nextDateOnlyOnOrAfter, addDaysToDateOnly } = require('../utils/dateShapes');
+const {
+  nextDateOnlyOnOrAfter,
+  addDaysToDateOnly,
+  sentinelDayString,
+  combineDayAndTimeInTZ,
+} = require('../utils/dateShapes');
 
 const SESSION_COUNT = 8;
 const DAYS_PER_WEEK = 7;
@@ -56,6 +61,22 @@ function conflictError(message) {
 // A student's scheduled Visits for these sessions are created separately,
 // by roster.service.js's addStudentToRoster, whenever they actually
 // register.
+//
+// Each session also carries `startsAt`/`endsAt` — real UTC instants, the
+// sentinel day + the schedule's wall-clock "HH:mm" resolved in the academy
+// timezone (docs/plans/session-start-time-cutoff-plan.md D3/D4). The first
+// session may be today's occurrence even if it has already started: it is a
+// real (past) occurrence, and consumers filter by `startsAt`, not the
+// generator.
+function sessionInstantsFor(date, schedule) {
+  const day = sentinelDayString(date);
+
+  return {
+    startsAt: combineDayAndTimeInTZ(day, schedule.startTime),
+    endsAt: combineDayAndTimeInTZ(day, schedule.endTime),
+  };
+}
+
 function generateInitialSessions(schedule) {
   const firstDate = nextDateOnlyOnOrAfter(todayDateOnly(), schedule.dayOfWeek);
 
@@ -63,7 +84,7 @@ function generateInitialSessions(schedule) {
 
   for (let i = 0; i < SESSION_COUNT; i += 1) {
     const date = addDaysToDateOnly(firstDate, i * DAYS_PER_WEEK);
-    sessions.push({ scheduleId: schedule._id, date });
+    sessions.push({ scheduleId: schedule._id, date, ...sessionInstantsFor(date, schedule) });
   }
 
   return sessions;
@@ -128,31 +149,30 @@ const DEFAULT_UPCOMING_WINDOW_DAYS = 30;
 // Trial booking no longer makes the parent pick a schedule first — this
 // lists every upcoming session across ALL of a class's schedules (e.g. a
 // class that runs Mon and Wed both), so a session itself is the only thing
-// picked. `date` range is today-inclusive (see nextDateOnlyOnOrAfter's same
-// "on or after" convention) through `+days`, computed here — never on the
-// frontend — matching this codebase's "no client-side availability math"
-// rule. Only the display-relevant schedule fields are populated: never the
-// roster (`students`) or `coachId` — a parent browsing trial dates must
+// picked. "Upcoming" means the session's START INSTANT is still ahead of
+// `now` (docs/plans/session-start-time-cutoff-plan.md) — a session whose
+// class has already started today is not offered, even though its calendar
+// day is still today — through `+days` calendar days, computed here, never
+// on the frontend, matching this codebase's "no client-side availability
+// math" rule. Only the display-relevant schedule fields are populated: never
+// the roster (`students`) or `coachId` — a parent browsing trial dates must
 // never see another family's child names.
 async function listUpcomingByClass(classId, days = DEFAULT_UPCOMING_WINDOW_DAYS) {
   const scheduleIds = await GroupClassSchedule.find({ classId }).distinct('_id');
 
-  // Sentinel-vs-sentinel comparison (docs/plans/utc-date-standard-plan.md
-  // bug 5) — todayDateOnly() and addDaysToDateOnly() both stay in the same
-  // UTC-midnight-sentinel shape GroupClassSession.date itself uses. The
-  // previous todayAtMidnight() (a real Central-midnight INSTANT, ~05:00Z/
-  // 06:00Z) silently excluded TODAY's own session from this range whenever
-  // one existed — comparing an instant against a sentinel a few hours
-  // "earlier" in the same intended calendar day. Zero DST exposure by
-  // construction (pure UTC calendar arithmetic, not real-time math).
+  // `now` sampled once (plan D7). The far edge of the window stays a
+  // sentinel-vs-sentinel comparison on `date` (a day-granular question);
+  // "has it started" is instant-vs-instant on `startsAt`.
+  const now = new Date();
   const rangeStart = todayDateOnly();
   const rangeEnd = addDaysToDateOnly(rangeStart, days);
 
   const sessions = await GroupClassSession.find({
     scheduleId: { $in: scheduleIds },
-    date: { $gte: rangeStart, $lte: rangeEnd },
+    startsAt: { $gt: now },
+    date: { $lte: rangeEnd },
   })
-    .sort({ date: 1, scheduleId: 1 })
+    .sort({ startsAt: 1, scheduleId: 1 })
     .populate('scheduleId', 'dayOfWeek startTime endTime');
 
   // Holiday dates simply don't appear (docs/plans/holiday-blocking-plan.md
@@ -461,6 +481,7 @@ async function removeStudentFromSession(sessionId, studentId, requestingUser) {
 }
 
 module.exports = {
+  sessionInstantsFor,
   generateInitialSessions,
   listBySchedule,
   listUpcomingByClass,

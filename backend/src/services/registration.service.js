@@ -116,6 +116,13 @@ async function resolveStartDate(scheduleId, startDate) {
     throw badRequestError('startDate is not an upcoming session for this schedule');
   }
 
+  // A day-level check above can't tell a session that started at 4 pm from
+  // one still ahead at 6 pm on the same day — the stored start instant can
+  // (docs/plans/session-start-time-cutoff-plan.md).
+  if (session.startsAt <= new Date()) {
+    throw badRequestError('startDate is a session that has already started');
+  }
+
   // Defense in depth (docs/plans/holiday-blocking-plan.md D7) — the parent
   // pickers never show a holiday-date session at all (listUpcomingByClass
   // filters it out), but a direct API call or a stale open tab could still
@@ -334,13 +341,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   ]);
 
   if (result.outcome === 'charged') {
-    // A calendar-day sentinel, matching GroupClassSession.date's own shape
-    // (docs/plans/utc-date-standard-plan.md bug 5) — addStudentToRoster's
-    // `today` param filters session dates via $gte, so it must be a
-    // sentinel, never todayAtMidnight()'s real-instant shape (which would
-    // silently exclude a session dated exactly today from the new Visits
-    // this creates).
-    await addStudentToRoster(schedule, studentId, todayDateOnly());
+    await addStudentToRoster(schedule, studentId);
 
     // Fire-and-forget confirmation email — never throws, never affects this
     // response (see mail.service.js's send-function contract). The extra

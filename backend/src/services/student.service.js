@@ -2,7 +2,6 @@ const User = require('../models/user.model');
 const Subscription = require('../models/subscription.model');
 const TrialClass = require('../models/trialClass.model');
 const { withAge } = require('../utils/age');
-const { todayDateOnly } = require('../utils/billingDates');
 
 function badRequestError(message) {
   const error = new Error(message);
@@ -70,7 +69,7 @@ async function attachEnrollment(students) {
       'scheduleId',
       'dayOfWeek startTime endTime'
     ),
-    TrialClass.find({ studentId: { $in: studentIds } }).populate('sessionId', 'date'),
+    TrialClass.find({ studentId: { $in: studentIds } }).populate('sessionId', 'date startsAt'),
   ]);
 
   // Keyed on the RAW result (existence), not the populated one — canBookTrial
@@ -88,7 +87,7 @@ async function attachEnrollment(students) {
   );
   const trialByStudentId = new Map(trialClasses.map((trial) => [String(trial.studentId), trial]));
 
-  const today = todayDateOnly();
+  const now = new Date();
 
   return students.map((student) => {
     const studentId = String(student._id);
@@ -116,14 +115,12 @@ async function attachEnrollment(students) {
 
     if (trial) {
       const sessionDoc = trial.sessionId;
-      // GroupClassSession.date is a date-only UTC-midnight sentinel — the
-      // exact shape todayDateOnly() itself produces (see billingDates.js's
-      // docblock) — so a plain >= comparison is the correct, tz-safe check
-      // here, never real-instant math on it. A deleted session can't be
+      // "Scheduled" means the session's START INSTANT is still ahead of now
+      // (docs/plans/session-start-time-cutoff-plan.md) — a trial whose class
+      // began earlier today already happened. A deleted session can't be
       // dated at all — default to "completed" rather than risk a stale
-      // "scheduled" line (the exact bug this PR fixes) for an
-      // unrenderable trial.
-      const status = sessionDoc && sessionDoc.date >= today ? 'trial_scheduled' : 'trial_completed';
+      // "scheduled" line for an unrenderable trial.
+      const status = sessionDoc && sessionDoc.startsAt > now ? 'trial_scheduled' : 'trial_completed';
       return {
         ...student,
         enrollment: { status, canBookTrial: false, schedule: null },

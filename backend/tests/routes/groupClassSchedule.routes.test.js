@@ -12,7 +12,6 @@ const GroupClassSession = require('../../src/models/groupClassSession.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
-const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
 const TEST_PASSWORD = 'correct-password';
@@ -27,7 +26,18 @@ afterAll(async () => {
   await disconnectTestDB(mongod);
 });
 
+const FAKE_TIMER_PASSTHROUGH = [
+  'setTimeout',
+  'clearTimeout',
+  'setInterval',
+  'clearInterval',
+  'setImmediate',
+  'clearImmediate',
+  'nextTick',
+];
+
 afterEach(async () => {
+  jest.useRealTimers();
   await clearTestDB();
   delete process.env.ENABLE_SCHEDULE_BASED_REGISTRATION;
 });
@@ -120,6 +130,13 @@ describe('GroupClassSchedule routes', () => {
   });
 
   it('GET /by-schedule/:scheduleId attaches each session\'s roster (student count), computed live from Visit — the exact shape the admin/coach sessions-list pages read', async () => {
+    // Frozen on a Tuesday so every generated Wednesday session is still ahead
+    // of "now" — the roster helper only creates Visits for not-yet-started
+    // sessions, so a real-clock run on a Wednesday evening would otherwise
+    // leave today's session with no Visit. Only Date is faked; real timers
+    // are needed by the Mongo driver + supertest.
+    jest.useFakeTimers({ now: new Date('2026-08-25T12:00:00.000Z'), doNotFake: FAKE_TIMER_PASSTHROUGH });
+
     await seedUser();
     const adminAgent = await loginAgent('test-admin@example.com');
 
@@ -143,7 +160,7 @@ describe('GroupClassSchedule routes', () => {
     const scheduleId = createRes.body.schedule._id;
 
     const schedule = await GroupClassSchedule.findById(scheduleId);
-    await addStudentToRoster(schedule, student._id, todayAtMidnight());
+    await addStudentToRoster(schedule, student._id);
 
     const listRes = await adminAgent.get(`/api/v1/group-class-sessions/by-schedule/${scheduleId}`);
 
@@ -180,6 +197,94 @@ describe('GroupClassSchedule routes', () => {
     });
 
     expect(res.status).toBe(400);
+  });
+
+  // docs/plans/session-start-time-cutoff-plan.md D6 — stored startsAt/endsAt
+  // must never drift from the schedule's own rule.
+  describe('PUT /:id — keeping session instants in sync with the schedule (D6)', () => {
+    async function seedScheduleViaRoute(adminAgent) {
+      const groupClass = await seedClass();
+      const coach = await User.create({
+        role: 'coach',
+        firstName: 'Coach',
+        lastName: 'Put',
+        email: 'test-coach-put@example.com',
+        passwordHash: await hashPassword(TEST_PASSWORD),
+      });
+
+      const createRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+        classId: groupClass._id.toString(),
+        coachId: coach._id.toString(),
+        dayOfWeek: 3,
+        startTime: '16:00',
+        endTime: '17:00',
+      });
+
+      expect(createRes.status).toBe(201);
+      return createRes.body.schedule._id;
+    }
+
+    it('re-resolves startsAt/endsAt for every not-yet-started session when startTime/endTime change, leaving a started session untouched', async () => {
+      jest.useFakeTimers({ now: new Date('2026-08-25T12:00:00.000Z'), doNotFake: FAKE_TIMER_PASSTHROUGH }); // Tuesday
+
+      await seedUser();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const scheduleId = await seedScheduleViaRoute(adminAgent);
+
+      // Make the first session a genuinely started one, at fixed historical
+      // instants, so "left untouched" is observable.
+      const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+      const started = sessions[0];
+      const startedInstants = {
+        startsAt: new Date('2020-01-01T22:00:00.000Z'),
+        endsAt: new Date('2020-01-01T23:00:00.000Z'),
+      };
+      await GroupClassSession.updateOne({ _id: started._id }, startedInstants);
+
+      const res = await adminAgent.put(`/api/v1/group-class-schedules/${scheduleId}`).send({
+        startTime: '18:30',
+        endTime: '19:30',
+      });
+
+      expect(res.status).toBe(200);
+
+      const after = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
+
+      // Started session: unchanged.
+      expect(after[0].startsAt.toISOString()).toBe(startedInstants.startsAt.toISOString());
+      expect(after[0].endsAt.toISOString()).toBe(startedInstants.endsAt.toISOString());
+
+      // Every other session: 18:30-19:30 Central. All eight sessions fall
+      // between 2026-08-26 and 2026-10-14 (CDT, UTC-5), so 18:30 Central is
+      // 23:30Z on the session's own day.
+      after.slice(1).forEach((session) => {
+        const day = session.date.toISOString().slice(0, 10);
+        expect(session.startsAt.toISOString()).toBe(`${day}T23:30:00.000Z`);
+        expect(session.endsAt.getTime() - session.startsAt.getTime()).toBe(60 * 60 * 1000);
+      });
+    });
+
+    it('rejects a dayOfWeek change with 400 and changes nothing', async () => {
+      await seedUser();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const scheduleId = await seedScheduleViaRoute(adminAgent);
+
+      const res = await adminAgent.put(`/api/v1/group-class-schedules/${scheduleId}`).send({ dayOfWeek: 5 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe("Changing a schedule's day is not supported — create a new schedule");
+      expect((await GroupClassSchedule.findById(scheduleId)).dayOfWeek).toBe(3);
+    });
+
+    it('accepts a dayOfWeek that equals the current value (no-op, not a change)', async () => {
+      await seedUser();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const scheduleId = await seedScheduleViaRoute(adminAgent);
+
+      const res = await adminAgent.put(`/api/v1/group-class-schedules/${scheduleId}`).send({ dayOfWeek: 3 });
+
+      expect(res.status).toBe(200);
+    });
   });
 
   describe('GET /mine', () => {
