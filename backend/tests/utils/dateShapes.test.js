@@ -1,6 +1,33 @@
-const { dateOnlyUTC, addDaysToDateOnly, nextDateOnlyOnOrAfter, combineDayAndTimeInTZ } = require('../../src/utils/dateShapes');
+const {
+  dateOnlyUTC,
+  addDaysToDateOnly,
+  nextDateOnlyOnOrAfter,
+  sentinelDayString,
+  combineDayAndTimeInTZ,
+} = require('../../src/utils/dateShapes');
 
 describe('dateShapes', () => {
+  describe('sentinelDayString', () => {
+    it('reads a sentinel back out as its own UTC calendar day', () => {
+      expect(sentinelDayString(new Date('2026-08-25T00:00:00.000Z'))).toBe('2026-08-25');
+    });
+
+    it('zero-pads single-digit months and days', () => {
+      expect(sentinelDayString(new Date('2026-01-05T00:00:00.000Z'))).toBe('2026-01-05');
+    });
+
+    it('reads a contaminated (Eastern-midnight) value by its UTC day, matching dateOnlyUTC', () => {
+      const contaminated = new Date('2026-08-25T04:00:00.000Z');
+      expect(sentinelDayString(contaminated)).toBe('2026-08-25');
+      expect(sentinelDayString(dateOnlyUTC(contaminated))).toBe('2026-08-25');
+    });
+
+    it('round-trips through combineDayAndTimeInTZ to the correct Central instant', () => {
+      const day = sentinelDayString(new Date('2026-08-25T00:00:00.000Z'));
+      expect(combineDayAndTimeInTZ(day, '16:00').toISOString()).toBe('2026-08-25T21:00:00.000Z');
+    });
+  });
+
   describe('dateOnlyUTC', () => {
     it('truncates a contaminated Eastern-midnight instant to UTC midnight of its own UTC day', () => {
       // The owner's original dev-machine data (docs/plans/utc-date-standard-

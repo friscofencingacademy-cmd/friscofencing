@@ -15,7 +15,6 @@ const Subscription = require('../../src/models/subscription.model');
 const Holiday = require('../../src/models/holiday.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
-const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
 const TEST_PASSWORD = 'correct-password';
@@ -111,12 +110,15 @@ async function seedScheduleWithSession(adminAgent) {
   const scheduleId = createRes.body.schedule._id;
 
   const schedule = await GroupClassSchedule.findById(scheduleId);
-  const today = todayAtMidnight();
-  await addStudentToRoster(schedule, student1._id, today);
-  await addStudentToRoster(schedule, student2._id, today);
+  await addStudentToRoster(schedule, student1._id);
+  await addStudentToRoster(schedule, student2._id);
 
+  // The LAST generated session — always weeks ahead, so the roster helper
+  // (which only creates Visits for not-yet-started sessions) has always
+  // created its Visits. sessions[0] may be today's already-started
+  // occurrence, which would make these tests depend on the time of day.
   const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
-  const session = sessions[0];
+  const session = sessions[sessions.length - 1];
 
   return { coach, otherCoach, student1, student2, scheduleId, sessionId: session._id.toString() };
 }
@@ -169,7 +171,7 @@ describe('GroupClassSession routes', () => {
         endTime: '19:00',
       });
       const scheduleADoc = await GroupClassSchedule.findById(scheduleA.body.schedule._id);
-      await addStudentToRoster(scheduleADoc, otherStudent._id, todayAtMidnight());
+      await addStudentToRoster(scheduleADoc, otherStudent._id);
 
       const res = await parentAgent.get(`/api/v1/group-class-sessions/by-class/${groupClass._id}`);
 
@@ -459,9 +461,8 @@ describe('GroupClassSession routes', () => {
       const studentB = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleB' });
       const unrelatedStudent = await User.create({ role: 'student', firstName: 'No', lastName: 'Subscription' });
 
-      const today = todayAtMidnight();
-      await addStudentToRoster(scheduleA, studentA._id, today);
-      await addStudentToRoster(scheduleB, studentB._id, today);
+      await addStudentToRoster(scheduleA, studentA._id);
+      await addStudentToRoster(scheduleB, studentB._id);
 
       const parent = await User.create({ role: 'parent', firstName: 'P', lastName: 'Rent' });
       await Subscription.create({
@@ -487,7 +488,14 @@ describe('GroupClassSession routes', () => {
 
       const sessionsA = await GroupClassSession.find({ scheduleId: scheduleA._id }).sort({ date: 1 });
 
-      return { coachA, coachB, studentA, studentB, unrelatedStudent, sessionAId: sessionsA[0]._id.toString() };
+      return {
+        coachA,
+        coachB,
+        studentA,
+        studentB,
+        unrelatedStudent,
+        sessionAId: sessionsA[sessionsA.length - 1]._id.toString(),
+      };
     }
 
     it("eligible-students returns the sibling-schedule student, excluding this session's own roster and anyone with no subscription", async () => {

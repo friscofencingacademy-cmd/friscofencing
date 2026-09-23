@@ -20,11 +20,13 @@
 //    calendar day, no real timezone meaning (GroupClassSession.date). Build
 //    ONLY via dateOnlyUTC/addDaysToDateOnly/nextDateOnlyOnOrAfter below;
 //    compare ONLY against another sentinel (e.g. todayDateOnly() from
-//    billingDates.js) — never against a real instant.
+//    billingDates.js) — never against a real instant. sentinelDayString
+//    reads one back out as 'YYYY-MM-DD'.
 //  - Real instant: combineDayAndTimeInTZ turns a calendar day + wall-clock
 //    "HH:mm" into a true UTC instant, resolved via real IANA timezone math
-//    (moment-timezone) — used by private-class session generation (PR 3 of
-//    this plan), not by anything in this PR.
+//    (moment-timezone) — used by both session generators (private-class
+//    startDate/endDate; group-class startsAt/endsAt, docs/plans/session-
+//    start-time-cutoff-plan.md).
 
 const moment = require('moment-timezone');
 const { DEFAULT_TIMEZONE } = require('../config/timezone');
@@ -61,14 +63,24 @@ function nextDateOnlyOnOrAfter(fromSentinel, dayOfWeek) {
   return addDaysToDateOnly(fromSentinel, diff);
 }
 
+// The ONLY sanctioned way to read a calendar-day sentinel back out as the
+// 'YYYY-MM-DD' day string combineDayAndTimeInTZ accepts — a sentinel's UTC
+// calendar parts ARE its meaning. The named, blessed exception to "never
+// reinterpret a sentinel via toISOString()".
+function sentinelDayString(sentinel) {
+  const year = sentinel.getUTCFullYear();
+  const month = String(sentinel.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(sentinel.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 'YYYY-MM-DD' calendar day + 'HH:mm' wall-clock time, resolved in `tz`
 // (default Central) -> a true UTC instant. The ONLY way to build a stored
-// real instant from human wall-clock input (private-class session
-// generation, PR 3 of this plan) — CKQ's combineDateTimeInTZ + its
-// convertTZtoUTC, fused into one call. Never feed this a calendar-day
-// sentinel reinterpreted as a "day string" via toISOString() — pass the
-// same 'YYYY-MM-DD' shape a client date string or moment().format()
-// produces.
+// real instant from human wall-clock input (both session generators: private
+// classes' startDate/endDate and group classes' startsAt/endsAt) — CKQ's
+// combineDateTimeInTZ + its convertTZtoUTC, fused into one call. To feed it
+// a calendar-day sentinel, convert with sentinelDayString first — never a
+// toISOString() reinterpretation.
 function combineDayAndTimeInTZ(dayStr, hhmm, tz = DEFAULT_TIMEZONE) {
   return moment.tz(`${dayStr} ${hhmm}`, 'YYYY-MM-DD HH:mm', tz).toDate();
 }
@@ -77,5 +89,6 @@ module.exports = {
   dateOnlyUTC,
   addDaysToDateOnly,
   nextDateOnlyOnOrAfter,
+  sentinelDayString,
   combineDayAndTimeInTZ,
 };

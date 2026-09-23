@@ -8,6 +8,7 @@ const Subscription = require('../../src/models/subscription.model');
 const TrialClass = require('../../src/models/trialClass.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { createSession } = require('../testUtils/sessions');
 
 let mongod;
 
@@ -68,8 +69,11 @@ async function makeActiveSubscription(studentId, parentId, scheduleId) {
   });
 }
 
-async function makeSession(date) {
-  return GroupClassSession.create({ scheduleId: new mongoose.Types.ObjectId(), date });
+// The session's schedule never needs to resolve to a real doc here —
+// attachEnrollment only reads the session's own date/startsAt. Instants come
+// from the production composition via the shared fixture helper.
+async function makeSession(date, times = { startTime: '16:00', endTime: '17:00' }) {
+  return createSession({ _id: new mongoose.Types.ObjectId(), ...times }, date);
 }
 
 function findResult(results, studentId) {
@@ -118,6 +122,42 @@ describe('student.service — listMine() enrollment', () => {
         const [result] = await studentService.listMine(parent._id);
 
         expect(result.enrollment).toEqual({ status: 'trial_scheduled', canBookTrial: false, schedule: null });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    // docs/plans/session-start-time-cutoff-plan.md — August 2026 is CDT
+    // (UTC-5): a 16:00 Central class starts at 21:00Z.
+    it('returns "trial_scheduled" for a trial earlier the same day, before its 16:00 Central start', async () => {
+      jest.useFakeTimers({ now: new Date('2026-08-25T17:00:00.000Z'), doNotFake: DO_NOT_FAKE }); // 12:00 Central
+
+      try {
+        const parent = await makeParent('trial-before-start');
+        const student = await makeStudent(parent._id, 'TrialBeforeStart');
+        const session = await makeSession(new Date('2026-08-25'));
+        await TrialClass.create({ studentId: student._id, sessionId: session._id });
+
+        const [result] = await studentService.listMine(parent._id);
+
+        expect(result.enrollment.status).toBe('trial_scheduled');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('returns "trial_completed" for a trial whose class started earlier the same day (20:00 Central, class at 16:00)', async () => {
+      jest.useFakeTimers({ now: new Date('2026-08-26T01:00:00.000Z'), doNotFake: DO_NOT_FAKE }); // 20:00 Central
+
+      try {
+        const parent = await makeParent('trial-after-start');
+        const student = await makeStudent(parent._id, 'TrialAfterStart');
+        const session = await makeSession(new Date('2026-08-25'));
+        await TrialClass.create({ studentId: student._id, sessionId: session._id });
+
+        const [result] = await studentService.listMine(parent._id);
+
+        expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null });
       } finally {
         jest.useRealTimers();
       }

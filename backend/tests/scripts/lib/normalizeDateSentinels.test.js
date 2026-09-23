@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtils/db');
+const { createSession } = require('../../testUtils/sessions');
 const GroupClassSession = require('../../../src/models/groupClassSession.model');
 const GroupClassSchedule = require('../../../src/models/groupClassSchedule.model');
 const GroupClass = require('../../../src/models/groupClass.model');
@@ -81,7 +82,7 @@ describe('scripts/lib/normalizeDateSentinels — normalizeSentinelValue', () => 
 describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mongo)', () => {
   it('dry-run reports a contaminated GroupClassSession.date as needing normalization, without writing anything', async () => {
     const schedule = await seedScheduleFor('a');
-    const session = await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T04:00:00.000Z') });
+    const session = await createSession(schedule, new Date('2026-08-31T04:00:00.000Z'));
 
     const report = await normalizeDateSentinels({ apply: false });
 
@@ -102,7 +103,7 @@ describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mo
 
   it('--live truncates a contaminated GroupClassSession.date to true UTC midnight', async () => {
     const schedule = await seedScheduleFor('b');
-    const session = await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T05:00:00.000Z') });
+    const session = await createSession(schedule, new Date('2026-08-31T05:00:00.000Z'));
 
     const report = await normalizeDateSentinels({ apply: true });
 
@@ -115,7 +116,7 @@ describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mo
 
   it('leaves an already-clean sentinel untouched and reports zero changes', async () => {
     const schedule = await seedScheduleFor('c');
-    await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T00:00:00.000Z') });
+    await createSession(schedule, new Date('2026-08-31T00:00:00.000Z'));
 
     const report = await normalizeDateSentinels({ apply: true });
 
@@ -124,7 +125,7 @@ describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mo
 
   it('is idempotent — a second run over already-normalized data reports zero changes', async () => {
     const schedule = await seedScheduleFor('d');
-    await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T04:00:00.000Z') });
+    await createSession(schedule, new Date('2026-08-31T04:00:00.000Z'));
 
     await normalizeDateSentinels({ apply: true });
     const secondRun = await normalizeDateSentinels({ apply: true });
@@ -188,7 +189,7 @@ describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mo
   it('aborts the ENTIRE run — writes nothing anywhere — when any field fails the safety check', async () => {
     const schedule = await seedScheduleFor('g');
     // A clean, otherwise-normal session that WOULD be left untouched...
-    const cleanSession = await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T00:00:00.000Z') });
+    const cleanSession = await createSession(schedule, new Date('2026-08-31T00:00:00.000Z'));
 
     const { parent, student } = await seedSubscriptionAndFamily('g');
     // ...but a Subscription field with an impossible UTC-noon-or-later value
@@ -221,8 +222,8 @@ describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mo
     // Two sessions on the SAME schedule, contaminated with two different
     // instant shapes that both truncate to the SAME calendar day — writing
     // both would collide on the {scheduleId, date} unique index.
-    const sessionA = await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T04:00:00.000Z') });
-    const sessionB = await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T05:00:00.000Z') });
+    const sessionA = await createSession(schedule, new Date('2026-08-31T04:00:00.000Z'));
+    const sessionB = await createSession(schedule, new Date('2026-08-31T05:00:00.000Z'));
 
     const report = await normalizeDateSentinels({ apply: true });
 
@@ -238,10 +239,10 @@ describe('scripts/lib/normalizeDateSentinels — normalizeDateSentinels (real Mo
   it('does not treat a collision against an untouched already-clean row as safe to write', async () => {
     const schedule = await seedScheduleFor('i');
     // An already-clean session at the target day...
-    await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T00:00:00.000Z') });
+    await createSession(schedule, new Date('2026-08-31T00:00:00.000Z'));
     // ...and a contaminated one on the SAME schedule that would truncate
     // onto the exact same day — writing it would collide with the clean one.
-    const contaminated = await GroupClassSession.create({ scheduleId: schedule._id, date: new Date('2026-08-31T04:00:00.000Z') });
+    const contaminated = await createSession(schedule, new Date('2026-08-31T04:00:00.000Z'));
 
     const report = await normalizeDateSentinels({ apply: true });
 

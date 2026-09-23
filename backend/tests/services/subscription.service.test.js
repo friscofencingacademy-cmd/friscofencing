@@ -25,7 +25,6 @@ const { SubscriptionCycleRegistration } = Registration;
 const Subscription = require('../../src/models/subscription.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
-const { todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { seedServices } = require('../../scripts/lib/seedServices');
 const Service = require('../../src/models/service.model');
@@ -108,7 +107,7 @@ async function makeParentAndStudent(suffix) {
 }
 
 async function enroll({ level, oldSchedule, groupClass, student, parent, isPremium = false }) {
-  await addStudentToRoster(oldSchedule, student._id, todayAtMidnight());
+  await addStudentToRoster(oldSchedule, student._id);
 
   const subscription = await Subscription.create({
     studentId: student._id,

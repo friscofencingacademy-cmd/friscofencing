@@ -42,6 +42,8 @@ Restyled onto the shell + `admin.module.css` table classes + `AdminPageHeader`, 
 
 **Amended by the CKQ parity plan (Phase 3):** the narrow case of *moving a single student between two same-level schedules* is no longer deferred — see Subscriptions → Change Schedule below. What stays deferred is editing a schedule's own fields (day/time/coach/capacity) once created; that still has the ripple effects described above and remains out of scope.
 
+**API guard (session-start-time-cutoff plan):** the UI defers schedule editing, but `PUT /group-class-schedules/:id` still exists, so the service enforces the invariants the UI convention implied. A `dayOfWeek` change is rejected (400) — it changes which calendar days the schedule's sessions exist on. A `startTime`/`endTime` change re-resolves `startsAt`/`endsAt` for every not-yet-started session of that schedule (started sessions are history and are left as they were), so a session's stored start instant never drifts from its schedule's rule.
+
 ## Subscriptions (`/admin/subscriptions`)
 
 Not a Pattern A CRUD page — a list + action-dialogs page over `Subscription` (the group-class billing lifecycle). Backend: `subscription.service.js`'s `listAll`/`cancel`/`reactivate`/`changeSchedule`, routed at `GET/PATCH /api/v1/subscriptions*`.
