@@ -118,7 +118,7 @@ async function main() {
     console.log(`  Students enrolled in a level: ${summary.studentsEnrolledInLevel}`);
     console.log(`  Students with no program:     ${summary.studentsWithNoProgram}`);
     console.log(`  Students with unmapped program: ${summary.studentsWithUnmappedProgram}`);
-    console.log(`  Private-class enrollments:    ${summary.privateClassEnrollmentsCreated}`);
+    console.log(`  Private-lesson students flagged (no purchase imported): ${summary.privateClassStudentsFlagged}`);
 
     if (summary.warnings.length > 0) {
       console.log(`  Warnings (${summary.warnings.length}):`);

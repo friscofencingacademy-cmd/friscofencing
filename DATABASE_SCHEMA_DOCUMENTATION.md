@@ -124,7 +124,7 @@ generator attaches the PDF to the receipt email at charge time. `total` in the P
 
 **Discriminator: `subscription_cycle`** (group classes) — `subscriptionId` ref `Subscription` (required); `scheduleId` ref `GroupClassSchedule` (required, a charge-time snapshot, never rewritten by a later schedule change); `eventType` enum `initial`/`renewal`/`legacy` (required); `breakdown` (`monthlyFee` required, `prorated`, `proratedAmount`, `siblingDiscountApplied`, `siblingDiscountAmount`, `registrationFeeCharged`); `periodStart`/`periodEnd` (required — **calendar-day sentinels**, same shape/gate contract as `GroupClassSession.date` above; rendered in emails/invoices via `email/dates.js`'s `dateOnlyFull`, never `dateFull` — `docs/plans/utc-date-standard-plan.md`); `periodMonth` (String, required — `'YYYY-MM'`, derived from `periodStart`'s UTC calendar parts by a pre-validate hook, **never accepted from a caller**; `docs/plans/payment-airtight-plan.md` D7). Query index `{subscriptionId, createdAt: -1}`. **Guard B** — unique partial index `{subscriptionId, periodMonth}` (re-keyed from the exact `{subscriptionId, periodStart}` pair by the same plan — a prorated-from-today row anchors `periodStart` to a different day than a full-month row for the same calendar month, which the old exact-day key would not have caught), scoped to `status ∈ {pending, completed}` AND `subscriptionId: {$exists: true}` (the `$exists` scoping is what keeps this index from colliding with rows of a different shape, which have no `subscriptionId` field at all) — at most one non-failed charge per subscription per CALENDAR MONTH, across every charge pathway (cron, admin card charge either period, manual recording either period). Migrated via `scripts/migrate-period-month.js` (dry-run-first, backfills `periodMonth` + swaps the index, aborts with zero writes on any detected collision).
 
-**Discriminator: `per_session`** (private lessons — absorbs the former standalone `PrivateClassCharge` collection) — `sessionId` ref `PrivateClassSession` (required); `enrollmentId` ref `PrivateClassEnrollment` (required). Unique partial index on `sessionId`, scoped to `status ∈ {pending, completed}` AND `sessionId: {$exists: true}` — a session may have at most one non-failed charge at a time; `failed` deliberately excluded so a retry is never blocked.
+**Discriminator: `per_session`** (a private-lesson PURCHASE — [ADR 011](./docs/decisions/011-private-per-session-booking.md); absorbed the former standalone `PrivateClassCharge` collection) — `sessionId` ref `PrivateClassSession` (required — the booking the purchase came with); `enrollmentId` ref `PrivateClassEnrollment` (required — the purchase); `quantity` (Number ≥ 1, required); `unitPrice` (Number ≥ 0, required — per-session price before the pack discount); `discountPercent` (0–100, default 0). `amount` = `computePackTotal(unitPrice, quantity, discountPercent)` at purchase, never re-derived. Unique partial indexes on `sessionId` and on `enrollmentId`, each scoped to `status ∈ {pending, completed}` AND the field `$exists` — one non-failed charge per booking (the money dedup) and per purchase; `failed` excluded so a failed attempt never blocks a new one. A booking paid with an existing credit writes no row.
 
 **Discriminator: `one_time_event`** (camps/meets — schema-only today, no consumer yet; both Services seeded `isActive: false`) — `eventId` (ObjectId, `refPath: 'eventModel'` — standard Mongoose polymorphism); `eventModel` enum `Camp`/`Meet`. Unique partial index on `{eventId, studentId}`, scoped to `status ∈ {pending, completed}` AND `eventId: {$exists: true}` — one non-failed payment per student per event.
 
@@ -144,7 +144,7 @@ The charge-amount calculation lives in its own file, `backend/src/services/billi
 ## `Setting` — implemented (registration-fee plan)
 | Collection | Key fields |
 |---|---|
-| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `registrationFee` (Number, default `0`) — the **academy-wide default**, overridden per level by `Price.registrationFee` when set (`docs/plans/per-level-registration-fee-plan.md`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below). |
+| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). `privateClassPackages` (`[{ quantity ≥ 2, discountPercent 0–99 }]`, default `[]`) — private-lesson packs offered at purchase; a single session is always offered and never stored; validated only by `privateClassPricing.js`'s `normalizePackageOffers` ([ADR 011](./docs/decisions/011-private-per-session-booking.md)). `registrationFee` (Number, default `0`) — the **academy-wide default**, overridden per level by `Price.registrationFee` when set (`docs/plans/per-level-registration-fee-plan.md`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below). |
 
 Superadmin-only (`GET`/`PATCH /api/v1/settings`) — same trust bar as `/audit-runs`, since these values change the charge on every future registration immediately, with no confirmation step. No caching — read fresh on every call, consistent with `calculateChargeAmount`'s "never cached" principle.
 
@@ -190,48 +190,52 @@ unprorated fee rather than dividing by zero, still anchored to the calendar-mont
 
 Index: `{ coachId: 1, isActive: 1 }`. Creating a new contract for a coach deactivates their previous active one (service layer, not a schema constraint) — one active contract per coach. A contract is never edited or deleted once created — only deactivated — it's an immutable rate-audit record.
 
-## `PrivateClassSchedule` — implemented (CKQ parity Phase 4)
+## `PrivateClassSchedule` — availability rule ([ADR 011](./docs/decisions/011-private-per-session-booking.md))
 | Field | Type | Notes |
 |---|---|---|
 | `coachId` | ObjectId ref `User` | required |
 | `dayOfWeek` | Number 0–6 | required — `Date.getDay()` convention, matches `GroupClassSchedule` |
-| `startTime` | String `"HH:mm"` | required |
+| `startTime` | String `"HH:mm"` | required, 24h Central wall-clock, format-validated |
 | `durationMinutes` | Number | default 60, min 15 |
-| `studentId` | ObjectId ref `User` | default null — **null = the slot is available** for self-registration |
-| `enrollmentId` | ObjectId ref `PrivateClassEnrollment` | default null |
-| `isActive` | Boolean | default true |
+| `startDate`, `endDate` | Date | required — **calendar-day sentinels**, inclusive bookable range; `endDate >= startDate` validated |
+| `isActive` | Boolean | default true — `false` = retired (removed after it had bookings, so their `scheduleId` stays valid) |
 
-Indexes: `{ coachId: 1, isActive: 1 }`, `{ studentId: 1 }`. Duplicate rule (same `coachId` + `dayOfWeek` + `startTime`) is a service-level 409, not a unique index — a duplicate slot at the exact same coach/day/time is what the rule blocks, not a schema shape.
+Indexes: `{ coachId, isActive }`, `{ coachId, dayOfWeek, startTime }`. No student is ever stored on a rule. Created in bulk (one per weekday × slot in a time window). Overlap rule (same coach + weekday, intersecting time window AND date range) is a service-level 409 — an index cannot express range intersection.
 
-## `PrivateClassEnrollment` — implemented (CKQ parity Phase 4)
+## `PrivateClassEnrollment` — one purchase of credits (ADR 011)
 | Field | Type | Notes |
 |---|---|---|
 | `studentId`, `parentId`, `coachId` | ObjectId ref `User` | all required |
-| `coachContractId` | ObjectId ref `CoachContract` | required — audit trail: which contract set the rate below |
-| `agreedHourlyRate` | Number | required, min 0 — **pinned at self-registration time from the coach's contract, immutable afterward** (D7); a later contract-rate change affects only future enrollments |
-| `status` | String enum | `active`, `cancelled` — default `active` (born active — D4, no admin-created-then-parent-accepts step) |
-| `endDate` | Date | default null — set at cancellation; also the cutoff for the delivered-before-cancellation charge check |
+| `coachContractId` | ObjectId ref `CoachContract` | required — which contract priced the purchase |
+| `agreedHourlyRate` | Number | required, pinned at purchase, immutable |
+| `sessionDurationMinutes` | Number | required, min 15 — a credit books only a slot of this length |
+| `quantity` | Number | required, min 1 |
+| `discountPercent` | Number | required, 0–100, default 0 — pinned pack discount |
+| `sessionsUsed` | Number | required, default 0, validated `<= quantity`; moves only through atomic guarded `$inc` |
+| `status` | String enum | `pending` (charge unresolved), `active` (paid — holds credits), `failed` (declined or abandoned) |
 
-## `PrivateClassSession` — implemented (CKQ parity Phase 4)
+Remaining credits = `quantity - sessionsUsed`, always derived. What was paid lives only on its `Registration` row; `scripts/check-private-credit-ledger.js` reconciles the two. Indexes: `{ studentId, coachId, status, createdAt }` (oldest-first credit lookup), `{ parentId, createdAt }`.
+
+## `PrivateClassSession` — one booking (ADR 011)
 | Field | Type | Notes |
 |---|---|---|
 | `scheduleId` | ObjectId ref `PrivateClassSchedule` | required |
-| `enrollmentId` | ObjectId ref `PrivateClassEnrollment` | required |
-| `coachId`, `studentId`, `parentId` | ObjectId ref `User` | required — denormalized from the schedule/enrollment at generation time, since this is the money-relevant fact record and must stay correct even if the schedule/enrollment is later reassigned |
-| `startDate`, `endDate` | Date | required — **real instants** (an actual point in time, not a calendar-day sentinel): built only via `dateShapes.js`'s `combineDayAndTimeInTZ` (resolves the slot's Central wall-clock `startTime` to a true UTC instant via real IANA math), rendered via `email/dates.js`'s `dateFull` (Central-anchored). `endDate = startDate + the slot's durationMinutes` at generation time. `docs/plans/utc-date-standard-plan.md` — supersedes the previous server-local `setHours()` construction, which wrote a Central wall-clock time's raw numbers directly into the UTC field. |
-| `attendance` | String enum | `scheduled`, `attended`, `missed` — default `scheduled` |
-| `markedBy`, `markedAt` | ObjectId ref `User` / Date | default null |
+| `enrollmentId` | ObjectId ref `PrivateClassEnrollment` | required — the purchase whose credit it uses |
+| `coachId`, `studentId`, `parentId` | ObjectId ref `User` | required — the booking names its student |
+| `startDate`, `endDate` | Date | required — **real instants** built only by `dateShapes.js`'s `combineDayAndTimeInTZ` from the booked day + the rule's `startTime` |
+| `status` | String enum | `pending`, `confirmed`, `cancelled`, `released` |
+| `releaseReason` | String enum, nullable | `payment_failed`, `abandoned` — default null |
+| `cancelledAt`, `cancelledBy` | Date / ObjectId ref `User` | default null |
 
-**Unique index `{ scheduleId: 1, startDate: 1 }`** — generator idempotency: one session per schedule per start instant, so re-running `generateSessions`/`extend-private-sessions.js` can never create a duplicate.
+**Unique partial index `{ scheduleId, startDate }` where `status ∈ {pending, confirmed}`** — the atomic slot claim; a cancelled or released booking frees the slot and keeps its history. Also `{ coachId, startDate }`, `{ enrollmentId }`, `{ parentId, startDate }`. No attendance field — attendance is the `Visit`.
 
 ## `PrivateClassCharge` — RETIRED (`docs/plans/service-registry-unified-ledger-plan.md`)
 
 Absorbed into the unified `Registration` ledger as the `per_session` discriminator — see the
 `Registration` section above for the current field list and index. The standalone collection
 was dropped by `scripts/lib/migrateToUnifiedLedger.js` after verifying every row copied across
-(preserving `_id`, so a charge's identity never changes). Full charge-pipeline walkthrough
-(three idempotency layers, the cancel-then-charge race guard, the four CKQ-BUG-FIXes) is
-unchanged and still lives in `docs/features/private-class.md` — only the storage moved.
+(preserving `_id`, so a charge's identity never changes). Since ADR 011 a `per_session` row is a
+purchase, not a per-attended-session charge — see `docs/features/private-class.md`.
 
 ## `Spotlight` — implemented (public-site plan, GAP-2)
 | Field | Type | Notes |

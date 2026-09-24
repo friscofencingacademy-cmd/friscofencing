@@ -213,6 +213,8 @@ degrade correctly with no backfill needed for that field. `recordedBy` is also n
 admin-triggered card charge (both periods), for audit — still `null` for the unscheduled cron's own
 calls, which have no acting admin.
 
+**2026-09-24 addendum — private lessons ([ADR 011](./011-private-per-session-booking.md)).** Private lessons are prepaid purchases of session credits, charged once at purchase through the same `chargeLedgerRow` path, never after attendance. The no-refund position applies unchanged: cancelling a booked lesson returns its credit to the purchase, and no money moves.
+
 ## Consequences
 - More code to build and own than adopting Stripe Billing (a renewal job, an idempotency scheme, a `PaymentMethod` model) — accepted trade-off.
 - Full portability of the billing domain model if the payment vendor ever changes — only the charge-adapter function needs to change, not the subscription/billing business logic, admin UI, or reporting.

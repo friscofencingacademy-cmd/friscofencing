@@ -133,14 +133,16 @@ describe('scripts/lib/refreshStagingData', () => {
   // either — the exact real-world condition), and the legacy import
   // recreated a fresh, slotless enrollment for the private-class-flagged
   // row on every run. This asserts the composed fix end-to-end: both are
-  // gone after a refresh, using the real (undefined -> falsy -> skipped)
-  // TEST_CONFIG, matching the real config's own default.
-  it('wipes pre-existing private-class data and creates none from a private-class-flagged CSV row (IMPORT_PRIVATE_CLASS_ENROLLMENTS unset -> skipped)', async () => {
+  // gone after a refresh. The import never creates a private-lesson purchase
+  // (ADR 011 — an enrollment is paid credit), it only flags the student.
+  it('wipes pre-existing private-class data and creates no purchase from a private-class-flagged CSV row', async () => {
     await PrivateClassSchedule.create({
       coachId: new mongoose.Types.ObjectId(),
       dayOfWeek: 2,
       startTime: '16:00',
       durationMinutes: 60,
+      startDate: new Date('2026-09-01'),
+      endDate: new Date('2026-12-31'),
     });
     expect(await PrivateClassSchedule.countDocuments({})).toBe(1);
 
@@ -151,11 +153,9 @@ describe('scripts/lib/refreshStagingData', () => {
     const result = await refreshStagingData({ csvText: csvWithPrivateRow, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
 
     expect(await PrivateClassSchedule.countDocuments({})).toBe(0);
-    expect(result.importSummary.privateClassEnrollmentsCreated).toBe(0);
-    expect(result.importSummary.privateClassEnrollmentsSkipped).toBe(1);
+    expect(result.importSummary.privateClassStudentsFlagged).toBe(1);
     expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
-    // The rest of the row still imported normally — only the private-class
-    // branch is gated, not the whole student/group-class enrollment.
+    // The rest of the row still imported normally.
     const student = await User.findOne({ firstName: 'Sana' });
     expect(student).not.toBeNull();
   });

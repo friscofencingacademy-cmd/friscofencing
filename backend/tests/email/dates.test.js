@@ -1,4 +1,4 @@
-const { dateFull, dateOnlyFull, timeOfDay, dayOfWeekLabel, monthLabel } = require('../../src/email/dates');
+const { dateFull, dateOnlyFull, timeOfDay, timeOfInstant, dayOfWeekLabel, monthLabel } = require('../../src/email/dates');
 
 // docs/plans/utc-date-standard-plan.md — this suite exists to prove the
 // two-shape contract this file's docblock now states: dateFull/monthLabel*
@@ -76,6 +76,16 @@ describe('email/dates', () => {
 
     it('falls back to Unknown for an out-of-range value', () => {
       expect(dayOfWeekLabel(9)).toBe('Unknown');
+    });
+  });
+
+  describe('timeOfInstant — the Central wall-clock time of a real instant', () => {
+    it('renders Central daylight time (UTC-5)', () => {
+      expect(timeOfInstant('2026-10-06T21:30:00.000Z')).toBe('4:30 PM');
+    });
+
+    it('renders Central standard time (UTC-6) after the November DST change', () => {
+      expect(timeOfInstant('2026-11-10T22:30:00.000Z')).toBe('4:30 PM');
     });
   });
 });

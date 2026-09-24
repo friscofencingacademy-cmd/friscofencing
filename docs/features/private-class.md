@@ -1,249 +1,132 @@
-# Private classes
+# Private lessons — per-session bookings
 
-One-on-one coaching, ported from the CKQ platform (`docs/plans/ckq-parity-plan.md` Phase 4) with
-one substitution: CKQ's *admin creates enrollment → parent accepts* becomes *coach publishes
-slots → parent self-registers on a public page* — an enrollment is born active with the rate
-pinned. Session generation, attendance, per-session off-session Stripe charge, and cancellation
-are CKQ's design, carried over with four fixes (`CKQ-BUG-FIX`, below).
+A coach publishes availability; a parent buys one session or a discounted pack and books one date
+at a time. Money moves once, at purchase. Attendance never moves money. Design:
+[ADR 011](../decisions/011-private-per-session-booking.md) (bookings) and
+[ADR 010](../decisions/010-universal-visit-ledger.md) (attendance). Plan:
+`docs/plans/private-class-per-session-booking-plan.md`.
+
+This replaced the CKQ-ported recurring model (a weekly slot claimed by one family, eight generated
+weeks, a Stripe charge after each attended session). That model's history is in git and in
+`docs/plans/ckq-parity-plan.md`.
 
 ## Lifecycle
 
 ```
-Admin creates a CoachContract for a coach (rate + comp rate)
-        │  (a coach with no active contract can publish nothing)
+Admin creates a CoachContract for a coach (rate + comp rate + default lesson length)
+        │  (no active contract -> the coach can publish nothing, and nobody can buy)
         ▼
-Coach (or admin on their behalf) publishes a PrivateClassSchedule slot
-        │  (studentId: null = available)
+Coach (or admin) bulk-publishes availability: weekdays x time window x slot length, over a date range
+        │  -> one PrivateClassSchedule rule per (weekday, start time). Nothing else is created.
         ▼
-Parent browses GET /private-class-schedules/public (no auth) and self-registers
-        │  atomic slot claim (findOneAndUpdate studentId:null → studentId)
-        ▼
-PrivateClassEnrollment born ACTIVE, agreedHourlyRate PINNED from the contract
+Parent picks a coach, a rule, and a date (GET /:id/available-dates computes open dates)
         │
-        ▼
-generateSessions(): 8 weeks of PrivateClassSession docs (scheduled)
+        ├─ no credits: buy 1 session or a pack  -> POST /private-class-enrollments
+        │     purchase pending -> booking pending (slot claim) -> ledger pending -> Stripe
+        │     -> ledger completed, purchase active (1 credit used), booking confirmed
+        │     -> decline: ledger failed, purchase failed, booking released (slot reopens), 402
         │
+        └─ has credits: book with one           -> POST /private-class-sessions
+              oldest usable purchase: sessionsUsed +1 -> booking confirmed (no ledger row)
         ▼
-Coach marks a past session attended/missed
-        │  attended → chargeSession(): PrivateClassCharge (pending → completed|failed)
+Booking confirmed -> scheduled Visit, parent email (+ PDF invoice for a purchase), coach email
         ▼
-Parent (or admin) cancels the enrollment
-   → every claimed slot freed, only FUTURE sessions deleted, past sessions/charges untouched
+Coach marks the Visit attended / missed after the lesson starts (no money)
+   or: cancel before it starts -> credit returned, Visit cancelled, slot reopens
 ```
 
 ## Models (`backend/src/models/`)
 
-| Model | Collection | Key fields |
+| Model | Role | Key fields |
 |---|---|---|
-| `CoachContract` | `coachcontracts` | `serviceId` (ref `Service`, always 'private-lessons' today — set internally, never client-supplied), `coachId`, `studentBillingRate` ($/hr billed to parent), `coachCompensationRate` ($/hr paid to coach — audit only, no payout UI), `sessionDurationMinutes`, `isActive`. Creating a new contract deactivates the coach's previous active one (service layer) — one active contract per coach. |
-| `PrivateClassSchedule` | `privateclassschedules` | `coachId`, `dayOfWeek` (0–6), `startTime` ("HH:mm"), `durationMinutes`, `studentId`/`enrollmentId` (both `null` = available). Duplicate rule (same coach+day+time) is a service-level 409. |
-| `PrivateClassEnrollment` | `privateclassenrollments` | `studentId`/`parentId`/`coachId`, `coachContractId` (audit trail), `agreedHourlyRate` (**pinned at registration, immutable — D7**), `status` (`active`/`cancelled`), `endDate`. |
-| `PrivateClassSession` | `privateclasssessions` | `scheduleId`, `enrollmentId`, denormalized `coachId`/`studentId`/`parentId`, `startDate`/`endDate`, `attendance` (`scheduled`/`attended`/`missed`), `markedBy`/`markedAt`. **Unique index `{ scheduleId: 1, startDate: 1 }`** — generator idempotency; safe to re-run. |
-| Payment ledger | `registrations` (`per_session` discriminator) | **Not its own collection** — private-lesson charges are rows in the unified `Registration` ledger (`docs/plans/service-registry-unified-ledger-plan.md`, absorbing the former standalone `PrivateClassCharge` collection). Same fields as before (`sessionId`, `enrollmentId`, `amount`, `status`, `stripePaymentIntentId`, `attempt`, `failureMessage`, `paidAt`) plus `serviceId` (always the 'private-lessons' Service) and `billingShape: 'per_session'`. Same unique PARTIAL index on `sessionId` (`status ∈ {pending, completed}`, `failed` excluded so a retry is never blocked) — just living on the shared collection now, scoped by `sessionId: {$exists: true}` so it can never collide with a group-class ledger row. |
+| `CoachContract` | Rate source | `studentBillingRate` ($/hr), `coachCompensationRate` (audit only), `sessionDurationMinutes` (default slot length), `isActive`. One active contract per coach. |
+| `PrivateClassSchedule` | Availability rule | `coachId`, `dayOfWeek`, `startTime` "HH:mm" Central, `durationMinutes`, `startDate`/`endDate` (calendar-day sentinels, inclusive), `isActive`. No student is ever stored here. |
+| `PrivateClassEnrollment` | One purchase of credits | `studentId`/`parentId`/`coachId`, `coachContractId`, pinned `agreedHourlyRate`, `sessionDurationMinutes`, `quantity`, `discountPercent`, `sessionsUsed`, `status` `pending`/`active`/`failed`. Remaining = `quantity - sessionsUsed`, never stored. |
+| `PrivateClassSession` | One booking | `scheduleId`, `enrollmentId`, `coachId`/`studentId`/`parentId`, `startDate`/`endDate` (real instants), `status` `pending`/`confirmed`/`cancelled`/`released`, `releaseReason`, `cancelledAt`/`cancelledBy`. **Partial unique index `(scheduleId, startDate)` where status is pending or confirmed** — the slot claim. |
+| `Registration` (`per_session`) | The money | One row per purchase: `sessionId` (the booking it came with), `enrollmentId`, `quantity`, `unitPrice`, `discountPercent`, `amount`. Unique partial indexes on `sessionId` and on `enrollmentId` (pending/completed). |
+| `Visit` | Attendance | `privateClassSessionId`, `classType: 'private'`, `serviceId` = private-lessons. |
 
-Full field tables + index rationale also live in `DATABASE_SCHEMA_DOCUMENTATION.md`.
+Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 
-## Orphaned-reference handling (orphaned-coach-reference-fix-plan)
+## Single sources of truth
 
-Frisco hard-deletes users (no soft-delete `isDeleted` flag, unlike CKQ) — a User `_id`
-referenced by another collection can go missing the moment a delete-guard is incomplete. This
-caused a live production/staging incident: two orphaned free `PrivateClassSchedule` docs (their
-coach hard-deleted before a guard blocked it) 500'd the public `/private-classes` page on an
-unconditional `.coachId._id` read after a null populate. Two layers now guard against a repeat:
+| Question | Answered only by |
+|---|---|
+| Is this (rule, day) bookable? | `privateClassSchedule.service.js` `resolveBookableInstant` — used by the date picker and both booking paths |
+| Who holds this slot? | The partial unique index on `PrivateClassSession` |
+| What does a session / a pack cost? | `utils/privateClassPricing.js` (`computeSessionPrice`, `computePackQuote`, `resolvePackOptions`) |
+| Which packs are offered? | `Setting.privateClassPackages`, validated by `normalizePackageOffers` |
+| What was paid? | The `Registration` row. `amount` is never re-derived. |
+| How many credits are left? | `PrivateClassEnrollment` counters, reconciled against the ledger by `scripts/check-private-credit-ledger.js` |
+| Did the student attend? | The `Visit` |
+| How is a purchase described? | `utils/privateLessonLabels.js` — payment history and the invoice share it |
+| Can this booking be cancelled, by this viewer, now? | `privateClassSession.service.js` `cancelBlockReason` — enforced by the cancel endpoint, exposed on every booking listing as `canCancel` |
 
-- **Delete guards (`user.service.js` `remove()`).** Deleting a **coach** is blocked (409) by any
-  `PrivateClassSchedule`, `CoachContract`, or `PrivateClassEnrollment` still referencing them
-  (alongside the pre-existing `GroupClassSchedule` check). Deleting a **student** is blocked by any
-  `PrivateClassEnrollment` referencing them (alongside the pre-existing `Subscription`/`TrialClass`
-  checks) — this student-side check was the gap that let the live incident's orphans form.
-- **Read-path degradation (D1/D2, asymmetric by purpose).** A read path that already existed before
-  a delete-guard closed the gap above can still encounter an orphan from before the fix. Two
-  different correct behaviors, by what the listing is for:
-  - **Booking-availability listings exclude the orphaned row** — `listPublic()` filters out any
-    slot whose `coachId` didn't populate before grouping (mirrors `groupClassSchedule.service.js`'s
-    own `listPublic()`), and `privateClassEnrollment.service.js create()` 404s a stale bookmarked
-    slot link whose coach is gone, on top of its existing `isActive` check.
-  - **Historical/management/financial listings keep the row and show a fallback label** instead of
-    crashing — every admin/parent page that renders a possibly-null `coachId`/`studentId`/`parentId`
-    (`admin/coach-contracts`, `admin/private-classes`, `admin/subscriptions`,
-    `parent/subscriptions`) does `person ? \`${person.firstName} ${person.lastName}\` : 'Coach no
-    longer available'` (or the student/parent equivalent) rather than assuming the ref is populated.
-    `frontend/lib/types.ts` widens every one of those ref fields to `| null` so `tsc --noEmit`
-    catches the next unguarded read.
-- **Diagnostics, read-only.** `backend/scripts/find-orphaned-references.js` (lib:
-  `scripts/lib/findOrphanedReferences.js`) scans `PrivateClassSchedule`/`CoachContract`/
-  `PrivateClassEnrollment`/`PrivateClassSession` for any `coachId`/`studentId`/`parentId` that no
-  longer resolves to a `User`, and reports only — no writes. `backend/scripts/reset-customer-data.js`
-  (the staging reset tool) was extended so it can never itself become a source of new orphans: it
-  cleans up `PrivateClassEnrollment`/`PrivateClassSession`/`Evaluation` rows and frees or deletes
-  `PrivateClassSchedule`/`CoachContract` rows for every user it deletes.
-- **`refresh-staging-data.js`'s wipe used to miss this collection family entirely**
-  (docs/plans/booking-and-private-class-fixes-plan.md §3, 2026-08-31) — `wipeDatabase()` enumerated
-  collections from `mongoose.connection.collections` (only populated for a model this *process*
-  had `require()`d), and that script's require graph never loads `PrivateClassSchedule`/
-  `PrivateClassSession`. Every refresh therefore wiped `users` and recreated coaches/students with
-  new `_id`s while old private-class rows kept pointing at the now-deleted ones — the real source
-  of a live "coach not available" report. `wipeDatabase()` now enumerates via
-  `mongoose.connection.db.listCollections()` (the database's own truth), and
-  `legacy-import.config.js`'s `IMPORT_PRIVATE_CLASS_ENROLLMENTS` flag (default `false`) stops the
-  legacy import from re-creating a fresh, slotless `PrivateClassEnrollment` for the one legacy
-  private-class student on every single refresh.
+## Booking pipeline guards
 
-## Pricing — `backend/src/utils/privateClassPricing.js`
+1. **Validation before any write**: own student, live rule and coach, bookable day (range, weekday, holiday, not started), offered quantity, positive price, card on file, `private-lessons` Service active with the `per_session` shape.
+2. **Reserve before charging**: the booking is inserted `pending` before Stripe is called. A lost race is a 409 with nothing charged.
+3. **One Stripe path**: `billing/chargeFinalization.service.js` `chargeLedgerRow`, idempotency-keyed `payment_<rowId>`.
+4. **Money dedup**: the ledger's unique partial index on `sessionId`.
+5. **Decline**: row `failed`, purchase `failed`, booking `released` (`payment_failed`), 402. The slot is bookable again at once.
+6. **Unexpected Stripe error**: everything stays `pending` and the slot stays held, so money that may have moved is never lost track of. The check script reports it.
+7. **Abandoned holds**: a `pending` booking older than `PENDING_HOLD_TTL_MINUTES` (15) with no pending/completed charge is released by the next attempt on that slot.
+8. **Credit path**: atomic guarded `$inc` (`sessionsUsed < quantity`) on the oldest usable purchase, then the claim; a lost claim returns the credit.
 
-The **only** place the per-session price formula lives (Hard Rule 7 — no pricing math anywhere
-else, frontend included):
+## Cancellation and attendance
 
-- `computeSessionPrice(hourlyRate, durationMinutes)` — `round(rate * minutes / 60, 2)`, throws
-  (never guesses) on a missing/NaN/negative rate or a non-positive duration.
-- `sessionDurationMinutes(startDate, endDate)` — minute difference between two Date instants.
-
-Every consumer (session charge, the public availability preview, confirmation/receipt emails, the
-coach page's confirm-attendance dialog) imports from here. The dollar amount is never stored
-anywhere except `PrivateClassCharge.amount` — always computed at the point of use from the
-(pinned) hourly rate and the session's own stored duration.
-
-`backend/src/utils/scheduleOccurrence.js` — `nextOccurrenceStrictlyAfter(fromDate, dayOfWeek)`:
-the first occurrence of a weekday **strictly after** the given date (never today itself, unlike
-`GroupClassSession`'s on-or-after generator). Shared by the public availability preview and
-session generation so both use the exact same rule. Resolves via real IANA timezone math
-(`moment-timezone`, `DEFAULT_TIMEZONE` from `config/timezone.js`) — corrected by
-`docs/plans/timezone-consistency-plan.md` D4 (this section previously, incorrectly, described it
-as server-local-only; see `tests/utils/scheduleOccurrence.test.js` for the proof).
-
-## The four CKQ-BUG-FIXes
-
-1. **Atomic slot claim.** CKQ reads a slot then writes it in two steps, racing two parents for
-   the same slot. Here, `privateClassEnrollment.service.js create()` claims with a single atomic
-   `findOneAndUpdate({ _id, studentId: null, isActive: true }, { $set: { studentId, enrollmentId } })`.
-   A lost race gets a 409 and its orphan enrollment is deleted immediately — no dangling record.
-2. **Coach ownership on attendance.** CKQ lets any coach mark any session attended. Here,
-   `markAttendance`/`retryCharge` require the requester to be admin/superadmin OR the session's
-   own `coachId` (403 "You are not the coach for this session").
-3. **Suffixed Stripe idempotency key.** CKQ's un-suffixed key made Stripe replay a cached decline
-   for 24h, blocking same-day retry. Here the key is `pcs_${session._id}_${attempt}` — every
-   retry (which bumps `attempt`) gets its own key, so a fixed-and-retried charge is a fresh
-   Stripe call.
-4. **Payment-failure email.** CKQ sends nothing when a charge fails. Here,
-   `sendPrivateClassPaymentFailedEmail` fires (log-only try/catch) on both the no-payment-method
-   path and a `StripeCardError`.
-
-## Charge pipeline + idempotency (three layers)
-
-`markAttendance(sessionId, 'attended', requestingUser)` → `chargeSession(session)`:
-
-1. **Ownership guard** (fix #2 above) → 403 for a non-assigned coach.
-2. **Time guard** — 400 if `session.startDate > now` (can't record attendance for the future).
-3. **No un-marking to `scheduled`** — only `attended`/`missed`.
-4. **Attendance/money contradiction guard** — if a `completed` charge already exists, any change
-   away from `attended` is a 409 ("This session has already been charged").
-5. **Cancel-then-charge race guard** (mandatory coverage per the testing strategy) — a *fresh*
-   re-fetch of the enrollment inside `chargeSession`; charges only if `status === 'active'` OR
-   (`cancelled` AND `session.startDate <= enrollment.endDate` — delivered before the
-   cancellation took effect). Otherwise: attendance is recorded, no charge, response carries
-   `{ charged: false, reason: 'enrollment_cancelled' }`.
-6. **Layer 1 — pre-check.** An existing `pending`/`completed` charge for the session short-circuits
-   to that charge's outcome (idempotent — a double-save of the same attendance never
-   double-charges).
-7. **Layer 2 — unique partial index.** Creating the `PrivateClassCharge` doc can still race; an
-   `E11000` on the partial unique index is caught and treated as "already charged," returning the
-   winning charge.
-8. **Layer 3 — Stripe idempotency key** (fix #3 above) — even if two processes both reach the
-   Stripe call for the same session+attempt, Stripe itself dedups by key.
-9. **No payment method** → charge `failed`, `sendPrivateClassPaymentFailedEmail`, response
-   `{ charged: false, chargeStatus: 'failed' }` (200, not an error — a payment failure is a
-   billing state, not a request failure).
-10. **`StripeCardError`** → same failed/email/200 outcome as above; `retryCharge` re-runs
-    `chargeSession` verbatim once the card is fixed, minting a fresh `attempt`+idempotency key.
-11. **Success** → charge `completed`, `paidAt`, `stripePaymentIntentId`,
-    `sendPrivateClassSessionReceiptEmail` — carrying a PDF invoice attachment
-    (`docs/plans/manual-charge-and-pdf-invoice-plan.md` PR 2; `docs/modules/email.md`'s
-    "PDF invoice attachments" section) generated from the just-`completed` `charge` doc (already
-    reflects `status: 'completed'` in memory here — the `.save()` above mutates the real Mongoose
-    document, unlike the group-class ledger's `findByIdAndUpdate`-based path, so no re-fetch is
-    needed). A private-lesson row has no `Location` of its own, so its invoice always shows the
-    academy's own address (D9). A PDF generation failure is caught in its own nested try/catch —
-    it drops only the attachment, never the receipt email or the charge outcome.
-
-## Cancellation (D8 — no refunds, no proration, ever)
-
-`privateClassEnrollment.service.js cancel(enrollmentId, requestingUser)` (parent-own | admin):
-
-1. `{ status: 'cancelled', endDate: now }`.
-2. Free every slot the enrollment claimed: `$set: { studentId: null, enrollmentId: null }`.
-3. **Hard-delete only future sessions** (`startDate > now`) — provably money-free, since charging
-   requires attendance and attendance requires `startDate <= now`.
-4. `sendPrivateClassCancellationEmail` (log-only). Past sessions and completed charges are an
-   immutable ledger — untouched.
-
-## Session generation
-
-`privateClassSession.service.js generateSessions({ enrollmentId })` — for each claimed active
-slot, creates the next **8 weeks** of `PrivateClassSession` docs starting from the first
-occurrence of the slot's `dayOfWeek` strictly after today (mirrors group's 8-week
-`generateInitialSessions` window rather than CKQ's 10, for consistency). Idempotent: in-memory
-dedup against existing session start times, backstopped by the model's unique
-`(scheduleId, startDate)` index — safe to re-run.
-
-`startDate`/`endDate` are **real instants**, not calendar-day sentinels (`docs/plans/utc-date-
-standard-plan.md`) — every one is built via `dateShapes.js`'s `combineDayAndTimeInTZ`, which
-resolves the slot's Central wall-clock `startTime` to a true UTC instant via real IANA math, with
-each of the 8 weekly occurrences stepped *inside* the Central-anchored `moment` chain (never
-`setDate()` on an already-resolved instant) so the run stays DST-safe across a transition. This
-supersedes the previous `combineDateAndTime()`, which used server-local `setHours()` — on Vercel's
-UTC production server, that wrote a "16:45 Central" slot's raw clock numbers directly into the
-UTC field, storing every session hours early and silently widening the attendance/per-session-
-charge window (`markAttendance`'s `session.startDate <= now` gate) before the lesson actually
-happened. Confirmed against real staging data before the fix shipped: every stored session was
-off by exactly the Central/UTC offset.
-
-`backend/scripts/extend-private-sessions.js` (npm script `extend-private-sessions`) re-runs
-generation for every active enrollment — same manual-run model as `run-renewals.js`, no scheduler
-yet. See `docs/plans/deployment-launch-plan.md`'s deferred-cron note.
+- **Cancel** (`POST /private-class-sessions/:id/cancel`): confirmed and not started. A parent may cancel until `PARENT_CANCEL_CUTOFF_HOURS` (24) before the lesson; the assigned coach or an admin until it starts. The credit returns and the Visit is cancelled. No money moves (ADR 001). The rule is one function, `cancelBlockReason`: the endpoint enforces it, and every booking listing exposes it per viewer as `canCancel`, so a Cancel button can never disagree with the endpoint. The purchase quote carries `cancelCutoffHours` for the wizard's consent line.
+- **Attendance** (`PATCH /private-class-sessions/:id/attendance`): the assigned coach or an admin, confirmed booking, lesson started (`startDate <= now` — an exact instant, unlike group's day rule). Writes the Visit only. A missed lesson keeps its credit spent.
+- A holiday added after a booking does not cancel it. Cancel it from the admin page to return the credit.
 
 ## Routes
 
-| Endpoint | Guard | Behavior |
+| Endpoint | Guard | Notes |
 |---|---|---|
-| `POST /coach-contracts` | admin, superadmin | validates coach exists + `role==='coach'`; deactivates previous active contract |
-| `GET /coach-contracts?coachId=` | admin, superadmin | list, populated coach |
-| `POST /coach-contracts/:id/deactivate` | admin, superadmin | `isActive=false` |
-| `POST /private-class-schedules` | coach (self) \| admin (any, body `coachId`) | requires an active contract (400); duplicate slot 409 |
-| `GET /private-class-schedules/mine` | coach | own slots (registered before `/:id`-style routes) |
-| `GET /private-class-schedules` | admin, superadmin | all slots, filters `coachId`, `available=true` |
-| `DELETE /private-class-schedules/:id` | coach-own \| admin | free (no claim at all) always deletes; a claim (`studentId` and/or `enrollmentId` set) 409s only if it resolves to a still-`active` `PrivateClassEnrollment` — a stale claim (enrollment cancelled/deleted, or `enrollmentId` never set while `studentId` was) self-heals into a successful delete instead of 409ing forever (docs/plans/booking-and-private-class-fixes-plan.md §4) |
-| `GET /private-class-schedules/public` | none | see below |
-| `POST /private-class-enrollments` | parent | self-register — see below |
-| `GET /private-class-enrollments/mine` | parent | own enrollments + slot + last 10 charges each |
-| `GET /private-class-enrollments` | admin, superadmin | all, filters `status`, `coachId` |
-| `POST /private-class-enrollments/:id/cancel` | parent-own \| admin | see Cancellation above |
-| `GET /private-class-sessions/mine?window=upcoming\|unmarked\|past` | coach | own sessions; `unmarked` = past + still `scheduled` |
-| `PATCH /private-class-sessions/:id/attendance` | coach (own) \| admin | see charge pipeline |
-| `POST /private-class-sessions/:id/retry-charge` | coach (own) \| admin | only when the latest charge is `failed` |
+| `POST /private-class-schedules` | coach (self) \| admin (body `coachId`) | Bulk publish `{ daysOfWeek, windowStart, windowEnd, slotDurationMinutes?, startDate, endDate }`. All-or-nothing; 409 names every slot that overlaps existing availability (time and date range). |
+| `GET /private-class-schedules/mine` | coach | Current rules with `bookedCount` |
+| `GET /private-class-schedules` | admin | Same, all coaches, `?coachId=` |
+| `GET /private-class-schedules/public` | none | `{ coaches: [{ coachId, coachName, slots: [...] }], packageOffers }` — slot = rule + `sessionPrice` + `hourlyRate`. No student data. |
+| `GET /private-class-schedules/:id/available-dates?days=` | none | `{ dates: [{ day, startDate, endDate }] }` — default 56 days, max 120 |
+| `DELETE /private-class-schedules/:id` | coach-own \| admin | 409 with an upcoming booking; `retired` if it has past bookings; else `deleted` |
+| `GET /private-class-enrollments/quote?studentId&scheduleId` | parent | `{ durationMinutes, hourlyRate, options: [quote...], availableCredits, cancelCutoffHours }` |
+| `POST /private-class-enrollments` | parent | Buy + book `{ studentId, scheduleId, day, quantity }` -> `{ enrollment, session, registration, remaining }` |
+| `GET /private-class-enrollments/mine` | parent | Active purchases: `{ enrollment, remaining, payment, sessions }` |
+| `GET /private-class-enrollments` | admin | Same, `?status=&coachId=` |
+| `POST /private-class-sessions` | parent | Book with a credit `{ studentId, scheduleId, day }` -> `{ session, enrollment, remaining }` |
+| `GET /private-class-sessions/mine?window=upcoming\|unmarked\|past` | coach | Confirmed bookings with `attendance` (from the Visit) and `canCancel` |
+| `GET /private-class-sessions` | admin | Confirmed + cancelled by default, `?status=&coachId=` |
+| `PATCH /private-class-sessions/:id/attendance` | coach-own \| admin | `{ status: 'attended' \| 'missed' }` -> `{ session, visit }` |
+| `POST /private-class-sessions/:id/cancel` | parent-own \| coach-own \| admin | -> `{ session, remaining }` |
 
-`GET /private-class-schedules/public` — unauthenticated, no student/parent data leaks. Returns
-coaches with an active contract AND ≥1 available slot:
-```json
-[{ "coachId", "coachName",
-   "slots": [{ "scheduleId", "dayOfWeek", "dayName", "startTime", "displayTime",
-               "durationMinutes", "sessionPrice", "hourlyRate", "firstSessionDate" }] }]
-```
-`sessionPrice` and `firstSessionDate` are always server-computed — the frontend never does date
-or price math.
+## Emails (`docs/modules/email.md`)
+
+`privateClassBookingConfirmation` (parent, cc admin; purchase lines + PDF invoice when the booking
+came with a purchase), `privateClassCoachBooking` (coach, cc admin), `privateClassBookingCancelled`
+(parent, cc admin + coach).
+
+## Operations
+
+- `scripts/retire-recurring-private-classes.js` — one-time cutover from the recurring model. Dry
+  run by default, `--live` to apply. Refuses if the old model ever moved money. **Run before
+  deploying**: autoIndex cannot replace the old same-named, non-partial slot index (verified — it
+  logs `IndexKeySpecsConflict` and keeps the old index, which would block every cancelled slot).
+- `scripts/check-private-credit-ledger.js` — read-only. Reports purchases that disagree with the
+  ledger, credit drift, stranded pending holds and purchases, and a non-partial slot index.
+- `scripts/find-orphaned-references.js` — read-only User-ref scan (coach/student/parent).
+
+## Orphaned-reference handling
+
+Frisco hard-deletes users. `user.service.js` blocks deleting a coach referenced by a rule,
+contract, or purchase, and a student referenced by a purchase (every booking belongs to a
+purchase). Booking paths 404 a rule whose coach no longer resolves; the public listing skips it.
+Management pages show a fallback label for a missing person.
 
 ## Pages
 
-| Page | Role | Purpose |
-|---|---|---|
-| `/private-classes` | public (no auth) | Browse coaches/slots/prices; "Book this slot" → `/parent/register-private?slot=<id>` |
-| `/parent/register-private` | parent | 3-step flow-kit wizard (Who → Review & Pay → Done); saved-card guard; 409 slot-taken renders a "Refresh available slots" recovery action |
-| `/parent/subscriptions` (Private Lessons section) | parent | Per-enrollment coach/slot/rate/status/recent-charges + Cancel |
-| `/coach/private-students` | coach | "Needs Attention" (unmarked past sessions, Attended/Missed with a money-amount confirm dialog + Retry charge on a failed charge) + read-only Upcoming |
-| `/admin/coach-contracts` | admin | List + create + deactivate |
-| `/admin/private-classes` | admin | Tabs: Enrollments (cancel action) / Schedules (add slot, delete free slots) |
+Rebuilt in PR 3 of the plan — see the plan's §3 until this table is finalized.
 
-## Out of scope (explicitly, per the plan)
+## Out of scope
 
-Refunds of any kind · level promotion / premium tiers · private-class trials or reschedule
-requests · coach payout UI / timesheets · dunning/auto-cancel retries for private charges (retry
-is manual via the coach button) · Stripe webhooks for private charges · guest checkout.
+Refunds, credit expiry, reschedule requests, coach notes/tags on a lesson, coach payout, guest
+checkout, an admin "void a pack" action, a cross-service attendance report UI.

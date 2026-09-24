@@ -36,16 +36,12 @@ The controllers jump is structural, not new tests chasing branches: every contro
 
 ## Backend (`backend/`)
 
-**Current state: 69 test suites / 775 tests, all passing under `TZ=UTC` — re-run in full 2026-08-31
-after `docs/plans/holiday-blocking-plan.md`'s backend PR (new `holiday.service.test.js` /
-`holiday.routes.test.js`; holiday-filtering/annotation/attendance-block coverage extended into
-`groupClassSession.{service,routes}.test.js`, `registration.routes.test.js`, and
-`trialClass.routes.test.js`), zero failures, zero regressions. Previously documented here: on a
+**Current state: 76 test suites / 944 tests, all passing under `TZ=UTC` — re-run in full 2026-09-24
+after `docs/plans/private-class-per-session-booking-plan.md` PRs 1–2 (universal `Visit`, per-session
+private-lesson bookings). The private-lesson suites freeze only `Date` (`tests/testUtils/privateLessons.js`
+`freezeDate`), so none of them depends on the time of day they run. Previously documented here: on a
 non-`TZ=UTC` local dev host, a class of tests reads a UTC-midnight calendar-day sentinel via a
-Date's LOCAL getters and fails (`registration.routes.test.js`, `scheduleOccurrence.test.js`,
-`billingDates.test.js`, `realignBillingAnchors.test.js`, `groupClassSchedule.routes.test.js`) —
-correct under `TZ=UTC` (true in CI and production), wrong otherwise. This full run was itself under
-`TZ=UTC`, confirming the CI-true, all-green count holds with the holiday-blocking changes included.**
+Date's LOCAL getters and fails — correct under `TZ=UTC` (true in CI and production), wrong otherwise.**
 
 ```
 cd backend && TZ=UTC npm test
@@ -54,22 +50,24 @@ cd backend && TZ=UTC npm test
 | Layer | Location | What it tests | DB? |
 |---|---|---|---|
 | Unit | `tests/utils/{jwt,password}.test.js` | Token signing/verification, bcrypt hashing | No |
-| Unit | `tests/utils/privateClassPricing.test.js` | Per-session pricing rounding + fail-closed throws (CKQ parity Phase 4) | No |
+| Unit | `tests/utils/privateClassPricing.test.js` | Per-session pricing, pack subtotal/total/quote (discount once, lines always sum), pack-offer validation, the always-offered single session; fail-closed throws | No |
 | Unit | `tests/services/billing/{calculateChargeAmount,proration}.service.test.js` | Sibling-discount math; proration math incl. `resolveFirstChargePeriod`'s current-vs-future-month branch (docs/plans/payment-airtight-plan.md D1) | No |
 | Unit | `tests/models/registration.model.test.js` | `periodMonth` derivation (schema pre-validate hook), `manualNote` validation, Guard B's re-keyed unique index — incl. the exact same-month-different-day collision case the old index missed (docs/plans/payment-airtight-plan.md D7) | Yes (memory) |
 | Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
 | Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
 | Service | `tests/services/holiday.service.test.js` | CRUD incl. date-sentinel normalization, ≤31-day duration cap, unique-name + inclusive-overlap 409s (self-excluded on update), `getHolidaysInRange`/`findHolidayForDate` boundary inclusivity (`docs/plans/holiday-blocking-plan.md`) | Yes (memory) |
-| Route-integration | `tests/routes/*.routes.test.js` (21 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing, **holiday-date filtering/annotation, attendance/walk-in blocked on a holiday**), prices, students, users, trial-classes (**incl. holiday-blocked booking**), registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race, holiday-blocked `startDate`**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-class schedules (incl. the public endpoint), private-class enrollments (incl. the atomic-slot-claim race regression), private-class sessions (incl. the full charge-pipeline: idempotency, cancel-then-charge race, declined-card retry with a fresh idempotency-keyed attempt, ownership regression), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`), holidays (admin/superadmin-only CRUD, `docs/plans/holiday-blocking-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
+| Route-integration | `tests/routes/*.routes.test.js` (21 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing, **holiday-date filtering/annotation, attendance/walk-in blocked on a holiday**), prices, students, users, trial-classes (**incl. holiday-blocked booking**), registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race, holiday-blocked `startDate`**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-lesson availability (bulk publish, overlap 409s, bookable-date computation incl. holidays/DST/started lessons, retire-vs-delete), private-lesson purchases (real Stripe: single + discounted pack, 402 decline releases the slot, two-parent race = one charge, abandoned-hold takeover rules, payment-history description), private-lesson bookings (oldest-credit-first, last-credit race, credit returned on a lost slot, Visit-backed attendance with no money, 24h parent cancel cutoff), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`), holidays (admin/superadmin-only CRUD, `docs/plans/holiday-blocking-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
 | Script | `tests/scripts/lib/migrateRegistrationsToLedger.test.js` | The one-time old-shape-Registration → payment-ledger migration script (`docs/plans/registration-ledger-plan.md` D8): dry-run writes nothing, live run rewrites matched docs (incl. the prorated-periodEnd variant), orphaned docs left untouched and reported, safe to re-run | Yes (memory) |
 | Script | `tests/scripts/lib/migratePeriodMonth.test.js` | The one-time `periodMonth` backfill + Guard B index re-key (docs/plans/payment-airtight-plan.md D7): dry-run vs. live, idempotent re-run, collision abort with zero writes, a `failed` row never blocks | Yes (memory) |
+| Service | `tests/services/{visit,privateClassSession}.service.test.js` | Universal Visit: serviceId stamping, fail-closed without the Service registry, the one-session-ref validator, private visit lifecycle, private never in a group roster (ADR 010). The private slot claim: concurrent claims, cancelled/released free the slot, abandoned-hold release rules (ADR 011) | Yes (memory) |
+| Script | `tests/scripts/lib/{backfillVisitService,retireRecurringPrivateClasses,checkPrivateCreditLedger}.test.js` | Visit serviceId backfill; the recurring-to-booking cutover (money gate, partial-index swap, idempotent); the read-only purchase/ledger reconciliation incl. a non-partial slot index | Yes (memory) |
 | Smoke | `tests/health.test.js` | `/health` endpoint | No |
 
 ### Coverage gaps (honest, not hidden)
 
 - `src/utils/billingDates.js` (`addOneMonth`, `addOneDay`, `todayAtMidnight`) has no standalone unit test — only indirect coverage via `registration.routes.test.js` and `renewal.service.test.js` exercising the dates it produces.
 - The two new delete guards added in the UI-adoption plan (`GroupClass` blocked by `GroupClassSchedule`, `Level` also blocked by `Price`) are tested at the route-integration level (`groupClass.routes.test.js`, `level.routes.test.js`) — no separate service-unit test, consistent with how every other existing guard was already tested.
-- `backend/scripts/{preview-emails,extend-private-sessions}.js` are manual-run operational scripts with no test file, consistent with the pre-existing `run-renewals.js`/`seed-superadmin.js` convention (none of the manual scripts in this repo have dedicated tests — their underlying logic, `generateSessions`/`renderEmail`/`renewOne`, is what's actually tested).
+- `backend/scripts/preview-emails.js` are manual-run operational scripts with no test file, consistent with the pre-existing `run-renewals.js`/`seed-superadmin.js` convention (none of the manual scripts in this repo have dedicated tests — their underlying logic, `generateSessions`/`renderEmail`/`renewOne`, is what's actually tested).
 
 ## Frontend (`frontend/`)
 

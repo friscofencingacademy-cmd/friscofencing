@@ -162,9 +162,10 @@ pushes create Preview deployments automatically — that is our staging.
   (optional) in the backend Vercel project per the 4a table above — added by the CKQ parity
   plan (`docs/plans/ckq-parity-plan.md`). Leaving `APP_ENV` unset on Preview is intentional:
   it is what keeps staging from emailing real parents.
-- **[YOU]** Run `npm run extend-private-sessions` on a schedule once real private-class
-  enrollments exist (manual for now, same model as `run-renewals.js` — see
-  `docs/features/private-class.md`).
+- **[YOU]** Before the private-lesson booking backend deploys to an environment, run
+  `node scripts/retire-recurring-private-classes.js` (then `--live`) there, then
+  `node scripts/check-private-credit-ledger.js` (ADR 011). The old
+  `extend-private-sessions` script no longer exists — nothing is generated ahead of time.
 - **Fix the recurring cold-start MongoDB bug properly** (see the gotcha note above — recurred 4 times): `backend/api/index.js`'s `connectDB()` is fire-and-forget with no retry. Make the serverless entry await the connection (or add a disconnect-detecting reconnect) instead of relying on a manual redeploy every time a container goes cold. Highest-priority item on this list — it's a real production reliability bug, not just a launch-week hiccup.
 - **Stripe webhook registration**: Stripe dashboard → Webhooks → add endpoint
   `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,

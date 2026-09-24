@@ -30,13 +30,10 @@ const Evaluation = require('../src/models/evaluation.model');
 // itself become the source of a future orphaned-reference outage.
 // PrivateClassEnrollment/PrivateClassSession/Evaluation (student-, parent-,
 // or coach-authored facts) are deleted outright wherever any of their
-// refs match a deleted user. PrivateClassSchedule is coach-owned structural
-// data: a schedule whose coach is being deleted is deleted outright (same
-// treatment as the coach's own GroupClassSchedule rows would get if this
-// script ever deleted coaches by default); a schedule whose occupant
-// student is being deleted, but whose coach is NOT, is freed instead
-// (studentId/enrollmentId cleared) so the slot stays bookable. CoachContract
-// is deleted outright with its coach.
+// refs match a deleted user. PrivateClassSchedule is coach-owned
+// availability (no student is ever stored on it — a booking is a
+// PrivateClassSession, ADR 011): a schedule is deleted outright only with
+// its coach. CoachContract is deleted outright with its coach.
 //
 // Usage:
 //   node scripts/reset-customer-data.js <MONGO_URI> [--keep-roles=superadmin,coach] [--execute]
@@ -107,7 +104,6 @@ async function main() {
     privateEnrollmentCount,
     privateSessionCount,
     privateScheduleDeleteCount,
-    privateScheduleFreeCount,
     coachContractCount,
     evaluationCount,
   ] = await Promise.all([
@@ -134,10 +130,6 @@ async function main() {
       ],
     }),
     PrivateClassSchedule.countDocuments({ coachId: { $in: deleteIds } }),
-    PrivateClassSchedule.countDocuments({
-      studentId: { $in: deleteIds },
-      coachId: { $nin: deleteIds },
-    }),
     CoachContract.countDocuments({ coachId: { $in: deleteIds } }),
     Evaluation.countDocuments({
       $or: [{ studentId: { $in: deleteIds } }, { coachId: { $in: deleteIds } }],
@@ -155,7 +147,6 @@ async function main() {
   console.log(`  PrivateClassEnrollment:          ${privateEnrollmentCount}`);
   console.log(`  PrivateClassSession:             ${privateSessionCount}`);
   console.log(`  PrivateClassSchedule (deleted):  ${privateScheduleDeleteCount} (coach deleted)`);
-  console.log(`  PrivateClassSchedule (freed):    ${privateScheduleFreeCount} (occupant student deleted)`);
   console.log(`  CoachContract:                   ${coachContractCount}`);
   console.log(`  Evaluation:                      ${evaluationCount}`);
 
@@ -188,14 +179,8 @@ async function main() {
       { coachId: { $in: deleteIds } },
     ],
   });
-  // Coach-owned schedules go with their coach; a freed slot never needs
-  // this branch's freeing update run against it, so order (delete first)
-  // doesn't matter here — the two queries are disjoint by construction.
+  // Coach-owned availability goes with its coach.
   await PrivateClassSchedule.deleteMany({ coachId: { $in: deleteIds } });
-  await PrivateClassSchedule.updateMany(
-    { studentId: { $in: deleteIds } },
-    { $set: { studentId: null, enrollmentId: null } }
-  );
   await CoachContract.deleteMany({ coachId: { $in: deleteIds } });
   await Evaluation.deleteMany({
     $or: [{ studentId: { $in: deleteIds } }, { coachId: { $in: deleteIds } }],

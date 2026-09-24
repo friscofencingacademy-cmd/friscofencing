@@ -58,11 +58,6 @@ const TEST_CONFIG = {
     notes: 'test contract',
   },
   TEST_RECORD_FILTERS: { emailDomains: ['kicksite.net'], firstNamePrefixes: ['test'] },
-  // docs/plans/booking-and-private-class-fixes-plan.md §3 — true here so
-  // the existing private-class test below keeps asserting the ON behavior
-  // unchanged; the real scripts/legacy-import.config.js now defaults this
-  // to false (a separate nested describe below covers that OFF behavior).
-  IMPORT_PRIVATE_CLASS_ENROLLMENTS: true,
 };
 
 const CSV_HEADER =
@@ -165,7 +160,12 @@ describe('scripts/lib/runLegacyImport', () => {
     expect(subscriptions).toHaveLength(0);
   });
 
-  it('creates a CoachContract and a PrivateClassEnrollment for a combined private+group Programs value', async () => {
+  // An enrollment is a PAID purchase of private-lesson credits (ADR 011) —
+  // there is no payment to import, so a private-flagged legacy student gets
+  // the coach's contract and a warning, never a PrivateClassEnrollment. (This
+  // also closes docs/plans/booking-and-private-class-fixes-plan.md §3's
+  // staging incident structurally, rather than behind a config flag.)
+  it('creates the CoachContract and flags a private-lesson student with a warning, but creates no PrivateClassEnrollment', async () => {
     const csvText = [
       CSV_HEADER,
       csvRow({ pin: '4001', first: 'Sana', last: 'Private', programs: 'Pricate Classes - Coach Chris, Advanced' }),
@@ -174,15 +174,16 @@ describe('scripts/lib/runLegacyImport', () => {
     const summary = await runLegacyImport({ csvText, config: TEST_CONFIG });
 
     expect(summary.studentsEnrolledInLevel).toBe(1);
-    expect(summary.privateClassEnrollmentsCreated).toBe(1);
+    expect(summary.privateClassStudentsFlagged).toBe(1);
+    expect(summary.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('Private lessons flagged for legacyPin 4001')])
+    );
 
-    const student = await User.findOne({ firstName: 'Sana' });
     const contract = await CoachContract.findOne({});
     expect(contract.studentBillingRate).toBe(60);
 
-    const enrollment = await PrivateClassEnrollment.findOne({ studentId: student._id });
-    expect(enrollment.agreedHourlyRate).toBe(60);
-    expect(enrollment.coachContractId.toString()).toBe(contract._id.toString());
+    expect(await User.findOne({ firstName: 'Sana' })).not.toBeNull();
+    expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
   });
 
   it('excludes a Kicksite-junk row entirely — no user, no family created for it', async () => {
@@ -196,34 +197,6 @@ describe('scripts/lib/runLegacyImport', () => {
     expect(summary.testRecordsFiltered).toBe(1);
     expect(summary.familiesProcessed).toBe(0);
     expect(await User.countDocuments({})).toBe(2); // just the 2 coaches
-  });
-
-  // docs/plans/booking-and-private-class-fixes-plan.md §3 — real staging
-  // incident: refresh-staging-data.js's legacy import created a fresh,
-  // slotless, active PrivateClassEnrollment for Sana Sarath on EVERY
-  // refresh. The flag defaults off in the real config; this proves the
-  // import skips the branch entirely (not just "creates nothing by
-  // accident") while everything else about the row still imports normally.
-  describe('IMPORT_PRIVATE_CLASS_ENROLLMENTS: false (the real config default)', () => {
-    const CONFIG_FLAG_OFF = { ...TEST_CONFIG, IMPORT_PRIVATE_CLASS_ENROLLMENTS: false };
-
-    it('imports the student and their group-class enrollment, but creates zero PrivateClassEnrollment docs', async () => {
-      const csvText = [
-        CSV_HEADER,
-        csvRow({ pin: '4001', first: 'Sana', last: 'Private', programs: 'Pricate Classes - Coach Chris, Advanced' }),
-      ].join('\n');
-
-      const summary = await runLegacyImport({ csvText, config: CONFIG_FLAG_OFF });
-
-      expect(summary.studentsEnrolledInLevel).toBe(1);
-      expect(summary.privateClassEnrollmentsCreated).toBe(0);
-      expect(summary.privateClassEnrollmentsSkipped).toBe(1);
-
-      const student = await User.findOne({ firstName: 'Sana' });
-      expect(student).not.toBeNull();
-
-      expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
-    });
   });
 
   it('is idempotent: running twice with the same CSV creates no duplicates', async () => {

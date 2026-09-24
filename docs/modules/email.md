@@ -66,10 +66,9 @@ from `{ monthlyFee, siblingDiscountAmount|null, total }` — the arithmetic happ
 | `cancellationConfirmation` | Group subscription cancel (parent- or admin-initiated) | coach only (no admin — CKQ pattern) |
 | `reactivationConfirmation` | Reversing a pending group cancellation | — |
 | `scheduleChangeConfirmation` | Admin moves a student to a new (same-level) schedule | new coach |
-| `privateClassConfirmation` | Private-lesson self-registration | admin, coach |
-| `privateClassSessionReceipt` | Private-lesson attendance → successful charge | admin |
-| `privateClassPaymentFailed` | Private-lesson attendance → declined/failed charge | admin |
-| `privateClassCancellation` | Private enrollment cancellation | admin, coach |
+| `privateClassBookingConfirmation` | A private lesson is booked (with a purchase or a credit — ADR 011). Carries the purchase lines and the PDF invoice when the booking came with a purchase. | admin (the coach gets `privateClassCoachBooking` instead) |
+| `privateClassCoachBooking` | Same booking — sent **to the coach** | admin |
+| `privateClassBookingCancelled` | A booked lesson is cancelled; the credit is back | admin, coach |
 
 Every `send*` function in `mail.service.js` (1) assembles the template's `data` (populating
 whatever refs it needs — a populate failure must never fail the caller's mutation, so this
@@ -85,7 +84,8 @@ already committed to the database.
 unchanged — the `APP_ENV` staging gate sits upstream of the transport call, so a blocked send
 stays blocked whether or not it carries an attachment. Three senders carry one:
 `sendRegistrationConfirmationEmail`, `sendRenewalReceiptEmail`, and
-`sendPrivateClassSessionReceiptEmail` each accept optional `invoiceNumber`/`invoicePdf` params;
+`sendPrivateClassBookingConfirmationEmail` (only when the booking came with a purchase) each accept
+optional `invoiceNumber`/`invoicePdf` params;
 `mail.service.js`'s own `invoiceAttachment(invoiceNumber, invoicePdf)` helper turns them into the
 attachments array (or `undefined` when `invoicePdf` is falsy, so `sendMailSafely` omits the field
 entirely rather than sending an empty array).
@@ -93,13 +93,14 @@ entirely rather than sending an empty array).
 The PDF itself is built by `backend/src/services/invoice.service.js` (`buildInvoiceData` +
 `renderInvoicePdf`, via `pdfkit`) from the completed `Registration` ledger row the charge just
 wrote — every caller (`registration.service.js`'s `create()`, `renewal.service.js`'s
-`sendReceiptEmail()`, `privateClassSession.service.js`'s `chargeSession()`) generates it inside
+`sendReceiptEmail()`, `privateClassSession.service.js`'s `onBookingConfirmed()`) generates it inside
 its **own** nested try/catch, separate from the email-sending try/catch that already wraps it: a
 PDF generation failure logs and leaves `invoiceNumber`/`invoicePdf` `undefined` (dropping only the
 attachment), it never skips or fails the receipt email itself, and it can never undo or fail an
 already-successful charge. Full design (location fallback rules, the hard-coded academy identity,
-the on-demand `GET /registrations/:id/invoice` download endpoint): `docs/features/private-class.md`
-and the plan doc above.
+the on-demand `GET /registrations/:id/invoice` download endpoint): the plan doc above; a private
+purchase's line items (sessions × unit price, then the pack discount) are described in
+`docs/features/private-class.md`.
 
 ## Method-aware receipt/invoice line (docs/plans/payment-airtight-plan.md D9)
 

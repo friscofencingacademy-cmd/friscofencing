@@ -56,6 +56,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 0,
         returningStudentGracePeriodMonths: 0,
+        privateClassPackages: [],
       });
     });
 
@@ -70,6 +71,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 25,
         returningStudentGracePeriodMonths: 6,
+        privateClassPackages: [],
       });
     });
 
@@ -99,6 +101,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 25,
         returningStudentGracePeriodMonths: 6,
+        privateClassPackages: [],
       });
       expect(await Setting.countDocuments()).toBe(1);
     });
@@ -114,6 +117,58 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 40,
         returningStudentGracePeriodMonths: 6,
+        privateClassPackages: [],
+      });
+    });
+
+    describe('privateClassPackages (docs/plans/private-class-per-session-booking-plan.md D13)', () => {
+      it('saves a pack list, sorted by quantity, and a later partial update leaves it untouched', async () => {
+        await seedUser({ role: 'superadmin', email: 'setting-packs1@example.com' });
+        const superAgent = await loginAgent('setting-packs1@example.com');
+
+        const saved = await superAgent.patch('/api/v1/settings').send({
+          privateClassPackages: [
+            { quantity: 20, discountPercent: 15 },
+            { quantity: 10, discountPercent: 10 },
+          ],
+        });
+
+        expect(saved.status).toBe(200);
+        expect(saved.body.settings.privateClassPackages).toEqual([
+          { quantity: 10, discountPercent: 10 },
+          { quantity: 20, discountPercent: 15 },
+        ]);
+
+        const partial = await superAgent.patch('/api/v1/settings').send({ registrationFee: 30 });
+        expect(partial.body.settings.privateClassPackages).toHaveLength(2);
+      });
+
+      it('clears the list with an empty array', async () => {
+        await Setting.create({ privateClassPackages: [{ quantity: 10, discountPercent: 10 }] });
+        await seedUser({ role: 'superadmin', email: 'setting-packs2@example.com' });
+        const superAgent = await loginAgent('setting-packs2@example.com');
+
+        const res = await superAgent.patch('/api/v1/settings').send({ privateClassPackages: [] });
+
+        expect(res.status).toBe(200);
+        expect(res.body.settings.privateClassPackages).toEqual([]);
+      });
+
+      it.each([
+        ['a duplicate quantity', [{ quantity: 10, discountPercent: 10 }, { quantity: 10, discountPercent: 5 }], /Only one/],
+        ['a quantity of 1 (always offered implicitly)', [{ quantity: 1, discountPercent: 0 }], /at least 2/],
+        ['a fractional quantity', [{ quantity: 2.5, discountPercent: 0 }], /whole number/],
+        ['a 100% discount', [{ quantity: 10, discountPercent: 100 }], /between 0 and 99/],
+        ['a non-list', { quantity: 10, discountPercent: 10 }, /must be a list/],
+      ])('returns 400 for %s, without writing anything', async (_label, privateClassPackages, message) => {
+        await seedUser({ role: 'superadmin', email: `setting-packs-bad-${Math.random()}@example.com` });
+        const superAgent = await loginAgent((await User.findOne({ role: 'superadmin' })).email);
+
+        const res = await superAgent.patch('/api/v1/settings').send({ privateClassPackages });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toMatch(message);
+        expect(await Setting.countDocuments()).toBe(0);
       });
     });
 

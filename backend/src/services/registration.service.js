@@ -9,6 +9,7 @@ const Registration = require('../models/registration.model');
 const { SubscriptionCycleRegistration } = require('../models/registration.model');
 const Subscription = require('../models/subscription.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
+const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const paymentMethodService = require('./paymentMethod.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
@@ -26,6 +27,7 @@ const mailService = require('./mail.service');
 const invoiceService = require('./invoice.service');
 const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
 const { hasAdminRole } = require('../utils/roles');
+const { privateLessonPurchaseLabel } = require('../utils/privateLessonLabels');
 
 // Shared by create() and previewChargeAmount() — the auth-critical,
 // order-sensitive first checks (does this student exist, does it belong to
@@ -637,11 +639,18 @@ async function describeHistoryRow(row) {
   }
 
   if (row.billingShape === 'per_session') {
+    // A private-lesson purchase (ADR 011) — described by what was bought,
+    // with the first lesson it was booked with as the session date.
+    const enrollment = row.enrollmentId ? await PrivateClassEnrollment.findById(row.enrollmentId) : null;
+    const coach = enrollment ? await User.findById(enrollment.coachId) : null;
     const session = row.sessionId ? await PrivateClassSession.findById(row.sessionId) : null;
-    const coach = session ? await User.findById(session.coachId) : null;
 
     return {
-      description: `Private Lesson${coach ? ` with ${coach.firstName} ${coach.lastName}` : ''}`,
+      description: privateLessonPurchaseLabel({
+        coach,
+        durationMinutes: enrollment ? enrollment.sessionDurationMinutes : undefined,
+        quantity: row.quantity,
+      }),
       periodStart: null,
       periodEnd: null,
       sessionDate: session ? session.startDate : null,

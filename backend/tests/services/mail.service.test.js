@@ -485,73 +485,86 @@ describe('mail.service', () => {
       expect(sendMail.mock.calls[0][0].cc).toEqual(['newcoach@example.com']);
     });
 
-    it('sendPrivateClassConfirmationEmail cc lists ADMIN_EMAIL + coach', async () => {
+    // Private-lesson bookings (ADR 011): the parent's booking email goes to
+    // the parent cc admin; the coach gets their own email; a cancellation
+    // goes to the parent cc admin + coach.
+    it('sendPrivateClassBookingConfirmationEmail goes to the parent, cc ADMIN_EMAIL only (the coach has their own email)', async () => {
       const mailService = loadMailService();
 
-      const result = await mailService.sendPrivateClassConfirmationEmail({
+      const result = await mailService.sendPrivateClassBookingConfirmationEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
-        student: { firstName: 'Sam' },
+        student: { firstName: 'Sam', lastName: 'Rivera' },
         coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
-        slotLabel: 'Tuesday · 4:00 PM · 60 min',
-        rateLabel: '$65/hr — $65 per session',
-        firstSessionDate: new Date('2026-08-26T12:00:00.000Z'),
-        sessionPriceLabel: '$65',
+        session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
+        enrollment: { quantity: 10, sessionsUsed: 1, sessionDurationMinutes: 30 },
+        purchaseRow: null,
+        cancelCutoffHours: 24,
       });
 
       expect(result).not.toBe(false);
-      expect(sendMail.mock.calls[0][0].cc).toEqual([
-        'friscofencingacademy@gmail.com',
-        'coach@example.com',
-      ]);
+      const call = sendMail.mock.calls[0][0];
+      expect(call.to).toBe('pat@example.com');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
+      // 21:30 UTC is 4:30 PM Central (CDT) — a real instant rendered in Central.
+      expect(call.text).toContain('Tuesday, Oct 6, 2026 · 4:30 PM');
+      expect(call.text).toContain('9 of 10');
+      expect(call.text).toContain('at least 24 hours before');
+      expect(call.text).not.toContain('Charged to your card');
     });
 
-    it('sendPrivateClassSessionReceiptEmail cc lists ADMIN_EMAIL only', async () => {
+    it('sendPrivateClassBookingConfirmationEmail adds the purchase lines from the ledger row, charged total verbatim', async () => {
       const mailService = loadMailService();
 
-      const result = await mailService.sendPrivateClassSessionReceiptEmail({
+      await mailService.sendPrivateClassBookingConfirmationEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
         student: { firstName: 'Sam' },
         coach: { firstName: 'Dana', lastName: 'Coach' },
-        sessionDate: new Date('2026-08-26T12:00:00.000Z'),
-        durationMinutes: 60,
-        amount: 65,
+        session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
+        enrollment: { quantity: 10, sessionsUsed: 1, sessionDurationMinutes: 30 },
+        purchaseRow: { quantity: 10, unitPrice: 32.5, discountPercent: 10, amount: 292.5 },
+        cancelCutoffHours: 24,
+      });
+
+      const { text } = sendMail.mock.calls[0][0];
+      expect(text).toContain('10 sessions × $32.50');
+      expect(text).toContain('$325.00');
+      expect(text).toContain('10% — −$32.50');
+      expect(text).toContain('Charged to your card: $292.50');
+    });
+
+    it('sendPrivateClassCoachBookingEmail goes to the coach, cc ADMIN_EMAIL', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendPrivateClassCoachBookingEmail({
+        coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
+        parent: { firstName: 'Pat', lastName: 'Rivera' },
+        student: { firstName: 'Sam', lastName: 'Rivera' },
+        session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
+        durationMinutes: 30,
       });
 
       expect(result).not.toBe(false);
-      expect(sendMail.mock.calls[0][0].cc).toEqual(['friscofencingacademy@gmail.com']);
-      expect(sendMail.mock.calls[0][0].text).toContain('65.00');
+      const call = sendMail.mock.calls[0][0];
+      expect(call.to).toBe('coach@example.com');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
+      expect(call.text).toContain('Pat Rivera');
+      expect(call.text).toContain('30 min');
     });
 
-    it('sendPrivateClassPaymentFailedEmail cc lists ADMIN_EMAIL only and never throws', async () => {
+    it('sendPrivateClassBookingCancelledEmail cc lists ADMIN_EMAIL + coach and states the balance', async () => {
       const mailService = loadMailService();
 
-      const result = await mailService.sendPrivateClassPaymentFailedEmail({
-        parent: { firstName: 'Pat', email: 'pat@example.com' },
-        student: { firstName: 'Sam' },
-        sessionDate: new Date('2026-08-26T12:00:00.000Z'),
-        amount: 65,
-        paymentMethodUrl: 'http://localhost:3000/parent/payment-method',
-      });
-
-      expect(result).not.toBe(false);
-      expect(sendMail.mock.calls[0][0].cc).toEqual(['friscofencingacademy@gmail.com']);
-    });
-
-    it('sendPrivateClassCancellationEmail cc lists ADMIN_EMAIL + coach', async () => {
-      const mailService = loadMailService();
-
-      const result = await mailService.sendPrivateClassCancellationEmail({
+      const result = await mailService.sendPrivateClassBookingCancelledEmail({
         parent: { firstName: 'Pat', email: 'pat@example.com' },
         student: { firstName: 'Sam' },
         coach: { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' },
-        slotLabel: 'Tuesday · 4:00 PM · 60 min',
+        session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
+        enrollment: { quantity: 10, sessionsUsed: 0 },
       });
 
       expect(result).not.toBe(false);
-      expect(sendMail.mock.calls[0][0].cc).toEqual([
-        'friscofencingacademy@gmail.com',
-        'coach@example.com',
-      ]);
+      expect(sendMail.mock.calls[0][0].cc).toEqual(['friscofencingacademy@gmail.com', 'coach@example.com']);
+      expect(sendMail.mock.calls[0][0].text).toContain('10 of 10');
     });
 
     it('every new send function resolves false (never throws) when passed nothing at all', async () => {
@@ -561,10 +574,9 @@ describe('mail.service', () => {
       await expect(mailService.sendCancellationConfirmationEmail({})).resolves.toBe(false);
       await expect(mailService.sendReactivationConfirmationEmail({})).resolves.toBe(false);
       await expect(mailService.sendScheduleChangeConfirmationEmail({})).resolves.toBe(false);
-      await expect(mailService.sendPrivateClassConfirmationEmail({})).resolves.toBe(false);
-      await expect(mailService.sendPrivateClassSessionReceiptEmail({})).resolves.toBe(false);
-      await expect(mailService.sendPrivateClassPaymentFailedEmail({})).resolves.toBe(false);
-      await expect(mailService.sendPrivateClassCancellationEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassBookingConfirmationEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassCoachBookingEmail({})).resolves.toBe(false);
+      await expect(mailService.sendPrivateClassBookingCancelledEmail({})).resolves.toBe(false);
     });
   });
 
@@ -677,44 +689,34 @@ describe('mail.service', () => {
     });
   });
 
-  // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
-  describe('sendPrivateClassSessionReceiptEmail', () => {
-    it('sends to the parent, cc ADMIN_EMAIL, and attaches the invoice PDF when provided', async () => {
+  // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2 — a purchase's
+  // booking confirmation carries its PDF invoice (ADR 011).
+  describe('sendPrivateClassBookingConfirmationEmail invoice attachment', () => {
+    const base = {
+      parent: { firstName: 'Pat', email: 'pat@example.com' },
+      student: { firstName: 'Sam' },
+      coach: { firstName: 'Dana', lastName: 'Coach' },
+      session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
+      enrollment: { quantity: 1, sessionsUsed: 1, sessionDurationMinutes: 30 },
+      purchaseRow: { quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 },
+      cancelCutoffHours: 24,
+    };
+
+    it('attaches the invoice PDF when provided', async () => {
       const mailService = loadMailService();
       const invoicePdf = Buffer.from('%PDF-fake');
 
-      const result = await mailService.sendPrivateClassSessionReceiptEmail({
-        parent: { firstName: 'Pat', email: 'pat@example.com' },
-        student: { firstName: 'Sam' },
-        coach: { firstName: 'Dana', lastName: 'Coach' },
-        sessionDate: new Date('2026-09-01T00:00:00.000Z'),
-        durationMinutes: 30,
-        amount: 25,
-        invoiceNumber: 'INV-session1',
-        invoicePdf,
-      });
+      await mailService.sendPrivateClassBookingConfirmationEmail({ ...base, invoiceNumber: 'INV-1', invoicePdf });
 
-      expect(result).not.toBe(false);
-      const call = sendMail.mock.calls[0][0];
-      expect(call.to).toBe('pat@example.com');
-      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
-      expect(call.text).toContain('Sam');
-      expect(call.attachments).toEqual([
-        { filename: 'INV-session1.pdf', content: invoicePdf, contentType: 'application/pdf' },
+      expect(sendMail.mock.calls[0][0].attachments).toEqual([
+        { filename: 'INV-1.pdf', content: invoicePdf, contentType: 'application/pdf' },
       ]);
     });
 
     it('omits attachments entirely when no invoicePdf is provided', async () => {
       const mailService = loadMailService();
 
-      await mailService.sendPrivateClassSessionReceiptEmail({
-        parent: { firstName: 'Pat', email: 'pat@example.com' },
-        student: { firstName: 'Sam' },
-        coach: { firstName: 'Dana', lastName: 'Coach' },
-        sessionDate: new Date('2026-09-01T00:00:00.000Z'),
-        durationMinutes: 30,
-        amount: 25,
-      });
+      await mailService.sendPrivateClassBookingConfirmationEmail(base);
 
       expect(sendMail.mock.calls[0][0].attachments).toBeUndefined();
     });
@@ -723,17 +725,7 @@ describe('mail.service', () => {
       sendMail.mockRejectedValue(new Error('SMTP exploded'));
       const mailService = loadMailService();
 
-      await expect(
-        mailService.sendPrivateClassSessionReceiptEmail({
-          parent: { firstName: 'Pat', email: 'pat@example.com' },
-          student: { firstName: 'Sam' },
-          coach: {},
-          sessionDate: new Date('2026-09-01T00:00:00.000Z'),
-          durationMinutes: 30,
-          amount: 25,
-        })
-      ).resolves.toBe(false);
-
+      await expect(mailService.sendPrivateClassBookingConfirmationEmail(base)).resolves.toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalled();
     });
   });

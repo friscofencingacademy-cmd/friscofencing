@@ -21,7 +21,7 @@
  *    stating the wrong day) before this distinction existed here.
  *
  * A schedule's own "HH:mm" wall-clock string (never a Date) goes to
- * timeOfDay.
+ * timeOfDay; the Central time of a real instant goes to timeOfInstant.
  */
 
 const { DEFAULT_TIMEZONE } = require('../config/timezone');
@@ -74,6 +74,17 @@ function dateFull(date) {
   }).format(new Date(date));
 }
 
+/** e.g. "4:30 PM" — the Central wall-clock time of a REAL INSTANT (a
+ * private-lesson booking's startDate). Pair with dateFull for the day. */
+function timeOfInstant(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: TIME_ZONE,
+  }).format(new Date(date));
+}
+
 /** e.g. "Monday, Aug 25, 2026" — for CALENDAR-DAY SENTINELS only (see this
  * file's docblock). Same format as dateFull, UTC-anchored instead of
  * Central-anchored — renders the sentinel's own intended calendar day
@@ -102,4 +113,4 @@ function timeOfDay(hhmm) {
   }).format(asUtc);
 }
 
-module.exports = { dateFull, dateOnlyFull, timeOfDay, dayOfWeekLabel, monthLabel };
+module.exports = { dateFull, dateOnlyFull, timeOfDay, timeOfInstant, dayOfWeekLabel, monthLabel };

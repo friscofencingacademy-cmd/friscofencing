@@ -20,7 +20,6 @@ const GroupClass = require('../../src/models/groupClass.model');
 const Price = require('../../src/models/price.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const CoachContract = require('../../src/models/coachContract.model');
-const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
 const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
 const Subscription = require('../../src/models/subscription.model');
 
@@ -294,22 +293,6 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
   return { enrolled: true, alreadySubscribed, subscriptionId: subscription._id };
 }
 
-async function enrollStudentInPrivateClass({ studentId, parentId, coachId, coachContract }) {
-  const existing = await PrivateClassEnrollment.findOne({ studentId, coachId, status: 'active' });
-  if (existing) return { created: false, enrollmentId: existing._id };
-
-  const enrollment = await PrivateClassEnrollment.create({
-    studentId,
-    parentId,
-    coachId,
-    coachContractId: coachContract._id,
-    agreedHourlyRate: coachContract.studentBillingRate,
-    status: 'active',
-  });
-
-  return { created: true, enrollmentId: enrollment._id };
-}
-
 // The whole pipeline, in one call: reads the CSV text (already loaded by
 // the caller — kept out of this function so tests can pass a fixture string
 // directly instead of touching the filesystem), builds the import plan, and
@@ -332,12 +315,13 @@ async function runLegacyImport({ csvText, config }) {
     studentsEnrolledInLevel: 0,
     studentsWithNoProgram: 0,
     studentsWithUnmappedProgram: 0,
-    privateClassEnrollmentsCreated: 0,
-    // Only ever non-zero when config.IMPORT_PRIVATE_CLASS_ENROLLMENTS is
-    // false (docs/plans/booking-and-private-class-fixes-plan.md §3) — kept
-    // as its own honest summary field rather than silently folding into
-    // privateClassEnrollmentsCreated staying 0 with no explanation.
-    privateClassEnrollmentsSkipped: 0,
+    // Students the legacy data marks as taking private lessons. The import
+    // never creates a PrivateClassEnrollment for them: an enrollment is a
+    // PAID purchase of credits (docs/decisions/011-private-per-session-
+    // booking.md), and there is no payment to import. Each one gets a
+    // warning so the academy can follow up; the family buys and books
+    // through the portal.
+    privateClassStudentsFlagged: 0,
     warnings: [],
   };
 
@@ -374,22 +358,10 @@ async function runLegacyImport({ csvText, config }) {
       }
 
       if (studentPlan.hasPrivateClass) {
-        if (!config.IMPORT_PRIVATE_CLASS_ENROLLMENTS) {
-          summary.privateClassEnrollmentsSkipped += 1;
-        } else if (studentPlan.privateCoachKey) {
-          // eslint-disable-next-line no-await-in-loop
-          const result = await enrollStudentInPrivateClass({
-            studentId: student._id,
-            parentId: parentUser._id,
-            coachId: setup.coachDocs[studentPlan.privateCoachKey]._id,
-            coachContract: setup.privateContract,
-          });
-          if (result.created) summary.privateClassEnrollmentsCreated += 1;
-        } else {
-          summary.warnings.push(
-            `Private class flagged for legacyPin ${studentPlan.legacyPin} but the coach name could not be resolved — no PrivateClassEnrollment created.`
-          );
-        }
+        summary.privateClassStudentsFlagged += 1;
+        summary.warnings.push(
+          `Private lessons flagged for legacyPin ${studentPlan.legacyPin} — no purchase imported; the family buys and books sessions through the portal.`
+        );
       }
     }
   }
@@ -402,6 +374,5 @@ module.exports = {
   findOrCreateParentUser,
   findOrCreateStudentUser,
   enrollStudentInLevel,
-  enrollStudentInPrivateClass,
   runLegacyImport,
 };

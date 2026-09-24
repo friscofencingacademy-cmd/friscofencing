@@ -367,19 +367,71 @@ const TEMPLATES = [
     },
   },
 
-  // ── Private class ─────────────────────────────────────────────────────
+  // ── Private lessons (per-session bookings — ADR 011) ──────────────────
   {
-    key: 'privateClassConfirmation',
-    subject: "{{studentName}}'s private lessons with Coach {{coachName}} are confirmed",
-    preheader: "{{studentName}}'s private lessons are confirmed.",
+    key: 'privateClassBookingConfirmation',
+    subject: "{{studentName}}'s private lesson with Coach {{coachName}} is booked",
+    preheader: "{{studentName}}'s private lesson on {{lessonLabel}} is booked.",
+    build: (v) => {
+      const blocks = [
+        { t: 'badge', tone: 'green', glyph: '&#9876;' },
+        { t: 'eyebrow', text: 'Private lesson booked', tone: 'green' },
+        { t: 'heading', text: `${v.studentName}'s private lesson is booked` },
+        {
+          t: 'card',
+          tone: 'gold',
+          children: [
+            {
+              t: 'detailList',
+              rows: [
+                ['Student', esc(v.studentName)],
+                ['Coach', esc(v.coachName)],
+                ['Lesson', esc(v.lessonLabel)],
+                ['Length', esc(v.durationLabel)],
+                ['Sessions left', esc(v.remainingLabel)],
+              ],
+            },
+          ],
+        },
+      ];
+
+      if (v.purchase) {
+        const rows = [
+          ['Purchased', esc(v.purchase.itemLabel)],
+          ['Subtotal', esc(v.purchase.subtotalLabel)],
+        ];
+        if (v.purchase.discountLabel) {
+          rows.push(['Pack discount', esc(v.purchase.discountLabel)]);
+        }
+        rows.push(['Charged to your card', strong(v.purchase.totalLabel)]);
+
+        blocks.push({ t: 'card', tone: 'neutral', children: [{ t: 'detailList', rows }] });
+      }
+
+      blocks.push(
+        {
+          t: 'steps',
+          title: 'Good to know',
+          items: [
+            'Book your remaining sessions any time from the parent portal.',
+            `${strong(`Need to cancel? Do it at least ${v.cancelCutoffHours} hours before the lesson`)} and the session goes back to your balance.`,
+            'A missed lesson uses a session.',
+          ],
+        },
+        { t: 'button', label: 'Open your parent portal', href: ORG().portalUrl, variant: 'ghost' }
+      );
+
+      return blocks;
+    },
+  },
+
+  {
+    key: 'privateClassCoachBooking',
+    subject: 'New private lesson booked — {{studentName}}, {{lessonLabel}}',
+    preheader: '{{studentName}} booked a private lesson with you on {{lessonLabel}}.',
     build: (v) => [
-      { t: 'badge', tone: 'green', glyph: '&#9876;' },
-      { t: 'eyebrow', text: 'Private lessons confirmed', tone: 'green' },
-      { t: 'heading', text: `${v.studentName}'s private lessons are confirmed` },
-      {
-        t: 'text',
-        html: `${strong(v.studentName)}'s private lessons with ${strong(`Coach ${v.coachName}`)} are confirmed.`,
-      },
+      { t: 'eyebrow', text: 'New booking', tone: 'green' },
+      { t: 'heading', text: 'A private lesson was booked with you' },
       {
         t: 'card',
         tone: 'gold',
@@ -388,91 +440,24 @@ const TEMPLATES = [
             t: 'detailList',
             rows: [
               ['Student', esc(v.studentName)],
-              ['Coach', esc(v.coachName)],
-              ['Slot', esc(v.slotLabel)],
-              ['Rate', esc(v.rateLabel)],
-              ['First session', esc(v.firstSessionDateLabel)],
+              ['Parent', esc(v.parentName)],
+              ['Lesson', esc(v.lessonLabel)],
+              ['Length', esc(v.durationLabel)],
             ],
           },
         ],
       },
-      {
-        t: 'steps',
-        title: 'What happens next',
-        items: [
-          'Sessions recur weekly at this slot.',
-          `${strong(`You're charged ${v.sessionPriceLabel}`)} after each completed session on your saved card.`,
-          'Cancel any time from the portal.',
-        ],
-      },
-      { t: 'button', label: 'Open your parent portal', href: ORG().portalUrl, variant: 'ghost' },
+      { t: 'text', html: 'Mark attendance from your Private Lessons page after the lesson.', muted: true, size: 'sm' },
     ],
   },
 
   {
-    key: 'privateClassSessionReceipt',
-    subject: 'Private lesson receipt — {{studentName}}',
-    preheader: "Receipt for {{studentName}}'s private lesson session.",
+    key: 'privateClassBookingCancelled',
+    subject: "{{studentName}}'s private lesson on {{lessonLabel}} is cancelled",
+    preheader: "{{studentName}}'s private lesson has been cancelled and the session returned.",
     build: (v) => [
-      { t: 'eyebrow', text: 'Session receipt', tone: 'neutral' },
-      { t: 'heading', text: 'Private lesson receipt' },
-      {
-        t: 'card',
-        tone: 'neutral',
-        children: [
-          {
-            t: 'detailList',
-            rows: [
-              ['Student', esc(v.studentName)],
-              ['Coach', esc(v.coachName)],
-              ['Session date', esc(v.sessionDateLabel)],
-              ['Duration', esc(v.durationLabel)],
-              ['Amount charged', esc(v.amountLabel)],
-            ],
-          },
-        ],
-      },
-      { t: 'text', html: 'Charged to your saved card after the completed session.', muted: true, size: 'sm' },
-    ],
-  },
-
-  {
-    key: 'privateClassPaymentFailed',
-    subject: "Action needed — payment failed for {{studentName}}'s private lesson",
-    preheader: "We couldn't charge your saved card for {{studentName}}'s private lesson.",
-    build: (v) => [
-      { t: 'badge', tone: 'red', glyph: '!' },
-      { t: 'eyebrow', text: 'Payment failed', tone: 'red' },
-      { t: 'heading', text: 'Action needed — payment failed' },
-      {
-        t: 'card',
-        tone: 'red',
-        children: [
-          {
-            t: 'detailList',
-            rows: [
-              ['Student', esc(v.studentName)],
-              ['Session date', esc(v.sessionDateLabel)],
-              ['Amount', esc(v.amountLabel)],
-            ],
-          },
-        ],
-      },
-      {
-        t: 'text',
-        html: "We couldn't charge your saved card. Please update your payment method — the coach can retry the charge afterward.",
-      },
-      { t: 'button', label: 'Update payment method', href: v.paymentMethodUrl || ORG().portalUrl, variant: 'primary' },
-    ],
-  },
-
-  {
-    key: 'privateClassCancellation',
-    subject: 'Private lessons cancelled — {{studentName}}',
-    preheader: "{{studentName}}'s private lessons have been cancelled.",
-    build: (v) => [
-      { t: 'eyebrow', text: 'Cancellation confirmed', tone: 'blue' },
-      { t: 'heading', text: 'Private lessons cancelled' },
+      { t: 'eyebrow', text: 'Booking cancelled', tone: 'blue' },
+      { t: 'heading', text: 'Private lesson cancelled' },
       {
         t: 'card',
         tone: 'blue',
@@ -482,20 +467,17 @@ const TEMPLATES = [
             rows: [
               ['Student', esc(v.studentName)],
               ['Coach', esc(v.coachName)],
-              ['Slot', esc(v.slotLabel)],
+              ['Lesson', esc(v.lessonLabel)],
+              ['Sessions left', esc(v.remainingLabel)],
             ],
           },
         ],
       },
-      {
-        t: 'text',
-        html:
-          'All upcoming sessions have been removed. Completed sessions already charged are unaffected. The weekly slot is now released.',
-      },
+      { t: 'text', html: 'The session has been returned to your balance. No payment was refunded or charged.' },
+      { t: 'button', label: 'Book another time', href: ORG().portalUrl, variant: 'ghost' },
     ],
   },
 ];
-
 const TEMPLATE_MAP = TEMPLATES.reduce((map, tpl) => {
   map[tpl.key] = tpl;
   return map;

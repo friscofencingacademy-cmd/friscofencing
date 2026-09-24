@@ -26,8 +26,9 @@ const Service = require('../models/service.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const Location = require('../models/location.model');
-const PrivateClassSession = require('../models/privateClassSession.model');
-const { sessionDurationMinutes } = require('../utils/privateClassPricing');
+const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
+const { computePackQuote } = require('../utils/privateClassPricing');
+const { privateLessonPurchaseLabel } = require('../utils/privateLessonLabels');
 const { dateFull, dateOnlyFull } = require('../email/dates');
 const { LOGO_URL } = require('../email/tokens');
 const academy = require('../config/academy');
@@ -103,27 +104,37 @@ async function buildSubscriptionCycleData(row) {
   };
 }
 
+// A private-lesson PURCHASE (ADR 011): the sessions bought at their unit
+// price, then the pack discount as its own negative line, so the lines sum
+// to what was charged. `total` is still row.amount (buildInvoiceData) —
+// never derived from these lines. Dated by the purchase, not a lesson (one
+// purchase covers many lessons). Private lessons have no Location of their
+// own (D9) — always the academy's own address.
 async function buildPerSessionData(row) {
-  const session = row.sessionId ? await PrivateClassSession.findById(row.sessionId) : null;
-  const coach = session ? await User.findById(session.coachId) : null;
-  const durationMinutes = session ? sessionDurationMinutes(session.startDate, session.endDate) : null;
+  const enrollment = row.enrollmentId ? await PrivateClassEnrollment.findById(row.enrollmentId) : null;
+  const coach = enrollment ? await User.findById(enrollment.coachId) : null;
+  const { subtotal, discountAmount } = computePackQuote(row.unitPrice, row.quantity, row.discountPercent);
 
-  const coachLabel = coach ? `with ${fullName(coach)}` : '';
-  const durationLabel = durationMinutes != null ? `${durationMinutes} min` : '';
-  const sessionDateLabel = session ? dateFull(session.startDate) : '';
+  const lineItems = [
+    {
+      label: privateLessonPurchaseLabel({
+        coach,
+        durationMinutes: enrollment ? enrollment.sessionDurationMinutes : undefined,
+        quantity: row.quantity,
+      }),
+      amount: subtotal,
+    },
+  ];
+
+  if (row.discountPercent > 0) {
+    lineItems.push({ label: `Pack discount (${row.discountPercent}%)`, amount: -discountAmount });
+  }
 
   return {
-    serviceLabel: 'Private Lesson Session',
-    // Private lessons have no Location of their own (D9) — always the
-    // academy's own address.
+    serviceLabel: 'Private Lesson Purchase',
     location: academyFallbackLocation(),
-    lineItems: [
-      {
-        label: [`Private lesson`, coachLabel, durationLabel && `— ${durationLabel}`].filter(Boolean).join(' '),
-        amount: row.amount,
-      },
-    ],
-    periodLabel: sessionDateLabel,
+    lineItems,
+    periodLabel: dateFull(row.paidAt || row.createdAt),
   };
 }
 
