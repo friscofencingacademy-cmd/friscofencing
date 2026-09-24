@@ -36,6 +36,7 @@ const { todayDateOnly } = require('../../src/utils/billingDates');
 const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { expectLedgerChargeSucceeded, listCustomerPaymentIntents } = require('../testUtils/stripe');
 const mailService = require('../../src/services/mail.service');
 const { seedServices } = require('../../scripts/lib/seedServices');
 const Service = require('../../src/models/service.model');
@@ -803,8 +804,7 @@ describe('Registration routes', () => {
         // this parent/customer is unique to this test, so its own
         // PaymentIntent count is a meaningful, isolated signal.)
         const parent = await User.findOne({ email: 'reg-parent-cross-race@example.com' });
-        const paymentIntents = await stripe.paymentIntents.list({ customer: parent.stripeCustomerId, limit: 10 });
-        expect(paymentIntents.data).toHaveLength(1);
+        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(1);
       },
       30000
     );
@@ -982,12 +982,8 @@ describe('Registration routes', () => {
         // discounted amount, not the full price — the real assertion this
         // test exists for: the real-Stripe-test-mode charge reflects the
         // discount, not just our own response body's math.
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const secondChildIntent = paymentIntents.data.find(
-          (intent) => intent.amount === Math.round(MONTHLY_FEE * 0.9 * 100)
-        );
-        expect(secondChildIntent).toBeDefined();
-        expect(secondChildIntent.status).toBe('succeeded');
+        const secondChildRow = await Registration.findOne({ studentId: secondChild._id });
+        await expectLedgerChargeSucceeded(secondChildRow, MONTHLY_FEE * 0.9);
       },
       40000
     );
@@ -1047,17 +1043,11 @@ describe('Registration routes', () => {
           "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan."
         );
 
-        // The real Stripe charge reflects the bridge-discounted amount.
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const secondChildIntent = paymentIntents.data.find(
-          (intent) => intent.amount === Math.round((MONTHLY_FEE * 2 - MONTHLY_FEE * 0.1) * 100)
-        );
-        expect(secondChildIntent).toBeDefined();
-        expect(secondChildIntent.status).toBe('succeeded');
-
-        // The ledger row carries the same fields — the audit "mark" the
+        // The real Stripe charge reflects the bridge-discounted amount, and
+        // the ledger row carries the same fields — the audit "mark" the
         // owner asked for.
         const ledgerRow = await Registration.findOne({ studentId: secondChild._id });
+        await expectLedgerChargeSucceeded(ledgerRow, MONTHLY_FEE * 2 - MONTHLY_FEE * 0.1);
         expect(ledgerRow.breakdown.siblingDiscountApplied).toBe(true);
         expect(ledgerRow.breakdown.siblingDiscountAmount).toBe(MONTHLY_FEE * 0.1);
       },
@@ -1096,12 +1086,9 @@ describe('Registration routes', () => {
         expect(subscription.lastChargeAmount).toBe(MONTHLY_FEE);
 
         // The real, single Stripe PaymentIntent reflects monthly + fee together.
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const intent = paymentIntents.data.find(
-          (i) => i.amount === Math.round((MONTHLY_FEE + 25) * 100)
-        );
-        expect(intent).toBeDefined();
-        expect(intent.status).toBe('succeeded');
+        const ledgerRow = await Registration.findOne({ studentId: student._id });
+        await expectLedgerChargeSucceeded(ledgerRow, MONTHLY_FEE + 25);
+        expect(await listCustomerPaymentIntents(student.parentId)).toHaveLength(1);
       },
       20000
     );
@@ -1159,9 +1146,8 @@ describe('Registration routes', () => {
         expect(res.body.registrationFeeReason).toMatch(/waived/i);
         expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE);
 
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const intent = paymentIntents.data.find((i) => i.amount === Math.round(MONTHLY_FEE * 100));
-        expect(intent).toBeDefined();
+        const ledgerRow = await Registration.findOne({ studentId: student._id });
+        await expectLedgerChargeSucceeded(ledgerRow, MONTHLY_FEE);
       },
       20000
     );
@@ -1190,11 +1176,8 @@ describe('Registration routes', () => {
         expect(res.body.registrationFeeCharged).toBe(100);
         expect(res.body.totalChargeAmount).toBe(MONTHLY_FEE + 100);
 
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const intent = paymentIntents.data.find(
-          (i) => i.amount === Math.round((MONTHLY_FEE + 100) * 100)
-        );
-        expect(intent).toBeDefined();
+        const ledgerRow = await Registration.findOne({ studentId: student._id });
+        await expectLedgerChargeSucceeded(ledgerRow, MONTHLY_FEE + 100);
       },
       20000
     );
@@ -1307,12 +1290,7 @@ describe('Registration routes', () => {
 
         // The real Stripe PaymentIntent reflects the prorated amount, not
         // the full monthly fee.
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const intent = paymentIntents.data.find(
-          (i) => i.amount === Math.round(expected.proratedAmount * 100)
-        );
-        expect(intent).toBeDefined();
-        expect(intent.status).toBe('succeeded');
+        await expectLedgerChargeSucceeded(ledgerRow, expected.proratedAmount);
       },
       20000
     );
@@ -1540,10 +1518,7 @@ describe('Registration routes', () => {
         expect(ledgerRow.periodStart.toISOString()).toBe('2026-11-01T00:00:00.000Z');
         expect(ledgerRow.periodEnd.toISOString()).toBe('2026-12-01T00:00:00.000Z');
 
-        const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-        const intent = paymentIntents.data.find((i) => i.amount === Math.round(MONTHLY_FEE * 100));
-        expect(intent).toBeDefined();
-        expect(intent.status).toBe('succeeded');
+        await expectLedgerChargeSucceeded(ledgerRow, MONTHLY_FEE);
 
         // The owner's edge case, pinned (docs/plans/payment-airtight-plan.md
         // Context section): register in one month for the next, then a
