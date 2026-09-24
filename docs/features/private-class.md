@@ -60,6 +60,7 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 | How many credits are left? | `PrivateClassEnrollment` counters, reconciled against the ledger by `scripts/check-private-credit-ledger.js` |
 | Did the student attend? | The `Visit` |
 | How is a purchase described? | `utils/privateLessonLabels.js` — payment history and the invoice share it |
+| Can this booking be cancelled, by this viewer, now? | `privateClassSession.service.js` `cancelBlockReason` — enforced by the cancel endpoint, exposed on every booking listing as `canCancel` |
 
 ## Booking pipeline guards
 
@@ -74,7 +75,7 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 
 ## Cancellation and attendance
 
-- **Cancel** (`POST /private-class-sessions/:id/cancel`): confirmed and not started. A parent may cancel until `PARENT_CANCEL_CUTOFF_HOURS` (24) before the lesson; the assigned coach or an admin until it starts. The credit returns and the Visit is cancelled. No money moves (ADR 001).
+- **Cancel** (`POST /private-class-sessions/:id/cancel`): confirmed and not started. A parent may cancel until `PARENT_CANCEL_CUTOFF_HOURS` (24) before the lesson; the assigned coach or an admin until it starts. The credit returns and the Visit is cancelled. No money moves (ADR 001). The rule is one function, `cancelBlockReason`: the endpoint enforces it, and every booking listing exposes it per viewer as `canCancel`, so a Cancel button can never disagree with the endpoint. The purchase quote carries `cancelCutoffHours` for the wizard's consent line.
 - **Attendance** (`PATCH /private-class-sessions/:id/attendance`): the assigned coach or an admin, confirmed booking, lesson started (`startDate <= now` — an exact instant, unlike group's day rule). Writes the Visit only. A missed lesson keeps its credit spent.
 - A holiday added after a booking does not cancel it. Cancel it from the admin page to return the credit.
 
@@ -88,12 +89,12 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 | `GET /private-class-schedules/public` | none | `{ coaches: [{ coachId, coachName, slots: [...] }], packageOffers }` — slot = rule + `sessionPrice` + `hourlyRate`. No student data. |
 | `GET /private-class-schedules/:id/available-dates?days=` | none | `{ dates: [{ day, startDate, endDate }] }` — default 56 days, max 120 |
 | `DELETE /private-class-schedules/:id` | coach-own \| admin | 409 with an upcoming booking; `retired` if it has past bookings; else `deleted` |
-| `GET /private-class-enrollments/quote?studentId&scheduleId` | parent | `{ durationMinutes, hourlyRate, options: [quote...], availableCredits }` |
+| `GET /private-class-enrollments/quote?studentId&scheduleId` | parent | `{ durationMinutes, hourlyRate, options: [quote...], availableCredits, cancelCutoffHours }` |
 | `POST /private-class-enrollments` | parent | Buy + book `{ studentId, scheduleId, day, quantity }` -> `{ enrollment, session, registration, remaining }` |
 | `GET /private-class-enrollments/mine` | parent | Active purchases: `{ enrollment, remaining, payment, sessions }` |
 | `GET /private-class-enrollments` | admin | Same, `?status=&coachId=` |
 | `POST /private-class-sessions` | parent | Book with a credit `{ studentId, scheduleId, day }` -> `{ session, enrollment, remaining }` |
-| `GET /private-class-sessions/mine?window=upcoming\|unmarked\|past` | coach | Confirmed bookings with `attendance` from the Visit |
+| `GET /private-class-sessions/mine?window=upcoming\|unmarked\|past` | coach | Confirmed bookings with `attendance` (from the Visit) and `canCancel` |
 | `GET /private-class-sessions` | admin | Confirmed + cancelled by default, `?status=&coachId=` |
 | `PATCH /private-class-sessions/:id/attendance` | coach-own \| admin | `{ status: 'attended' \| 'missed' }` -> `{ session, visit }` |
 | `POST /private-class-sessions/:id/cancel` | parent-own \| coach-own \| admin | -> `{ session, remaining }` |
