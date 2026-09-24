@@ -33,7 +33,7 @@ const NAV_LINKS_BY_ROLE: Record<Role, NavLink[]> = {
   superadmin: [],
   coach: [
     { href: '/coach/schedules', label: 'My Schedules' },
-    { href: '/coach/private-students', label: 'Private Students' },
+    { href: '/coach/private-students', label: 'Private Lessons' },
   ],
   // Parents now use the dedicated portal shell (app/parent/layout.tsx) —
   // AppShell now serves coach + logged-out visitors only. See

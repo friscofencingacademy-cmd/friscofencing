@@ -1,27 +1,39 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
 import PrivateClassesPage from '../page';
 import { AuthProvider } from '../../context/AuthContext';
+import type { PublicPrivateLessons } from '../../../lib/types';
 
-const COACH_WITH_SLOTS = {
-  coachId: 'coach-1',
-  coachName: 'Dana Cole',
-  slots: [
+const LESSONS: PublicPrivateLessons = {
+  coaches: [
     {
-      scheduleId: 'sched-1',
-      dayOfWeek: 2,
-      dayName: 'Tuesday',
-      // Raw "HH:mm" — no displayTime field (see PublicPrivateClassSlot's
-      // own comment). The page formats it; this fixture matches the real
-      // wire shape.
-      startTime: '16:00',
-      durationMinutes: 60,
-      sessionPrice: 65,
-      hourlyRate: 65,
-      firstSessionDate: '2026-09-01T16:00:00.000Z',
+      coachId: 'coach-1',
+      coachName: 'Dana Cole',
+      slots: [
+        {
+          scheduleId: 'sched-1',
+          dayOfWeek: 2,
+          dayName: 'Tuesday',
+          // Raw "HH:mm" — the page formats it (a 24-hour time once shipped to
+          // parents).
+          startTime: '16:30',
+          durationMinutes: 30,
+          startDate: '2026-10-01T00:00:00.000Z',
+          endDate: '2026-12-31T00:00:00.000Z',
+          // Deliberately not rate x length: the page must show this server
+          // value, never compute one.
+          sessionPrice: 31.99,
+          hourlyRate: 65,
+        },
+      ],
     },
+  ],
+  packageOffers: [
+    { quantity: 1, discountPercent: 0 },
+    { quantity: 10, discountPercent: 10 },
   ],
 };
 
@@ -42,7 +54,7 @@ const server = setupServer(
       ? HttpResponse.json({ user: authMeUser })
       : HttpResponse.json({ message: 'unauthorized' }, { status: 401 })
   ),
-  http.get('*/private-class-schedules/public', () => HttpResponse.json({ coaches: [COACH_WITH_SLOTS] }))
+  http.get('*/private-class-schedules/public', () => HttpResponse.json(LESSONS))
 );
 
 beforeAll(() => server.listen());
@@ -62,62 +74,62 @@ function renderPage() {
 }
 
 describe('PrivateClassesPage', () => {
-  it('renders a coach card with slot day/time/price, and a logged-in parent\'s Book button goes straight to the booking wizard', async () => {
+  it("renders each coach's slots with the server price and the bookable range, and a parent's button opens the wizard", async () => {
     authMeStatus = 200;
     authMeUser = PARENT_USER;
 
     renderPage();
 
     expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
-    // Named regression: this used to assert the raw "16:00" — a real bug
-    // (24-hour time shipped to parents) that a wrong-but-passing assertion
-    // locked in as "correct." Must read 4:00 PM.
-    expect(screen.getByText(/tuesday · 4:00 pm · 60 min/i)).toBeInTheDocument();
-    expect(screen.queryByText(/16:00/)).not.toBeInTheDocument();
-    expect(screen.getByText(/\$65\.00 \/ session/i)).toBeInTheDocument();
-
-    const bookLink = screen.getByRole('link', { name: /book this slot/i });
-    expect(bookLink).toHaveAttribute('href', '/parent/register-private?slot=sched-1');
-  });
-
-  // The fixed bug: a logged-out visitor clicking "Book this slot" used to
-  // land on /parent/register-private, get silently bounced to home by the
-  // parent layout's auth guard, and never learn why. Now the link itself
-  // goes to /login, carrying the slot so they land right back on it.
-  it('sends a logged-out visitor\'s Book button to /login, carrying the slot as ?next=', async () => {
-    renderPage();
-
-    const bookLink = await screen.findByRole('link', { name: /book this slot/i });
-    expect(bookLink).toHaveAttribute(
+    expect(screen.getByText('Tuesdays · 4:30 PM · 30 min')).toBeInTheDocument();
+    expect(screen.queryByText(/16:30/)).not.toBeInTheDocument();
+    expect(screen.getByText('$31.99 / session · Open Oct 1, 2026 – Dec 31, 2026')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /pick a date/i })).toHaveAttribute(
       'href',
-      `/login?next=${encodeURIComponent('/parent/register-private?slot=sched-1')}`
+      '/parent/register-private?slot=sched-1'
     );
+    expect(screen.queryByText(/register/i)).not.toBeInTheDocument();
   });
 
-  it('shows the empty state when no slots are open', async () => {
-    server.use(http.get('*/private-class-schedules/public', () => HttpResponse.json({ coaches: [] })));
+  it('lists the academy packs (the always-offered single session is not a "pack")', async () => {
+    renderPage();
+
+    expect(await screen.findByText('Save with a pack: 10 sessions, 10% off')).toBeInTheDocument();
+  });
+
+  it('sends a logged-out visitor to log in first, carrying the slot, and offers registration', async () => {
+    renderPage();
+
+    const link = await screen.findByRole('link', { name: /pick a date/i });
+    expect(link).toHaveAttribute('href', `/login?next=${encodeURIComponent('/parent/register-private?slot=sched-1')}`);
+    expect(await screen.findByRole('link', { name: /^register$/i })).toHaveAttribute('href', '/register');
+  });
+
+  it('shows an empty state when no coach has open times, and no packs line when none are configured', async () => {
+    server.use(
+      http.get('*/private-class-schedules/public', () =>
+        HttpResponse.json({ coaches: [], packageOffers: [{ quantity: 1, discountPercent: 0 }] })
+      )
+    );
 
     renderPage();
 
-    expect(
-      await screen.findByText(/no private lesson slots are open right now/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/no private lesson times are open/i)).toBeInTheDocument();
+    expect(screen.queryByText(/save with a pack/i)).not.toBeInTheDocument();
   });
 
-  it('shows the "don\'t have an account" prompt for a logged-out visitor', async () => {
-    renderPage();
-
-    await screen.findByText('Dana Cole');
-    expect(screen.getByText(/don't have an account yet/i)).toBeInTheDocument();
-  });
-
-  it('never shows the "don\'t have an account" prompt once a parent is logged in', async () => {
-    authMeStatus = 200;
-    authMeUser = PARENT_USER;
+  it('renders LoadError with a working retry on a failed load', async () => {
+    server.use(
+      http.get('*/private-class-schedules/public', () => HttpResponse.json({ message: 'boom' }, { status: 500 }))
+    );
 
     renderPage();
 
-    await screen.findByText('Dana Cole');
-    expect(screen.queryByText(/don't have an account yet/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    server.use(http.get('*/private-class-schedules/public', () => HttpResponse.json(LESSONS)));
+    await userEvent.setup().click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
   });
 });

@@ -7,8 +7,7 @@ import { ParentPortalProvider, useParentPortal } from '../ParentPortalContext';
 const STUDENT = { _id: 'student-1', firstName: 'Kid', lastName: 'One' };
 
 function Consumer() {
-  const { students, subscriptions, trialClasses, privateEnrollments, loading, error, reload } =
-    useParentPortal();
+  const { students, subscriptions, trialClasses, loading, error, reload } = useParentPortal();
 
   if (loading) return <p>Loading...</p>;
 
@@ -17,7 +16,6 @@ function Consumer() {
       <p>students: {students.length}</p>
       <p>subscriptions: {subscriptions.length}</p>
       <p>trialClasses: {trialClasses.length}</p>
-      <p>privateEnrollments: {privateEnrollments.length}</p>
       {error ? <p role="alert">error</p> : null}
       <button onClick={reload}>Reload</button>
     </div>
@@ -27,8 +25,7 @@ function Consumer() {
 const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
-  http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
-  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] }))
+  http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] }))
 );
 
 beforeAll(() => server.listen());
@@ -46,15 +43,19 @@ describe('ParentPortalContext', () => {
     expect(await screen.findByText('students: 1')).toBeInTheDocument();
     expect(screen.getByText('subscriptions: 0')).toBeInTheDocument();
     expect(screen.getByText('trialClasses: 0')).toBeInTheDocument();
-    expect(screen.getByText('privateEnrollments: 0')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('does NOT set error when the private-enrollments fetch fails — students still render, privateEnrollments degrades to []', async () => {
+  // Private-lesson purchases are fetched only by the page that shows them
+  // (/parent/subscriptions) — the context once fetched them too, for no
+  // consumer (docs/plans/private-class-per-session-booking-plan.md PR 3).
+  it('never fetches private-lesson purchases', async () => {
+    let privateFetches = 0;
     server.use(
-      http.get('*/private-class-enrollments/mine', () =>
-        HttpResponse.json({ message: 'boom' }, { status: 500 })
-      )
+      http.get('*/private-class-enrollments/mine', () => {
+        privateFetches += 1;
+        return HttpResponse.json({ enrollments: [] });
+      })
     );
 
     render(
@@ -64,8 +65,7 @@ describe('ParentPortalContext', () => {
     );
 
     expect(await screen.findByText('students: 1')).toBeInTheDocument();
-    expect(screen.getByText('privateEnrollments: 0')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(privateFetches).toBe(0);
   });
 
   it('sets error when the PRIMARY (students) fetch fails', async () => {

@@ -1,514 +1,386 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, X } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchUsers } from '../../../lib/services/users';
 import {
-  cancelPrivateClassEnrollmentAdmin,
-  createPrivateClassScheduleAdmin,
-  deletePrivateClassSchedule,
-  fetchPrivateClassEnrollmentsAdmin,
-  fetchPrivateClassSchedulesAdmin,
+  fetchPrivateAvailabilityAdmin,
+  fetchPrivateBookingsAdmin,
+  fetchPrivatePurchasesAdmin,
 } from '../../../lib/services/privateClassAdmin';
-import { formatTime } from '../../../lib/formatTime';
-import type { AuthUser, PrivateClassEnrollmentRow, PrivateClassScheduleRow } from '../../../lib/types';
+import { cancelPrivateBooking, removePrivateAvailabilityRule } from '../../../lib/services/privateClass';
+import { formatInstant } from '../../../lib/formatDate';
+import { formatMoney } from '../../../lib/formatMoney';
+import {
+  bookingStatusLabel,
+  formatLessonTime,
+  formatRuleRange,
+  formatRuleSlot,
+  personName,
+} from '../../../lib/privateLessons';
+import type { AdminPrivateAvailabilityRule, AdminPrivateBookingRow } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
+import PublishAvailabilityDialog from '../../components/privateLessons/PublishAvailabilityDialog/PublishAvailabilityDialog';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
 import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
 
-const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Private lessons, all coaches and families (docs/decisions/011-private-per-
+// session-booking.md). Purchases are read-only (money is the ledger's);
+// bookings can be cancelled (credit returned); availability can be published
+// on a coach's behalf or removed.
 
-type Tab = 'enrollments' | 'schedules';
+type Tab = 'purchases' | 'bookings' | 'availability';
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'purchases', label: 'Purchases' },
+  { key: 'bookings', label: 'Bookings' },
+  { key: 'availability', label: 'Availability' },
+];
 
 function isKnownTab(value: string | null): value is Tab {
-  return value === 'enrollments' || value === 'schedules';
+  return value === 'purchases' || value === 'bookings' || value === 'availability';
 }
 
-async function fetchPageData() {
-  const [enrollments, schedules, coaches] = await Promise.all([
-    fetchPrivateClassEnrollmentsAdmin(),
-    fetchPrivateClassSchedulesAdmin(),
-    fetchUsers('coach'),
-  ]);
-  return { enrollments, schedules, coaches };
+function statusChipClass(booking: AdminPrivateBookingRow): string {
+  const label = bookingStatusLabel(booking);
+  if (label === 'Attended') return `${styles.chip} ${styles.chipActive}`;
+  if (label === 'Missed') return `${styles.chip} ${styles.chipFailed}`;
+  if (label === 'Cancelled') return `${styles.chip} ${styles.chipMuted}`;
+  return `${styles.chip} ${styles.chipNeutral}`;
 }
 
-interface SlotForm {
-  coachId: string;
-  dayOfWeek: string;
-  startTime: string;
-  durationMinutes: string;
-}
+function PurchasesTab() {
+  const { data, error, isLoading, retry } = useLoadState(() => fetchPrivatePurchasesAdmin(), []);
 
-const EMPTY_SLOT_FORM: SlotForm = { coachId: '', dayOfWeek: '1', startTime: '', durationMinutes: '60' };
-
-export default function AdminPrivateClassesPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const paramTab = searchParams.get('tab');
-  const [tab, setTab] = useState<Tab>(isKnownTab(paramTab) ? paramTab : 'enrollments');
-
-  const { data, error, isLoading, retry } = useLoadState(fetchPageData, []);
-  const [enrollments, setEnrollments] = useState<PrivateClassEnrollmentRow[]>([]);
-  const [schedules, setSchedules] = useState<PrivateClassScheduleRow[]>([]);
-  const [coaches, setCoaches] = useState<AuthUser[]>([]);
-
-  useEffect(() => {
-    if (data) {
-      setEnrollments(data.enrollments);
-      setSchedules(data.schedules);
-      setCoaches(data.coaches);
-    }
-  }, [data]);
-
-  function selectTab(next: Tab) {
-    setTab(next);
-    router.replace(`/admin/private-classes?tab=${next}`);
-  }
-
-  const scheduleByEnrollmentId = useMemo(() => {
-    const map = new Map<string, PrivateClassScheduleRow>();
-    schedules.forEach((schedule) => {
-      if (schedule.enrollmentId) {
-        map.set(schedule.enrollmentId, schedule);
-      }
-    });
-    return map;
-  }, [schedules]);
-
-  // ── Cancel enrollment ────────────────────────────────────────────────────
-  const [cancelTarget, setCancelTarget] = useState<PrivateClassEnrollmentRow | null>(null);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-
-  async function handleCancelConfirm() {
-    if (!cancelTarget) return;
-    setCancelling(true);
-    setCancelError(null);
-
-    const result = await cancelPrivateClassEnrollmentAdmin(cancelTarget._id);
-
-    setCancelling(false);
-
-    if (result.status === 'success') {
-      setCancelTarget(null);
-      retry();
-    } else {
-      setCancelError(result.message);
-    }
-  }
-
-  // ── Add slot ─────────────────────────────────────────────────────────────
-  const [addSlotOpen, setAddSlotOpen] = useState(false);
-  const [slotForm, setSlotForm] = useState<SlotForm>(EMPTY_SLOT_FORM);
-  const [slotError, setSlotError] = useState<string | null>(null);
-  const [slotSaving, setSlotSaving] = useState(false);
-
-  function setSlotField(key: keyof SlotForm, value: string) {
-    setSlotForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function handleAddSlot() {
-    setSlotError(null);
-
-    if (!slotForm.coachId || !slotForm.startTime) {
-      setSlotError('Coach and start time are required.');
-      return;
-    }
-
-    setSlotSaving(true);
-
-    const result = await createPrivateClassScheduleAdmin({
-      coachId: slotForm.coachId,
-      dayOfWeek: Number(slotForm.dayOfWeek),
-      startTime: slotForm.startTime,
-      durationMinutes: Number(slotForm.durationMinutes) || undefined,
-    });
-
-    setSlotSaving(false);
-
-    if (result.status === 'success') {
-      setAddSlotOpen(false);
-      setSlotForm(EMPTY_SLOT_FORM);
-      retry();
-    } else {
-      setSlotError(result.message);
-    }
-  }
-
-  // ── Delete slot ──────────────────────────────────────────────────────────
-  const [deleteTarget, setDeleteTarget] = useState<PrivateClassScheduleRow | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  async function handleDeleteConfirm() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    setDeleteError(null);
-
-    const result = await deletePrivateClassSchedule(deleteTarget._id);
-
-    setDeleting(false);
-
-    if (result.status === 'success') {
-      setDeleteTarget(null);
-      retry();
-    } else {
-      setDeleteError(result.message);
-    }
-  }
-
-  function coachLabel(coachId: PrivateClassScheduleRow['coachId']): string {
-    // null when the coach was deleted without a delete-guard blocking it
-    // (orphaned-coach-reference-fix-plan D2) — never assume it's populated.
-    if (!coachId) {
-      return 'Coach no longer available';
-    }
-    if (typeof coachId === 'string') {
-      const coach = coaches.find((c) => c._id === coachId);
-      return coach ? `${coach.firstName} ${coach.lastName}` : coachId;
-    }
-    return `${coachId.firstName} ${coachId.lastName}`;
-  }
-
-  // Same null case as coachLabel above, for a student/parent ref
-  // (orphaned-coach-reference-fix-plan §8a).
-  function personLabel(
-    person: { firstName: string; lastName: string } | null,
-    fallback: string
-  ): string {
-    return person ? `${person.firstName} ${person.lastName}` : fallback;
-  }
+  if (error) return <LoadError message={getErrorMessage(error)} onRetry={retry} />;
 
   return (
-    <main>
-      <div className={styles.pageHeaderRow}>
-        <AdminPageHeader title="Private Classes" />
-        {tab === 'schedules' ? (
-          <button type="button" className={styles.btnPrimary} onClick={() => setAddSlotOpen(true)}>
-            <Plus size={14} /> Add Slot
-          </button>
-        ) : null}
-      </div>
-
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-        <button
-          type="button"
-          className={tab === 'enrollments' ? `${styles.chip} ${styles.chipActive}` : styles.chip}
-          style={{ border: 'none', cursor: 'pointer' }}
-          onClick={() => selectTab('enrollments')}
-        >
-          Enrollments
-        </button>
-        <button
-          type="button"
-          className={tab === 'schedules' ? `${styles.chip} ${styles.chipActive}` : styles.chip}
-          style={{ border: 'none', cursor: 'pointer' }}
-          onClick={() => selectTab('schedules')}
-        >
-          Schedules
-        </button>
-      </div>
-
-      {error ? (
-        <LoadError message={getErrorMessage(error)} onRetry={retry} />
-      ) : tab === 'enrollments' ? (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead className={styles.tHead}>
-              <tr>
-                <th className={styles.th}>Student</th>
-                <th className={styles.th}>Parent</th>
-                <th className={styles.th}>Coach</th>
-                <th className={styles.th}>Slot</th>
-                <th className={styles.th}>Rate</th>
-                <th className={styles.th}>Status</th>
-                <th className={styles.th} style={{ width: 120 }} />
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
+        <thead className={styles.tHead}>
+          <tr>
+            <th className={styles.th}>Student</th>
+            <th className={styles.th}>Parent</th>
+            <th className={styles.th}>Coach</th>
+            <th className={styles.th}>Length</th>
+            <th className={styles.th}>Sessions left</th>
+            <th className={styles.th}>Paid</th>
+            <th className={styles.th}>Purchased</th>
+          </tr>
+        </thead>
+        <tbody>
+          {isLoading || !data ? (
+            <AdminLoadingRow colSpan={7} />
+          ) : data.length === 0 ? (
+            <AdminEmptyRow colSpan={7} message="No private lesson purchases yet" />
+          ) : (
+            data.map(({ enrollment, remaining, payment }) => (
+              <tr key={enrollment._id} className={styles.trHover}>
+                <td className={styles.td}>{personName(enrollment.studentId, 'Student no longer available')}</td>
+                <td className={styles.td}>
+                  {personName(enrollment.parentId, 'Parent no longer available')}
+                  {enrollment.parentId?.email ? <div className={styles.cellMuted}>{enrollment.parentId.email}</div> : null}
+                </td>
+                <td className={styles.td}>{personName(enrollment.coachId, 'Coach no longer available')}</td>
+                <td className={styles.td}>{enrollment.sessionDurationMinutes} min</td>
+                <td className={styles.td}>
+                  {remaining} of {enrollment.quantity}
+                </td>
+                <td className={styles.td}>
+                  {payment ? formatMoney(payment.amount) : '—'}
+                  {enrollment.discountPercent > 0 ? (
+                    <div className={styles.cellMuted}>{enrollment.discountPercent}% pack discount</div>
+                  ) : null}
+                </td>
+                <td className={styles.td}>{formatInstant(enrollment.createdAt)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <AdminLoadingRow colSpan={7} />
-              ) : enrollments.length === 0 ? (
-                <AdminEmptyRow colSpan={7} message="No private class enrollments found" />
-              ) : (
-                enrollments.map((enrollment) => {
-                  const slot = scheduleByEnrollmentId.get(enrollment._id);
-                  return (
-                    <tr key={enrollment._id} className={styles.trHover}>
-                      <td className={styles.td}>
-                        {personLabel(enrollment.studentId, 'Student no longer available')}
-                      </td>
-                      <td className={styles.td}>
-                        {personLabel(enrollment.parentId, 'Parent no longer available')}
-                        {enrollment.parentId ? (
-                          <div className={styles.cellMuted}>{enrollment.parentId.email}</div>
-                        ) : null}
-                      </td>
-                      <td className={styles.td}>{coachLabel(enrollment.coachId)}</td>
-                      <td className={styles.td}>
-                        {slot ? `${DAY_LABELS[slot.dayOfWeek]} ${formatTime(slot.startTime)}` : '—'}
-                      </td>
-                      <td className={styles.td}>${enrollment.agreedHourlyRate.toFixed(2)}/hr</td>
-                      <td className={styles.td}>
-                        {enrollment.status === 'active' ? (
-                          <span className={`${styles.chip} ${styles.chipActive}`}>Active</span>
-                        ) : (
-                          <span className={styles.chipMuted}>Cancelled</span>
-                        )}
-                      </td>
-                      <td className={`${styles.td} ${styles.tdRight}`}>
-                        {enrollment.status === 'active' ? (
-                          <button
-                            type="button"
-                            className={styles.btnDanger}
-                            onClick={() => {
-                              setCancelError(null);
-                              setCancelTarget(enrollment);
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        ) : (
-                          <span className={styles.cellMuted}>—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead className={styles.tHead}>
-              <tr>
-                <th className={styles.th}>Coach</th>
-                <th className={styles.th}>Day</th>
-                <th className={styles.th}>Start</th>
-                <th className={styles.th}>Duration</th>
-                <th className={styles.th}>Status</th>
-                <th className={styles.th} style={{ width: 100 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <AdminLoadingRow colSpan={6} />
-              ) : schedules.length === 0 ? (
-                <AdminEmptyRow colSpan={6} message="No private class slots found" />
-              ) : (
-                schedules.map((schedule) => (
-                  <tr key={schedule._id} className={styles.trHover}>
-                    <td className={styles.td}>{coachLabel(schedule.coachId)}</td>
-                    <td className={styles.td}>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                    <td className={styles.td}>{formatTime(schedule.startTime)}</td>
-                    <td className={styles.td}>{schedule.durationMinutes} min</td>
-                    <td className={styles.td}>
-                      {schedule.studentId ? (
-                        <span className={styles.chipMuted}>
-                          {typeof schedule.studentId === 'string'
-                            ? 'Occupied'
-                            : `${schedule.studentId.firstName} ${schedule.studentId.lastName}`}
-                        </span>
-                      ) : (
-                        <span className={`${styles.chip} ${styles.chipActive}`}>Available</span>
-                      )}
-                    </td>
-                    <td className={`${styles.td} ${styles.tdRight}`}>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BookingsTab() {
+  const { data, error, isLoading, retry } = useLoadState(() => fetchPrivateBookingsAdmin(), []);
+  const [target, setTarget] = useState<AdminPrivateBookingRow | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function confirm() {
+    if (!target) return;
+    setSaving(true);
+    setSaveError(null);
+
+    const result = await cancelPrivateBooking(target._id);
+
+    setSaving(false);
+
+    if (result.status === 'success') {
+      setTarget(null);
+      retry();
+    } else {
+      setSaveError(result.message);
+    }
+  }
+
+  if (error) return <LoadError message={getErrorMessage(error)} onRetry={retry} />;
+
+  return (
+    <>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead className={styles.tHead}>
+            <tr>
+              <th className={styles.th}>Lesson</th>
+              <th className={styles.th}>Student</th>
+              <th className={styles.th}>Coach</th>
+              <th className={styles.th}>Status</th>
+              <th className={styles.th} style={{ width: 120 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading || !data ? (
+              <AdminLoadingRow colSpan={5} />
+            ) : data.length === 0 ? (
+              <AdminEmptyRow colSpan={5} message="No private lesson bookings yet" />
+            ) : (
+              data.map((booking) => (
+                <tr key={booking._id} className={styles.trHover}>
+                  <td className={styles.td}>{formatLessonTime(booking.startDate)}</td>
+                  <td className={styles.td}>{personName(booking.studentId, 'Student no longer available')}</td>
+                  <td className={styles.td}>{personName(booking.coachId, 'Coach no longer available')}</td>
+                  <td className={styles.td}>
+                    <span className={statusChipClass(booking)}>{bookingStatusLabel(booking)}</span>
+                  </td>
+                  <td className={`${styles.td} ${styles.tdRight}`}>
+                    {booking.canCancel ? (
                       <button
                         type="button"
-                        className={`${styles.btnIcon} ${styles.btnIconDelete}`}
-                        title="Delete"
-                        aria-label={`Delete slot ${DAY_LABELS[schedule.dayOfWeek]} ${formatTime(schedule.startTime)}`}
+                        className={styles.btnDanger}
                         onClick={() => {
-                          setDeleteError(null);
-                          setDeleteTarget(schedule);
+                          setSaveError(null);
+                          setTarget(booking);
                         }}
                       >
-                        <X size={14} />
+                        Cancel
                       </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    ) : null}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <Modal
-        open={addSlotOpen}
-        onClose={() => setAddSlotOpen(false)}
-        title="Add Slot"
-        disableClose={slotSaving}
-        footer={
-          <>
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              onClick={() => setAddSlotOpen(false)}
-              disabled={slotSaving}
-            >
-              Cancel
-            </button>
-            <button type="button" className={styles.btnPrimary} onClick={handleAddSlot} disabled={slotSaving}>
-              {slotSaving ? 'Saving…' : 'Create'}
-            </button>
-          </>
-        }
-      >
-        {slotError ? <Alert variant="error">{slotError}</Alert> : null}
-
-        <div className={styles.formGroup}>
-          <label className={styles.label} htmlFor="slot-coachId">
-            Coach
-          </label>
-          <select
-            id="slot-coachId"
-            className={styles.select}
-            value={slotForm.coachId}
-            onChange={(e) => setSlotField('coachId', e.target.value)}
-          >
-            <option value="">Select a coach</option>
-            {coaches.map((coach) => (
-              <option key={coach._id} value={coach._id}>
-                {coach.firstName} {coach.lastName}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.label} htmlFor="slot-dayOfWeek">
-            Day of Week
-          </label>
-          <select
-            id="slot-dayOfWeek"
-            className={styles.select}
-            value={slotForm.dayOfWeek}
-            onChange={(e) => setSlotField('dayOfWeek', e.target.value)}
-          >
-            {DAY_LABELS.map((label, index) => (
-              <option key={label} value={index}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.label} htmlFor="slot-startTime">
-            Start Time
-          </label>
-          <input
-            id="slot-startTime"
-            type="time"
-            className={styles.input}
-            value={slotForm.startTime}
-            onChange={(e) => setSlotField('startTime', e.target.value)}
-          />
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.label} htmlFor="slot-durationMinutes">
-            Duration (min)
-          </label>
-          <input
-            id="slot-durationMinutes"
-            type="number"
-            min={15}
-            className={styles.input}
-            value={slotForm.durationMinutes}
-            onChange={(e) => setSlotField('durationMinutes', e.target.value)}
-          />
-        </div>
-      </Modal>
-
-      <Modal
-        open={cancelTarget !== null}
-        onClose={() => setCancelTarget(null)}
-        title="Cancel Enrollment"
+        open={target !== null}
+        onClose={() => setTarget(null)}
+        title="Cancel Booking"
         size="sm"
         hideCloseButton
-        disableClose={cancelling}
+        disableClose={saving}
         footer={
           <>
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              onClick={() => setCancelTarget(null)}
-              disabled={cancelling}
-            >
-              Keep Enrollment
+            <button type="button" className={styles.btnSecondary} onClick={() => setTarget(null)} disabled={saving}>
+              Keep Booking
             </button>
-            <button
-              type="button"
-              className={styles.btnDangerFilled}
-              onClick={handleCancelConfirm}
-              disabled={cancelling}
-            >
-              {cancelling ? 'Cancelling…' : 'Cancel Enrollment'}
+            <button type="button" className={styles.btnDangerFilled} onClick={confirm} disabled={saving}>
+              {saving ? 'Cancelling…' : 'Cancel Booking'}
             </button>
           </>
         }
       >
-        {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
+        {saveError ? <Alert variant="error">{saveError}</Alert> : null}
         <p style={{ margin: 0 }}>
-          Cancel {personLabel(cancelTarget?.studentId ?? null, 'Student no longer available')}&apos;s private
-          lessons? All upcoming sessions will be removed and the weekly slot released. Completed sessions already
-          charged are unaffected.
+          {target
+            ? `Cancel ${personName(target.studentId, 'this student')}'s lesson on ${formatLessonTime(
+                target.startDate
+              )}? The session goes back to the family's balance. No money is refunded or charged.`
+            : ''}
         </p>
       </Modal>
+    </>
+  );
+}
+
+async function fetchAvailabilityWithCoaches() {
+  const [rules, coaches] = await Promise.all([fetchPrivateAvailabilityAdmin(), fetchUsers('coach')]);
+  return { rules, coaches };
+}
+
+function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean; onPublishClose: () => void }) {
+  const { data, error, isLoading, retry } = useLoadState(fetchAvailabilityWithCoaches, []);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [target, setTarget] = useState<AdminPrivateAvailabilityRule | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  async function confirmRemove() {
+    if (!target) return;
+    setRemoving(true);
+    setRemoveError(null);
+
+    const result = await removePrivateAvailabilityRule(target._id);
+
+    setRemoving(false);
+
+    if (result.status === 'success') {
+      setTarget(null);
+      setNotice(result.data === 'retired' ? 'Slot closed — its past lessons stay on record.' : 'Slot removed.');
+      retry();
+    } else {
+      setRemoveError(result.message);
+    }
+  }
+
+  if (error) return <LoadError message={getErrorMessage(error)} onRetry={retry} />;
+
+  return (
+    <>
+      {notice ? <Alert variant="success">{notice}</Alert> : null}
+
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead className={styles.tHead}>
+            <tr>
+              <th className={styles.th}>Coach</th>
+              <th className={styles.th}>Slot</th>
+              <th className={styles.th}>Open</th>
+              <th className={styles.th}>Booked</th>
+              <th className={styles.th} style={{ width: 80 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading || !data ? (
+              <AdminLoadingRow colSpan={5} />
+            ) : data.rules.length === 0 ? (
+              <AdminEmptyRow colSpan={5} message="No private lesson availability published" />
+            ) : (
+              data.rules.map((rule) => (
+                <tr key={rule._id} className={styles.trHover}>
+                  <td className={styles.td}>{personName(rule.coachId, 'Coach no longer available')}</td>
+                  <td className={styles.td}>{formatRuleSlot(rule)}</td>
+                  <td className={styles.td}>{formatRuleRange(rule)}</td>
+                  <td className={styles.td}>{rule.bookedCount}</td>
+                  <td className={`${styles.td} ${styles.tdRight}`}>
+                    <button
+                      type="button"
+                      className={`${styles.btnIcon} ${styles.btnIconDelete}`}
+                      title="Remove"
+                      aria-label={`Remove ${formatRuleSlot(rule)}`}
+                      onClick={() => {
+                        setRemoveError(null);
+                        setTarget(rule);
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <PublishAvailabilityDialog
+        open={publishOpen}
+        coaches={data ? data.coaches : []}
+        onClose={onPublishClose}
+        onPublished={(count) => {
+          onPublishClose();
+          setNotice(`Published ${count} slot${count === 1 ? '' : 's'}.`);
+          retry();
+        }}
+      />
 
       <Modal
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        title={deleteError ? 'Cannot Delete' : 'Delete Slot'}
+        open={target !== null}
+        onClose={() => setTarget(null)}
+        title={removeError ? 'Cannot Remove' : 'Remove Slot'}
         size="sm"
         hideCloseButton
-        disableClose={deleting}
+        disableClose={removing}
         footer={
-          deleteError ? (
-            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+          removeError ? (
+            <button type="button" className={styles.btnSecondary} onClick={() => setTarget(null)}>
               Close
             </button>
           ) : (
             <>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                Cancel
+              <button type="button" className={styles.btnSecondary} onClick={() => setTarget(null)} disabled={removing}>
+                Keep
               </button>
-              <button
-                type="button"
-                className={styles.btnDangerFilled}
-                onClick={handleDeleteConfirm}
-                disabled={deleting}
-              >
-                {deleting ? 'Deleting…' : 'Delete'}
+              <button type="button" className={styles.btnDangerFilled} onClick={confirmRemove} disabled={removing}>
+                {removing ? 'Removing…' : 'Remove'}
               </button>
             </>
           )
         }
       >
         <p style={{ margin: 0 }}>
-          {deleteError ??
-            (deleteTarget
-              ? `Delete the ${DAY_LABELS[deleteTarget.dayOfWeek]} ${formatTime(deleteTarget.startTime)} slot? This cannot be undone.`
-              : '')}
+          {removeError ?? (target ? `Stop offering ${formatRuleSlot(target)}? Families can no longer book it.` : '')}
         </p>
       </Modal>
+    </>
+  );
+}
+
+export default function AdminPrivateClassesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const paramTab = searchParams.get('tab');
+  const [tab, setTab] = useState<Tab>(isKnownTab(paramTab) ? paramTab : 'purchases');
+  const [publishOpen, setPublishOpen] = useState(false);
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    router.replace(`/admin/private-classes?tab=${next}`);
+  }
+
+  return (
+    <main>
+      <div className={styles.pageHeaderRow}>
+        <AdminPageHeader title="Private Classes" />
+        {tab === 'availability' ? (
+          <button type="button" className={styles.btnPrimary} onClick={() => setPublishOpen(true)}>
+            <Plus size={14} /> Publish Availability
+          </button>
+        ) : null}
+      </div>
+
+      <div role="tablist" aria-label="Private classes" style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        {TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? `${styles.chip} ${styles.chipActive}` : styles.chip}
+            style={{ border: 'none', cursor: 'pointer' }}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'purchases' ? (
+        <PurchasesTab />
+      ) : tab === 'bookings' ? (
+        <BookingsTab />
+      ) : (
+        <AvailabilityTab publishOpen={publishOpen} onPublishClose={() => setPublishOpen(false)} />
+      )}
     </main>
   );
 }

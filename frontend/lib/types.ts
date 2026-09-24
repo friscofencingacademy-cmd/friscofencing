@@ -464,6 +464,9 @@ export interface RegistrationPricePreview extends ProrationInfo {
 export interface Setting {
   registrationFee: number;
   returningStudentGracePeriodMonths: number;
+  // Private-lesson packs (ADR 011) — a single session is always offered and
+  // never stored here.
+  privateClassPackages: PrivatePackageOffer[];
 }
 
 // Shared by RegistrationPricePreview and RegistrationCreateResponse —
@@ -663,11 +666,21 @@ export interface LatestAuditRunsResponse {
   total: number;
 }
 
-// ── Private class flow (ckq-parity plan, Phase 4) ─────────────────────────
+// ── Private lessons — per-session bookings (docs/decisions/011-private-per-session-booking.md) ──
+// Every shape below mirrors a real backend response (backend/src/services/
+// privateClass*.service.js). Money, remaining credits, bookable dates and
+// cancellability are always server values — the frontend only formats them.
 
-export type PrivateEnrollmentStatus = 'active' | 'cancelled';
-export type PrivateAttendanceStatus = 'scheduled' | 'attended' | 'missed';
-export type PrivateChargeStatus = 'pending' | 'completed' | 'failed';
+export type PrivateEnrollmentStatus = 'pending' | 'active' | 'failed';
+export type PrivateBookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'released';
+// A booking's attendance, read from its Visit (ADR 010).
+export type PrivateAttendance = 'scheduled' | 'attended' | 'missed' | 'cancelled';
+
+export interface PersonName {
+  _id: string;
+  firstName: string;
+  lastName: string;
+}
 
 // GET /coach-contracts populates coachId -> {firstName,lastName,email}.
 export interface CoachContract {
@@ -683,38 +696,58 @@ export interface CoachContract {
   notes?: string;
 }
 
-// GET /private-class-schedules (admin) / /mine (coach) populate coachId and
-// studentId with {firstName,lastName[,email]}. The raw (unauthenticated
-// create) shape uses plain id strings instead — PrivateClassScheduleRow
-// covers both by making the populated fields a union of ref-or-id.
-export interface PrivateClassScheduleRow {
+// An availability rule (PrivateClassSchedule). startTime is raw "HH:mm"
+// (format with lib/formatTime.ts); startDate/endDate are calendar-day
+// sentinels (format with formatDateOnly). bookedCount = upcoming bookings.
+interface PrivateAvailabilityRuleBase {
   _id: string;
-  // null when the coach was deleted without a delete-guard blocking it
-  // (orphaned-coach-reference-fix-plan D3) — never assume it's populated.
-  coachId: AdminSubscriptionPersonRef | string | null;
   dayOfWeek: number;
   startTime: string;
   durationMinutes: number;
-  studentId: { _id: string; firstName: string; lastName: string } | string | null;
-  enrollmentId: string | null;
+  startDate: string;
+  endDate: string;
   isActive: boolean;
+  bookedCount: number;
 }
 
+// GET /private-class-schedules/mine — the coach's own rules (coachId unpopulated).
+export interface CoachPrivateAvailabilityRule extends PrivateAvailabilityRuleBase {
+  coachId: string;
+}
+
+// GET /private-class-schedules (admin) — coachId populated; null for an
+// orphaned coach.
+export interface AdminPrivateAvailabilityRule extends PrivateAvailabilityRuleBase {
+  coachId: AdminSubscriptionPersonRef | null;
+}
+
+// POST /private-class-schedules body. coachId is required for an admin and
+// ignored for a coach (who always publishes for themselves).
+export interface PublishPrivateAvailabilityInput {
+  coachId?: string;
+  daysOfWeek: number[];
+  windowStart: string;
+  windowEnd: string;
+  slotDurationMinutes?: number;
+  startDate: string;
+  endDate: string;
+}
+
+// DELETE /private-class-schedules/:id — 'retired' when the rule has past
+// bookings (kept for their history), 'deleted' otherwise.
+export type PrivateAvailabilityRemovalOutcome = 'deleted' | 'retired';
+
 // GET /private-class-schedules/public — no auth, no student/parent data.
-// startTime is raw "HH:mm" — format it with lib/formatTime.ts before
-// rendering, same as every other schedule's startTime in this codebase.
-// (No separate `displayTime` field on purpose: a byte-identical alias
-// named as if it were pre-formatted is exactly what shipped 24-hour times
-// to parents here — see privateClassSchedule.service.js's listPublic().)
 export interface PublicPrivateClassSlot {
   scheduleId: string;
   dayOfWeek: number;
   dayName: string;
   startTime: string;
   durationMinutes: number;
+  startDate: string;
+  endDate: string;
   sessionPrice: number;
   hourlyRate: number;
-  firstSessionDate: string;
 }
 
 export interface PublicPrivateClassCoach {
@@ -723,66 +756,134 @@ export interface PublicPrivateClassCoach {
   slots: PublicPrivateClassSlot[];
 }
 
-export interface PrivateClassEnrollmentRow {
-  _id: string;
-  // All three can be null when the referenced user was deleted without a
-  // delete-guard blocking it (orphaned-coach-reference-fix-plan D3/§8a) —
-  // never assume any of them is populated.
-  studentId: { _id: string; firstName: string; lastName: string } | null;
-  parentId: AdminSubscriptionPersonRef | null;
-  coachId: AdminSubscriptionPersonRef | null;
-  coachContractId: string;
-  agreedHourlyRate: number;
-  status: PrivateEnrollmentStatus;
-  endDate: string | null;
+// An academy-wide purchase option (Setting.privateClassPackages plus the
+// always-offered single session).
+export interface PrivatePackageOffer {
+  quantity: number;
+  discountPercent: number;
 }
 
-export interface PrivateClassChargeRow {
-  _id: string;
-  sessionId: string;
-  enrollmentId: string;
-  parentId: string;
-  studentId: string;
-  amount: number;
-  status: PrivateChargeStatus;
-  stripePaymentIntentId: string | null;
-  attempt: number;
-  failureMessage: string | null;
-  paidAt: string | null;
-  createdAt: string;
+export interface PublicPrivateLessons {
+  coaches: PublicPrivateClassCoach[];
+  packageOffers: PrivatePackageOffer[];
 }
 
-// POST /private-class-enrollments response.
-export interface PrivateEnrollmentCreateResponse {
-  enrollment: PrivateClassEnrollmentRow;
-  schedule: PrivateClassScheduleRow;
-  sessionPrice: number;
-  firstSessionDate: string;
+// GET /private-class-schedules/:id/available-dates — `day` is 'YYYY-MM-DD';
+// startDate/endDate are real instants (format with formatInstant).
+export interface PrivateAvailableDate {
+  day: string;
+  startDate: string;
+  endDate: string;
 }
 
-// GET /private-class-enrollments/mine response entry.
-export interface MyPrivateEnrollmentEntry {
-  enrollment: PrivateClassEnrollmentRow;
-  slot: PrivateClassScheduleRow | null;
-  charges: PrivateClassChargeRow[];
+// One priced purchase option — every figure computed by the backend
+// (privateClassPricing.js's computePackQuote); render verbatim.
+export interface PrivatePurchaseOption {
+  unitPrice: number;
+  quantity: number;
+  discountPercent: number;
+  subtotal: number;
+  discountAmount: number;
+  total: number;
 }
 
-// GET /private-class-sessions/mine populates studentId + parentId, and adds
-// a backend-computed sessionPrice (null if it can't be resolved) — see
-// privateClassSession.service.js's listMine.
-export interface PrivateClassSessionRow {
+// GET /private-class-enrollments/quote?studentId&scheduleId.
+// `options` is empty (and hourlyRate null) when the coach is not taking new
+// purchases; `availableCredits` are already-paid sessions usable for this
+// slot (same coach and lesson length).
+export interface PrivatePurchaseQuote {
+  durationMinutes: number;
+  hourlyRate: number | null;
+  options: PrivatePurchaseOption[];
+  availableCredits: number;
+  cancelCutoffHours: number;
+}
+
+// A booking as returned by a create/cancel/attendance endpoint (refs unpopulated).
+export interface PrivateBooking {
   _id: string;
   scheduleId: string;
   enrollmentId: string;
   coachId: string;
-  studentId: { _id: string; firstName: string; lastName: string };
-  parentId: { _id: string; firstName: string; lastName: string };
+  studentId: string;
+  parentId: string;
   startDate: string;
   endDate: string;
-  attendance: PrivateAttendanceStatus;
-  markedBy: string | null;
-  markedAt: string | null;
-  sessionPrice: number | null;
+  status: PrivateBookingStatus;
+}
+
+// A booking as listed: attendance from its Visit, and whether THIS viewer
+// may cancel it right now (the backend's own cancel rule).
+export interface PrivateBookingRow extends PrivateBooking {
+  attendance: PrivateAttendance;
+  canCancel: boolean;
+}
+
+// GET /private-class-sessions/mine?window= — student + parent populated.
+export interface CoachPrivateBookingRow extends Omit<PrivateBookingRow, 'studentId' | 'parentId'> {
+  studentId: PersonName | null;
+  parentId: PersonName | null;
+}
+
+// GET /private-class-sessions (admin) — coach, student and parent populated.
+export interface AdminPrivateBookingRow extends Omit<PrivateBookingRow, 'coachId' | 'studentId' | 'parentId'> {
+  coachId: PersonName | null;
+  studentId: PersonName | null;
+  parentId: PersonName | null;
+}
+
+export type PrivateBookingWindow = 'upcoming' | 'unmarked' | 'past';
+
+// POST /private-class-enrollments (buy + book) and POST /private-class-sessions
+// (book with a credit) — the fields the booking wizard reads.
+export interface PrivateBookingResult {
+  session: PrivateBooking;
+  remaining: number;
+}
+
+// POST /private-class-sessions/:id/cancel.
+export interface PrivateCancelResult {
+  session: PrivateBooking & { attendance: PrivateAttendance };
+  remaining: number | null;
+}
+
+// PATCH /private-class-sessions/:id/attendance.
+export interface PrivateAttendanceResult {
+  session: PrivateBooking & { attendance: PrivateAttendance };
+}
+
+// One purchase of credits, populated (GET /private-class-enrollments/mine
+// and the admin list). All refs may be null for a deleted user.
+export interface PrivateClassEnrollmentRow {
+  _id: string;
+  studentId: PersonName | null;
+  parentId: AdminSubscriptionPersonRef | null;
+  coachId: AdminSubscriptionPersonRef | null;
+  agreedHourlyRate: number;
+  sessionDurationMinutes: number;
+  quantity: number;
+  discountPercent: number;
+  sessionsUsed: number;
+  status: PrivateEnrollmentStatus;
+  createdAt: string;
+}
+
+// What the purchase actually charged — from its Registration ledger row.
+export interface PrivatePurchasePayment {
+  _id: string;
+  amount: number;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  paidAt: string | null;
+}
+
+// One purchase with its remaining credits, payment, and bookings.
+export interface PrivatePurchaseEntry {
+  enrollment: PrivateClassEnrollmentRow;
+  remaining: number;
+  payment: PrivatePurchasePayment | null;
+  sessions: PrivateBookingRow[];
 }
 
 // ── Spotlights (public-site plan, GAP-2) ──────────────────────────────────
@@ -828,15 +929,6 @@ export interface PublicTestimonial {
   authorName: string;
   caption?: string;
   imageUrl?: string;
-}
-
-// PATCH .../attendance and POST .../retry-charge share this response shape.
-export interface PrivateAttendanceResult {
-  session: PrivateClassSessionRow;
-  charged: boolean;
-  chargeStatus?: PrivateChargeStatus;
-  reason?: string;
-  charge: PrivateClassChargeRow | null;
 }
 
 // POST /evaluations (docs/plans/premium-registration-and-attendance-plan.md

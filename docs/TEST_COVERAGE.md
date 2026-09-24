@@ -71,7 +71,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 56 test suites / 400 tests, all passing, 2026-08-31 (after `docs/plans/holiday-blocking-plan.md`'s frontend PR — the new `/admin/holidays` Pattern A page, plus holiday-row/blocked-attendance coverage extended into the admin/coach sessions pages and the shared attendance page). `tsc --noEmit` clean, `next build` succeeds.**
+**Current state: 57 test suites / 448 tests, all passing under `TZ=UTC`, 2026-09-24 (after `docs/plans/private-class-per-session-booking-plan.md` PR 3 — the private-lesson pages rebuilt for per-session bookings, a new `lib/services/__tests__/privateClass.test.ts` contract suite, and the portal context's removed private fetch guarded by a test). `tsc --noEmit` clean, `next build` succeeds. E2E: 31 passed + the 2 known visual-baseline skips, including the new `private-booking.spec.ts`.**
 
 ```
 cd frontend && TZ=UTC npm test

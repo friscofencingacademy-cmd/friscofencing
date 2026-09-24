@@ -139,6 +139,8 @@ The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMa
 | Flow kit (`FlowMain`, `FlowStepper`, `FlowSection`, `ChildPickerCards`, `OrderSummary`, `FlowConfirmation`) | `app/components/portal/flow/` | See "Flow wizard" pattern above. |
 | Marketing kit (`Hero`, `ValuesMarquee`, `IntroSection`, `SpotlightCard`, `StepsRow`, `LevelGrid`, `FacilityBand`, `TeamBand`, `ScheduleTable`, `CtaBand`, `SiteFooter`) | `app/components/marketing/` | Public-site presentational components — see "Public marketing pages" above and `docs/features/public-site.md`. |
 | `lib/services/{catalog,scheduling,parent,spotlights}.ts` | `lib/services/` | Query-throws / mutation-never-throws contract — see `docs/TESTING_STRATEGY.md`'s error-handling contract for how to test each side. Each file's `── Public (no auth) ──` block groups the unauthenticated `/*/public` fetchers separately from the authenticated ones. |
+| `PublishAvailabilityDialog` | `app/components/privateLessons/` | The one private-lesson availability form (dates, weekdays, time window, slot length; a coach picker when given `coaches`) — used by both the coach page and the admin page, so it carries its own token-only CSS Module rather than either shell's. |
+| `lib/formatMoney.ts` / `lib/privateLessons.ts` | `lib/` | `formatMoney` is the one dollar formatter (formatting only — never fed client-side arithmetic). `privateLessons.ts` holds every private-lesson display string (lesson time, slot, range, booking status label). |
 | `lib/types.ts` | `lib/` | Domain interfaces typed against real backend responses — the single source of truth for a `Location`/`Student`/`Subscription`/etc. shape on the frontend. |
 
 ## Anti-patterns

@@ -4,6 +4,7 @@ import { setupServer } from 'msw/node';
 
 import SubscriptionsPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
+import type { PrivatePurchaseEntry } from '../../../../lib/types';
 
 const pushMock = jest.fn();
 
@@ -46,47 +47,56 @@ const CANCELLED_SUBSCRIPTION = {
   lastPayment: null,
 };
 
-const PRIVATE_ENTRY = {
+// A 10-session purchase with two bookings (ADR 011). remaining and
+// canCancel are server values — rendered, never derived.
+const PRIVATE_ENTRY: PrivatePurchaseEntry = {
   enrollment: {
-    _id: 'penroll-1',
+    _id: 'enroll-1',
     studentId: { _id: 'student-3', firstName: 'Priv', lastName: 'Lessons' },
     parentId: { _id: 'parent-1', firstName: 'Par', lastName: 'Ent', email: 'parent@example.com' },
     coachId: { _id: 'coach-1', firstName: 'Dana', lastName: 'Cole', email: 'dana@example.com' },
-    coachContractId: 'contract-1',
     agreedHourlyRate: 65,
+    sessionDurationMinutes: 30,
+    quantity: 10,
+    discountPercent: 10,
+    sessionsUsed: 2,
     status: 'active',
-    endDate: null,
+    createdAt: '2026-10-05T14:00:00.000Z',
   },
-  slot: {
-    _id: 'pschedule-1',
-    coachId: 'coach-1',
-    dayOfWeek: 2,
-    startTime: '16:00',
-    durationMinutes: 60,
-    studentId: 'student-1',
-    enrollmentId: 'penroll-1',
-    isActive: true,
-  },
-  charges: [
+  remaining: 8,
+  payment: { _id: 'reg-1', amount: 292.5, quantity: 10, unitPrice: 32.5, discountPercent: 10, paidAt: '2026-10-05T14:00:00.000Z' },
+  sessions: [
     {
-      _id: 'charge-1',
-      sessionId: 'session-1',
-      enrollmentId: 'penroll-1',
+      _id: 'booking-past',
+      scheduleId: 'rule-1',
+      enrollmentId: 'enroll-1',
+      coachId: 'coach-1',
+      studentId: 'student-3',
       parentId: 'parent-1',
-      studentId: 'student-1',
-      amount: 65,
-      status: 'completed',
-      stripePaymentIntentId: 'pi_1',
-      attempt: 1,
-      failureMessage: null,
-      paidAt: '2026-08-26T16:00:00.000Z',
-      createdAt: '2026-08-26T16:00:00.000Z',
+      startDate: '2026-10-06T21:30:00.000Z',
+      endDate: '2026-10-06T22:00:00.000Z',
+      status: 'confirmed',
+      attendance: 'attended',
+      canCancel: false,
+    },
+    {
+      _id: 'booking-next',
+      scheduleId: 'rule-1',
+      enrollmentId: 'enroll-1',
+      coachId: 'coach-1',
+      studentId: 'student-3',
+      parentId: 'parent-1',
+      startDate: '2026-10-20T21:30:00.000Z',
+      endDate: '2026-10-20T22:00:00.000Z',
+      status: 'confirmed',
+      attendance: 'scheduled',
+      canCancel: true,
     },
   ],
 };
 
 let cancelledSubscriptionId: string | null = null;
-let cancelledPrivateEnrollmentId: string | null = null;
+let cancelledBookingId: string | null = null;
 
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ user: PARENT_USER })),
@@ -100,9 +110,12 @@ const server = setupServer(
     });
   }),
   http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [PRIVATE_ENTRY] })),
-  http.post('*/private-class-enrollments/:id/cancel', ({ params }) => {
-    cancelledPrivateEnrollmentId = params.id as string;
-    return HttpResponse.json({ enrollment: { ...PRIVATE_ENTRY.enrollment, status: 'cancelled' } });
+  http.post('*/private-class-sessions/:id/cancel', ({ params }) => {
+    cancelledBookingId = params.id as string;
+    return HttpResponse.json({
+      session: { ...PRIVATE_ENTRY.sessions[1], status: 'cancelled', attendance: 'cancelled' },
+      remaining: 9,
+    });
   })
 );
 
@@ -111,7 +124,7 @@ afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
   cancelledSubscriptionId = null;
-  cancelledPrivateEnrollmentId = null;
+  cancelledBookingId = null;
 });
 afterAll(() => server.close());
 
@@ -121,6 +134,12 @@ function renderSubscriptionsPage() {
       <SubscriptionsPage />
     </AuthProvider>
   );
+}
+
+// The group-registrations table (the page also lists private-lesson
+// bookings, each with its own Cancel button).
+async function findGroupTable(): Promise<HTMLElement> {
+  return (await screen.findByText('Kid One')).closest('table') as HTMLElement;
 }
 
 describe('SubscriptionsPage', () => {
@@ -148,8 +167,9 @@ describe('SubscriptionsPage', () => {
     expect(screen.getByText('cancelled')).toBeInTheDocument();
     expect(screen.queryByText(/cancels at end of current period/i)).not.toBeInTheDocument();
 
-    // Exactly one Cancel button (only the active, non-cancelling row).
-    expect(screen.getAllByRole('button', { name: /^cancel$/i })).toHaveLength(1);
+    // Exactly one Cancel button in the group table (only the active,
+    // non-cancelling row).
+    expect(within(await findGroupTable()).getAllByRole('button', { name: /^cancel$/i })).toHaveLength(1);
   });
 
   it('cancelling an active subscription posts to /subscriptions/:id/cancel and swaps the button for "Cancels at end of current period"', async () => {
@@ -171,15 +191,14 @@ describe('SubscriptionsPage', () => {
       )
     );
 
-    const cancelButton = await screen.findByRole('button', { name: /^cancel$/i });
-    fireEvent.click(cancelButton);
+    fireEvent.click(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i }));
 
     await waitFor(() => {
       expect(cancelledSubscriptionId).toBe(ACTIVE_SUBSCRIPTION._id);
     });
 
     expect(await screen.findByText(/cancels at end of current period/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument();
+    expect(within(await findGroupTable()).queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument();
   });
 
   it('shows the correct student name and schedule (not "undefined") after a successful cancel — regression for the unpopulated-merge bug', async () => {
@@ -213,7 +232,7 @@ describe('SubscriptionsPage', () => {
     // Wait for the initial, correctly-populated render before triggering the
     // cancel — only then swap the GET handler to reflect the post-cancel
     // state, so the refetch (not the initial load) picks it up.
-    const cancelButton = await screen.findByRole('button', { name: /^cancel$/i });
+    const cancelButton = within(await findGroupTable()).getByRole('button', { name: /^cancel$/i });
 
     server.use(
       http.get('*/registrations/mine', () =>
@@ -248,14 +267,13 @@ describe('SubscriptionsPage', () => {
 
     renderSubscriptionsPage();
 
-    const cancelButton = await screen.findByRole('button', { name: /^cancel$/i });
-    fireEvent.click(cancelButton);
+    fireEvent.click(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Failed to cancel subscription');
     });
 
-    expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+    expect(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
   });
 
   it('shows a message when the parent has no registrations yet', async () => {
@@ -379,55 +397,69 @@ describe('SubscriptionsPage', () => {
     expect(within(cancelledRow).getAllByText('—')).toHaveLength(2);
   });
 
-  describe('Private Lessons section', () => {
-    it('renders a row per private enrollment with coach, slot, rate, and recent charges', async () => {
+  describe('Private Lessons section (per-session bookings, ADR 011)', () => {
+    it('shows each purchase with sessions left, the amount paid, and its bookings with status', async () => {
       renderSubscriptionsPage();
 
-      expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
-      expect(screen.getByText('Tuesday 4:00 PM')).toBeInTheDocument();
-      expect(screen.getByText('$65.00/hr')).toBeInTheDocument();
-      expect(screen.getByText(/\$65\.00 \(Paid\)/)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Priv Lessons with Dana Cole' })).toBeInTheDocument();
+      expect(screen.getByText('8 of 10 sessions left · 30 min each · Paid $292.50')).toBeInTheDocument();
+
+      const past = screen.getByText('Tue, Oct 6, 2026, 4:30 PM').closest('tr') as HTMLElement;
+      const next = screen.getByText('Tue, Oct 20, 2026, 4:30 PM').closest('tr') as HTMLElement;
+      expect(within(past).getByText('Attended')).toBeInTheDocument();
+      expect(within(next).getByText('Booked')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /book a lesson/i })).toHaveAttribute('href', '/private-classes');
     });
 
-    it('shows the confirm-copy dialog and cancels on confirm', async () => {
+    it('offers Cancel only where the server says canCancel, and cancelling posts to that booking', async () => {
       renderSubscriptionsPage();
-      await screen.findByText('Dana Cole');
 
-      const privateRow = screen.getByText('Dana Cole').closest('tr');
-      expect(privateRow).not.toBeNull();
+      const past = (await screen.findByText('Tue, Oct 6, 2026, 4:30 PM')).closest('tr') as HTMLElement;
+      const next = screen.getByText('Tue, Oct 20, 2026, 4:30 PM').closest('tr') as HTMLElement;
+      expect(within(past).queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 
-      fireEvent.click(within(privateRow as HTMLElement).getByRole('button', { name: /^cancel lessons$/i }));
+      fireEvent.click(within(next).getByRole('button', { name: 'Cancel' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/the session goes back to your balance/i)).toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel Lesson' }));
 
-      expect(
-        await screen.findByText(/all upcoming sessions will be removed/i)
-      ).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: /^confirm cancellation$/i }));
-
-      await waitFor(() => expect(cancelledPrivateEnrollmentId).toBe('penroll-1'));
+      await waitFor(() => expect(cancelledBookingId).toBe('booking-next'));
     });
 
-    // orphaned-coach-reference-fix-plan D2/D3/§8a — a private-lesson
-    // enrollment whose student/coach was deleted without a delete-guard
-    // blocking it must render a fallback label, not crash.
-    it('renders fallback labels when the enrollment\'s student/coach were deleted', async () => {
+    it('shows the server refusal inside the dialog without crashing', async () => {
+      server.use(
+        http.post('*/private-class-sessions/:id/cancel', () =>
+          HttpResponse.json(
+            { message: 'Lessons can be cancelled online up to 24 hours before they start — please contact the academy' },
+            { status: 409 }
+          )
+        )
+      );
+      renderSubscriptionsPage();
+
+      const next = (await screen.findByText('Tue, Oct 20, 2026, 4:30 PM')).closest('tr') as HTMLElement;
+      fireEvent.click(within(next).getByRole('button', { name: 'Cancel' }));
+      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel Lesson' }));
+
+      expect(await screen.findByText(/up to 24 hours before they start/i)).toBeInTheDocument();
+    });
+
+    // orphaned-coach-reference-fix-plan D2/D3/§8a — a purchase whose student
+    // or coach was deleted without a delete-guard must degrade, not crash.
+    it('renders fallback labels when the purchase student/coach were deleted', async () => {
       server.use(
         http.get('*/private-class-enrollments/mine', () =>
           HttpResponse.json({
-            enrollments: [
-              {
-                ...PRIVATE_ENTRY,
-                enrollment: { ...PRIVATE_ENTRY.enrollment, studentId: null, coachId: null },
-              },
-            ],
+            enrollments: [{ ...PRIVATE_ENTRY, enrollment: { ...PRIVATE_ENTRY.enrollment, studentId: null, coachId: null } }],
           })
         )
       );
 
       renderSubscriptionsPage();
 
-      expect(await screen.findByText('Student no longer available')).toBeInTheDocument();
-      expect(screen.getByText('Coach no longer available')).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { name: 'Student no longer available with Coach no longer available' })
+      ).toBeInTheDocument();
     });
 
     it('shows a message when the parent has no private lessons yet', async () => {
@@ -436,6 +468,17 @@ describe('SubscriptionsPage', () => {
       renderSubscriptionsPage();
 
       expect(await screen.findByText(/you don't have any private lessons yet/i)).toBeInTheDocument();
+    });
+
+    it('renders LoadError for a failed private-lessons load while the group table still renders', async () => {
+      server.use(
+        http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ message: 'boom' }, { status: 500 }))
+      );
+
+      renderSubscriptionsPage();
+
+      expect(await screen.findByText('Kid One')).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /try again/i })).toBeInTheDocument();
     });
   });
 });
