@@ -89,6 +89,67 @@ describe('SessionsPage (admin)', () => {
     });
   });
 
+  // docs/plans/duplication-cleanup-plan.md A-D1/A-D5 — a session whose day
+  // hasn't started keeps its student count but offers no attendance link.
+  // Blocked ONLY on an explicit `attendanceOpen: false` (absent = open, the
+  // very first test above).
+  describe('not-yet-open session (docs/plans/duplication-cleanup-plan.md A-D1)', () => {
+    const closedSession = {
+      _id: 'session-3',
+      date: '2026-09-08T00:00:00.000Z',
+      students: [
+        { studentId: 's1', isPresent: false },
+        { studentId: 's2', isPresent: false },
+      ],
+      attendanceOpen: false,
+    };
+
+    it('renders a "Not open yet" chip with the student count and no Mark Attendance link', async () => {
+      server.use(
+        http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>
+          HttpResponse.json({ sessions: [closedSession] })
+        )
+      );
+
+      render(<SessionsPage />);
+
+      expect(await screen.findByText('Not open yet')).toBeInTheDocument();
+      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /mark attendance/i })).not.toBeInTheDocument();
+    });
+
+    it('an open session in the same list keeps its Mark Attendance link', async () => {
+      server.use(
+        http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>
+          HttpResponse.json({ sessions: [{ ...SESSION, attendanceOpen: true }, closedSession] })
+        )
+      );
+
+      render(<SessionsPage />);
+
+      await screen.findByText('Not open yet');
+      expect(screen.getByRole('link', { name: /mark attendance/i })).toHaveAttribute(
+        'href',
+        '/sessions/session-1/attendance'
+      );
+    });
+
+    it('a holiday row still shows its holiday chip, not "Not open yet"', async () => {
+      server.use(
+        http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>
+          HttpResponse.json({
+            sessions: [{ ...closedSession, students: [], isHoliday: true, holidayName: 'Christmas' }],
+          })
+        )
+      );
+
+      render(<SessionsPage />);
+
+      expect(await screen.findByText('Holiday — Christmas')).toBeInTheDocument();
+      expect(screen.queryByText('Not open yet')).not.toBeInTheDocument();
+    });
+  });
+
   it('shows LoadError on failure', async () => {
     server.use(
       http.get('*/group-class-sessions/by-schedule/:scheduleId', () =>

@@ -45,4 +45,39 @@ test.describe('coach attendance', () => {
 
     expect(savedPayload).toEqual({ students: [{ studentId: student._id, isPresent: true }] });
   });
+
+  // docs/plans/duplication-cleanup-plan.md A-D1 — attendance opens on the
+  // session's own day. The backend annotates `attendanceOpen: false` for a
+  // session whose day hasn't started; the page renders a blocked state with
+  // no roster and no Save button. (The test above sends no such field and so
+  // stays open — absent means open.)
+  test('shows a blocked state, with no roster or Save button, for a session whose day has not started', async ({
+    page,
+  }) => {
+    const sessionId = 'session-future';
+    const student = { _id: 'student-1', firstName: 'Test', lastName: 'Child' };
+
+    const overrides: MockRule[] = [
+      {
+        method: 'GET',
+        path: `/group-class-sessions/${sessionId}`,
+        handler: (route) =>
+          json(route, 200, {
+            session: {
+              _id: sessionId,
+              date: '2026-12-02T00:00:00.000Z',
+              students: [{ studentId: student, isPresent: false }],
+              attendanceOpen: false,
+            },
+          }),
+      },
+    ];
+    await loginAs(page, 'coach', overrides);
+
+    await page.goto(`/sessions/${sessionId}/attendance`);
+
+    await expect(page.getByText(/attendance opens on dec 2, 2026/i)).toBeVisible();
+    await expect(page.getByLabel(/test child/i)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /save attendance/i })).toHaveCount(0);
+  });
 });

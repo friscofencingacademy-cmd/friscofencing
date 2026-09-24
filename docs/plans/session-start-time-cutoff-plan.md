@@ -1,6 +1,6 @@
 # Session Start-Time Cutoff Plan
 
-**Status:** PR 1 BUILT 2026-09-23 on `feature/session-start-time-cutoff` — full backend (71 suites) and frontend (418) suites green, `tsc --noEmit` clean, not yet committed, pending owner local testing. PR 2 (§3) not built. Deviations from the spec while building: no `Location`/schedule-populate changes were needed; `sessionInstantsFor` lives in `groupClassSession.service.js` (as spec'd) and the backfill uses the raw collection `bulkWrite` (the model now refuses a row without the new fields); `student.service.js` populates `'date startsAt'`. Analysed 2026-09-23 (v1: compute-on-read; **v2, this
+**Status:** PR 1 SHIPPED — merged to `develop` 2026-09-23 (PR #93); full backend (71 suites) and frontend (418) suites green, `tsc --noEmit` clean; staging backfilled (152 sessions), production had no sessions to backfill. PR 2 (§3) SUPERSEDED — redesigned as a same-day attendance gate, see `docs/plans/duplication-cleanup-plan.md` PR A. Deviations from the spec while building: no `Location`/schedule-populate changes were needed; `sessionInstantsFor` lives in `groupClassSession.service.js` (as spec'd) and the backfill uses the raw collection `bulkWrite` (the model now refuses a row without the new fields); `student.service.js` populates `'date startsAt'`. Analysed 2026-09-23 (v1: compute-on-read; **v2, this
 version: store the instant, CKQ-style** — revised the same day after checking CKQ's actual model
 and the calendaring industry standard, see §0.2). Builder is a separate session.
 
@@ -346,24 +346,13 @@ than pasting instants into each fixture.
 
 ---
 
-## §3 PR 2 — group attendance "not started" gate (only if owner approves, D9)
+## §3 PR 2 — group attendance gate: SUPERSEDED
 
-Branch `feature/group-attendance-start-gate`, stacked on PR 1. With `startsAt` stored this is
-small:
-
-- `groupClassSession.service.js`: in `markAttendance` and `addStudentToSession`, after the
-  holiday guard: `if (session.startsAt > new Date()) throw badRequestError('Attendance cannot be marked before the session starts')`.
-  Mirrors `privateClassSession.service.js:366`.
-- `attachRosterToSessions` / `getById`: annotate `hasStarted: session.startsAt <= now`
-  (additive, like `isHoliday`) so the admin/coach sessions lists and the attendance page render a
-  "Starts at 4:00 PM" muted state with no Save button, exactly like the holiday blocked state
-  (`docs/plans/holiday-blocking-plan.md` D6 / PR 2). No extra fetch needed.
-- Frontend: `GroupClassSessionDetail` + list-row types gain `hasStarted: boolean`; attendance
-  page + both sessions-list pages branch on it. Update `frontend/e2e/coach-attendance.spec.ts`
-  and `e2e/fixtures/mock-api.ts` session fixtures (they use `date: new Date().toISOString()` with
-  a `'16:00'` schedule — set `hasStarted: true` explicitly or the page renders blocked).
-- Tests: route 400 (future) / 200 (started); frontend blocked-state render; E2E in the same PR.
-- Docs: `docs/features/admin.md` Sessions/Attendance sections.
+**This section's original design (a start-instant gate with a `hasStarted` field) was replaced on
+2026-09-23 by the owner's decision: attendance opens on the session's own calendar day (same-day
+is the grace period), same rule for admins and coaches, no late cutoff.** The full, current spec —
+including the single-source-of-truth cleanup of the same file — is **PR A in
+`docs/plans/duplication-cleanup-plan.md`**. Do not build from the text that used to be here.
 
 ---
 

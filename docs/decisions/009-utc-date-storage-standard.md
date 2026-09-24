@@ -44,6 +44,19 @@ Applied per field:
 
 This supersedes this ADR's original reasoning for keeping group sessions sentinel-only ("instants rendered a Monday as Sunday"): that was a browser-local rendering bug, fixed by the formatter gate (`formatInstant`/`formatDateOnly`), not a defect of storing an instant. Existing rows are backfilled by `scripts/backfill-session-instants.js` (dry-run first); `PUT /group-class-schedules/:id` keeps stored instants in sync with a schedule's times and rejects `dayOfWeek` changes.
 
+## Addendum (2026-09-23): which shape answers which question — and the attendance gate
+
+The rule for choosing between the two shapes on `GroupClassSession` is by the *kind of question*:
+
+| Question kind | Answered by | Examples |
+|---|---|---|
+| **Time** — "has this class started / is it upcoming / has it ended?" | `startsAt`/`endsAt` (instant) vs a real `now` | trial/registration pickers, `resolveStartDate`, trial booking, roster Visit creation/cancellation, trial `trial_scheduled`/`trial_completed` |
+| **Day** — "which calendar day / is this day allowed?" | `date` (sentinel) vs `todayDateOnly()` | holidays, the unique index, day-grouped display, **attendance-open** |
+
+**Attendance gate (owner decision, `docs/plans/duplication-cleanup-plan.md` PR A):** group-class attendance can be marked from the start of the session's own Central calendar day onward — same-day is the grace period, so a coach can take roll as students arrive, before the listed start time. Same rule for admins and coaches (no override) and no late-marking cutoff. It is a *day* question, so it is the sentinel comparison `session.date <= todayDateOnly()`, defined once as `isAttendanceOpen` in `groupClassSession.service.js` and used by the write guard (`assertSessionAcceptsAttendance`, holiday check first) and both response annotations (`attendanceOpen`), so they cannot disagree. `date` is compared directly, not re-normalized: every writer produces clean sentinels (staging verified 0 non-midnight dates of 152; `scripts/normalize-date-sentinels.js` is the remedy if contamination ever appears).
+
+**Why private-class attendance is stricter** (instant-vs-instant: `session.startDate <= now`): marking a private lesson attended triggers a per-session Stripe charge, so it must not be possible before the lesson has actually begun. Group attendance charges nothing, so the looser same-day rule is safe. This is intentional, not an inconsistency.
+
 ## Alternatives considered
 
 - **Central-midnight instants for `GroupClassSession.date`** (the pre-existing choice) — rejected: disagrees with every other sentinel field in the codebase, and renders wrong in any formatter/comparison that assumes UTC midnight.

@@ -60,9 +60,17 @@ export default function SessionsPage() {
                       <td className={styles.td}>{formatDateOnly(session.date)}</td>
                       <td className={styles.td}>{session.students.length}</td>
                       <td className={`${styles.td} ${styles.tdRight}`}>
-                        <Button as="a" href={`/sessions/${session._id}/attendance`} size="sm" variant="secondary">
-                          Mark Attendance
-                        </Button>
+                        {session.attendanceOpen === false ? (
+                          // Attendance opens on the session's own day
+                          // (docs/plans/duplication-cleanup-plan.md A-D1) —
+                          // the row keeps its student count but offers no
+                          // link yet. Blocked only on an explicit `false`.
+                          <span className={`${styles.chip} ${styles.chipMuted}`}>Not open yet</span>
+                        ) : (
+                          <Button as="a" href={`/sessions/${session._id}/attendance`} size="sm" variant="secondary">
+                            Mark Attendance
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   )
