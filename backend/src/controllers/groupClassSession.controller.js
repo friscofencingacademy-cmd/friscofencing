@@ -1,36 +1,33 @@
 const groupClassSessionService = require('../services/groupClassSession.service');
 
-async function byScheduleId(req, res) {
+async function byScheduleId(req, res, next) {
   try {
     const sessions = await groupClassSessionService.listBySchedule(req.params.scheduleId);
     return res.status(200).json({ sessions });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list sessions' });
+    return next(error);
   }
 }
 
-async function byClassId(req, res) {
+async function byClassId(req, res, next) {
   try {
     const sessions = await groupClassSessionService.listUpcomingByClass(req.params.classId);
     return res.status(200).json({ sessions });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list sessions' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const session = await groupClassSessionService.getById(req.params.id);
     return res.status(200).json({ session });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch session' });
+    return next(error);
   }
 }
 
-async function markAttendance(req, res) {
+async function markAttendance(req, res, next) {
   try {
     const session = await groupClassSessionService.markAttendance(
       req.params.id,
@@ -39,22 +36,20 @@ async function markAttendance(req, res) {
     );
     return res.status(200).json({ session });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to mark attendance' });
+    return next(error);
   }
 }
 
-async function getEligibleStudents(req, res) {
+async function getEligibleStudents(req, res, next) {
   try {
     const students = await groupClassSessionService.getEligibleStudentsForSession(req.params.id, req.user);
     return res.status(200).json({ students });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list eligible students' });
+    return next(error);
   }
 }
 
-async function addStudent(req, res) {
+async function addStudent(req, res, next) {
   try {
     const session = await groupClassSessionService.addStudentToSession(
       req.params.id,
@@ -63,12 +58,11 @@ async function addStudent(req, res) {
     );
     return res.status(200).json({ session });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to add student' });
+    return next(error);
   }
 }
 
-async function removeStudent(req, res) {
+async function removeStudent(req, res, next) {
   try {
     const session = await groupClassSessionService.removeStudentFromSession(
       req.params.id,
@@ -77,8 +71,7 @@ async function removeStudent(req, res) {
     );
     return res.status(200).json({ session });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to remove student' });
+    return next(error);
   }
 }
 

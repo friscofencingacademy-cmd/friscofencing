@@ -6,16 +6,12 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 88.25% | 89.62% |
-| Branches | — (informational) | 69.02% | 79.48% |
-| Functions | — (informational) | 89.94% | 89.03% |
-| Lines | — (informational) | 88.32% | 90.87% |
+| Statements | 80% | 91.02% | 89.62% |
+| Branches | — (informational) | 81.12% | 79.48% |
+| Functions | — (informational) | 93.06% | 89.03% |
+| Lines | — (informational) | 91.13% | 90.87% |
 
-Backend re-measured 2026-08-28 via `TZ=UTC npm test -- --coverage` (`docs/plans/billing-anchor-
-and-sibling-discount-plan.md`, all 3 PRs: calendar-month billing anchor; one-active-subscription-
-per-student guard + create-pending-first registration + shared `chargeFinalization.service.js`;
-sibling-discount family rule — backend-only). 52 suites / 519 tests, all passing. Frontend figure
-carried forward from 2026-08-23 (untouched since). Both clear the 80%-statements target.
+Backend re-measured 2026-09-24 via `TZ=UTC npm test -- --coverage` after `docs/plans/duplication-cleanup-plan.md` PR B (shared error factories, admin-role SOT, central error middleware). 74 suites / 866 tests: 865 pass and 1 fails — `subscription.service.test.js` "changeSchedule", a known time-of-day dependency (fails on Wednesdays after 4 pm Central; introduced by the roster change in #93, tracked as a separate fix, not caused by PR B). Frontend figures carried forward (untouched by PR B). Both clear the 80%-statements target.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
@@ -24,20 +20,19 @@ tests), no istanbul numbers at all. Their one recorded % figure is frontend, dat
 frontend branch and function coverage already beat that number. CKQ's real edge is scale/breadth
 (6,331 tests vs. this repo's much smaller surface), not tighter coverage discipline.
 
-**Branch coverage, by directory** (backend's 62.14% aggregate looks weak in isolation — it isn't):
+**Branch coverage, by directory** (measured 2026-09-24):
 
 | Directory | Branches |
 |---|---|
-| `src/models`, `src/utils`, `src/middlewares` | 100% |
-| `src/services` (the real business logic) | 77.1% |
-| `src/controllers` | 24.9% ← drags the average down |
+| `src/utils` | 97.36% |
+| `src/middlewares` | 94.28% (incl. the new `errorHandler.js`) |
+| `src/models` | 87.5% |
+| `src/services/billing` | 88.37% |
+| `src/services` (the real business logic) | 80.29% |
+| `src/controllers` | 68.75% (was 24.9% before PR B) |
+| `src/routes` | 50% |
 
-Every controller's `catch { const status = error.status \|\| 500; ... error.message \|\| 'Failed
-to ...' }` fallback only fires for a malformed, unexpected error — every error this app actually
-throws already sets both fields via the per-file `notFoundError`/`badRequestError` helpers. Low-
-value branches to chase, not missing business-logic coverage — `src/services` (77.1%) is the
-number that actually matters, and it's solid. Full reasoning in `docs/TESTING_STRATEGY.md`'s
-"Branch coverage" section.
+The controllers jump is structural, not new tests chasing branches: every controller's catch block used to carry an untestable `error.status || 500` / `error.message || 'Failed to ...'` fallback (104 of them); PR B replaced each with `return next(error)` and moved the logic into one directly-tested middleware. `src/routes` (50%) is the same kind of number — mostly multer upload-handler branches in `spotlight`/`testimonial` — not business logic. Full reasoning in `docs/TESTING_STRATEGY.md`'s "Branch coverage" section.
 
 ## Backend (`backend/`)
 

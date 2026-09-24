@@ -16,7 +16,7 @@ function cookieOptions() {
   };
 }
 
-async function login(req, res) {
+async function login(req, res, next) {
   try {
     const { email, password } = req.body;
     const { token, user } = await authService.login({ email, password });
@@ -25,12 +25,11 @@ async function login(req, res) {
 
     return res.status(200).json({ user });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Login failed' });
+    return next(error);
   }
 }
 
-async function register(req, res) {
+async function register(req, res, next) {
   try {
     const { firstName, lastName, email, password, phone } = req.body;
     const { token, user } = await authService.register({ firstName, lastName, email, password, phone });
@@ -39,8 +38,7 @@ async function register(req, res) {
 
     return res.status(201).json({ user });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Registration failed' });
+    return next(error);
   }
 }
 

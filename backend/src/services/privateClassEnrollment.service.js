@@ -9,30 +9,8 @@ const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { generateSessions } = require('./privateClassSession.service');
 const { computeSessionPrice } = require('../utils/privateClassPricing');
 const mailService = require('./mail.service');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 function populateEnrollment(query) {
   return query
@@ -180,7 +158,7 @@ async function cancel(enrollmentId, requestingUser) {
     throw notFoundError('Private class enrollment not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isOwningParent =
     requestingUser.role === 'parent' && String(enrollment.parentId) === String(requestingUser._id);
 

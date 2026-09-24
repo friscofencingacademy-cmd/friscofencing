@@ -1,72 +1,65 @@
 const groupClassScheduleService = require('../services/groupClassSchedule.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const schedule = await groupClassScheduleService.create(req.body);
     return res.status(201).json({ schedule });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create schedule' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const schedules = await groupClassScheduleService.list();
     return res.status(200).json({ schedules });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list schedules' });
+    return next(error);
   }
 }
 
-async function mine(req, res) {
+async function mine(req, res, next) {
   try {
     const schedules = await groupClassScheduleService.listByCoach(req.user._id);
     return res.status(200).json({ schedules });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list schedules' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const schedule = await groupClassScheduleService.getById(req.params.id);
     return res.status(200).json({ schedule });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch schedule' });
+    return next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
     const schedule = await groupClassScheduleService.update(req.params.id, req.body);
     return res.status(200).json({ schedule });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to update schedule' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await groupClassScheduleService.remove(req.params.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete schedule' });
+    return next(error);
   }
 }
 
-async function listPublic(req, res) {
+async function listPublic(req, res, next) {
   try {
     const schedules = await groupClassScheduleService.listPublic();
     return res.status(200).json({ schedules });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list schedules' });
+    return next(error);
   }
 }
 

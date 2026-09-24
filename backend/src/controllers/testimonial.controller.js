@@ -1,72 +1,65 @@
 const testimonialService = require('../services/testimonial.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const testimonial = await testimonialService.create(req.body);
     return res.status(201).json({ testimonial });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create testimonial' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const testimonials = await testimonialService.list();
     return res.status(200).json({ testimonials });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list testimonials' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const testimonial = await testimonialService.getById(req.params.id);
     return res.status(200).json({ testimonial });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch testimonial' });
+    return next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
     const testimonial = await testimonialService.update(req.params.id, req.body);
     return res.status(200).json({ testimonial });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to update testimonial' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await testimonialService.remove(req.params.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete testimonial' });
+    return next(error);
   }
 }
 
-async function listPublic(req, res) {
+async function listPublic(req, res, next) {
   try {
     const testimonials = await testimonialService.listPublic();
     return res.status(200).json({ testimonials });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list testimonials' });
+    return next(error);
   }
 }
 
-async function uploadImage(req, res) {
+async function uploadImage(req, res, next) {
   try {
     const imageUrl = await testimonialService.uploadImage(req.file);
     return res.status(201).json({ imageUrl });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to upload image' });
+    return next(error);
   }
 }
 

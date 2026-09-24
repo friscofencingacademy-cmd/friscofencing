@@ -91,6 +91,18 @@ Per `docs/decisions/frontend-005`-style rule (adapted for this project's scale, 
 - **`useLoadState`** callers render `<LoadError message={getErrorMessage(error)} onRetry={retry} />` in place of the failed content. Test: MSW responds with an error status, assert `screen.getByRole('alert')` (or the `LoadError`-specific text) appears, then assert `retry()`'s "Try again" button re-fetches (swap the MSW handler to a success response first, then click).
 - **Mutation functions** (`createX`/`updateX`/`deleteX`/`bookTrialClass`/`createRegistration`/...) never throw — they resolve to `{ status: 'success', data }` or `{ status: 'error', message }`. Test both branches explicitly: a success-path payload assertion, and an error-path assertion that the UI shows `result.message` (usually via an inline `<Alert variant="error">`) **without the component crashing** — this is the exact phrasing used throughout this repo's admin-CRUD and flow-wizard tests ("shows an inline error ... without crashing") because an uncaught mutation rejection reaching React is the regression this contract exists to prevent.
 
+### The backend side of the contract (`docs/plans/duplication-cleanup-plan.md` PR B)
+
+Every backend error becomes an HTTP response in **one** place, `src/middlewares/errorHandler.js` (registered last in `app.js`); controllers only `catch (error) { return next(error); }`. Errors are built only through `src/utils/errors.js` (`notFoundError`, `badRequestError`, `unauthorizedError`, `forbiddenError`, `conflictError`, or `httpError(status, message)` for a one-off like the 402 card decline) — nothing hand-sets `error.status`. What a test can rely on:
+
+- **A 4xx keeps its own message, byte for byte** — the status alone decides, so a legacy-shaped error (a `.status` and a message, no other flag) is still exposed.
+- **A 5xx never carries the internal message** — the client gets the fixed `'Something went wrong'` and the real error is logged server-side. Assert a server failure with `expect(res.body).toEqual({ message: 'Something went wrong' })`, and (as `level.routes.test.js` does) that the secret text is absent; spy `console.error` to keep the log out of the output.
+- **Mongoose `ValidationError` → 400** with the per-field messages joined; **`CastError` (a malformed id in a URL) → 400** `Invalid <path>`. A test that needs a "validation failed" case should assert `400` and the field's own message — never `500`.
+- Only `.status` is read, never `.statusCode` (a Stripe SDK error carries a `statusCode` that must not be relayed to our clients).
+- The `serviceCatalog` "service not seeded" error is deliberately a **500** (`serviceNotConfiguredError`) — it is a deployment defect, not a missing resource.
+
+The admin *policy* has one home too: `src/utils/roles.js` (`ADMIN_ROLES`, `hasAdminRole`); role *names* stay in `User.ROLES`, and `tests/utils/roles.test.js` fails if the two drift apart.
+
 ## Live Audit Scripts
 
 Live audits complement the Jest/MSW layer above by running real browser flows against **staging**
@@ -210,12 +222,7 @@ npm run test:e2e:ui                           # Playwright's interactive UI mode
 Minimum targets (CKQ's own numbers) — not goals to game with trivial tests. Both repos already
 clear the statements target as of the last real measurement below.
 
-| Area | Target | Backend (measured 2026-08-23) | Frontend (measured 2026-08-23) |
-|---|---|---|---|
-| Statements | 80% | 84.95% | 89.62% |
-| Branches | — (informational) | 62.14% | 79.48% |
-| Functions | — (informational) | 85.04% | 89.03% |
-| Lines | — (informational) | 85.00% | 90.87% |
+The current numbers live in ONE place, `docs/TEST_COVERAGE.md` (re-measured on every PR that adds or moves tests) — this file states the policy, not the figures, so the two can never disagree.
 
 Re-measure with `TZ=UTC npm test -- --coverage` in each repo (confirmed working, zero new tooling
 needed — pass `--` before the flag so it isn't swallowed as a test-path-pattern argument). Not
@@ -234,28 +241,11 @@ discipline — they don't measure the metric this section tracks for their main 
 
 ### Branch coverage — read the breakdown, not just the aggregate
 
-Backend's 62.14% branch aggregate looks weaker than everything else measured, but it's
-concentrated almost entirely in one place — broken down by directory (`--coverageReporters=text`
-gives the per-directory table):
-
-| Directory | Branches |
-|---|---|
-| `src/models`, `src/utils`, `src/middlewares` | 100% |
-| `src/services` (the actual business logic — billing, discounts, roster, Stripe) | 77.1% |
-| `src/controllers` | 24.9% ← drags the whole average down |
-
-Every controller in this codebase follows the identical shape:
-```js
-catch (error) {
-  const status = error.status || 500;
-  return res.status(status).json({ message: error.message || 'Failed to ...' });
-}
-```
-Every error this app ever throws already sets both `.status` and `.message` (via the
-`notFoundError`/`badRequestError`/etc. per-file helper pattern) — so the `|| 500` and
-`|| 'Failed to ...'` fallback branches only fire for a genuinely malformed, unexpected JS error.
-Testing those means deliberately injecting a broken error object, not exercising real business
-logic — low-value branches to chase, not a real gap. The number that actually reflects business
-logic (`src/services`, 77.1%) is solid and close to frontend's own branch number. Frontend's
-79.48% aggregate has no equivalent single drag — it's evenly spread across features, expected for
-a codebase this size.
+A single aggregate branch number hides where the branches are. Read the per-directory table
+(`--coverageReporters=text`; the figures are in `docs/TEST_COVERAGE.md`). `src/services` is the
+number that reflects business logic. `src/controllers` used to drag the aggregate down because every
+controller repeated an untestable `error.status || 500` / `error.message || 'Failed to ...'`
+fallback; since `docs/plans/duplication-cleanup-plan.md` PR B those blocks are a one-line
+`return next(error)` and the fallback logic lives once, in `src/middlewares/errorHandler.js`, where it
+has direct tests (`tests/middlewares/errorHandler.test.js`) — so a low controller-branch number is now a
+real signal, not noise.

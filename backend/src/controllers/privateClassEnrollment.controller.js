@@ -1,6 +1,6 @@
 const privateClassEnrollmentService = require('../services/privateClassEnrollment.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const result = await privateClassEnrollmentService.create(
       { studentId: req.body.studentId, scheduleId: req.body.scheduleId },
@@ -8,24 +8,20 @@ async function create(req, res) {
     );
     return res.status(201).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res
-      .status(status)
-      .json({ message: error.message || 'Failed to create private class enrollment' });
+    return next(error);
   }
 }
 
-async function listMine(req, res) {
+async function listMine(req, res, next) {
   try {
     const enrollments = await privateClassEnrollmentService.listMine(req.user._id);
     return res.status(200).json({ enrollments });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list your enrollments' });
+    return next(error);
   }
 }
 
-async function listAll(req, res) {
+async function listAll(req, res, next) {
   try {
     const enrollments = await privateClassEnrollmentService.listAll({
       status: req.query.status,
@@ -33,20 +29,16 @@ async function listAll(req, res) {
     });
     return res.status(200).json({ enrollments });
   } catch (error) {
-    const status = error.status || 500;
-    return res
-      .status(status)
-      .json({ message: error.message || 'Failed to list private class enrollments' });
+    return next(error);
   }
 }
 
-async function cancel(req, res) {
+async function cancel(req, res, next) {
   try {
     const enrollment = await privateClassEnrollmentService.cancel(req.params.id, req.user);
     return res.status(200).json({ enrollment });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to cancel enrollment' });
+    return next(error);
   }
 }
 

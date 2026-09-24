@@ -1,6 +1,7 @@
 const User = require('../models/user.model');
 const { comparePassword, hashPassword } = require('../utils/password');
 const { signToken } = require('../utils/jwt');
+const { badRequestError, unauthorizedError, conflictError } = require('../utils/errors');
 
 // Standard practice: never reveal whether a login failed because the email
 // wasn't found, the account has no password set (e.g. a student, who can't
@@ -14,17 +15,13 @@ async function login({ email, password }) {
   const user = await User.findOne({ email: normalizedEmail });
 
   if (!user || !user.passwordHash) {
-    const error = new Error(INVALID_CREDENTIALS_MESSAGE);
-    error.status = 401;
-    throw error;
+    throw unauthorizedError(INVALID_CREDENTIALS_MESSAGE);
   }
 
   const isMatch = await comparePassword(password, user.passwordHash);
 
   if (!isMatch) {
-    const error = new Error(INVALID_CREDENTIALS_MESSAGE);
-    error.status = 401;
-    throw error;
+    throw unauthorizedError(INVALID_CREDENTIALS_MESSAGE);
   }
 
   const token = signToken({ id: user._id, role: user.role });
@@ -47,17 +44,13 @@ async function register({ firstName, lastName, email, password, phone }) {
   const trimmedPhone = String(phone || '').trim();
 
   if (!trimmedPhone) {
-    const error = new Error('Phone number is required');
-    error.status = 400;
-    throw error;
+    throw badRequestError('Phone number is required');
   }
 
   const existing = await User.findOne({ email: normalizedEmail });
 
   if (existing) {
-    const error = new Error('An account with this email already exists');
-    error.status = 409;
-    throw error;
+    throw conflictError('An account with this email already exists');
   }
 
   const passwordHash = await hashPassword(password);

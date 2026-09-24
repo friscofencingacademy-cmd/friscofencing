@@ -1,16 +1,15 @@
 const privateClassSessionService = require('../services/privateClassSession.service');
 
-async function listMine(req, res) {
+async function listMine(req, res, next) {
   try {
     const sessions = await privateClassSessionService.listMine(req.user._id, req.query.window);
     return res.status(200).json({ sessions });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list your sessions' });
+    return next(error);
   }
 }
 
-async function markAttendance(req, res) {
+async function markAttendance(req, res, next) {
   try {
     const result = await privateClassSessionService.markAttendance(
       req.params.id,
@@ -19,18 +18,16 @@ async function markAttendance(req, res) {
     );
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to record attendance' });
+    return next(error);
   }
 }
 
-async function retryCharge(req, res) {
+async function retryCharge(req, res, next) {
   try {
     const result = await privateClassSessionService.retryCharge(req.params.id, req.user);
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to retry the charge' });
+    return next(error);
   }
 }
 

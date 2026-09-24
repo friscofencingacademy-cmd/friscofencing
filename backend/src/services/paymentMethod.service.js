@@ -1,11 +1,12 @@
 const stripe = require('../config/stripe');
 const PaymentMethod = require('../models/paymentMethod.model');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
+const { httpError } = require('../utils/errors');
 
+// 402 has no named shared factory — a declined card is specific to this
+// module — but it is still built by the one constructor.
 function paymentFailedError(message) {
-  const error = new Error(message);
-  error.status = 402;
-  return error;
+  return httpError(402, message);
 }
 
 // Saves (or replaces) the requesting parent's single card on file. One

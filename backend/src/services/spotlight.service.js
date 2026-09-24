@@ -3,18 +3,7 @@ const path = require('path');
 const { put } = require('@vercel/blob');
 
 const Spotlight = require('../models/spotlight.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, notFoundError } = require('../utils/errors');
 
 async function create(data) {
   return Spotlight.create(data);

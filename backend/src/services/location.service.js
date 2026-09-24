@@ -1,17 +1,6 @@
 const Location = require('../models/location.model');
 const GroupClass = require('../models/groupClass.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, notFoundError, conflictError } = require('../utils/errors');
 
 // Every controller in this codebase does `error.status || 500` — a raw
 // Mongoose ValidationError has no .status, so without this it would surface
@@ -89,11 +78,9 @@ async function remove(id) {
   const referencingCount = await GroupClass.countDocuments({ locationId: id });
 
   if (referencingCount > 0) {
-    const error = new Error(
+    throw conflictError(
       `Cannot delete: ${referencingCount} class(es) reference this location.`
     );
-    error.status = 409;
-    throw error;
   }
 
   await Location.deleteOne({ _id: id });

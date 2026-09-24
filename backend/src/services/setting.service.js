@@ -1,10 +1,5 @@
 const Setting = require('../models/setting.model');
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError } = require('../utils/errors');
 
 // No caching, deliberately — every other billing read in this codebase
 // (calculateChargeAmount, resolveCurrentFee) reads fresh every time, never

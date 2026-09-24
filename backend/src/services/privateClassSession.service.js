@@ -14,34 +14,12 @@ const { combineDayAndTimeInTZ } = require('../utils/dateShapes');
 const { DEFAULT_TIMEZONE } = require('../config/timezone');
 const mailService = require('./mail.service');
 const invoiceService = require('./invoice.service');
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 // Mirrors group's 8-week generateInitialSessions window (groupClassSession.
 // service.js) — consistency over CKQ's own 10-week private-class window.
 const SESSION_WEEKS = 8;
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
 
 // Generates the next 8 weekly occurrences for every claimed active slot of
 // `enrollmentId`, starting from the first occurrence of the slot's
@@ -355,7 +333,7 @@ async function markAttendance(sessionId, status, requestingUser) {
     throw notFoundError('Private class session not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isAssignedCoach =
     requestingUser.role === 'coach' && String(session.coachId) === String(requestingUser._id);
 
@@ -401,7 +379,7 @@ async function retryCharge(sessionId, requestingUser) {
     throw notFoundError('Private class session not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isAssignedCoach =
     requestingUser.role === 'coach' && String(session.coachId) === String(requestingUser._id);
 

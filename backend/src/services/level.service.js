@@ -1,12 +1,7 @@
 const Level = require('../models/level.model');
 const GroupClass = require('../models/groupClass.model');
 const Price = require('../models/price.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
+const { notFoundError, conflictError } = require('../utils/errors');
 
 async function create(data) {
   return Level.create(data);
@@ -49,19 +44,15 @@ async function remove(id) {
   const referencingCount = await GroupClass.countDocuments({ levelId: id });
 
   if (referencingCount > 0) {
-    const error = new Error(
+    throw conflictError(
       `Cannot delete: ${referencingCount} class(es) reference this level.`
     );
-    error.status = 409;
-    throw error;
   }
 
   const referencingPrice = await Price.findOne({ levelId: id });
 
   if (referencingPrice) {
-    const error = new Error('Cannot delete: a price is configured for this level.');
-    error.status = 409;
-    throw error;
+    throw conflictError('Cannot delete: a price is configured for this level.');
   }
 
   await Level.deleteOne({ _id: id });

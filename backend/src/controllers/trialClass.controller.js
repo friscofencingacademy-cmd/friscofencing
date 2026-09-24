@@ -1,22 +1,20 @@
 const trialClassService = require('../services/trialClass.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const trialClass = await trialClassService.create(req.body, req.user);
     return res.status(201).json({ trialClass });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to book trial class' });
+    return next(error);
   }
 }
 
-async function listMine(req, res) {
+async function listMine(req, res, next) {
   try {
     const trialClasses = await trialClassService.listMine(req.user._id);
     return res.status(200).json({ trialClasses });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list trial classes' });
+    return next(error);
   }
 }
 

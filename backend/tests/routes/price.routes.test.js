@@ -262,13 +262,13 @@ describe('Price routes', () => {
         registrationFee: -5,
       });
 
-      // price.controller.js has no special-case for a Mongoose
-      // ValidationError (no .status set on it), so it falls through the
-      // generic `error.status || 500` handler — a real, if imperfect,
-      // existing behavior of this controller, not something this PR
-      // introduces. The point of this test is that the negative value is
-      // actually rejected, not accepted and silently stored.
-      expect(res.status).toBe(500);
+      // A Mongoose ValidationError reaches the central error middleware
+      // (docs/plans/duplication-cleanup-plan.md B-D4), which maps it to a 400
+      // with the field's own message — previously it fell through to a 500.
+      // The point of this test is that the negative value is actually
+      // rejected, not accepted and silently stored.
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/registrationFee.*less than minimum/);
     });
   });
 });

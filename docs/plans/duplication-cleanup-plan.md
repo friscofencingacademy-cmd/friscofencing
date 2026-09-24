@@ -1,6 +1,6 @@
 # Duplication Cleanup Plan (Single Source of Truth) — PRs A–D
 
-**Status:** PR A BUILT 2026-09-23 on `feature/group-attendance-same-day-gate` (uncommitted, pending owner local testing); B, C, D READY TO EXECUTE — not started. Build notes for PR A: the two walk-in gate tests initially failed with a `ReferenceError` because `seedTwoSchedulesSameClass` was nested in one `describe` — fixed by hoisting it to file scope (single definition), verified with a one-off `no-undef` static pass, and the "helper lives at the narrowest scope containing all its users" convention was added to `TESTING_STRATEGY.md`. Audited 2026-09-23 against Frisco `develop` (after PR #93)
+**Status:** PR A SHIPPED (merged as #94, 2026-09-24). **PR B BUILT 2026-09-24 on `feature/shared-error-factories`** (uncommitted, pending owner local testing): shared `utils/errors.js` (57 per-file definitions removed, 14 hand-built error sites converted), `utils/roles.js` (10 inline checks + 59 route lists), central `middlewares/errorHandler.js` (104 controller catch blocks → `next(error)`); the plan's §B was corrected during review (see its "Review corrections"), and the build confirmed every count. C, D READY TO EXECUTE — not started. Earlier PR A note: Build notes for PR A: the two walk-in gate tests initially failed with a `ReferenceError` because `seedTwoSchedulesSameClass` was nested in one `describe` — fixed by hoisting it to file scope (single definition), verified with a one-off `no-undef` static pass, and the "helper lives at the narrowest scope containing all its users" convention was added to `TESTING_STRATEGY.md`. Audited 2026-09-23 against Frisco `develop` (after PR #93)
 and the local CKQ checkout; **reviewed the same day** — every "verify first" item was verified in
 this session and its outcome is recorded inline (no open UNVERIFIED items remain), seven gaps were
 found and folded in (11th inline admin check, 44 route-level admin lists, B-4 decided and included,
@@ -232,72 +232,104 @@ Frontend types are checked by `tsc --noEmit`; fixtures must satisfy the shared t
 
 ---
 
-## §B PR B — Backend shared error factories + role helper (behavior-preserving)
+## §B PR B — Backend shared error factories, admin-role SOT, central error middleware
 
-**Branch:** `feature/shared-error-factories`.
+**Branch:** `feature/shared-error-factories`. Reviewed against CKQ and the code on 2026-09-24
+(seven defects in the first draft were found and fixed — see "Review corrections" at the end of
+this section; the decisions below are the corrected ones).
 
 ### B-D Decisions
 
 | # | Decision | Why |
 |---|---|---|
-| B-D1 | **`backend/src/utils/errors.js` exporting four thin named factories built on `http-errors`** — `notFoundError(message)` (404), `badRequestError(message)` (400), `forbiddenError(message)` (403), `conflictError(message)` (409): `const createError = require('http-errors'); const notFoundError = (message) => createError(404, message);` etc. Add `http-errors` as a **direct** dependency (`^2.0.1` — already present transitively via Express 4.22; never rely on a transitive dep directly). **No class hierarchy** (CKQ's `APIError`/`ValidationError`/… classes are not adopted). | 21/17/9/11 identical per-file copies (**verified: one distinct body per name**). `http-errors` is the Express-ecosystem standard (Express itself uses it): it sets `.status` (the property every controller already reads — contract unchanged), `.statusCode`, and `.expose` (true for 4xx, false for 5xx), which is exactly what the error middleware (B-D4) keys on — no invented flag. Keeping the four *named* factories means the **177 existing `throw xxxError(...)` call sites are untouched**; only the per-file definitions are deleted. |
-| B-D2 | `paymentFailedError` and `remapKnownValidationError` **stay local**. | Domain-specific, one file each — not duplicates (§0.2-B). |
-| B-D3 | **`backend/src/utils/roles.js` exporting `ADMIN_ROLES = ['admin', 'superadmin']` and `isAdmin(user)`** (`ADMIN_ROLES.includes(user.role)`). Replace the **11** inline derivations (10 services + `registration.controller.js:43`) with `isAdmin(...)`, and the **44** `requireRole('admin', 'superadmin')` route sites with `requireRole(...ADMIN_ROLES)` (the 8 `'coach', 'admin', 'superadmin'` and 7 `'parent', 'admin', 'superadmin'` sites become `requireRole('coach', ...ADMIN_ROLES)` / `requireRole('parent', ...ADMIN_ROLES)`). Per-site authorization *logic* (ownership rules, coach assignment) is untouched. Unit test: every entry of `ADMIN_ROLES` is in `User.ROLES` (the role-name SOT in `user.model.js`). `LOGIN_CAPABLE_ROLES` (`user.service.js`) is a different policy with a single definition — leave. | The admin *policy* ("admin means admin or superadmin") is spelled out ~70 times today with no single home; changing it means a 70-site edit. `User.ROLES` stays the SOT for role *names*; `ADMIN_ROLES` becomes the SOT for the admin *policy*. CKQ's `adminOnly` middleware hardcodes the same pair — this is one step ahead of it. |
-| B-D4 | **Central error middleware IS part of PR B (owner decision 2026-09-23).** `backend/src/middlewares/errorHandler.js`, registered last in `app.js`; every controller's `catch` body becomes `next(error)` (try/catch stays — Express 4.22 does not auto-forward async rejections; Express 5 would). Middleware: `status = error.status \|\| 500`; body `{ message }` where `message = error.expose ? error.message : 'Something went wrong'`; log the full error server-side (`console.error` with the eslint-disable comment this codebase already uses for operational logging — no new logger). **The `{ message }` response shape is unchanged** (CKQ's `{status,message,code}` envelope is NOT adopted, §0.4-2). **Explicitly excluded:** CKQ's Mongoose `ValidationError`→400 and JWT→401 mappings — the first would silently turn some 500s into 400s (behavior change beyond scope); the second is already handled by `requireAuth`. | Measured: **0 of the 97** per-controller 500-fallback strings are asserted by any test, so unifying them is test-invisible. Today every controller sends `error.message` on a 500 — a raw Mongo/Stripe message reaches the client; query flows hide it (`getErrorMessage`) but mutation flows (`lib/services/shared.ts`) display it. Industry standard: one error middleware, 4xx messages exposed, 5xx replaced by a generic message and logged. **This is the ONE intentional behavior change in PR B** (5xx message text) and it is a security fix; the PR description must say so. |
+| B-D1 | **`backend/src/utils/errors.js`: one private `httpError(status, message)` (`const error = new Error(message); error.status = status; return error;`) exported alongside thin named factories — `notFoundError` (404), `badRequestError` (400), `unauthorizedError` (401), `forbiddenError` (403), `conflictError` (409).** Plain `Error` with a numeric `.status`, byte-identical to today's per-file bodies. **No `http-errors` dependency and no class hierarchy** (CKQ's `APIError`/`ValidationError`/… classes are not adopted). `httpError` is also exported so the two genuinely domain-specific statuses (`paymentFailedError` 402 in `paymentMethod.service.js`, the 500 config error in `serviceCatalog.service.js`) go through the same single constructor instead of a hand-set `.status`. After this PR **no file outside `utils/errors.js` sets `error.status =` by hand.** | 57 identical per-file copies (§0.2-B; **verified by hashing every full body**, not just headers). The existing contract — every controller reads `error.status` — must not change, so plain factories are the minimal correct shape. `http-errors` was in the first draft only to supply `.expose`; the corrected middleware rule (B-D4) is status-based, so it has no remaining purpose and would add a dependency for nothing. `unauthorizedError` exists because `auth.service.js` hand-builds two 401s and CKQ has the equivalent (`UnauthorizedError`). Keeping the named factories means the ~177 existing `throw xxxError(...)` call sites are untouched. |
+| B-D2 | **`serviceCatalog.service.js`'s local `notFoundError` (status 500!) is NOT swapped for the shared 404 factory.** Rename it `serviceNotConfiguredError` and build it with `httpError(500, message)`; its `conflictError` (409) IS swapped. `remapKnownValidationError` (`location.service.js`) stays local (it transforms a Mongoose error; it is not a factory). | **Verified by full-body hash:** of the 21 `notFoundError` definitions, 20 return 404 and exactly one (`serviceCatalog`) returns 500 — it signals a misconfigured service registry, not a missing resource. Swapping it would silently change 500 → 404. Same name, different semantics across modules is itself a source-of-truth hazard, hence the rename. |
+| B-D3 | **`backend/src/utils/roles.js` exporting `ADMIN_ROLES = ['admin', 'superadmin']` and `hasAdminRole(user)`** (`!!user && ADMIN_ROLES.includes(user.role)`). Replace the **10** inline derivations (9 services + `registration.controller.js:43`) with `hasAdminRole(...)`, and the route lists with a spread of `ADMIN_ROLES`: **44** `requireRole('admin', 'superadmin')`, **8** `'coach', 'admin', 'superadmin'` → `requireRole('coach', ...ADMIN_ROLES)`, **7** `'parent', 'admin', 'superadmin'` → `requireRole('parent', ...ADMIN_ROLES)`. Per-site authorization *logic* (ownership rules, coach assignment) is untouched. Unit test: every `ADMIN_ROLES` entry ∈ `User.ROLES` (the role-*name* SOT, `user.model.js:5`). `LOGIN_CAPABLE_ROLES` (`user.service.js`) is a different policy with a single definition — leave. **The helper is deliberately NOT named `isAdmin`:** the services all write `const isAdmin = …`, and `const isAdmin = isAdmin(user)` is a temporal-dead-zone `ReferenceError`. | The admin *policy* ("admin means admin or superadmin") is spelled out ~70 times with no home; changing it means a 70-site edit. `User.ROLES` stays the SOT for role names; `ADMIN_ROLES` becomes the SOT for the admin policy. CKQ's `adminOnly` middleware hardcodes the same pair — this is one step ahead of it. |
+| B-D4 | **Central error middleware `backend/src/middlewares/errorHandler.js`, registered as the LAST `app.use` in `app.js`.** Rule (status-based, identical in every environment): `status = err.status \|\| 500` — **`err.status` only, never `err.statusCode`** (Stripe SDK errors carry a `statusCode` of 401/402/429 that must not be relayed to our client). If `res.headersSent` → `return next(err)` (Express docs). Mapping (in order): (1) Mongoose **`ValidationError` → 400**, message = the per-field `errors[*].message` values joined with `', '` (as CKQ does; cleaner than today's `"Testimonial validation failed: quote: Path …"` and does not leak the model name); (2) Mongoose **`CastError` → 400**, fixed message `Invalid ${err.path}` (a malformed ObjectId in `:id`; **CKQ does not map this — it is our addition, standard practice**, and the fixed message avoids leaking `Cast to ObjectId failed … for model "X"`); (3) anything else: `status < 500` → that status with **its own message** (legacy-shaped errors have no `.expose` flag — the login 401 "Invalid credentials", signup 400/409, the 402 card message must keep their text); `status >= 500` → the fixed message `'Something went wrong'`. Response body stays `{ message }` (**CKQ's `{status,message,code}` envelope is NOT adopted**, §0.4-2). Logging: **only `status >= 500`**, via `console.error` with the eslint-disable comment this codebase already uses for operational logging (no new logger), logging method, url, status, message, stack and `req.user._id` — **never the request body** (CKQ logs it; it can contain passwords/card data). **Not mapped:** Mongo duplicate-key (`E11000`) — 7 services handle it locally as idempotency guards (`registration`, `renewal`, `privateClassSession`), and turning race-condition 500s into 409s is a separate decision; JWT errors — `requireAuth` already handles them. The 104 standard controller catch blocks become `return next(error);`; the try/catch stays (Express 4.22 does not auto-forward async rejections). **Left untouched:** `stripeWebhook.controller.js` (its own 400/500 shapes are tailored to Stripe's signature/retry contract and it is not user-facing), the multer error handlers in `spotlight.routes.js`/`testimonial.routes.js`, and inline pre-checks such as `privateClassSchedule.controller.js:8`/`spotlight.controller.js:58` (a 400 with a fixed message, not a catch block). | Measured: **0 of the 97** distinct controller fallback strings are asserted by any test. Today every controller sends `error.message` on a 500 — a raw Mongo/Stripe message reaches the client; query flows hide it (`getErrorMessage`) but mutation flows (`lib/services/shared.ts`) display it. Three existing tests assert `500` for what are really *validation* failures (`price.routes` negative `registrationFee`, `spotlight.routes` >3 bullets, `testimonial.routes` missing quote/author — each carries a comment calling it "imperfect"); without the `ValidationError` mapping those admin flows would regress from a useful message to "Something went wrong". Industry standard: one error middleware, 4xx exposed, 5xx masked and logged. |
+| B-D5 | **Behavior changes in this PR (the PR description must list all three):** (a) 5xx response text is the fixed generic message instead of the raw error text (security); (b) Mongoose `ValidationError` responses change from **500 to 400** and their wording is the joined field messages — the three tests above change `500 → 400` and gain a message assertion; (c) a malformed ObjectId path param changes from **500 to 400**. Everything else — every 4xx status and message text — is byte-identical, and the existing suite is the proof. | Called out so a reviewer does not have to rediscover them. |
 
 ### B-1 Create modules + unit tests
-`npm install http-errors` (direct dependency). `utils/errors.js`, `utils/roles.js`,
-`middlewares/errorHandler.js`, and `tests/utils/errors.test.js` / `tests/utils/roles.test.js` /
-`tests/middlewares/errorHandler.test.js`:
-- errors: each factory → correct `.status`, `.message`, `.expose === true`; the result is an `Error`.
-- roles: `isAdmin` true for `admin`/`superadmin`, false for `coach`/`parent`/`student`/`undefined`
+`utils/errors.js`, `utils/roles.js`, `middlewares/errorHandler.js`, and
+`tests/utils/errors.test.js` / `tests/utils/roles.test.js` / `tests/middlewares/errorHandler.test.js`:
+- errors: each factory → correct `.status`, `.message`, is an `Error`; `httpError(402, 'x')`.
+- roles: `hasAdminRole` true for `admin`/`superadmin`, false for `coach`/`parent`/`student`/`undefined`
   user; every `ADMIN_ROLES` entry ∈ `User.ROLES`.
 - errorHandler (supertest against a tiny throwaway Express app, not the real `app.js`): a factory
-  error → its status + its message; a bare `new Error('db exploded')` → 500 + `'Something went
-  wrong'` and **not** the raw text; an error with a numeric `.status` but no `.expose` (any
-  legacy shape) → that status, generic message.
+  error → its status + message; a legacy-shaped `Error` with `.status = 401` and no other flag →
+  401 + **its own message**; a bare `new Error('db exploded')` → 500 + `'Something went wrong'`
+  and **not** the raw text; an error with `.statusCode = 402` but no `.status` (Stripe-shaped) →
+  **500**, not 402; a real Mongoose `ValidationError` (built from a throwaway schema) → 400 +
+  joined messages; a `CastError` → 400 + `Invalid <path>`; `res.headersSent` → delegated to
+  `next`; 4xx is not logged, 5xx is (spy on `console.error`).
 
-### B-2 Replace the copies
-**Before deleting any copy, diff each one's body against the canonical version** — if any
-differs (a different status, a message transformation), stop and report; do not silently unify.
-Services defining them (as of this audit):
-- `notFoundError` (21): auditRun, coachContract, evaluation, groupClass, groupClassSchedule, groupClassSession, holiday, invoice, level, location, price, privateClassEnrollment, privateClassSchedule, privateClassSession, registration, serviceCatalog, spotlight, subscription, testimonial, trialClass, user.
-- `badRequestError` (17): auditRun, coachContract, evaluation, groupClassSchedule, groupClassSession, holiday, location, privateClassEnrollment, privateClassSchedule, privateClassSession, registration, setting, spotlight, student, testimonial, trialClass, user.
-- `forbiddenError` (9): evaluation, groupClassSession, privateClassEnrollment, privateClassSchedule, privateClassSession, registration, subscription, trialClass, user.
-- `conflictError` (11): evaluation, groupClassSession, holiday, invoice, privateClassEnrollment, privateClassSchedule, privateClassSession, registration, serviceCatalog, subscription, user.
+### B-2 Replace the copies (57 definitions in 21 services)
+A checker script (kept out of the repo) must confirm each definition's normalized body equals the
+canonical one **before** deleting it; the one known exception is `serviceCatalog`'s `notFoundError`
+(B-D2). Definitions per name (as of this audit): `notFoundError` 21 (20 swapped + the serviceCatalog
+500 one renamed), `badRequestError` 17, `forbiddenError` 9, `conflictError` 11. Each file gets a
+`require('../utils/errors')` destructure of **only the names it uses**; a definition that turns out
+to be unused is simply deleted.
 
-Replace each local definition with a `require('../utils/errors')` destructure of only the names
-that file uses.
+**Inline error creation (14 sites — also duplication, previously missed):** convert each
+`const error = new Error(msg); error.status = N; throw error;` to the matching factory —
+`auth.service.js` ×4 (two 401 → `unauthorizedError`, the 400 "Phone number is required" →
+`badRequestError`, the 409 "account already exists" → `conflictError`), `level.service.js` ×2,
+`billing/calculateChargeAmount.service.js` ×2, and one each in `groupClass`, `location`,
+`paymentMethod` (402 → `httpError(402, …)`), `price`, `serviceCatalog` (→ B-D2), `trialClass`.
+**Read each site first:** a `new Error` with no `.status` (an internal/programming error that is
+meant to surface as a 500) must stay a plain `Error`, not be given a status.
 
-### B-3 Replace inline admin checks (11 sites) and route role lists (59 sites)
-Services: `groupClassSession.service.js` (2 — after PR A only `assertCoachOrAdmin` remains),
+### B-3 Replace inline admin checks (10) and route role lists (59)
+Services: `groupClassSession.service.js` (1 — `assertCoachOrAdmin`, after PR A),
 `privateClassEnrollment.service.js`, `privateClassSchedule.service.js`,
 `privateClassSession.service.js` (2), `registration.service.js`, `subscription.service.js` (2),
-`trialClass.service.js`; controller: `registration.controller.js:43`. **Verified: all 11 are
-exactly `X.role === 'admin' || X.role === 'superadmin'`** (`X` = `requestingUser` or `req.user`).
-Routes: every `requireRole(...)` whose list contains both `'admin'` and `'superadmin'` (44 + 8 + 7)
-→ spread `ADMIN_ROLES` (`grep -rn "requireRole(" src/routes` to enumerate; `requireRole('superadmin')`
-×8 and single-role guards are NOT admin-policy sites — leave them).
+`trialClass.service.js`; controller: `registration.controller.js:43`. **Verified: all 10 are
+exactly `X.role === 'admin' || X.role === 'superadmin'`** (`X` = `requestingUser` or `req.user`);
+each becomes `const isAdmin = hasAdminRole(X);` (local variable name unchanged).
+Routes: every `requireRole(...)` whose list contains both `'admin'` and `'superadmin'`
+(`grep -rn "requireRole(" src/routes` to enumerate; `requireRole('superadmin')` ×8 and the
+single-role guards are NOT admin-policy sites — leave them).
 
-### B-4 Central error middleware (included — B-D4)
-1. `middlewares/errorHandler.js` per B-D4; `app.use(errorHandler)` as the **last** `app.use` in
-   `app.js` (after routes and the 404 handler if one exists — check `app.js`'s tail first).
-2. All 23 controllers: each `catch (error) { const status = …; return res.status(status).json({ message: error.message || '…' }); }`
-   becomes `catch (error) { next(error); }` and the handler signature gains `next`. Enumerate with
-   `grep -l "error.status || 500" src/controllers/*.js`. Do NOT touch controllers that have no
-   such block (if any), and do not change any success-path response.
-3. Delete the 97 now-dead fallback strings with the blocks (they are not referenced anywhere else
-   — verified: 0 test assertions).
+### B-4 Central error middleware
+1. `middlewares/errorHandler.js` per B-D4; `app.use(errorHandler)` as the last `app.use` in
+   `app.js` (there is no 404 handler today — do not invent one).
+2. Controllers: **104 catch blocks in 23 files** (excluding `stripeWebhook`); five are
+   prettier-wrapped variants (`return res\n .status(status)\n .json(…)`). Each
+   `catch (error) { const status = …; return res.status(status).json({ message: … }); }` becomes
+   `catch (error) { return next(error); }` and the handler's signature gains `next`. **Every**
+   converted function needs `next` in its parameter list — a missed one is a runtime
+   `ReferenceError`, so run the no-undef static pass (below) over all 23 files and confirm
+   `grep -c "error.status || 500" src/controllers/*.js` is 0 everywhere except `stripeWebhook`.
+3. The now-dead fallback strings are deleted with the blocks.
 
 ### B-5 Tests & docs
-Existing suite (823+ tests) must pass **unchanged** — that *is* the regression proof for the
-factories, the role helper, and every 4xx path through the middleware (the message text a 4xx
-client sees is byte-identical before and after, because `expose` is true for 4xx). The only
-behavior that changes is 5xx message text (B-D4), covered by the new middleware test. Update
-`TESTING_STRATEGY.md`'s "per-file `notFoundError`/`badRequestError`/etc. helper pattern" reference
-(around its error-handling contract section, ~line 251) to point at `utils/errors.js` and to state
-the new 5xx contract ("a 5xx never carries the internal message"). `docs/TEST_COVERAGE.md` counts
-(§E). `CLAUDE.md` row.
+- The three `500` tests become `400` with a message assertion (their comments explaining "falls
+  through the generic `error.status || 500` handler" are rewritten). One integration test through
+  the real `app`: a route whose service rejects with `new Error('secret db detail')` (spy on a
+  model method) → 500, generic message, **the secret text absent from the body**.
+- Existing suite must otherwise pass **unchanged** — that *is* the regression proof for the
+  factories, the role helper and every 4xx path. Run a one-off `no-undef` pass
+  (`npx eslint@8 --no-eslintrc --env node,es2022,jest --rule '{"no-undef":"error"}'`) over every
+  changed file; the repo has no linter, so this is the only guard against a missing `next` or
+  import.
+- Docs: `TESTING_STRATEGY.md` (the "per-file `notFoundError`/`badRequestError`/etc. helper pattern"
+  reference near its error-handling contract → `utils/errors.js`, plus the new contract "a 5xx
+  never carries the internal message; Mongoose validation is a 400"); `docs/TEST_COVERAGE.md`
+  (§E); `CLAUDE.md` row.
+
+### Review corrections (2026-09-24) — what the first draft of this section got wrong
+1. **"Verified: one distinct body per name" was false** — the check compared headers, not bodies;
+   `serviceCatalog`'s `notFoundError` is a 500 (→ B-D2).
+2. **`.expose`-based masking would have broken legacy-shaped errors** (login 401, signup 400/409,
+   402 card message) — replaced by the status-based rule (→ B-D4).
+3. **`http-errors` was unnecessary** once (2) was fixed, and its `.statusCode` invites the Stripe
+   mix-up — dropped (→ B-D1).
+4. **14 inline `new Error` + `.status` sites bypass the factories** and were missed (→ B-2).
+5. **Helper named `isAdmin` would shadow-crash every call site** (`const isAdmin = isAdmin(...)`) —
+   renamed `hasAdminRole` (→ B-D3).
+6. **The Mongoose `ValidationError` exclusion was wrong** — three admin flows would have degraded;
+   mapping now included, plus `CastError` (→ B-D4/B-D5).
+7. **The handler lacked `headersSent` delegation and logged too much/too little** — fixed (→ B-D4).
 
 ---
 

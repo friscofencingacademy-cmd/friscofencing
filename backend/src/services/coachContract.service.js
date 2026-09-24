@@ -1,18 +1,7 @@
 const CoachContract = require('../models/coachContract.model');
 const User = require('../models/user.model');
 const { getServiceByCode } = require('./serviceCatalog.service');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, notFoundError } = require('../utils/errors');
 
 // Creates a new contract for `coachId`, deactivating any previous active
 // one first — one active contract per coach, enforced here (service layer),

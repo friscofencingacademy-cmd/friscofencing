@@ -1,44 +1,40 @@
 const subscriptionService = require('../services/subscription.service');
 const { previewRenewal, chargeNow, recordManualPayment } = require('../services/renewal.service');
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const { status, q, page, limit } = req.query;
     const result = await subscriptionService.listAll({ status, q, page, limit });
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list subscriptions' });
+    return next(error);
   }
 }
 
-async function cancel(req, res) {
+async function cancel(req, res, next) {
   try {
     const subscription = await subscriptionService.cancel(req.params.id, req.user);
     return res.status(200).json({ subscription });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to cancel subscription' });
+    return next(error);
   }
 }
 
-async function reactivate(req, res) {
+async function reactivate(req, res, next) {
   try {
     const subscription = await subscriptionService.reactivate(req.params.id, req.user);
     return res.status(200).json({ subscription });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to reactivate subscription' });
+    return next(error);
   }
 }
 
-async function changeSchedule(req, res) {
+async function changeSchedule(req, res, next) {
   try {
     const subscription = await subscriptionService.changeSchedule(req.params.id, req.body.newScheduleId);
     return res.status(200).json({ subscription });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to change schedule' });
+    return next(error);
   }
 }
 
@@ -48,26 +44,24 @@ async function changeSchedule(req, res) {
 // back as a 200 outcome object) — the try/catch here only guards against a
 // genuine unexpected error (e.g. a real Stripe/DB failure), same posture as
 // every other controller in this file.
-async function chargePreview(req, res) {
+async function chargePreview(req, res, next) {
   try {
     const preview = await previewRenewal(req.params.id);
     return res.status(200).json(preview);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to preview charge' });
+    return next(error);
   }
 }
 
 // `period` ('full' | 'prorated', docs/plans/payment-airtight-plan.md D4) —
 // defaults to 'full' when omitted, matching chargeNow's own default.
-async function charge(req, res) {
+async function charge(req, res, next) {
   try {
     const period = req.body && req.body.period === 'prorated' ? 'prorated' : 'full';
     const result = await chargeNow(req.params.id, { period, adminUser: req.user });
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to charge subscription' });
+    return next(error);
   }
 }
 
@@ -75,14 +69,13 @@ async function charge(req, res) {
 // for a validation or billing STATE (invalid_amount/invalid_note/
 // invalid_period/not_found/skipped_*/etc. all come back as a 200 outcome
 // object), same posture as chargePreview/charge above.
-async function recordPayment(req, res) {
+async function recordPayment(req, res, next) {
   try {
     const { amount, note, period } = req.body || {};
     const result = await recordManualPayment(req.params.id, { amount, note, period }, req.user);
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to record payment' });
+    return next(error);
   }
 }
 

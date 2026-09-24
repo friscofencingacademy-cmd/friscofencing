@@ -3,32 +3,10 @@ const PrivateClassEnrollment = require('../models/privateClassEnrollment.model')
 const coachContractService = require('./coachContract.service');
 const { computeSessionPrice } = require('../utils/privateClassPricing');
 const { nextOccurrenceStrictlyAfter } = require('../utils/scheduleOccurrence');
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
 
 // Publishes a new available slot for a coach. The coach must have an
 // active contract (D11/§5.3) — a coach with no active contract publishes
@@ -100,7 +78,7 @@ async function remove(id, requestingUser) {
     throw notFoundError('Private class schedule not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isOwningCoach =
     requestingUser.role === 'coach' && String(schedule.coachId) === String(requestingUser._id);
 

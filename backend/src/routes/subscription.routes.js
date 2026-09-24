@@ -10,13 +10,14 @@ const {
   recordPayment,
 } = require('../controllers/subscription.controller');
 const { requireAuth, requireRole } = require('../middlewares/auth');
+const { ADMIN_ROLES } = require('../utils/roles');
 
 const router = express.Router();
 
-router.get('/', requireAuth, requireRole('admin', 'superadmin'), list);
-router.post('/:id/cancel', requireAuth, requireRole('parent', 'admin', 'superadmin'), cancel);
-router.post('/:id/reactivate', requireAuth, requireRole('parent', 'admin', 'superadmin'), reactivate);
-router.patch('/:id/schedule', requireAuth, requireRole('admin', 'superadmin'), changeSchedule);
+router.get('/', requireAuth, requireRole(...ADMIN_ROLES), list);
+router.post('/:id/cancel', requireAuth, requireRole('parent', ...ADMIN_ROLES), cancel);
+router.post('/:id/reactivate', requireAuth, requireRole('parent', ...ADMIN_ROLES), reactivate);
+router.patch('/:id/schedule', requireAuth, requireRole(...ADMIN_ROLES), changeSchedule);
 // Manual Charge button (docs/plans/manual-charge-and-pdf-invoice-plan.md) —
 // superadmin only, since this triggers a real charge with no confirmation
 // step beyond the dialog itself, same sensitivity class as /admin/settings.

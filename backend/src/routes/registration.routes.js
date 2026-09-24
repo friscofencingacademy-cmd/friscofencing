@@ -2,6 +2,7 @@ const express = require('express');
 
 const { create, preview, listMine, history, invoice } = require('../controllers/registration.controller');
 const { requireAuth, requireRole } = require('../middlewares/auth');
+const { ADMIN_ROLES } = require('../utils/roles');
 
 const router = express.Router();
 
@@ -13,11 +14,11 @@ router.get('/preview', requireAuth, requireRole('parent'), preview);
 // shadowed by this literal path. admin/superadmin allowed too (docs/plans/
 // manual-charge-and-pdf-invoice-plan.md's 2026-08-31 addendum) — the
 // controller itself gates whose parentId an admin may actually view.
-router.get('/history', requireAuth, requireRole('parent', 'admin', 'superadmin'), history);
+router.get('/history', requireAuth, requireRole('parent', ...ADMIN_ROLES), history);
 router.post('/', requireAuth, requireRole('parent'), create);
 // Registered after the literal routes above so /:id/invoice can never
 // shadow or be shadowed by /mine, /preview, or /history (docs/plans/manual-
 // charge-and-pdf-invoice-plan.md §2.4).
-router.get('/:id/invoice', requireAuth, requireRole('parent', 'admin', 'superadmin'), invoice);
+router.get('/:id/invoice', requireAuth, requireRole('parent', ...ADMIN_ROLES), invoice);
 
 module.exports = router;

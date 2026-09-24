@@ -1,52 +1,47 @@
 const priceService = require('../services/price.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const price = await priceService.create(req.body);
     return res.status(201).json({ price });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create price' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const prices = await priceService.list();
     return res.status(200).json({ prices });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list prices' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const price = await priceService.getById(req.params.id);
     return res.status(200).json({ price });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch price' });
+    return next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
     const price = await priceService.update(req.params.id, req.body);
     return res.status(200).json({ price });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to update price' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await priceService.remove(req.params.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete price' });
+    return next(error);
   }
 }
 

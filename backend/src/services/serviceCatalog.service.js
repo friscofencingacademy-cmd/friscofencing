@@ -1,19 +1,17 @@
 const Service = require('../models/service.model');
+const { httpError, conflictError } = require('../utils/errors');
 
 // Internal-only helpers — this file has no route/controller of its own
 // (services are seeded config, not user-editable data yet — see the plan's
 // D7 "no admin Service CRUD" deferral), so these error shapes are for
 // whatever caller (e.g. registration.service.js) surfaces them up the stack.
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 500;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
+//
+// NOT the shared notFoundError (404): a missing Service row is a deployment
+// defect (someone forgot `npm run seed:services`), never a "resource not
+// found" the client could act on — it must stay a 500, so it has its own
+// name (docs/plans/duplication-cleanup-plan.md B-D2).
+function serviceNotConfiguredError(message) {
+  return httpError(500, message);
 }
 
 // No caching, deliberately — same "re-verified every time" principle
@@ -29,7 +27,7 @@ async function getServiceByCode(code, { requireActive = false } = {}) {
   const service = await Service.findOne({ code });
 
   if (!service) {
-    throw notFoundError(`Service "${code}" is not seeded — run npm run seed:services.`);
+    throw serviceNotConfiguredError(`Service "${code}" is not seeded — run npm run seed:services.`);
   }
 
   if (requireActive && !service.isActive) {

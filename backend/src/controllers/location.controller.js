@@ -1,62 +1,56 @@
 const locationService = require('../services/location.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const location = await locationService.create(req.body);
     return res.status(201).json({ location });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create location' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const locations = await locationService.list();
     return res.status(200).json({ locations });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list locations' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const location = await locationService.getById(req.params.id);
     return res.status(200).json({ location });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch location' });
+    return next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
     const location = await locationService.update(req.params.id, req.body);
     return res.status(200).json({ location });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to update location' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await locationService.remove(req.params.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete location' });
+    return next(error);
   }
 }
 
-async function listPublic(req, res) {
+async function listPublic(req, res, next) {
   try {
     const locations = await locationService.listPublic();
     return res.status(200).json({ locations });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list locations' });
+    return next(error);
   }
 }
 

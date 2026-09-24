@@ -4,18 +4,7 @@ const GroupClassSession = require('../models/groupClassSession.model');
 const User = require('../models/user.model');
 const { generateInitialSessions, sessionInstantsFor } = require('./groupClassSession.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, notFoundError } = require('../utils/errors');
 
 async function assertClassExists(classId) {
   const groupClass = await GroupClass.findById(classId);

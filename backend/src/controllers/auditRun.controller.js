@@ -1,16 +1,15 @@
 const auditRunService = require('../services/auditRun.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const run = await auditRunService.create(req.body);
     return res.status(201).json({ data: run });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create audit run' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     if (req.query.latest === 'true') {
       const data = await auditRunService.listLatest();
@@ -22,18 +21,16 @@ async function list(req, res) {
     const data = await auditRunService.list({ auditName: req.query.auditName, page, limit });
     return res.status(200).json({ data });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list audit runs' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const run = await auditRunService.getById(req.params.id);
     return res.status(200).json({ data: run });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch audit run' });
+    return next(error);
   }
 }
 

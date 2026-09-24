@@ -5,35 +5,12 @@ const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const Level = require('../models/level.model');
 const visitService = require('./visit.service');
 const mailService = require('./mail.service');
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
 
 // Mirrors chesskqwebsite/backend/backend-2.0/src/services/evaluation.service.js's
 // createEvaluation logic exactly (verified line-by-line — docs/plans/
 // premium-registration-and-attendance-plan.md §3.10), Frisco-styled (no
 // Joi, custom Error + .status, no isActive/isDeleted soft-delete).
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
 
 function populateEvaluationQuery(query) {
   return query
