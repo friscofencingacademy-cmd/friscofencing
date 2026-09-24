@@ -124,7 +124,21 @@ Management pages show a fallback label for a missing person.
 
 ## Pages
 
-Rebuilt in PR 3 of the plan — see the plan's §3 until this table is finalized.
+| Page | Role | Purpose |
+|---|---|---|
+| `/private-classes` | public | Each coach's availability rules (slot, server price per session, bookable range) and the academy's packs; "Pick a date" → the wizard (`/login?next=` when logged out) |
+| `/parent/register-private` | parent | 5-step wizard — Who → When (open dates) → Sessions (use a paid session, or buy 1 / a pack, all from the quote) → Review (card guard for a purchase; cancel-cutoff consent) → Done. `?slot=&child=&day=` deep links |
+| `/parent/subscriptions` (Private Lessons section) | parent | Each purchase — sessions left, amount paid — with its bookings; Cancel where `canCancel` |
+| `/coach/private-students` ("Private Lessons" in the nav) | coach | Tabs: Needs attendance (Attended / Missed — a Visit, no money) · Upcoming (Cancel where `canCancel`) · Availability (publish in bulk, remove) |
+| `/admin/private-classes` | admin | Tabs: Purchases (read-only) · Bookings (cancel) · Availability (publish for any coach, remove) |
+| `/admin/settings` | superadmin | Private-lesson packs editor |
+| `/admin/coach-contracts` | admin | Rate contracts — unchanged |
+
+Shared frontend pieces: `lib/services/privateClass.ts` (one client function per endpoint; mutations used
+by several roles live here once), `lib/services/privateClassCoach.ts` / `privateClassAdmin.ts` (role
+list queries), `lib/privateLessons.ts` (every private-lesson display string — lesson time, slot,
+range, booking status), `lib/formatMoney.ts`, and
+`app/components/privateLessons/PublishAvailabilityDialog` (the one publish form, coach and admin).
 
 ## Out of scope
 

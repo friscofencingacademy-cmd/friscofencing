@@ -19,6 +19,7 @@ import {
 } from '../../../lib/services/subscriptionsAdmin';
 import { formatTime } from '../../../lib/formatTime';
 import { formatDateOnly, formatInstant } from '../../../lib/formatDate';
+import { formatMoney } from '../../../lib/formatMoney';
 import type {
   AdminSubscriptionRow,
   ChargeOption,
@@ -67,10 +68,6 @@ function coachLine(schedule: AdminSubscriptionRow['scheduleId']): string {
   return schedule.coachId
     ? `${schedule.coachId.firstName} ${schedule.coachId.lastName}`
     : 'Coach no longer available';
-}
-
-function formatMoney(amount: number): string {
-  return `$${amount.toFixed(2)}`;
 }
 
 function formatCardLabel(paymentMethod: NonNullable<ChargePreview['paymentMethod']>): string {

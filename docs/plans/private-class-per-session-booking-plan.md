@@ -1,8 +1,8 @@
 # Private Classes — Per-Session Booking Plan
 
-**Status:** IN PROGRESS — spec'd 2026-09-24 from a full read of the current private-class stack and
-CKQ's private-class + Visit code. PR 1 merged (#96). PR 2 built (backend, 76 suites / 944 tests
-green). PR 3 (frontend) next. **§5 records every place the build diverged from this spec — read it
+**Status:** BUILT — spec'd and built 2026-09-24 (owner-authorized autonomous build). PR 1 merged
+(#96). PR 2 (backend, #97) and PR 3 (frontend) built: backend 76 suites / 944 tests, frontend 57 / 448,
+E2E 31 passed, `tsc --noEmit` clean, `next build` succeeds. Rollout steps still owner-run (§4). **§5 records every place the build diverged from this spec — read it
 before relying on an endpoint or field name below.**
 **Goal:** Replace the CKQ-style *recurring* private enrollment (a parent claims one weekly slot,
 eight weeks of sessions are generated, each session is charged after attendance) with Frisco's
@@ -587,3 +587,28 @@ system as built.
     `tests/testUtils/privateLessons.js`.
 18. **The student delete-guard is unchanged.** Every booking belongs to a purchase, so the existing
     enrollment count already covers bookings.
+19. **`canCancel` and `cancelCutoffHours` come from the backend** (added to PR 2 while building PR 3):
+    one `cancelBlockReason` rule is enforced by the cancel endpoint and exposed on every booking
+    listing per viewer, and the quote carries the cutoff for the consent line. Otherwise the frontend
+    would have had to re-derive both.
+
+**PR 3**
+20. **One publish endpoint, one publish form.** `PublishAvailabilityDialog` serves both the coach and
+    admin pages (admin passes `coaches`), with its own token-only CSS Module since it renders in both
+    shells. Coaches could not publish slots at all before; only the admin page could.
+21. **One client function per endpoint.** Mutations used by several roles (publish, remove, cancel,
+    mark attendance) live once in `lib/services/privateClass.ts`. The old coach and admin service
+    files each had their own copy of the create/delete-slot calls.
+22. **The portal context no longer fetches private purchases.** It fetched them for no consumer
+    while `/parent/subscriptions` fetched them again. The dead MSW handlers in 7 suites were
+    removed, and a test now guards that the context never makes the call.
+23. **`lib/formatMoney.ts`** replaces `/admin/subscriptions`' local copy and is used by all
+    private-lesson code. 20 other inline `toFixed(2)` sites (measured 2026-09-24) predate this work and are left for
+    duplication-cleanup PR C.
+24. **The wizard's submit errors are not string-matched.** Any failure shows the backend message with
+    a "Pick another date" action and refetches dates and the quote. The old page matched "just taken"
+    in the message text.
+25. **The coach page's hand-rolled overlay was replaced with the shared `Modal`** (design-system
+    anti-pattern 8). The nav label is now "Private Lessons"; the route is unchanged.
+26. **`admin.md`'s Settings section no longer describes a proration checkbox** that the page has not
+    had since ADR 007.

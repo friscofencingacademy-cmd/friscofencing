@@ -1,297 +1,420 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 
+import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import { fetchMyPrivateAvailability, fetchMyPrivateBookings } from '../../../lib/services/privateClassCoach';
 import {
-  fetchMyPrivateClassSessions,
-  markPrivateClassAttendance,
-  retryPrivateClassCharge,
-} from '../../../lib/services/privateClassCoach';
-import { formatInstant } from '../../../lib/formatDate';
-import type { PrivateAttendanceResult, PrivateClassSessionRow } from '../../../lib/types';
+  cancelPrivateBooking,
+  markPrivateAttendance,
+  removePrivateAvailabilityRule,
+} from '../../../lib/services/privateClass';
+import { formatLessonTime, formatRuleRange, formatRuleSlot, personName } from '../../../lib/privateLessons';
+import type { CoachPrivateAvailabilityRule, CoachPrivateBookingRow } from '../../../lib/types';
 import ProtectedRoute from '../../components/ProtectedRoute';
 import AppShell from '../../components/layout/AppShell';
-import Card from '../../components/ui/Card/Card';
+import PublishAvailabilityDialog from '../../components/privateLessons/PublishAvailabilityDialog/PublishAvailabilityDialog';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
+import Card from '../../components/ui/Card/Card';
+import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/ui/shared.module.css';
 
-// session.startDate is a real instant (docs/plans/utc-date-standard-plan.md)
-// — rendered via formatInstant (Central-anchored), never browser-local.
-function formatDateTime(iso: string): string {
-  return formatInstant(iso, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+// A coach's private lessons (docs/decisions/011-private-per-session-booking.md):
+// mark attendance on lessons that have started (a Visit — no money moves),
+// see and cancel upcoming bookings, and publish/remove availability.
+
+type Tab = 'attendance' | 'upcoming' | 'availability';
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'attendance', label: 'Needs attendance' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'availability', label: 'Availability' },
+];
+
+function studentOf(booking: CoachPrivateBookingRow): string {
+  return personName(booking.studentId, 'Student no longer available');
 }
 
-function studentName(session: PrivateClassSessionRow): string {
-  return `${session.studentId.firstName} ${session.studentId.lastName}`;
-}
+function AttendanceTab() {
+  const { data, error, isLoading, retry } = useLoadState(() => fetchMyPrivateBookings('unmarked'), []);
+  const [target, setTarget] = useState<{ booking: CoachPrivateBookingRow; status: 'attended' | 'missed' } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-function parentName(session: PrivateClassSessionRow): string {
-  return `${session.parentId.firstName} ${session.parentId.lastName}`;
-}
+  async function confirm() {
+    if (!target) return;
+    setSaving(true);
+    setSaveError(null);
 
-interface ConfirmState {
-  session: PrivateClassSessionRow;
-  status: 'attended' | 'missed';
-}
+    const result = await markPrivateAttendance(target.booking._id, target.status);
 
-interface SessionOutcome {
-  attendance: 'attended' | 'missed';
-  chargeStatus?: PrivateAttendanceResult['chargeStatus'];
-  reason?: string;
-}
-
-function CoachPrivateStudentsPageContent() {
-  const [unmarked, setUnmarked] = useState<PrivateClassSessionRow[]>([]);
-  const [upcoming, setUpcoming] = useState<PrivateClassSessionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [outcomes, setOutcomes] = useState<Record<string, SessionOutcome>>({});
-  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [retryingId, setRetryingId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [unmarkedSessions, upcomingSessions] = await Promise.all([
-        fetchMyPrivateClassSessions('unmarked'),
-        fetchMyPrivateClassSessions('upcoming'),
-      ]);
-      setUnmarked(unmarkedSessions);
-      setUpcoming(upcomingSessions);
-    } catch (err) {
-      setError('Failed to load your private-lesson sessions.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function confirmMark() {
-    if (!confirm) return;
-
-    setSubmitting(true);
-    setConfirmError(null);
-
-    const result = await markPrivateClassAttendance(confirm.session._id, confirm.status);
-
-    setSubmitting(false);
+    setSaving(false);
 
     if (result.status === 'success') {
-      // The row stays visible in "Needs Attention" — filtering it out here
-      // would hide the Charged/Charge-failed result the coach just asked
-      // for. It naturally drops off on the next full reload once its
-      // attendance is no longer 'scheduled'.
-      setOutcomes((prev) => ({
-        ...prev,
-        [confirm.session._id]: {
-          attendance: confirm.status,
-          chargeStatus: result.data.chargeStatus,
-          reason: result.data.reason,
-        },
-      }));
-      setConfirm(null);
+      setTarget(null);
+      retry();
     } else {
-      setConfirmError(result.message);
+      setSaveError(result.message);
     }
   }
 
-  async function retry(sessionId: string) {
-    setRetryingId(sessionId);
+  if (error) return <LoadError message={getErrorMessage(error)} onRetry={retry} />;
+  if (isLoading || !data) return <p>Loading...</p>;
 
-    const result = await retryPrivateClassCharge(sessionId);
+  return (
+    <>
+      {data.length === 0 ? (
+        <Card>
+          <p style={{ margin: 0 }}>No lessons need attendance right now.</p>
+        </Card>
+      ) : (
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Parent</th>
+                <th>Lesson</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((booking) => (
+                <tr key={booking._id}>
+                  <td>{studentOf(booking)}</td>
+                  <td>{personName(booking.parentId, 'Parent no longer available')}</td>
+                  <td>{formatLessonTime(booking.startDate)}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          setSaveError(null);
+                          setTarget({ booking, status: 'attended' });
+                        }}
+                      >
+                        Attended
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setSaveError(null);
+                          setTarget({ booking, status: 'missed' });
+                        }}
+                      >
+                        Missed
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
 
-    setRetryingId(null);
+      <Modal
+        open={target !== null}
+        onClose={() => setTarget(null)}
+        title={target?.status === 'missed' ? 'Mark Missed' : 'Mark Attended'}
+        size="sm"
+        hideCloseButton
+        disableClose={saving}
+        footer={
+          <>
+            <Button type="button" variant="secondary" onClick={() => setTarget(null)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirm} loading={saving}>
+              Confirm
+            </Button>
+          </>
+        }
+      >
+        {saveError ? <Alert variant="error">{saveError}</Alert> : null}
+        <p style={{ margin: 0 }}>
+          {target
+            ? `Mark ${studentOf(target.booking)} ${target.status === 'missed' ? 'missed' : 'attended'} for ${formatLessonTime(
+                target.booking.startDate
+              )}?`
+            : ''}
+        </p>
+      </Modal>
+    </>
+  );
+}
+
+function UpcomingTab() {
+  const { data, error, isLoading, retry } = useLoadState(() => fetchMyPrivateBookings('upcoming'), []);
+  const [target, setTarget] = useState<CoachPrivateBookingRow | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function confirm() {
+    if (!target) return;
+    setSaving(true);
+    setSaveError(null);
+
+    const result = await cancelPrivateBooking(target._id);
+
+    setSaving(false);
 
     if (result.status === 'success') {
-      setOutcomes((prev) => ({
-        ...prev,
-        [sessionId]: { attendance: 'attended', chargeStatus: result.data.chargeStatus },
-      }));
+      setTarget(null);
+      retry();
+    } else {
+      setSaveError(result.message);
     }
   }
+
+  if (error) return <LoadError message={getErrorMessage(error)} onRetry={retry} />;
+  if (isLoading || !data) return <p>Loading...</p>;
+
+  return (
+    <>
+      {data.length === 0 ? (
+        <Card>
+          <p style={{ margin: 0 }}>No upcoming private lessons.</p>
+        </Card>
+      ) : (
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Parent</th>
+                <th>Lesson</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((booking) => (
+                <tr key={booking._id}>
+                  <td>{studentOf(booking)}</td>
+                  <td>{personName(booking.parentId, 'Parent no longer available')}</td>
+                  <td>{formatLessonTime(booking.startDate)}</td>
+                  <td>
+                    {booking.canCancel ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setSaveError(null);
+                          setTarget(booking);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      <Modal
+        open={target !== null}
+        onClose={() => setTarget(null)}
+        title="Cancel Lesson"
+        size="sm"
+        hideCloseButton
+        disableClose={saving}
+        footer={
+          <>
+            <Button type="button" variant="secondary" onClick={() => setTarget(null)} disabled={saving}>
+              Keep Lesson
+            </Button>
+            <Button type="button" variant="danger" onClick={confirm} loading={saving}>
+              Cancel Lesson
+            </Button>
+          </>
+        }
+      >
+        {saveError ? <Alert variant="error">{saveError}</Alert> : null}
+        <p style={{ margin: 0 }}>
+          {target
+            ? `Cancel ${studentOf(target)}'s lesson on ${formatLessonTime(
+                target.startDate
+              )}? The family gets the session back and an email.`
+            : ''}
+        </p>
+      </Modal>
+    </>
+  );
+}
+
+function AvailabilityTab() {
+  const { data, error, isLoading, retry } = useLoadState(fetchMyPrivateAvailability, []);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [target, setTarget] = useState<CoachPrivateAvailabilityRule | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  async function confirmRemove() {
+    if (!target) return;
+    setRemoving(true);
+    setRemoveError(null);
+
+    const result = await removePrivateAvailabilityRule(target._id);
+
+    setRemoving(false);
+
+    if (result.status === 'success') {
+      setTarget(null);
+      setNotice(result.data === 'retired' ? 'Slot closed — its past lessons stay on record.' : 'Slot removed.');
+      retry();
+    } else {
+      setRemoveError(result.message);
+    }
+  }
+
+  if (error) return <LoadError message={getErrorMessage(error)} onRetry={retry} />;
+
+  return (
+    <>
+      <div style={{ marginBottom: 'var(--space-4)' }}>
+        <Button
+          type="button"
+          onClick={() => {
+            setNotice(null);
+            setPublishOpen(true);
+          }}
+        >
+          Publish availability
+        </Button>
+      </div>
+
+      {notice ? <Alert variant="success">{notice}</Alert> : null}
+
+      {isLoading || !data ? (
+        <p>Loading...</p>
+      ) : data.length === 0 ? (
+        <Card>
+          <p style={{ margin: 0 }}>You haven&apos;t published any private lesson times yet.</p>
+        </Card>
+      ) : (
+        <Card>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Slot</th>
+                <th>Open</th>
+                <th>Booked</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((rule) => (
+                <tr key={rule._id}>
+                  <td>{formatRuleSlot(rule)}</td>
+                  <td>{formatRuleRange(rule)}</td>
+                  <td>{rule.bookedCount}</td>
+                  <td>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setRemoveError(null);
+                        setTarget(rule);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      <PublishAvailabilityDialog
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        onPublished={(count) => {
+          setPublishOpen(false);
+          setNotice(`Published ${count} slot${count === 1 ? '' : 's'}.`);
+          retry();
+        }}
+      />
+
+      <Modal
+        open={target !== null}
+        onClose={() => setTarget(null)}
+        title={removeError ? 'Cannot Remove' : 'Remove Slot'}
+        size="sm"
+        hideCloseButton
+        disableClose={removing}
+        footer={
+          removeError ? (
+            <Button type="button" variant="secondary" onClick={() => setTarget(null)}>
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button type="button" variant="secondary" onClick={() => setTarget(null)} disabled={removing}>
+                Keep
+              </Button>
+              <Button type="button" variant="danger" onClick={confirmRemove} loading={removing}>
+                Remove
+              </Button>
+            </>
+          )
+        }
+      >
+        <p style={{ margin: 0 }}>
+          {removeError ?? (target ? `Stop offering ${formatRuleSlot(target)}? Families can no longer book it.` : '')}
+        </p>
+      </Modal>
+    </>
+  );
+}
+
+function CoachPrivateLessonsContent() {
+  const [tab, setTab] = useState<Tab>('attendance');
 
   return (
     <main>
       <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Private Students</h1>
+        <h1 className={styles.pageTitle}>Private Lessons</h1>
       </div>
 
-      {error ? (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <Alert variant="error">{error}</Alert>
-        </div>
-      ) : null}
+      <div role="tablist" aria-label="Private lessons" style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        {TABS.map(({ key, label }) => (
+          <Button
+            key={key}
+            type="button"
+            size="sm"
+            variant={tab === key ? 'primary' : 'ghost'}
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
 
-      {loading ? (
-        <p>Loading...</p>
-      ) : (
-        <>
-          <h2 style={{ fontSize: '1.1rem' }}>Needs Attention</h2>
-          {unmarked.length === 0 ? (
-            <Card>
-              <p style={{ margin: 0 }}>No sessions need attendance right now.</p>
-            </Card>
-          ) : (
-            <Card>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>When</th>
-                    <th>Amount</th>
-                    <th>Result</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {unmarked.map((session) => {
-                    const outcome = outcomes[session._id];
-                    return (
-                      <tr key={session._id}>
-                        <td>{studentName(session)}</td>
-                        <td>{formatDateTime(session.startDate)}</td>
-                        <td>{session.sessionPrice != null ? `$${session.sessionPrice.toFixed(2)}` : '—'}</td>
-                        <td>
-                          {outcome?.attendance === 'missed' ? (
-                            <span className={styles.pageSubtitle}>Missed</span>
-                          ) : outcome?.chargeStatus === 'completed' ? (
-                            <span style={{ color: 'var(--color-success)' }}>Charged</span>
-                          ) : outcome?.chargeStatus === 'failed' ? (
-                            <span style={{ color: 'var(--color-error)' }}>Charge failed</span>
-                          ) : outcome?.reason === 'enrollment_cancelled' ? (
-                            <span className={styles.pageSubtitle}>Marked — not charged (cancelled)</span>
-                          ) : (
-                            '—'
-                          )}
-                          {outcome?.chargeStatus === 'failed' ? (
-                            <div>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => retry(session._id)}
-                                disabled={retryingId === session._id}
-                              >
-                                {retryingId === session._id ? 'Retrying…' : 'Retry charge'}
-                              </Button>
-                            </div>
-                          ) : null}
-                        </td>
-                        <td>
-                          {outcome ? null : (
-                            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => {
-                                  setConfirmError(null);
-                                  setConfirm({ session, status: 'attended' });
-                                }}
-                              >
-                                Attended
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => {
-                                  setConfirmError(null);
-                                  setConfirm({ session, status: 'missed' });
-                                }}
-                              >
-                                Missed
-                              </Button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </Card>
-          )}
-
-          <h2 style={{ fontSize: '1.1rem', marginTop: 'var(--space-6)' }}>Upcoming</h2>
-          {upcoming.length === 0 ? (
-            <Card>
-              <p style={{ margin: 0 }}>No upcoming private-lesson sessions.</p>
-            </Card>
-          ) : (
-            <Card>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {upcoming.map((session) => (
-                    <tr key={session._id}>
-                      <td>{studentName(session)}</td>
-                      <td>{formatDateTime(session.startDate)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-          )}
-        </>
-      )}
-
-      {confirm ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(27,26,23,0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 400,
-          }}
-        >
-          <div style={{ maxWidth: 420 }}>
-            <Card>
-              <h3 style={{ marginTop: 0 }}>{confirm.status === 'attended' ? 'Mark Attended' : 'Mark Missed'}</h3>
-              {confirmError ? <Alert variant="error">{confirmError}</Alert> : null}
-              <p>
-                {confirm.status === 'attended'
-                  ? `Mark attended and charge ${parentName(confirm.session)}'s card ${
-                      confirm.session.sessionPrice != null ? `$${confirm.session.sessionPrice.toFixed(2)}` : ''
-                    }?`
-                  : `Mark ${studentName(confirm.session)}'s session as missed?`}
-              </p>
-              <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-                <Button type="button" variant="secondary" onClick={() => setConfirm(null)} disabled={submitting}>
-                  Cancel
-                </Button>
-                <Button type="button" onClick={confirmMark} disabled={submitting}>
-                  {submitting ? 'Saving…' : 'Confirm'}
-                </Button>
-              </div>
-            </Card>
-          </div>
-        </div>
-      ) : null}
+      {tab === 'attendance' ? <AttendanceTab /> : tab === 'upcoming' ? <UpcomingTab /> : <AvailabilityTab />}
     </main>
   );
 }
 
-export default function CoachPrivateStudentsPage() {
+export default function CoachPrivateLessonsPage() {
   return (
     <ProtectedRoute allowedRoles={['coach']}>
       <AppShell>
-        <CoachPrivateStudentsPageContent />
+        <CoachPrivateLessonsContent />
       </AppShell>
     </ProtectedRoute>
   );

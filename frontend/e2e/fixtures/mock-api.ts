@@ -85,6 +85,46 @@ export const FIXTURE_STUDENT = {
 };
 export const FIXTURE_PAYMENT_METHOD = { cardBrand: 'visa', cardLast4: '4242' };
 
+// Private lessons (docs/decisions/011-private-per-session-booking.md) —
+// shapes from privateClassSchedule/Enrollment/Session.service.js.
+export const FIXTURE_PRIVATE_SLOT = {
+  scheduleId: 'private-rule-1',
+  dayOfWeek: 2,
+  dayName: 'Tuesday',
+  startTime: '16:30',
+  durationMinutes: 30,
+  startDate: '2026-10-01T00:00:00.000Z',
+  endDate: '2026-12-31T00:00:00.000Z',
+  sessionPrice: 32.5,
+  hourlyRate: 65,
+};
+export const FIXTURE_PRIVATE_DATE = {
+  day: '2026-10-06',
+  startDate: '2026-10-06T21:30:00.000Z',
+  endDate: '2026-10-06T22:00:00.000Z',
+};
+export const FIXTURE_PRIVATE_QUOTE = {
+  durationMinutes: 30,
+  hourlyRate: 65,
+  availableCredits: 0,
+  cancelCutoffHours: 24,
+  options: [
+    { unitPrice: 32.5, quantity: 1, discountPercent: 0, subtotal: 32.5, discountAmount: 0, total: 32.5 },
+    { unitPrice: 32.5, quantity: 10, discountPercent: 10, subtotal: 325, discountAmount: 32.5, total: 292.5 },
+  ],
+};
+export const FIXTURE_PRIVATE_BOOKING = {
+  _id: 'private-booking-1',
+  scheduleId: FIXTURE_PRIVATE_SLOT.scheduleId,
+  enrollmentId: 'private-enrollment-1',
+  coachId: 'user-coach',
+  studentId: 'student-1',
+  parentId: 'user-parent',
+  startDate: FIXTURE_PRIVATE_DATE.startDate,
+  endDate: FIXTURE_PRIVATE_DATE.endDate,
+  status: 'confirmed',
+};
+
 const DEFAULT_RULES: MockRule[] = [
   // Session — logged out by default; loginAs() in fixtures/auth.ts
   // prepends an override that wins over this one.
@@ -234,6 +274,43 @@ const DEFAULT_RULES: MockRule[] = [
       }),
   },
   { method: 'PATCH', path: '/group-class-sessions/:id/attendance', handler: (route) => json(route, 200, { success: true }) },
+
+  // Private lessons
+  {
+    method: 'GET',
+    path: '/private-class-schedules/public',
+    handler: (route) =>
+      json(route, 200, {
+        coaches: [{ coachId: 'user-coach', coachName: 'Dana Cole', slots: [FIXTURE_PRIVATE_SLOT] }],
+        packageOffers: [
+          { quantity: 1, discountPercent: 0 },
+          { quantity: 10, discountPercent: 10 },
+        ],
+      }),
+  },
+  {
+    method: 'GET',
+    path: '/private-class-schedules/:id/available-dates',
+    handler: (route) => json(route, 200, { dates: [FIXTURE_PRIVATE_DATE] }),
+  },
+  { method: 'GET', path: '/private-class-schedules/mine', handler: (route) => json(route, 200, { schedules: [] }) },
+  { method: 'GET', path: '/private-class-enrollments/quote', handler: (route) => json(route, 200, FIXTURE_PRIVATE_QUOTE) },
+  {
+    method: 'POST',
+    path: '/private-class-enrollments',
+    handler: (route) => json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 }),
+  },
+  {
+    method: 'POST',
+    path: '/private-class-sessions',
+    handler: (route) => json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 }),
+  },
+  { method: 'GET', path: '/private-class-sessions/mine', handler: (route) => json(route, 200, { sessions: [] }) },
+  {
+    method: 'PATCH',
+    path: '/private-class-sessions/:id/attendance',
+    handler: (route) => json(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } }),
+  },
 ];
 
 /**

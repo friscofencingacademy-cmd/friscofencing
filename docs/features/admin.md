@@ -79,7 +79,7 @@ Pattern A minus edit. List: coach, `$/hr` billed to parent, `$/hr` coach compens
 
 ## Private Classes (`/admin/private-classes`)
 
-`?tab=` (default `enrollments`), synced to the URL. **Enrollments** tab: student/parent/coach/slot/`$X/hr`/status, Cancel action on active rows (same confirm copy as the parent-side cancel: "All upcoming sessions will be removed and the weekly slot released. Completed sessions already charged are unaffected."). **Schedules** tab: every coach's slots (coach/day/time/duration, Available or the enrolled student's name as a chip), Add Slot dialog (coach/day/time/duration — admin creating on a coach's behalf), Delete on free slots only (409 verbatim on an occupied slot, Pattern A "Cannot Delete" state). Full model/pipeline detail: `docs/features/private-class.md`.
+Per-session bookings ([ADR 011](../decisions/011-private-per-session-booking.md)). `?tab=` (default `purchases`), synced to the URL, rendered as a `role="tablist"`. **Purchases** (read-only — money is the ledger's): student, parent + email, coach, lesson length, "N of M" sessions left, amount paid (from the purchase's ledger row) with its pack discount, purchase date. **Bookings**: lesson time, student, coach, a status chip (`bookingStatusLabel` — Booked / Attended / Missed / Cancelled, attendance from the Visit), and Cancel only where the row's server-computed `canCancel` is true (shared `Modal` confirm; the family gets the session back, no money moves). **Availability**: every coach's current rules (slot, bookable range, upcoming-booking count), a **Publish Availability** button opening the shared `PublishAvailabilityDialog` with a coach picker (bulk: dates, weekdays, time window, slot length), and Remove — a 409 (upcoming bookings) flips the dialog to "Cannot Remove" with the backend message; a rule with only past bookings is retired rather than deleted. Full model/pipeline detail: `docs/features/private-class.md`.
 
 ## Sessions (`/admin/schedules/:id/sessions`)
 
@@ -157,19 +157,21 @@ reporting step (`POST /audit-runs`), never this page.
 
 ## Settings (`/admin/settings`)
 
-**Superadmin-only** — enforced in-page, same pattern as Audits, since these values change the charge on
-every future registration immediately, with no confirmation step. Lives in the **Billing** sidebar
-section, alongside Prices.
+**Superadmin-only** — enforced in-page, same pattern as Audits, since these values change what families
+are charged immediately, with no confirmation step. Lives in the **Billing** sidebar section, alongside
+Prices.
 
 Not a Pattern A CRUD page (there's only ever one `Setting` document) — a single form: "Default
 Registration Fee ($)" (the academy-wide default — a level can override it on the Prices page, see
-above), "Waive if returning within (months)", and "Enable prorated first-month billing" (checkbox — off
-by default, turning it on never changes an already-active subscription). Save does client-side
-validation (both number fields ≥ 0) before `PATCH /api/v1/settings`; a backend error shows inline and
-the form stays editable. See `docs/decisions/001-in-house-subscription-billing.md`'s 2026-08-26 addenda
-(both of them — registration fee, then prorated billing), `docs/plans/prorated-first-month-billing-
-plan.md` for the full billing behavior this configures, and `docs/plans/per-level-registration-fee-plan.md`
-for the per-level override.
+above), "Waive if returning within (months)", and **Private-lesson packs** (ADR 011): one row per pack
+(sessions + discount %), with Add pack / Remove. A single session at full price is always offered and is
+never a row. Save checks only that each number is a number (and each pack has a session count), then
+`PATCH /api/v1/settings`; which packs are valid (whole quantities of at least 2, no duplicates, discount
+0–99) is the backend's rule (`privateClassPricing.js`'s `normalizePackageOffers`), and its message shows
+inline, the form staying editable. See `docs/decisions/001-in-house-subscription-billing.md`'s addenda,
+`docs/plans/per-level-registration-fee-plan.md` for the per-level override, and
+`docs/plans/private-class-per-session-booking-plan.md` D13 for packs. (The deprecated
+`prorationEnabled` field has no control on this page — proration is unconditional, ADR 007.)
 
 ## Dashboard (`/admin/dashboard`)
 

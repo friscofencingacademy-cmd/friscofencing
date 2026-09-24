@@ -45,7 +45,6 @@ const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
-  http.get('*/private-class-enrollments/mine', () => HttpResponse.json({ enrollments: [] })),
   http.get('*/group-classes', () => HttpResponse.json({ groupClasses: [CLASS_A, CLASS_B] })),
   http.get('*/levels', () => HttpResponse.json({ levels: [LEVEL_BEGINNER, LEVEL_ADVANCED] })),
   http.get('*/group-class-sessions/by-class/:classId', () =>

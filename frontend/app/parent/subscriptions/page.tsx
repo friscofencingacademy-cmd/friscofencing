@@ -2,16 +2,22 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
+import Link from 'next/link';
 
 import api from '../../../lib/api';
 import { formatTime } from '../../../lib/formatTime';
 import { DAY_LABELS } from '../../../lib/constants';
-import { formatDateOnly, formatInstant } from '../../../lib/formatDate';
-import { fetchMyPrivateEnrollments, cancelPrivateEnrollment } from '../../../lib/services/privateClass';
-import type { MyPrivateEnrollmentEntry, Subscription } from '../../../lib/types';
+import { formatDateOnly } from '../../../lib/formatDate';
+import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import { cancelPrivateBooking, fetchMyPrivatePurchases } from '../../../lib/services/privateClass';
+import { formatMoney } from '../../../lib/formatMoney';
+import { bookingStatusLabel, formatLessonTime, personName } from '../../../lib/privateLessons';
+import type { PrivateBookingRow, Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
+import LoadError from '../../components/ui/LoadError/LoadError';
+import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/ui/shared.module.css';
 
 function formatSchedule(schedule: Subscription['scheduleId']): string {
@@ -26,20 +32,13 @@ function formatDate(isoDate: string): string {
   return formatDateOnly(isoDate);
 }
 
-function chargeLabel(status: MyPrivateEnrollmentEntry['charges'][number]['status']): string {
-  if (status === 'completed') return 'Paid';
-  if (status === 'failed') return 'Failed';
-  return 'Pending';
-}
-
-interface PrivateLessonsSectionProps {
-  entries: MyPrivateEnrollmentEntry[];
-  loading: boolean;
-  onCancelled: () => void;
-}
-
-function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessonsSectionProps) {
-  const [cancelTarget, setCancelTarget] = useState<MyPrivateEnrollmentEntry | null>(null);
+// Private lessons (docs/decisions/011-private-per-session-booking.md): each
+// purchase with its remaining sessions, what was paid, and its bookings.
+// Everything shown — remaining, the amount, whether a booking can still be
+// cancelled online — is a backend value.
+function PrivateLessonsSection() {
+  const { data, error, isLoading, retry } = useLoadState(fetchMyPrivatePurchases, []);
+  const [cancelTarget, setCancelTarget] = useState<PrivateBookingRow | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -49,13 +48,13 @@ function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessons
     setCancelling(true);
     setCancelError(null);
 
-    const result = await cancelPrivateEnrollment(cancelTarget.enrollment._id);
+    const result = await cancelPrivateBooking(cancelTarget._id);
 
     setCancelling(false);
 
     if (result.status === 'success') {
       setCancelTarget(null);
-      onCancelled();
+      retry();
     } else {
       setCancelError(result.message);
     }
@@ -65,105 +64,98 @@ function PrivateLessonsSection({ entries, loading, onCancelled }: PrivateLessons
     <>
       <div className={styles.pageHeader} style={{ marginTop: 'var(--space-6)' }}>
         <h2 className={styles.pageTitle}>Private Lessons</h2>
+        <p className={styles.pageSubtitle}>
+          <Link href="/private-classes">Book a lesson</Link>
+        </p>
       </div>
 
-      {loading ? (
+      {error ? (
+        <LoadError message={getErrorMessage(error)} onRetry={retry} />
+      ) : isLoading || !data ? (
         <p>Loading...</p>
-      ) : entries.length === 0 ? (
+      ) : data.length === 0 ? (
         <Card>
-          <p>You don&apos;t have any private lessons yet.</p>
+          <p style={{ margin: 0 }}>You don&apos;t have any private lessons yet.</p>
         </Card>
       ) : (
-        <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Coach</th>
-                <th>Slot</th>
-                <th>Per Session</th>
-                <th>Status</th>
-                <th>Recent Charges</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map(({ enrollment, slot, charges }) => (
-                <tr key={enrollment._id}>
-                  <td>
-                    {enrollment.studentId
-                      ? `${enrollment.studentId.firstName} ${enrollment.studentId.lastName}`
-                      : 'Student no longer available'}
-                  </td>
-                  <td>
-                    {enrollment.coachId
-                      ? `${enrollment.coachId.firstName} ${enrollment.coachId.lastName}`
-                      : 'Coach no longer available'}
-                  </td>
-                  <td>{slot ? `${DAY_LABELS[slot.dayOfWeek]} ${formatTime(slot.startTime)}` : '—'}</td>
-                  <td>${enrollment.agreedHourlyRate.toFixed(2)}/hr</td>
-                  <td>{enrollment.status}</td>
-                  <td>
-                    {charges.length === 0
-                      ? '—'
-                      : charges
-                          .map((charge) => `${formatInstant(charge.createdAt)} · $${charge.amount.toFixed(2)} (${chargeLabel(charge.status)})`)
-                          .join(', ')}
-                  </td>
-                  <td>
-                    {enrollment.status === 'active' ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setCancelError(null);
-                          setCancelTarget({ enrollment, slot, charges });
-                        }}
-                      >
-                        Cancel Lessons
-                      </Button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+          {data.map(({ enrollment, remaining, payment, sessions }) => (
+            <Card key={enrollment._id}>
+              <h3 style={{ marginTop: 0 }}>
+                {personName(enrollment.studentId, 'Student no longer available')} with{' '}
+                {personName(enrollment.coachId, 'Coach no longer available')}
+              </h3>
+              <p className={styles.pageSubtitle}>
+                {remaining} of {enrollment.quantity} sessions left · {enrollment.sessionDurationMinutes} min each
+                {payment ? ` · Paid ${formatMoney(payment.amount)}` : ''}
+              </p>
+
+              {sessions.length === 0 ? null : (
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Lesson</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessions.map((session) => (
+                      <tr key={session._id}>
+                        <td>{formatLessonTime(session.startDate)}</td>
+                        <td>
+                          <span className={`${styles.chip} ${styles.chipMuted}`}>{bookingStatusLabel(session)}</span>
+                        </td>
+                        <td>
+                          {session.canCancel ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => {
+                                setCancelError(null);
+                                setCancelTarget(session);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+          ))}
+        </div>
       )}
 
-      {cancelTarget ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(27,26,23,0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 400,
-          }}
-        >
-          <div style={{ maxWidth: 420 }}>
-            <Card>
-              <h3 style={{ marginTop: 0 }}>Cancel Private Lessons</h3>
-              {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
-              <p>
-                All upcoming sessions will be removed and the weekly slot released. Completed sessions
-                already charged are unaffected.
-              </p>
-              <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
-                <Button type="button" variant="secondary" onClick={() => setCancelTarget(null)} disabled={cancelling}>
-                  Keep Lessons
-                </Button>
-                <Button type="button" variant="danger" onClick={confirmCancel} disabled={cancelling}>
-                  {cancelling ? 'Cancelling…' : 'Confirm Cancellation'}
-                </Button>
-              </div>
-            </Card>
-          </div>
-        </div>
-      ) : null}
+      <Modal
+        open={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        title="Cancel Lesson"
+        size="sm"
+        hideCloseButton
+        disableClose={cancelling}
+        footer={
+          <>
+            <Button type="button" variant="secondary" onClick={() => setCancelTarget(null)} disabled={cancelling}>
+              Keep Lesson
+            </Button>
+            <Button type="button" variant="danger" onClick={confirmCancel} loading={cancelling}>
+              Cancel Lesson
+            </Button>
+          </>
+        }
+      >
+        {cancelError ? <Alert variant="error">{cancelError}</Alert> : null}
+        <p style={{ margin: 0 }}>
+          {cancelTarget
+            ? `Cancel the lesson on ${formatLessonTime(cancelTarget.startDate)}? The session goes back to your balance so you can book another date.`
+            : ''}
+        </p>
+      </Modal>
     </>
   );
 }
@@ -173,25 +165,6 @@ function SubscriptionsPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
-
-  const [privateEntries, setPrivateEntries] = useState<MyPrivateEnrollmentEntry[]>([]);
-  const [privateLoading, setPrivateLoading] = useState(true);
-
-  const fetchPrivateEntries = useCallback(async () => {
-    setPrivateLoading(true);
-    try {
-      const entries = await fetchMyPrivateEnrollments();
-      setPrivateEntries(entries);
-    } catch (err) {
-      setPrivateEntries([]);
-    } finally {
-      setPrivateLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPrivateEntries();
-  }, [fetchPrivateEntries]);
 
   const fetchSubscriptions = useCallback(async () => {
     setLoading(true);
@@ -348,11 +321,7 @@ function SubscriptionsPageContent() {
         </Card>
       )}
 
-      <PrivateLessonsSection
-        entries={privateEntries}
-        loading={privateLoading}
-        onCancelled={fetchPrivateEntries}
-      />
+      <PrivateLessonsSection />
     </main>
   );
 }

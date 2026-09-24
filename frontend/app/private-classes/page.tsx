@@ -4,94 +4,79 @@ import Link from 'next/link';
 
 import { useAuth } from '../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
-import { fetchPublicPrivateClassCoaches } from '../../lib/services/privateClass';
-import { formatTime } from '../../lib/formatTime';
-import { formatInstant } from '../../lib/formatDate';
-import type { PublicPrivateClassSlot } from '../../lib/types';
+import { fetchPublicPrivateLessons } from '../../lib/services/privateClass';
+import { formatMoney } from '../../lib/formatMoney';
+import { formatRuleRange, formatRuleSlot, sessionCount } from '../../lib/privateLessons';
+import type { PrivatePackageOffer, PublicPrivateClassSlot } from '../../lib/types';
 import AppShell from '../components/layout/AppShell';
 import Button from '../components/ui/Button/Button';
 import Card from '../components/ui/Card/Card';
 import LoadError from '../components/ui/LoadError/LoadError';
 import styles from '../components/ui/shared.module.css';
 
-// firstSessionDate is a real instant (private-class sessions store a true
-// UTC start instant, not a calendar-day sentinel — docs/plans/
-// utc-date-standard-plan.md) — rendered via formatInstant (Central-
-// anchored), never a bare toLocaleDateString.
-function formatFirstSessionDate(iso: string): string {
-  return formatInstant(iso, { weekday: 'short' });
+// "Save with a pack: 10 sessions, 10% off" — the academy's configured packs
+// (a single session is always offered and needs no mention here).
+function packsLine(offers: PrivatePackageOffer[]): string | null {
+  const packs = offers.filter((offer) => offer.quantity > 1);
+  if (packs.length === 0) return null;
+  return `Save with a pack: ${packs
+    .map((offer) => `${sessionCount(offer.quantity)}, ${offer.discountPercent}% off`)
+    .join(' · ')}`;
 }
 
 function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isLoggedInParent: boolean }) {
-  // A logged-in parent goes straight to the booking wizard; anyone else
-  // (logged out, or logged in as some other role) goes to log in first,
-  // carrying ?next= so they land right back on this exact slot afterward —
-  // /parent/layout.tsx's own guard would otherwise bounce a logged-out
-  // visitor here through a "Loading…" flash before redirecting to the same
-  // place. Deliberately not "/register?next=..." (unlike the group-class
-  // trial CTA) — /login already offers a "Register" link for someone with
-  // no account yet, and doesn't force a re-registration attempt on someone
-  // who already has one.
+  // A logged-in parent goes straight to the booking wizard; anyone else goes
+  // to log in first, carrying ?next= back to this exact slot.
   const bookingHref = `/parent/register-private?slot=${slot.scheduleId}`;
   const href = isLoggedInParent ? bookingHref : `/login?next=${encodeURIComponent(bookingHref)}`;
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 'var(--space-3)',
-        padding: 'var(--space-3) 0',
-        borderTop: '1px solid var(--color-border)',
-        flexWrap: 'wrap',
-      }}
-    >
+    <div className={styles.scheduleRow}>
       <div>
-        <div style={{ fontWeight: 600 }}>
-          {slot.dayName} · {formatTime(slot.startTime)} · {slot.durationMinutes} min
-        </div>
+        <div className={styles.scheduleRowTitle}>{formatRuleSlot(slot)}</div>
         <div className={styles.pageSubtitle}>
-          ${slot.sessionPrice.toFixed(2)} / session · First session {formatFirstSessionDate(slot.firstSessionDate)}
+          {formatMoney(slot.sessionPrice)} / session · Open {formatRuleRange(slot)}
         </div>
       </div>
-      <Button as="a" href={href} size="sm">
-        Book this slot
-      </Button>
+      <div className={styles.scheduleRowActions}>
+        <Button as="a" href={href} size="sm">
+          Pick a date
+        </Button>
+      </div>
     </div>
   );
 }
 
 export default function PrivateClassesPage() {
-  // Gates the "don't have an account?" prompt below — this page is public
-  // (no auth required to browse), but a parent who's already logged in must
-  // never see a prompt telling them to go log in/register. `authLoading` is
-  // checked too so the prompt doesn't flash for a real logged-in parent
-  // during the brief window before the session restore resolves.
+  // The page is public; a logged-in parent must never see the "register
+  // first" prompt (authLoading guards the brief session-restore window).
   const { user, loading: authLoading } = useAuth();
   const isLoggedInParent = !!user && user.role === 'parent';
-  const { data, error, isLoading, retry } = useLoadState(fetchPublicPrivateClassCoaches, []);
+  const { data, error, isLoading, retry } = useLoadState(fetchPublicPrivateLessons, []);
+  const packs = data ? packsLine(data.packageOffers) : null;
 
   return (
     <AppShell>
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>Private Lessons</h1>
         <p className={styles.pageSubtitle}>
-          One-on-one coaching, billed per completed session — no monthly commitment.
+          One-on-one coaching. Pick a coach and a time, then book one lesson at a time — pay per lesson or
+          buy a pack.
         </p>
+        {packs ? <p className={styles.pageSubtitle}>{packs}</p> : null}
       </div>
 
       {error ? (
         <LoadError message={getErrorMessage(error)} onRetry={retry} />
       ) : isLoading ? (
         <p>Loading…</p>
-      ) : !data || data.length === 0 ? (
+      ) : !data || data.coaches.length === 0 ? (
         <Card>
-          <p style={{ margin: 0 }}>No private lesson slots are open right now — check back soon.</p>
+          <p style={{ margin: 0 }}>No private lesson times are open right now — check back soon.</p>
         </Card>
       ) : (
         <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
-          {data.map((coach) => (
+          {data.coaches.map((coach) => (
             <Card key={coach.coachId}>
               <h3 style={{ marginTop: 0 }}>{coach.coachName}</h3>
               <div>
@@ -106,8 +91,7 @@ export default function PrivateClassesPage() {
 
       {!authLoading && !user ? (
         <p style={{ marginTop: 'var(--space-5)', fontSize: '0.9rem', color: 'var(--color-muted)' }}>
-          Don&apos;t have an account yet? <Link href="/register">Register</Link> first, then come back to
-          book a slot.
+          Don&apos;t have an account yet? <Link href="/register">Register</Link> first, then come back to book.
         </p>
       ) : null}
     </AppShell>

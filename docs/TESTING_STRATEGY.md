@@ -158,8 +158,8 @@ the other kind of regression didn't happen.
 
 CI-gated Playwright suite against a real, locally-built Next.js server with every backend call
 mocked (`page.route()` — `frontend/e2e/fixtures/mock-api.ts`). See `docs/plans/e2e-testing-plan.md`
-for the full design; **Phase 1 only** — subscriptions management, the private-class chain, the
-register-private wizard, and spotlight admin remain uncovered, tracked as a future Phase 2.
+for the full design; **Phase 1**, plus the private-lesson booking chain (`private-booking.spec.ts`,
+2026-09-24) — subscriptions management and spotlight admin remain uncovered, tracked as a future Phase 2.
 
 ### Specs
 
@@ -170,6 +170,7 @@ register-private wizard, and spotlight admin remain uncovered, tracked as a futu
 | `parent-register.spec.ts` | The register wizard end-to-end — both date-picker UI states (this-month pill row vs. "Enroll for next month", pinned via `page.clock`, never left to whatever day it happens to run), plus a declined-charge-enters-retry case | Directly reproduces two real regressions found 2026-08-28 (a removed "Continue" button, a renamed date-picker group) as a standing check — see the file's D9 cross-reference comment |
 | `admin-shell.spec.ts` | Sidebar nav renders for admin/superadmin, a non-admin role is redirected away, an accessibility scan on the dashboard, a full Levels CRUD (create/edit/delete) round-trip | |
 | `coach-attendance.spec.ts` | Marking a student attended and saving, with an assertion on the exact PATCH payload | |
+| `private-booking.spec.ts` | The public private-lesson listing into the booking wizard: a 10-session pack paid at the quoted total, a booking with an already-paid session, and a coach marking a private lesson attended — exact request payloads asserted | ADR 011 |
 
 ### Known, accepted accessibility findings
 

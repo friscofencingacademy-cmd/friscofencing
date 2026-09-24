@@ -58,6 +58,8 @@ describe('AppShell', () => {
 
     expect(await screen.findByText('Welcome, Jane')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'My Schedules' })).toBeInTheDocument();
+    // ADR 011 — the coach's page covers availability, bookings and attendance.
+    expect(screen.getByRole('link', { name: 'Private Lessons' })).toHaveAttribute('href', '/coach/private-students');
     expect(screen.queryByRole('link', { name: 'Take a Trial Class' })).not.toBeInTheDocument();
   });
 });

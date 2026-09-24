@@ -127,7 +127,8 @@ Each spec is independently useful and independently mergeable — this table is 
 not a single all-or-nothing PR. **Explicitly out of scope for Phase 1** (candidates for a Phase 2,
 not forgotten): parent subscriptions management (cancel/reactivate/change-schedule), private-class
 coach-contract → published-slot → public-booking chain, the register-private wizard, spotlight
-admin content. These are real gaps too; Phase 1 is sized to prove the layer works and close the
+admin content. *(2026-09-24: the private-lesson booking chain and wizard are now covered by
+`private-booking.spec.ts` — docs/plans/private-class-per-session-booking-plan.md PR 3.)* These are real gaps too; Phase 1 is sized to prove the layer works and close the
 highest-value/most-recently-proven-fragile paths first.
 
 ### D5 — Determinism: freeze the clock, don't depend on "today"
