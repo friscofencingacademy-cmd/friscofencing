@@ -27,6 +27,11 @@ const { addStudentToRoster } = require('../../src/services/roster.service');
 const { renewOne, runRenewals, retryOne, runRetries } = require('../../src/services/renewal.service');
 const { addOneMonth, addOneDay, todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const {
+  expectLedgerChargeSucceeded,
+  listCustomerPaymentIntents,
+  stripeCustomerIdOf,
+} = require('../testUtils/stripe');
 const mailService = require('../../src/services/mail.service');
 const { seedServices } = require('../../scripts/lib/seedServices');
 
@@ -630,8 +635,6 @@ describe('renewOne', () => {
         paidAt: new Date(),
       });
 
-      const paymentIntentsBefore = await stripe.paymentIntents.list({ limit: 10 });
-
       const result = await renewOne(subscription._id);
 
       expect(result).toEqual({ subscriptionId: subscription._id, outcome: 'skipped_already_charged' });
@@ -642,9 +645,9 @@ describe('renewOne', () => {
       expect(after.nextBillingDate.toISOString()).toBe(nextPeriodEnd.toISOString());
       expect(after.retryCount).toBe(0);
 
-      // No new PaymentIntent was created.
-      const paymentIntentsAfter = await stripe.paymentIntents.list({ limit: 10 });
-      expect(paymentIntentsAfter.data.length).toBe(paymentIntentsBefore.data.length);
+      // No PaymentIntent was created: the prior row's id is a placeholder, so
+      // this parent's own customer must never have been charged at all.
+      expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
 
       // Still exactly one ledger row for this subscription.
       const rows = await SubscriptionCycleRegistration.find({ subscriptionId: subscription._id });
@@ -702,12 +705,11 @@ describe('renewOne', () => {
       });
 
       const paymentMethod = await PaymentMethod.findOne({ parentId: parent._id });
-      const stripeCustomer = await stripe.customers.list({ email: parent.email, limit: 1 });
       const succeededPI = await stripe.paymentIntents.create(
         {
           amount: Math.round(MONTHLY_FEE * 100),
           currency: 'usd',
-          customer: stripeCustomer.data[0].id,
+          customer: await stripeCustomerIdOf(parent._id),
           payment_method: paymentMethod.stripePaymentMethodId,
           off_session: true,
           confirm: true,
@@ -717,16 +719,15 @@ describe('renewOne', () => {
       );
       expect(succeededPI.status).toBe('succeeded');
 
-      const paymentIntentsBefore = await stripe.paymentIntents.list({ limit: 10 });
-
       const result = await renewOne(subscription._id);
 
       expect(result.outcome).toBe('charged');
       expect(result.chargeAmount).toBe(MONTHLY_FEE);
 
-      // No second charge — same count as before renewOne ran.
-      const paymentIntentsAfter = await stripe.paymentIntents.list({ limit: 10 });
-      expect(paymentIntentsAfter.data.length).toBe(paymentIntentsBefore.data.length);
+      // No second charge — the adopted PaymentIntent is the only one this
+      // parent's customer has ever had.
+      const intents = await listCustomerPaymentIntents(parent._id);
+      expect(intents.map((intent) => intent.id)).toEqual([succeededPI.id]);
 
       const updatedRow = await SubscriptionCycleRegistration.findById(pendingRow._id);
       expect(updatedRow.status).toBe('completed');
@@ -1275,9 +1276,9 @@ describe('retryOne', () => {
       expect(result.outcome).toBe('charged');
       expect(result.chargeAmount).toBe(MONTHLY_FEE); // NOT MONTHLY_FEE + 50
 
-      const paymentIntents = await stripe.paymentIntents.list({ limit: 10 });
-      const intent = paymentIntents.data.find((i) => i.amount === Math.round(MONTHLY_FEE * 100));
-      expect(intent).toBeDefined();
+      const retriedRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
+      await expectLedgerChargeSucceeded(retriedRow, MONTHLY_FEE); // NOT MONTHLY_FEE + 50
+      expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(1);
     },
     30000
   );
@@ -1501,14 +1502,13 @@ describe('retryOne', () => {
       // charge real Stripe test money.
       await Subscription.findByIdAndUpdate(subscription._id, { status: 'cancelled' });
 
-      const paymentIntentsBefore = await stripe.paymentIntents.list({ limit: 10 });
-
       const result = await retryOne(subscription._id);
 
       expect(result).toEqual({ subscriptionId: subscription._id, outcome: 'skipped_inactive' });
 
-      const paymentIntentsAfter = await stripe.paymentIntents.list({ limit: 10 });
-      expect(paymentIntentsAfter.data.length).toBe(paymentIntentsBefore.data.length);
+      // The seeded failed row carries no real charge, so a cancelled
+      // subscription's parent must still have never been charged at all.
+      expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
     },
     30000
   );

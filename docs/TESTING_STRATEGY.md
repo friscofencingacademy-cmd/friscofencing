@@ -32,6 +32,16 @@ Backend tests mirror `backend/src/`: `src/services/subscription.service.js` → 
 - Real Stripe TEST-mode API calls on the backend (`registration.routes.test.js`, `paymentMethod.routes.test.js`) are **not** mocked at all — Stripe explicitly designs test mode to be hit for real, and mocking it risks drifting from Stripe's actual API contract.
 - `@vercel/blob`'s `put()` on the backend (`spotlight.routes.test.js`) — unlike Stripe, Blob has no separate test mode; calling it for real from a test would actually upload a file to the live store. `jest.mock('@vercel/blob')` is the exception here, not the Stripe-style "hit it for real" rule.
 
+### Real Stripe in tests — never read the account as a whole
+
+The Stripe TEST account is **one account shared by every CI run and every developer machine at the same time**. A test must never read Stripe account-wide: no `stripe.paymentIntents.list({ limit: 10 })` and pick-by-amount, no finding a customer by email. When CI runs overlap, which happens every time several PRs merge within a minute, another run's objects show up in those reads. This happened on 2026-09-24: three overlapping runs failed by picking up each other's PaymentIntents, and a before/after count of `list({ limit: 10 })` could never fail, because both lists were always 10. Use `tests/testUtils/stripe.js` instead. Every lookup there is keyed to something only this test owns:
+
+- **"Was this charged correctly?"**: `expectLedgerChargeSucceeded(ledgerRow, dollars)` fetches the exact PaymentIntent the ledger row recorded, then asserts it succeeded, the amount matches, and it belongs to that row's own parent. This proves the ledger-to-Stripe link, not merely that some charge of that amount exists somewhere.
+- **"Was it charged exactly N times, or never?"**: `listCustomerPaymentIntents(userId)` returns every PaymentIntent on that user's own Stripe customer. Each test parent gets a fresh customer, so the expected count is exact (`toHaveLength(0)` for "never charged").
+- **"Which customer?"**: `stripeCustomerIdOf(userId)` reads the id our code stored, from our own database.
+
+Production code follows the same principle: stale-pending recovery searches PaymentIntents by the unique `registrationId` metadata, never by amount.
+
 ## Interaction rule
 
 New tests should drive user interaction with `userEvent.setup()`, not `fireEvent`, for anything a real user does (clicks, typing, selecting an option) — `userEvent` dispatches the fuller, more realistic event sequence a browser actually produces. **Known gap, logged honestly rather than silently ignored**: every test written before and during the CKQ UI adoption plan (Phases 0–5, ~30 frontend test files) uses `fireEvent` — the convention in place when they were written. This rule takes effect for new tests going forward; retrofitting the existing suite is out of scope for this docs/testing-organization phase and is tracked in `docs/TEST_COVERAGE.md`'s Improvement Plan, not silently deferred.
