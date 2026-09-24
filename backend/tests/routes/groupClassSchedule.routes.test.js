@@ -13,6 +13,7 @@ const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 
 const TEST_PASSWORD = 'correct-password';
 
@@ -35,6 +36,12 @@ const FAKE_TIMER_PASSTHROUGH = [
   'clearImmediate',
   'nextTick',
 ];
+
+// Visit writes resolve their serviceId by Service code (ADR 010), so the
+// Service registry must be seeded before any test writes a Visit.
+beforeEach(async () => {
+  await seedServices();
+});
 
 afterEach(async () => {
   jest.useRealTimers();

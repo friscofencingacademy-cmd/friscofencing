@@ -49,6 +49,24 @@ No `scope`/`locations` (single-location academy — CKQ's own Holiday has both),
 
 `POST /auth/register` is the platform's first public (unauthenticated) endpoint — parent self-signup. Students (`role: 'student'`) are created via `POST /students`; a parent's own `parentId` is forced server-side and cannot be overridden by the request body.
 
+## `Visit` — the attendance ledger, every service (`backend/src/models/visit.model.js`, [ADR 010](./docs/decisions/010-universal-visit-ledger.md))
+
+The single source of truth for "did this student attend this session," for group classes and private lessons alike. One row per student per session. Money never lives here (that is `Registration`). `visit.service.js` is the only writer.
+
+| Field | Type | Notes |
+|---|---|---|
+| `studentId` | ObjectId ref `User` | required |
+| `serviceId` | ObjectId ref `Service` | required — the business service the visit belongs to, resolved by `visit.service.js` from the Service `code` (`group-classes` / `private-lessons`), never caller-supplied. Rows predating ADR 010 were stamped by `scripts/backfill-visit-service.js`. |
+| `groupClassSessionId` | ObjectId ref `GroupClassSession` | default null — set on a group visit |
+| `groupClassScheduleId` | ObjectId ref `GroupClassSchedule` | default null — required when `groupClassSessionId` is set (denormalized for per-schedule history queries) |
+| `privateClassSessionId` | ObjectId ref `PrivateClassSession` | default null — set on a private-lesson visit |
+| `classType` | String enum | `regular`, `trial`, `private` — required. `private` exactly when `privateClassSessionId` is set. |
+| `status` | String enum | `scheduled`, `attended`, `missed`, `cancelled` — default `scheduled` |
+| `markedBy` / `markedVia` | ObjectId ref `User` / String enum `coach`, `admin` | default null |
+| `isMakeupClass` | Boolean | default false — group walk-ins only |
+
+A `pre('validate')` hook enforces exactly one session ref and a `classType` consistent with it. Uniqueness per (student, session) among non-cancelled rows is enforced by `visit.service.js`'s upserts, not an index, so a cancelled visit can be re-scheduled in place. Indexes: `{ studentId, groupClassSessionId }`, `{ groupClassSessionId, status }`, `{ studentId, groupClassScheduleId }`, `{ privateClassSessionId, status }`, `{ studentId, serviceId }`.
+
 ## `PaymentMethod` — implemented (Phase 7a — card save only, no charging yet)
 | Field | Type | Notes |
 |---|---|---|
