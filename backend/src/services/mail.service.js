@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const { renderEmail } = require('../email');
-const { dateFull, dateOnlyFull, timeOfDay, dayOfWeekLabel } = require('../email/dates');
+const { dateFull, dateOnlyFull, timeOfDay, timeOfInstant, dayOfWeekLabel } = require('../email/dates');
+const { computePackQuote } = require('../utils/privateClassPricing');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 
 // Lazy, memoized module-level cache — created once per process. If
@@ -127,7 +128,12 @@ function fullName(user) {
   return [user.firstName, user.lastName].filter(Boolean).join(' ');
 }
 
-// Shared by the three receipt senders below that can carry an invoice PDF
+// "$292.50" — every dollar label in an email goes through this.
+function money(amount) {
+  return `$${Number(amount).toFixed(2)}`;
+}
+
+// Shared by the receipt senders below that can carry an invoice PDF
 // (docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2). `invoicePdf` is
 // undefined whenever the caller's own PDF generation failed or wasn't
 // attempted — this returns undefined in that case too, so sendMailSafely's
@@ -310,14 +316,13 @@ async function sendRenewalReceiptEmail({
 // Renewal/retry payment failure (docs/plans/registration-ledger-plan.md
 // D4/D6). Same template, three renderings driven by isFinal/attemptNumber —
 // see templates.js's own comment on the 'paymentFailure' entry. Admin-only
-// CC (no coach) — matches sendPrivateClassPaymentFailedEmail's precedent: a
-// billing/parent-account matter, not the coach's concern.
+// CC (no coach): a billing/parent-account matter, not the coach's concern.
 async function sendPaymentFailureEmail({ parent, student, schedule, groupClass, amountDue, attemptNumber, isFinal, nextRetryDate }) {
   try {
     const data = {
       studentName: fullName(student),
       className: groupClass ? groupClass.name : '',
-      amountDueLabel: amountDue != null ? `$${Number(amountDue).toFixed(2)}` : '',
+      amountDueLabel: amountDue != null ? money(amountDue) : '',
       attemptNumber: attemptNumber || 1,
       maxAttempts: MAX_PAYMENT_RETRIES,
       isFinal: Boolean(isFinal),
@@ -404,49 +409,47 @@ async function sendScheduleChangeConfirmationEmail({ parent, student, old, next 
   }
 }
 
-// ── Private class ─────────────────────────────────────────────────────────
+// ── Private lessons (per-session bookings — ADR 011) ─────────────────────
 
-async function sendPrivateClassConfirmationEmail({
-  parent,
-  student,
-  coach,
-  slotLabel,
-  rateLabel,
-  firstSessionDate,
-  sessionPriceLabel,
-}) {
-  try {
-    const data = {
-      studentName: fullName(student),
-      coachName: fullName(coach),
-      slotLabel: slotLabel || '',
-      rateLabel: rateLabel || '',
-      firstSessionDateLabel: firstSessionDate ? dateFull(firstSessionDate) : '',
-      sessionPriceLabel: sessionPriceLabel || '',
-    };
-
-    const { subject, html, text } = renderEmail('privateClassConfirmation', data);
-
-    return sendMailSafely({
-      to: parent.email,
-      cc: [ADMIN_EMAIL(), coach && coach.email],
-      subject,
-      text,
-      html,
-    });
-  } catch (error) {
-    console.error('mail.service: failed to build privateClassConfirmation email:', error.message);
-    return false;
-  }
+// "Tuesday, Oct 6, 2026 · 4:30 PM" — a booking's startDate is a real instant.
+function lessonLabel(startDate) {
+  return startDate ? `${dateFull(startDate)} · ${timeOfInstant(startDate)}` : '';
 }
 
-async function sendPrivateClassSessionReceiptEmail({
+function remainingLabel(enrollment) {
+  if (!enrollment) return '';
+  return `${enrollment.quantity - enrollment.sessionsUsed} of ${enrollment.quantity}`;
+}
+
+// The purchase block of a booking confirmation, from the completed ledger
+// row. The charged total is ALWAYS the row's own `amount` (what Stripe
+// charged); the subtotal/discount lines come from the same pricing function
+// the charge used.
+function purchaseLines(row) {
+  if (!row) return null;
+
+  const { subtotal, discountAmount } = computePackQuote(row.unitPrice, row.quantity, row.discountPercent);
+  const sessions = row.quantity === 1 ? '1 session' : `${row.quantity} sessions`;
+
+  return {
+    itemLabel: `${sessions} × ${money(row.unitPrice)}`,
+    subtotalLabel: money(subtotal),
+    discountLabel: row.discountPercent > 0 ? `${row.discountPercent}% — −${money(discountAmount)}` : '',
+    totalLabel: money(row.amount),
+  };
+}
+
+// To the parent (cc admin). `purchaseRow` is the completed ledger row when
+// this booking came with a purchase (its PDF invoice is attached), or null
+// for a booking paid with an existing credit.
+async function sendPrivateClassBookingConfirmationEmail({
   parent,
   student,
   coach,
-  sessionDate,
-  durationMinutes,
-  amount,
+  session,
+  enrollment,
+  purchaseRow,
+  cancelCutoffHours,
   invoiceNumber,
   invoicePdf,
 }) {
@@ -454,12 +457,14 @@ async function sendPrivateClassSessionReceiptEmail({
     const data = {
       studentName: fullName(student),
       coachName: fullName(coach),
-      sessionDateLabel: sessionDate ? dateFull(sessionDate) : '',
-      durationLabel: durationMinutes != null ? `${durationMinutes} min` : '',
-      amountLabel: amount != null ? `$${Number(amount).toFixed(2)}` : '',
+      lessonLabel: lessonLabel(session.startDate),
+      durationLabel: `${enrollment.sessionDurationMinutes} min`,
+      remainingLabel: remainingLabel(enrollment),
+      cancelCutoffHours,
+      purchase: purchaseLines(purchaseRow),
     };
 
-    const { subject, html, text } = renderEmail('privateClassSessionReceipt', data);
+    const { subject, html, text } = renderEmail('privateClassBookingConfirmation', data);
 
     return sendMailSafely({
       to: parent.email,
@@ -470,38 +475,42 @@ async function sendPrivateClassSessionReceiptEmail({
       attachments: invoiceAttachment(invoiceNumber, invoicePdf),
     });
   } catch (error) {
-    console.error('mail.service: failed to build privateClassSessionReceipt email:', error.message);
+    console.error('mail.service: failed to build privateClassBookingConfirmation email:', error.message);
     return false;
   }
 }
 
-async function sendPrivateClassPaymentFailedEmail({ parent, student, sessionDate, amount, paymentMethodUrl }) {
+// To the coach (cc admin) — the owner's "the coach gets an email."
+async function sendPrivateClassCoachBookingEmail({ coach, parent, student, session, durationMinutes }) {
   try {
     const data = {
       studentName: fullName(student),
-      sessionDateLabel: sessionDate ? dateFull(sessionDate) : '',
-      amountLabel: amount != null ? `$${Number(amount).toFixed(2)}` : '',
-      paymentMethodUrl,
+      parentName: fullName(parent),
+      lessonLabel: lessonLabel(session.startDate),
+      durationLabel: `${durationMinutes} min`,
     };
 
-    const { subject, html, text } = renderEmail('privateClassPaymentFailed', data);
+    const { subject, html, text } = renderEmail('privateClassCoachBooking', data);
 
-    return sendMailSafely({ to: parent.email, cc: [ADMIN_EMAIL()], subject, text, html });
+    return sendMailSafely({ to: coach.email, cc: [ADMIN_EMAIL()], subject, text, html });
   } catch (error) {
-    console.error('mail.service: failed to build privateClassPaymentFailed email:', error.message);
+    console.error('mail.service: failed to build privateClassCoachBooking email:', error.message);
     return false;
   }
 }
 
-async function sendPrivateClassCancellationEmail({ parent, student, coach, slotLabel }) {
+// To the parent (cc admin + coach) — the credit is already back on the
+// enrollment when this is sent.
+async function sendPrivateClassBookingCancelledEmail({ parent, student, coach, session, enrollment }) {
   try {
     const data = {
       studentName: fullName(student),
       coachName: fullName(coach),
-      slotLabel: slotLabel || '',
+      lessonLabel: lessonLabel(session.startDate),
+      remainingLabel: remainingLabel(enrollment),
     };
 
-    const { subject, html, text } = renderEmail('privateClassCancellation', data);
+    const { subject, html, text } = renderEmail('privateClassBookingCancelled', data);
 
     return sendMailSafely({
       to: parent.email,
@@ -511,7 +520,7 @@ async function sendPrivateClassCancellationEmail({ parent, student, coach, slotL
       html,
     });
   } catch (error) {
-    console.error('mail.service: failed to build privateClassCancellation email:', error.message);
+    console.error('mail.service: failed to build privateClassBookingCancelled email:', error.message);
     return false;
   }
 }
@@ -526,8 +535,7 @@ module.exports = {
   sendCancellationConfirmationEmail,
   sendReactivationConfirmationEmail,
   sendScheduleChangeConfirmationEmail,
-  sendPrivateClassConfirmationEmail,
-  sendPrivateClassSessionReceiptEmail,
-  sendPrivateClassPaymentFailedEmail,
-  sendPrivateClassCancellationEmail,
+  sendPrivateClassBookingConfirmationEmail,
+  sendPrivateClassCoachBookingEmail,
+  sendPrivateClassBookingCancelledEmail,
 };

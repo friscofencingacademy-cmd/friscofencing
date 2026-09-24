@@ -24,9 +24,9 @@
 //    reads one back out as 'YYYY-MM-DD'.
 //  - Real instant: combineDayAndTimeInTZ turns a calendar day + wall-clock
 //    "HH:mm" into a true UTC instant, resolved via real IANA timezone math
-//    (moment-timezone) — used by both session generators (private-class
-//    startDate/endDate; group-class startsAt/endsAt, docs/plans/session-
-//    start-time-cutoff-plan.md).
+//    (moment-timezone) — used for private-lesson bookings' startDate/endDate
+//    and group-class sessions' startsAt/endsAt (docs/plans/session-start-
+//    time-cutoff-plan.md).
 
 const moment = require('moment-timezone');
 const { DEFAULT_TIMEZONE } = require('../config/timezone');
@@ -54,10 +54,9 @@ function addDaysToDateOnly(sentinel, days) {
 // The first sentinel on/after `fromSentinel` whose UTC calendar weekday
 // (getUTCDay, 0=Sunday..6=Saturday — this codebase's dayOfWeek convention,
 // matching JS Date.getDay()) is `dayOfWeek`. If `fromSentinel` itself
-// already falls on `dayOfWeek`, it is returned unchanged — "on or after,"
-// matching GroupClassSession's generator semantics (as opposed to
-// scheduleOccurrence.js's sibling function, which is strictly-after for
-// private-class sessions).
+// already falls on `dayOfWeek`, it is returned unchanged — "on or after."
+// Used by GroupClassSession's generator and by private-lesson availability
+// (privateClassSchedule.service.js's listAvailableDates).
 function nextDateOnlyOnOrAfter(fromSentinel, dayOfWeek) {
   const diff = (dayOfWeek - fromSentinel.getUTCDay() + 7) % 7;
   return addDaysToDateOnly(fromSentinel, diff);
@@ -76,8 +75,8 @@ function sentinelDayString(sentinel) {
 
 // 'YYYY-MM-DD' calendar day + 'HH:mm' wall-clock time, resolved in `tz`
 // (default Central) -> a true UTC instant. The ONLY way to build a stored
-// real instant from human wall-clock input (both session generators: private
-// classes' startDate/endDate and group classes' startsAt/endsAt) — CKQ's
+// real instant from human wall-clock input (private-lesson bookings'
+// startDate/endDate and group classes' startsAt/endsAt) — CKQ's
 // combineDateTimeInTZ + its convertTZtoUTC, fused into one call. To feed it
 // a calendar-day sentinel, convert with sentinelDayString first — never a
 // toISOString() reinterpretation.

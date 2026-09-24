@@ -1,331 +1,247 @@
-const moment = require('moment-timezone');
+const User = require('../models/user.model');
 const PrivateClassSchedule = require('../models/privateClassSchedule.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
+const { PRIVATE_CLASS_SESSION_STATUSES } = require('../models/privateClassSession.model');
 const { PerSessionRegistration } = require('../models/registration.model');
-const User = require('../models/user.model');
-const stripe = require('../config/stripe');
-const paymentMethodService = require('./paymentMethod.service');
-const { ensureStripeCustomer } = require('./stripeCustomer.service');
-const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
-const { computeSessionPrice, sessionDurationMinutes } = require('../utils/privateClassPricing');
-const { nextOccurrenceStrictlyAfter } = require('../utils/scheduleOccurrence');
-const { combineDayAndTimeInTZ } = require('../utils/dateShapes');
-const { DEFAULT_TIMEZONE } = require('../config/timezone');
+const privateClassScheduleService = require('./privateClassSchedule.service');
+const visitService = require('./visit.service');
 const mailService = require('./mail.service');
 const invoiceService = require('./invoice.service');
 const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
 const { hasAdminRole } = require('../utils/roles');
 
-// Mirrors group's 8-week generateInitialSessions window (groupClassSession.
-// service.js) — consistency over CKQ's own 10-week private-class window.
-const SESSION_WEEKS = 8;
+// Private-lesson BOOKINGS (docs/decisions/011-private-per-session-booking.md).
+// A PrivateClassSession is created only when a parent books one date of one
+// availability rule; inserting it is the atomic slot claim. This file owns
+// the booking primitives shared by both ways to book:
+//   - with a purchase  -> privateClassEnrollment.service.js's purchaseAndBook
+//   - with a credit    -> book() below
+// plus attendance (a Visit — ADR 010, never money) and cancellation.
 
-// Generates the next 8 weekly occurrences for every claimed active slot of
-// `enrollmentId`, starting from the first occurrence of the slot's
-// dayOfWeek STRICTLY AFTER today. Idempotent: skips any startDate that
-// already has a session (in-memory dedup, backstopped by the model's
-// unique (scheduleId, startDate) index) — safe to re-run (see
-// scripts/extend-private-sessions.js).
-//
-// PrivateClassSession.startDate/endDate are real instants, not calendar-day
-// sentinels (docs/plans/utc-date-standard-plan.md) — every one is built via
-// the dateShapes.js gate (combineDayAndTimeInTZ), which resolves a Central
-// wall-clock time to a true UTC instant via real IANA math. This replaces
-// the previous combineDateAndTime()'s server-local setHours(), which on a
-// UTC production server wrote a "16:45 Central" slot's raw clock numbers
-// directly into the UTC field — the stored instant was hours early,
-// silently opening the attendance/per-session-charge gate before the
-// lesson actually happened. Confirmed against real staging data before
-// this fix: every stored session was off by exactly the Central/UTC
-// offset.
-//
-// Weekly stepping happens INSIDE the tz-anchored moment chain (never
-// setDate()/getDate() on an already-resolved instant, which is the same
-// DST-unsafe pattern billingDates.js's addOneDay exists to avoid) — so an
-// 8-week run of sessions stays genuinely 7 Central calendar days apart
-// even across a DST transition, not drifted by an hour.
-async function generateSessions({ enrollmentId }) {
-  const enrollment = await PrivateClassEnrollment.findById(enrollmentId);
+// A parent may cancel online until this many hours before the lesson; a
+// coach or admin until it starts. Shown in the booking email too.
+const PARENT_CANCEL_CUTOFF_HOURS = 24;
 
-  if (!enrollment) {
-    return { sessions: [], firstSessionDate: null };
+// A `pending` purchase hold older than this, with no charge in flight, is
+// abandoned and may be released by the next booking attempt for that slot.
+const PENDING_HOLD_TTL_MINUTES = 15;
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+const SLOT_TAKEN_MESSAGE = 'This time slot was just taken — please pick another';
+
+// ── Booking primitives ────────────────────────────────────────────────────
+
+// Everything both booking paths validate before writing anything: the
+// student belongs to the parent, the rule exists with a live coach, and the
+// chosen day is bookable (privateClassScheduleService.resolveBookableInstant
+// — the same rule the date picker uses).
+async function loadBookingContext({ studentId, scheduleId, day }, parent) {
+  const student = await User.findById(studentId);
+
+  if (!student || student.role !== 'student') {
+    throw notFoundError('Student not found');
   }
 
-  const schedules = await PrivateClassSchedule.find({ enrollmentId, isActive: true });
-
-  const today = new Date();
-  let allCreated = [];
-  let firstSessionDate = null;
-
-  for (const schedule of schedules) {
-    const firstOccurrence = nextOccurrenceStrictlyAfter(today, schedule.dayOfWeek);
-    const firstOccurrenceCentral = moment.tz(firstOccurrence, DEFAULT_TIMEZONE);
-
-    // eslint-disable-next-line no-await-in-loop -- sequential over a small
-    // (typically single-element) list of a student's own claimed slots.
-    const existing = await PrivateClassSession.find({ scheduleId: schedule._id }, 'startDate');
-    const existingTimes = new Set(existing.map((s) => s.startDate.getTime()));
-
-    const toCreate = [];
-
-    for (let i = 0; i < SESSION_WEEKS; i += 1) {
-      const occurrenceDay = firstOccurrenceCentral.clone().add(i * 7, 'days').format('YYYY-MM-DD');
-
-      const startDate = combineDayAndTimeInTZ(occurrenceDay, schedule.startTime);
-      const endDate = new Date(startDate.getTime() + schedule.durationMinutes * 60000);
-
-      if (existingTimes.has(startDate.getTime())) {
-        continue;
-      }
-
-      toCreate.push({
-        scheduleId: schedule._id,
-        enrollmentId,
-        coachId: schedule.coachId,
-        studentId: enrollment.studentId,
-        parentId: enrollment.parentId,
-        startDate,
-        endDate,
-        attendance: 'scheduled',
-      });
-    }
-
-    if (toCreate.length) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const inserted = await PrivateClassSession.insertMany(toCreate, { ordered: false });
-        allCreated = allCreated.concat(inserted);
-      } catch (error) {
-        // Duplicate-key errors from the unique index backstop are expected
-        // and safe to ignore (a concurrent/re-run generator already
-        // created that occurrence) — anything else propagates.
-        const isDuplicateKeyOnly =
-          error.code === 11000 ||
-          (Array.isArray(error.writeErrors) && error.writeErrors.every((e) => e.code === 11000));
-
-        if (!isDuplicateKeyOnly) {
-          throw error;
-        }
-
-        if (Array.isArray(error.insertedDocs)) {
-          allCreated = allCreated.concat(error.insertedDocs);
-        }
-      }
-    }
-
-    const scheduleFirstSessionDate = combineDayAndTimeInTZ(
-      firstOccurrenceCentral.format('YYYY-MM-DD'),
-      schedule.startTime
-    );
-
-    if (!firstSessionDate || scheduleFirstSessionDate < firstSessionDate) {
-      firstSessionDate = scheduleFirstSessionDate;
-    }
+  if (String(student.parentId) !== String(parent._id)) {
+    throw forbiddenError('This student does not belong to you');
   }
 
-  return { sessions: allCreated, firstSessionDate };
+  const schedule = await PrivateClassSchedule.findById(scheduleId).populate('coachId', 'firstName lastName email');
+
+  // A null populated coach means the coach was deleted without a
+  // delete-guard blocking it (orphaned-coach-reference-fix-plan D4) — a
+  // stale bookmarked link 404s instead of crashing.
+  if (!schedule || !schedule.coachId) {
+    throw notFoundError('Private class schedule not found');
+  }
+
+  const { startDate, endDate } = await privateClassScheduleService.resolveBookableInstant(schedule, day);
+
+  return { student, schedule, coach: schedule.coachId, startDate, endDate };
 }
 
-// The actual money step behind markAttendance('attended'). Separated out
-// so retryCharge() can re-run it verbatim.
-async function chargeSession(session) {
-  // Fresh re-fetch — never trust a snapshot (same cancel-then-charge race
-  // discipline as renewal.service.js's renewOne).
-  const enrollment = await PrivateClassEnrollment.findById(session.enrollmentId);
+// Releases an abandoned `pending` purchase hold on this exact slot so a new
+// booking can take it. Never releases a hold whose charge is in flight or
+// already succeeded (a pending/completed ledger row) — that one needs a
+// human, and scripts/check-private-credit-ledger.js reports it.
+async function releaseAbandonedHold(scheduleId, startDate) {
+  const staleBefore = new Date(Date.now() - PENDING_HOLD_TTL_MINUTES * 60000);
+  const hold = await PrivateClassSession.findOne({
+    scheduleId,
+    startDate,
+    status: 'pending',
+    createdAt: { $lt: staleBefore },
+  });
 
-  const stillBillable =
-    enrollment &&
-    (enrollment.status === 'active' ||
-      (enrollment.status === 'cancelled' &&
-        enrollment.endDate &&
-        session.startDate <= enrollment.endDate));
-
-  if (!stillBillable) {
-    return { charged: false, reason: 'enrollment_cancelled', charge: null };
+  if (!hold) {
+    return false;
   }
 
-  const existingCharge = await PerSessionRegistration.findOne({
-    sessionId: session._id,
+  const chargeInFlight = await PerSessionRegistration.exists({
+    sessionId: hold._id,
     status: { $in: ['pending', 'completed'] },
   });
 
-  if (existingCharge) {
-    // Idempotent — a double-save of the same attendance never
-    // double-charges.
-    return { charged: existingCharge.status === 'completed', charge: existingCharge };
+  if (chargeInFlight) {
+    return false;
   }
 
-  const amount = computeSessionPrice(
-    enrollment.agreedHourlyRate,
-    sessionDurationMinutes(session.startDate, session.endDate)
+  await PrivateClassSession.updateOne(
+    { _id: hold._id, status: 'pending' },
+    { $set: { status: 'released', releaseReason: 'abandoned' } }
   );
+  await PrivateClassEnrollment.updateOne({ _id: hold.enrollmentId, status: 'pending' }, { $set: { status: 'failed' } });
 
-  const failedCount = await PerSessionRegistration.countDocuments({
-    sessionId: session._id,
-    status: 'failed',
-  });
-  const attempt = failedCount + 1;
+  return true;
+}
 
-  // Resolved BEFORE creating the pending ledger row — a misconfigured/
-  // inactive service must never let this session end up "charged" without a
-  // resolvable serviceId (docs/plans/service-registry-unified-ledger-plan
-  // .md D4).
-  const privateLessonsService = await getServiceByCode('private-lessons', { requireActive: true });
-  assertBillingShape(privateLessonsService, 'per_session');
+// The atomic slot claim: one insert against the partial unique index on
+// (scheduleId, startDate). A lost race is a 409, after one attempt to
+// release an abandoned hold on the slot.
+async function reserveSlot(doc) {
+  try {
+    return await PrivateClassSession.create(doc);
+  } catch (error) {
+    if (error.code !== 11000) {
+      throw error;
+    }
+  }
 
-  let charge;
+  if (!(await releaseAbandonedHold(doc.scheduleId, doc.startDate))) {
+    throw conflictError(SLOT_TAKEN_MESSAGE);
+  }
 
   try {
-    charge = await PerSessionRegistration.create({
-      serviceId: privateLessonsService._id,
-      sessionId: session._id,
-      enrollmentId: enrollment._id,
-      parentId: enrollment.parentId,
-      studentId: enrollment.studentId,
-      amount,
-      status: 'pending',
-      attempt,
-    });
+    return await PrivateClassSession.create(doc);
   } catch (error) {
     if (error.code === 11000) {
-      const existing = await PerSessionRegistration.findOne({
-        sessionId: session._id,
-        status: { $in: ['pending', 'completed'] },
-      });
-      return { charged: existing ? existing.status === 'completed' : false, charge: existing || null };
+      throw conflictError(SLOT_TAKEN_MESSAGE);
     }
-
     throw error;
   }
+}
 
-  const parent = await User.findById(enrollment.parentId);
-  const student = await User.findById(enrollment.studentId);
-  const paymentMethod = await paymentMethodService.getMine(enrollment.parentId);
+// Gives one credit back to an enrollment; returns the updated enrollment.
+async function returnCredit(enrollmentId) {
+  return PrivateClassEnrollment.findOneAndUpdate(
+    { _id: enrollmentId, sessionsUsed: { $gt: 0 } },
+    { $inc: { sessionsUsed: -1 } },
+    { new: true }
+  );
+}
 
-  if (!paymentMethod) {
-    charge.status = 'failed';
-    charge.failureMessage = 'No payment method on file';
-    await charge.save();
-
-    try {
-      await mailService.sendPrivateClassPaymentFailedEmail({
-        parent,
-        student,
-        sessionDate: session.startDate,
-        amount,
-      });
-    } catch (error) {
-      // eslint-disable-next-line no-console -- operational logging for a
-      // fire-and-forget email side effect, not debug output.
-      console.error('privateClassSession.service: failed to send payment-failed email:', error.message);
-    }
-
-    return { charged: false, chargeStatus: 'failed', charge };
-  }
-
-  const stripeCustomerId = await ensureStripeCustomer(parent);
-
-  let paymentIntent;
+// After a booking is confirmed by either path: the scheduled Visit
+// attendance row, then the parent + coach emails. Emails (and the PDF invoice
+// for a purchase) are fire-and-forget — they never fail a confirmed booking.
+async function onBookingConfirmed({ session, enrollment, parent, student, coach, purchaseRow = null }) {
+  await visitService.createScheduledPrivateVisit(session.studentId, session._id);
 
   try {
-    paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: Math.round(amount * 100),
-        currency: 'usd',
-        customer: stripeCustomerId,
-        payment_method: paymentMethod.stripePaymentMethodId,
-        off_session: true,
-        confirm: true,
-      },
-      // CKQ-BUG-FIX: suffixed by `attempt` (unlike CKQ's un-suffixed key,
-      // which made Stripe replay a cached decline for 24h and blocked
-      // same-day retry). Each retry gets its own idempotency key.
-      { idempotencyKey: `pcs_${session._id}_${attempt}` }
-    );
-  } catch (error) {
-    if (error.type === 'StripeCardError') {
-      charge.status = 'failed';
-      charge.failureMessage = error.message;
-      await charge.save();
-
-      try {
-        await mailService.sendPrivateClassPaymentFailedEmail({
-          parent,
-          student,
-          sessionDate: session.startDate,
-          amount,
-        });
-      } catch (mailError) {
-        // eslint-disable-next-line no-console -- operational logging for a
-        // fire-and-forget email side effect, not debug output.
-        console.error(
-          'privateClassSession.service: failed to send payment-failed email:',
-          mailError.message
-        );
-      }
-
-      return { charged: false, chargeStatus: 'failed', charge };
-    }
-
-    throw error;
-  }
-
-  if (paymentIntent.status !== 'succeeded') {
-    charge.status = 'failed';
-    charge.failureMessage = 'Payment failed';
-    await charge.save();
-    return { charged: false, chargeStatus: 'failed', charge };
-  }
-
-  charge.status = 'completed';
-  charge.paidAt = new Date();
-  charge.stripePaymentIntentId = paymentIntent.id;
-  await charge.save();
-
-  try {
-    const coach = await User.findById(enrollment.coachId);
-
-    // PDF invoice attachment (docs/plans/manual-charge-and-pdf-invoice-
-    // plan.md PR 2) — its OWN try/catch so a generation failure drops only
-    // the attachment, never the receipt email itself. `charge` is already
-    // 'completed' in memory here (the `.save()` above mutates the real
-    // Mongoose document, unlike the group-class ledger's findByIdAndUpdate
-    // path — no re-fetch needed).
     let invoiceNumber;
     let invoicePdf;
 
-    try {
-      const invoiceData = await invoiceService.buildInvoiceData(charge);
-      invoiceNumber = invoiceData.invoiceNumber;
-      invoicePdf = await invoiceService.renderInvoicePdf(invoiceData);
-    } catch (invoiceError) {
-      // eslint-disable-next-line no-console -- operational logging for a
-      // fire-and-forget PDF-generation side effect, not debug output.
-      console.error('privateClassSession.service: failed to generate invoice PDF:', invoiceError.message);
+    if (purchaseRow) {
+      try {
+        const invoiceData = await invoiceService.buildInvoiceData(purchaseRow);
+        invoiceNumber = invoiceData.invoiceNumber;
+        invoicePdf = await invoiceService.renderInvoicePdf(invoiceData);
+      } catch (invoiceError) {
+        // eslint-disable-next-line no-console -- operational logging for a
+        // fire-and-forget PDF side effect, not debug output.
+        console.error('privateClassSession.service: failed to generate invoice PDF:', invoiceError.message);
+      }
     }
 
-    await mailService.sendPrivateClassSessionReceiptEmail({
+    await mailService.sendPrivateClassBookingConfirmationEmail({
       parent,
       student,
       coach,
-      sessionDate: session.startDate,
-      durationMinutes: sessionDurationMinutes(session.startDate, session.endDate),
-      amount,
+      session,
+      enrollment,
+      purchaseRow,
+      cancelCutoffHours: PARENT_CANCEL_CUTOFF_HOURS,
       invoiceNumber,
       invoicePdf,
+    });
+    await mailService.sendPrivateClassCoachBookingEmail({
+      coach,
+      parent,
+      student,
+      session,
+      durationMinutes: enrollment.sessionDurationMinutes,
     });
   } catch (error) {
     // eslint-disable-next-line no-console -- operational logging for a
     // fire-and-forget email side effect, not debug output.
-    console.error('privateClassSession.service: failed to send receipt email:', error.message);
+    console.error('privateClassSession.service: failed to send booking emails:', error.message);
   }
-
-  return { charged: true, chargeStatus: 'completed', charge };
 }
 
-// admin/superadmin may mark any session; a coach only their own
-// (CKQ-BUG-FIX — CKQ lets any coach mark any session).
+// ── Booking with a credit ─────────────────────────────────────────────────
+
+// Books one date using a session the family already paid for. The credit is
+// taken first — one atomic guarded $inc on the OLDEST active purchase of this
+// student with this coach for this lesson length that still has one — then
+// the slot is claimed; if the slot is taken, the credit goes straight back.
+// No money moves and no ledger row is written.
+async function book({ studentId, scheduleId, day }, parent) {
+  const { student, schedule, coach, startDate, endDate } = await loadBookingContext(
+    { studentId, scheduleId, day },
+    parent
+  );
+
+  const enrollment = await PrivateClassEnrollment.findOneAndUpdate(
+    {
+      studentId: student._id,
+      parentId: parent._id,
+      coachId: coach._id,
+      sessionDurationMinutes: schedule.durationMinutes,
+      status: 'active',
+      $expr: { $lt: ['$sessionsUsed', '$quantity'] },
+    },
+    { $inc: { sessionsUsed: 1 } },
+    { sort: { createdAt: 1, _id: 1 }, new: true }
+  );
+
+  if (!enrollment) {
+    throw conflictError(
+      `${student.firstName} has no ${schedule.durationMinutes}-minute sessions left with this coach — buy more to book`
+    );
+  }
+
+  let session;
+
+  try {
+    session = await reserveSlot({
+      scheduleId: schedule._id,
+      enrollmentId: enrollment._id,
+      coachId: coach._id,
+      studentId: student._id,
+      parentId: parent._id,
+      startDate,
+      endDate,
+      status: 'confirmed',
+    });
+  } catch (error) {
+    await returnCredit(enrollment._id);
+    throw error;
+  }
+
+  await onBookingConfirmed({ session, enrollment, parent, student, coach });
+
+  return { session, enrollment, remaining: enrollment.quantity - enrollment.sessionsUsed };
+}
+
+// ── Attendance ────────────────────────────────────────────────────────────
+
+function markedViaFor(user) {
+  return hasAdminRole(user) ? 'admin' : 'coach';
+}
+
+// Coach-own | admin. Records attendance on the booking's Visit — never money
+// (the lesson was paid at purchase). Only a confirmed booking whose lesson
+// has started can be marked.
 async function markAttendance(sessionId, status, requestingUser) {
   const session = await PrivateClassSession.findById(sessionId);
 
@@ -341,38 +257,36 @@ async function markAttendance(sessionId, status, requestingUser) {
     throw forbiddenError('You are not the coach for this session');
   }
 
-  if (!(session.startDate <= new Date())) {
-    throw badRequestError('Cannot record attendance for a session that has not yet occurred');
+  if (session.status !== 'confirmed') {
+    throw conflictError('Only a booked lesson can be marked');
+  }
+
+  if (session.startDate > new Date()) {
+    throw badRequestError('Cannot record attendance for a lesson that has not started');
   }
 
   if (status !== 'attended' && status !== 'missed') {
     throw badRequestError("Attendance status must be 'attended' or 'missed'");
   }
 
-  const completedCharge = await PerSessionRegistration.findOne({ sessionId, status: 'completed' });
+  const visit = await visitService.markPrivateAttendance(
+    session.studentId,
+    session._id,
+    status,
+    requestingUser._id,
+    markedViaFor(requestingUser)
+  );
 
-  if (completedCharge && status !== 'attended') {
-    throw conflictError('This session has already been charged');
-  }
-
-  session.attendance = status;
-  session.markedBy = requestingUser._id;
-  session.markedAt = new Date();
-  await session.save();
-
-  let chargeOutcome = { charged: false, charge: completedCharge || null };
-
-  if (status === 'attended') {
-    chargeOutcome = await chargeSession(session);
-  }
-
-  return { session, ...chargeOutcome };
+  return { session: { ...session.toObject(), attendance: visit.status }, visit };
 }
 
-// Only when the session's latest charge is 'failed' — re-runs
-// chargeSession() verbatim, which mints a fresh idempotency key via the
-// bumped `attempt` count.
-async function retryCharge(sessionId, requestingUser) {
+// ── Cancellation ──────────────────────────────────────────────────────────
+
+// Parent-own (until PARENT_CANCEL_CUTOFF_HOURS before the lesson), coach-own
+// or admin (until it starts). The credit goes back to the purchase; no money
+// moves (ADR 001 — no refunds). The slot reopens (the partial unique index
+// no longer counts a cancelled booking).
+async function cancel(sessionId, requestingUser) {
   const session = await PrivateClassSession.findById(sessionId);
 
   if (!session) {
@@ -382,37 +296,93 @@ async function retryCharge(sessionId, requestingUser) {
   const isAdmin = hasAdminRole(requestingUser);
   const isAssignedCoach =
     requestingUser.role === 'coach' && String(session.coachId) === String(requestingUser._id);
+  const isOwningParent =
+    requestingUser.role === 'parent' && String(session.parentId) === String(requestingUser._id);
 
-  if (!isAdmin && !isAssignedCoach) {
-    throw forbiddenError('You are not the coach for this session');
+  if (!isAdmin && !isAssignedCoach && !isOwningParent) {
+    throw forbiddenError('This booking does not belong to you');
   }
 
-  const latestCharge = await PerSessionRegistration.findOne({ sessionId }).sort({ createdAt: -1 });
-
-  if (!latestCharge || latestCharge.status !== 'failed') {
-    throw conflictError('This session does not have a failed charge to retry');
+  if (session.status !== 'confirmed') {
+    throw conflictError('Only a booked lesson can be cancelled');
   }
 
-  const outcome = await chargeSession(session);
+  const now = new Date();
 
-  return { session, ...outcome };
+  if (session.startDate <= now) {
+    throw conflictError('This lesson has already started — mark attendance instead');
+  }
+
+  if (!isAdmin && !isAssignedCoach && session.startDate.getTime() - now.getTime() < PARENT_CANCEL_CUTOFF_HOURS * MS_PER_HOUR) {
+    throw conflictError(
+      `Lessons can be cancelled online up to ${PARENT_CANCEL_CUTOFF_HOURS} hours before they start — please contact the academy`
+    );
+  }
+
+  const cancelled = await PrivateClassSession.findOneAndUpdate(
+    { _id: session._id, status: 'confirmed' },
+    { $set: { status: 'cancelled', cancelledAt: now, cancelledBy: requestingUser._id } },
+    { new: true }
+  );
+
+  if (!cancelled) {
+    throw conflictError('Only a booked lesson can be cancelled');
+  }
+
+  const enrollment = await returnCredit(cancelled.enrollmentId);
+  await visitService.cancelPrivateVisit(cancelled._id);
+
+  try {
+    const [parent, student, coach] = await Promise.all([
+      User.findById(cancelled.parentId),
+      User.findById(cancelled.studentId),
+      User.findById(cancelled.coachId),
+    ]);
+
+    await mailService.sendPrivateClassBookingCancelledEmail({ parent, student, coach, session: cancelled, enrollment });
+  } catch (error) {
+    // eslint-disable-next-line no-console -- operational logging for a
+    // fire-and-forget email side effect, not debug output.
+    console.error('privateClassSession.service: failed to send cancellation email:', error.message);
+  }
+
+  return {
+    session: { ...cancelled.toObject(), attendance: 'cancelled' },
+    remaining: enrollment ? enrollment.quantity - enrollment.sessionsUsed : null,
+  };
 }
 
-// Enriches each session with a backend-computed `sessionPrice` (rate x
-// duration/60, from the enrollment's PINNED agreedHourlyRate) and populates
-// parentId's display name — the coach page's confirm-attendance dialog
-// shows the exact charge amount before marking, and no pricing math is
-// ever allowed on the frontend (Hard Rule 7).
+// ── Listings ──────────────────────────────────────────────────────────────
+
+// Every listing reads attendance from the Visit ledger (one query per list)
+// and exposes it as `attendance` — a confirmed booking with no Visit reads
+// 'scheduled'; a cancelled one reads 'cancelled'.
+async function withAttendance(sessions) {
+  const statusBySession = await visitService.getPrivateVisitStatusBySession(sessions.map((session) => session._id));
+
+  return sessions.map((session) => {
+    const plain = session.toObject ? session.toObject() : session;
+    const fallback = plain.status === 'cancelled' ? 'cancelled' : 'scheduled';
+    return { ...plain, attendance: statusBySession.get(String(plain._id)) || fallback };
+  });
+}
+
+const COACH_WINDOWS = ['upcoming', 'unmarked', 'past'];
+
+// A coach's own confirmed bookings. `upcoming` = not started, soonest first;
+// `past` = started, newest first; `unmarked` = started and attendance still
+// 'scheduled' (the coach's to-do list).
 async function listMine(coachId, window) {
+  if (window !== undefined && !COACH_WINDOWS.includes(window)) {
+    throw badRequestError(`window must be one of: ${COACH_WINDOWS.join(', ')}`);
+  }
+
   const now = new Date();
-  const filter = { coachId };
+  const filter = { coachId, status: 'confirmed' };
 
   if (window === 'upcoming') {
     filter.startDate = { $gt: now };
-  } else if (window === 'unmarked') {
-    filter.startDate = { $lte: now };
-    filter.attendance = 'scheduled';
-  } else if (window === 'past') {
+  } else if (window === 'unmarked' || window === 'past') {
     filter.startDate = { $lte: now };
   }
 
@@ -421,28 +391,58 @@ async function listMine(coachId, window) {
     .populate('parentId', 'firstName lastName')
     .sort({ startDate: window === 'upcoming' ? 1 : -1 });
 
-  const enrollmentIds = [...new Set(sessions.map((session) => String(session.enrollmentId)))];
-  const enrollments = await PrivateClassEnrollment.find({ _id: { $in: enrollmentIds } });
-  const rateByEnrollmentId = new Map(
-    enrollments.map((enrollment) => [String(enrollment._id), enrollment.agreedHourlyRate])
-  );
+  const rows = await withAttendance(sessions);
 
-  return sessions.map((session) => {
-    const rate = rateByEnrollmentId.get(String(session.enrollmentId));
-    let sessionPrice = null;
-
-    if (rate !== undefined) {
-      try {
-        sessionPrice = computeSessionPrice(rate, sessionDurationMinutes(session.startDate, session.endDate));
-      } catch (error) {
-        sessionPrice = null;
-      }
-    }
-
-    const plain = session.toObject();
-    plain.sessionPrice = sessionPrice;
-    return plain;
-  });
+  return window === 'unmarked' ? rows.filter((row) => row.attendance === 'scheduled') : rows;
 }
 
-module.exports = { generateSessions, markAttendance, retryCharge, listMine };
+const ADMIN_DEFAULT_STATUSES = ['confirmed', 'cancelled'];
+
+// Admin: every booking (confirmed + cancelled by default), newest lesson
+// first, optionally for one coach or one status.
+async function listAll({ coachId, status } = {}) {
+  const filter = { status: { $in: ADMIN_DEFAULT_STATUSES } };
+
+  if (status) {
+    if (!PRIVATE_CLASS_SESSION_STATUSES.includes(status)) {
+      throw badRequestError(`status must be one of: ${PRIVATE_CLASS_SESSION_STATUSES.join(', ')}`);
+    }
+    filter.status = status;
+  }
+
+  if (coachId) {
+    filter.coachId = coachId;
+  }
+
+  const sessions = await PrivateClassSession.find(filter)
+    .populate('coachId', 'firstName lastName')
+    .populate('studentId', 'firstName lastName')
+    .populate('parentId', 'firstName lastName')
+    .sort({ startDate: -1 });
+
+  return withAttendance(sessions);
+}
+
+// A purchase's bookings, soonest first — the parent's view of one enrollment.
+async function listForEnrollments(enrollmentIds) {
+  const sessions = await PrivateClassSession.find({
+    enrollmentId: { $in: enrollmentIds },
+    status: { $in: ADMIN_DEFAULT_STATUSES },
+  }).sort({ startDate: 1 });
+
+  return withAttendance(sessions);
+}
+
+module.exports = {
+  PARENT_CANCEL_CUTOFF_HOURS,
+  PENDING_HOLD_TTL_MINUTES,
+  loadBookingContext,
+  reserveSlot,
+  onBookingConfirmed,
+  book,
+  markAttendance,
+  cancel,
+  listMine,
+  listAll,
+  listForEnrollments,
+};

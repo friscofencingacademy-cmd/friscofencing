@@ -175,11 +175,11 @@ const CLASS_SCHEDULES = {
   ],
 };
 
-// Coach Chris's private-lesson rate (docs/features/private-class.md).
-// PLACEHOLDER — the PDF/CSV don't state a real rate. Fill in the real
-// $/hour figures before the go-live run; the one legacy private-class
-// student (Sana Sarath, PIN 6221) gets her agreedHourlyRate pinned from
-// whatever this contract says at import time.
+// Coach Chris's private-lesson rate (docs/features/private-class.md) — the
+// contract that lets the coach publish availability and prices every
+// purchase. PLACEHOLDER — the PDF/CSV don't state a real rate. Fill in the
+// real $/hour figures before the go-live run. The import creates no
+// private-lesson purchases (see runLegacyImport.js's summary comment).
 const PRIVATE_CLASS_CONTRACT = {
   coach: 'chris',
   studentBillingRate: 60,
@@ -199,21 +199,6 @@ const TEST_RECORD_FILTERS = {
   firstNamePrefixes: ['test'],
 };
 
-// Owner decision point, recorded here rather than only in a plan doc
-// (docs/plans/booking-and-private-class-fixes-plan.md §3): a refresh-
-// staging-data.js run used to create a fresh, slotless, active
-// PrivateClassEnrollment for Sana Sarath (PRIVATE_CLASS_CONTRACT above)
-// every single time — half-baked state (no PrivateClassSchedule slot, no
-// generated sessions) no real self-registration flow can produce, and
-// confusing on every page that renders it. Defaults OFF so a staging
-// refresh creates zero private-class data, matching the owner's explicit
-// "clear all private class enrollments and schedules" request (2026-08-31).
-// Flip to true only for the real go-live import, and only after confirming
-// with the owner whether Sana's legacy private enrollment should actually
-// carry over — this flag is that decision's one-line switch, not a
-// judgment call this script makes on its own.
-const IMPORT_PRIVATE_CLASS_ENROLLMENTS = false;
-
 module.exports = {
   LOCATION,
   COACHES,
@@ -221,5 +206,4 @@ module.exports = {
   CLASS_SCHEDULES,
   PRIVATE_CLASS_CONTRACT,
   TEST_RECORD_FILTERS,
-  IMPORT_PRIVATE_CLASS_ENROLLMENTS,
 };

@@ -6,7 +6,7 @@ const Location = require('../../src/models/location.model');
 const GroupClass = require('../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const Service = require('../../src/models/service.model');
-const PrivateClassSession = require('../../src/models/privateClassSession.model');
+const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
 const { SubscriptionCycleRegistration, PerSessionRegistration } = require('../../src/models/registration.model');
 const academy = require('../../src/config/academy');
 const { buildInvoiceData, renderInvoicePdf } = require('../../src/services/invoice.service');
@@ -218,46 +218,78 @@ describe('invoice.service — buildInvoiceData', () => {
     });
   });
 
-  describe('per_session rows', () => {
-    it('resolves the coach + session date/duration and always uses the academy address as location (no Location field on a private lesson)', async () => {
+  // A per_session row is a private-lesson PURCHASE (ADR 011).
+  describe('per_session rows (private-lesson purchases)', () => {
+    async function seedPurchase({ quantity, unitPrice, discountPercent, amount }) {
       const privateLessonsService = await Service.findOne({ code: 'private-lessons' });
-      const { parent, student } = await seedParentAndStudent('invoice-per-session@example.com');
-      const coach = await User.create({ role: 'coach', firstName: 'Dana', lastName: 'Coach', email: `coach-ps-${Date.now()}@example.com` });
-
-      const startDate = new Date('2026-02-10T16:00:00.000Z');
-      const endDate = new Date('2026-02-10T16:30:00.000Z');
-
-      const session = await PrivateClassSession.create({
-        scheduleId: new mongoose.Types.ObjectId(),
-        enrollmentId: new mongoose.Types.ObjectId(),
+      const { parent, student } = await seedParentAndStudent(`invoice-purchase-${quantity}@example.com`);
+      const coach = await User.create({
+        role: 'coach',
+        firstName: 'Dana',
+        lastName: 'Coach',
+        email: `coach-ps-${quantity}-${Date.now()}@example.com`,
+      });
+      const enrollment = await PrivateClassEnrollment.create({
+        studentId: student._id,
+        parentId: parent._id,
         coachId: coach._id,
-        studentId: student._id,
-        parentId: parent._id,
-        startDate,
-        endDate,
-        attendance: 'attended',
+        coachContractId: new mongoose.Types.ObjectId(),
+        agreedHourlyRate: 65,
+        sessionDurationMinutes: 30,
+        quantity,
+        discountPercent,
+        sessionsUsed: 1,
+        status: 'active',
       });
 
-      const row = await PerSessionRegistration.create({
+      return PerSessionRegistration.create({
         serviceId: privateLessonsService._id,
-        sessionId: session._id,
-        enrollmentId: session.enrollmentId,
+        sessionId: new mongoose.Types.ObjectId(),
+        enrollmentId: enrollment._id,
         studentId: student._id,
         parentId: parent._id,
+        quantity,
+        unitPrice,
+        discountPercent,
         status: 'completed',
-        amount: 25,
-        paidAt: new Date(),
+        amount,
+        paidAt: new Date('2026-02-10T18:00:00.000Z'),
       });
+    }
+
+    it('a single session: one line naming coach and length, the academy address, dated by the purchase', async () => {
+      const row = await seedPurchase({ quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 });
 
       const data = await buildInvoiceData(row);
 
-      expect(data.total).toBe(25);
-      expect(data.serviceLabel).toBe('Private Lesson Session');
+      expect(data.total).toBe(32.5);
+      expect(data.serviceLabel).toBe('Private Lesson Purchase');
       expect(data.location).toEqual({ name: academy.name, addressLines: academy.addressLines });
-      expect(data.lineItems).toHaveLength(1);
-      expect(data.lineItems[0].label).toContain('Dana Coach');
-      expect(data.lineItems[0].label).toContain('30 min');
-      expect(data.lineItems[0].amount).toBe(25);
+      expect(data.lineItems).toEqual([{ label: 'Private lesson with Dana Coach — 30 min', amount: 32.5 }]);
+      expect(data.periodLabel).toBe('Tuesday, Feb 10, 2026');
+    });
+
+    it('a discounted pack: the subtotal line plus a negative discount line that sum to the charged total', async () => {
+      const row = await seedPurchase({ quantity: 10, unitPrice: 32.5, discountPercent: 10, amount: 292.5 });
+
+      const data = await buildInvoiceData(row);
+
+      expect(data.lineItems).toEqual([
+        { label: 'Private lessons with Dana Coach — 30 min × 10', amount: 325 },
+        { label: 'Pack discount (10%)', amount: -32.5 },
+      ]);
+      expect(data.lineItems.reduce((sum, item) => sum + item.amount, 0)).toBe(data.total);
+      expect(data.total).toBe(292.5);
+    });
+
+    it('degrades to a coach-less label when the purchase no longer resolves, never throwing', async () => {
+      const row = await seedPurchase({ quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 });
+      await PrivateClassEnrollment.deleteMany({});
+
+      const data = await buildInvoiceData(row);
+
+      expect(data.lineItems).toEqual([{ label: 'Private lesson', amount: 32.5 }]);
+      expect(data.total).toBe(32.5);
     });
   });
 

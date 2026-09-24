@@ -25,6 +25,9 @@ afterEach(async () => {
   await clearTestDB();
 });
 
+// Calendar-day sentinels — a schedule's bookable range (ADR 011).
+const RANGE = { startDate: new Date('2026-01-01'), endDate: new Date('2026-03-31') };
+
 async function makeUser(overrides = {}) {
   return User.create({ firstName: 'Test', lastName: 'User', ...overrides });
 }
@@ -32,7 +35,7 @@ async function makeUser(overrides = {}) {
 describe('scripts/lib/findOrphanedReferences', () => {
   it('reports nothing on a database with no orphaned refs', async () => {
     const coach = await makeUser({ role: 'coach' });
-    await PrivateClassSchedule.create({ coachId: coach._id, dayOfWeek: 1, startTime: '16:00' });
+    await PrivateClassSchedule.create({ coachId: coach._id, dayOfWeek: 1, startTime: '16:00', ...RANGE });
 
     const { orphans, scannedCounts } = await findOrphanedReferences();
 
@@ -46,6 +49,7 @@ describe('scripts/lib/findOrphanedReferences', () => {
       coachId: coach._id,
       dayOfWeek: 1,
       startTime: '16:00',
+      ...RANGE,
     });
     await User.deleteOne({ _id: coach._id });
 
@@ -91,6 +95,8 @@ describe('scripts/lib/findOrphanedReferences', () => {
       coachId: coach._id,
       coachContractId: new mongoose.Types.ObjectId(),
       agreedHourlyRate: 60,
+      sessionDurationMinutes: 60,
+      quantity: 1,
     });
 
     await User.deleteMany({ _id: { $in: [coach._id, parent._id, student._id] } });
@@ -115,6 +121,7 @@ describe('scripts/lib/findOrphanedReferences', () => {
       parentId: parent._id,
       startDate: new Date('2026-01-01T16:00:00.000Z'),
       endDate: new Date('2026-01-01T17:00:00.000Z'),
+      status: 'confirmed',
     });
 
     await User.deleteOne({ _id: coach._id });
@@ -131,7 +138,7 @@ describe('scripts/lib/findOrphanedReferences', () => {
 
   it('never writes anything — read-only', async () => {
     const coach = await makeUser({ role: 'coach' });
-    await PrivateClassSchedule.create({ coachId: coach._id, dayOfWeek: 1, startTime: '16:00' });
+    await PrivateClassSchedule.create({ coachId: coach._id, dayOfWeek: 1, startTime: '16:00', ...RANGE });
     await User.deleteOne({ _id: coach._id });
 
     await findOrphanedReferences();

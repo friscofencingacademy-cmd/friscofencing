@@ -5,12 +5,245 @@ const PrivateClassSession = require('../models/privateClassSession.model');
 const { PerSessionRegistration } = require('../models/registration.model');
 const coachContractService = require('./coachContract.service');
 const paymentMethodService = require('./paymentMethod.service');
+const settingService = require('./setting.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
-const { generateSessions } = require('./privateClassSession.service');
-const { computeSessionPrice } = require('../utils/privateClassPricing');
-const mailService = require('./mail.service');
-const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
-const { hasAdminRole } = require('../utils/roles');
+const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
+const { chargeLedgerRow } = require('./billing/chargeFinalization.service');
+const privateClassSessionService = require('./privateClassSession.service');
+const { computeSessionPrice, computePackQuote, resolvePackOptions } = require('../utils/privateClassPricing');
+const { badRequestError, forbiddenError, notFoundError, conflictError, httpError } = require('../utils/errors');
+
+// Private-lesson PURCHASES (docs/decisions/011-private-per-session-booking.md).
+// A PrivateClassEnrollment is one purchase of `quantity` credits with one
+// coach for one lesson length, at a pinned price. Every purchase happens
+// together with a first booking (purchaseAndBook) — the parent picks a date,
+// then how many sessions to buy — so the charge is anchored to that booking
+// on the Registration ledger (the only record of money).
+
+function remainingOf(enrollment) {
+  return enrollment.quantity - enrollment.sessionsUsed;
+}
+
+// The one place a purchase's price is resolved: the coach's active contract
+// rate x the rule's lesson length (computeSessionPrice), then each offered
+// quantity's quote (computePackQuote). Used by the quote endpoint AND the
+// charge, so what the parent is shown is exactly what they are charged.
+async function resolvePurchaseTerms(schedule) {
+  const coachId = schedule.coachId._id || schedule.coachId;
+  const contract = await coachContractService.getActiveForCoach(coachId);
+
+  if (!contract) {
+    throw conflictError('This coach is not currently accepting private students');
+  }
+
+  const unitPrice = computeSessionPrice(contract.studentBillingRate, schedule.durationMinutes);
+  const { privateClassPackages } = await settingService.getSettings();
+  const options = resolvePackOptions(privateClassPackages).map(({ quantity, discountPercent }) =>
+    computePackQuote(unitPrice, quantity, discountPercent)
+  );
+
+  return { contract, unitPrice, options };
+}
+
+// Credits the student can still use for a rule (same coach, same length).
+async function availableCreditsFor(studentId, parentId, schedule) {
+  const enrollments = await PrivateClassEnrollment.find({
+    studentId,
+    parentId,
+    coachId: schedule.coachId._id || schedule.coachId,
+    sessionDurationMinutes: schedule.durationMinutes,
+    status: 'active',
+  });
+
+  return enrollments.reduce((sum, enrollment) => sum + remainingOf(enrollment), 0);
+}
+
+// GET /private-class-enrollments/quote — everything the booking wizard shows
+// before the parent confirms: each purchase option priced for this rule, and
+// how many already-paid sessions the student could use instead. Every figure
+// is computed here; the frontend only renders it.
+async function quote({ studentId, scheduleId }, parent) {
+  const student = await User.findById(studentId);
+
+  if (!student || student.role !== 'student') {
+    throw notFoundError('Student not found');
+  }
+
+  if (String(student.parentId) !== String(parent._id)) {
+    throw forbiddenError('This student does not belong to you');
+  }
+
+  const schedule = await PrivateClassSchedule.findById(scheduleId);
+
+  if (!schedule || !schedule.isActive) {
+    throw notFoundError('Private class schedule not found');
+  }
+
+  const availableCredits = await availableCreditsFor(student._id, parent._id, schedule);
+
+  // A coach who stopped taking new students still honors credits already
+  // paid for — the quote then offers only the credit path.
+  let terms = null;
+  try {
+    terms = await resolvePurchaseTerms(schedule);
+  } catch (error) {
+    if (error.status !== 409) throw error;
+  }
+
+  return {
+    durationMinutes: schedule.durationMinutes,
+    hourlyRate: terms ? terms.contract.studentBillingRate : null,
+    options: terms ? terms.options : [],
+    availableCredits,
+  };
+}
+
+// POST /private-class-enrollments — buy `quantity` sessions and book the
+// first one, in the order ADR 011 fixes (reserve before charging, ADR 008's
+// lesson):
+//   1. validate everything (no writes)
+//   2. create the purchase `pending`
+//   3. claim the slot with a `pending` booking (the atomic insert)
+//   4. create the `pending` ledger row
+//   5. charge the card (chargeLedgerRow — the one Stripe charge path)
+//   6. success: ledger completed, purchase active with 1 credit used,
+//      booking confirmed, Visit + emails (invoice attached)
+//      decline:  ledger failed, purchase failed, booking released (the slot
+//      reopens) -> 402
+// An unexpected Stripe error (not a decline) propagates with the ledger row
+// still `pending`, so the slot stays held and is never silently released
+// while money may have moved; check-private-credit-ledger.js reports it.
+async function purchaseAndBook({ studentId, scheduleId, day, quantity }, parent) {
+  const { student, schedule, coach, startDate, endDate } = await privateClassSessionService.loadBookingContext(
+    { studentId, scheduleId, day },
+    parent
+  );
+
+  const { contract, unitPrice, options } = await resolvePurchaseTerms(schedule);
+  const option = options.find((candidate) => candidate.quantity === quantity);
+
+  if (!option) {
+    throw badRequestError(`quantity must be one of: ${options.map((candidate) => candidate.quantity).join(', ')}`);
+  }
+
+  if (!(option.total > 0)) {
+    throw conflictError('This coach has no price set for private lessons');
+  }
+
+  const paymentMethod = await paymentMethodService.getMine(parent._id);
+
+  if (!paymentMethod) {
+    throw badRequestError('Add a payment method before booking');
+  }
+
+  // Resolved before any write — a misconfigured Service must never leave a
+  // booking without a resolvable serviceId (ADR 004).
+  const privateLessonsService = await getServiceByCode('private-lessons', { requireActive: true });
+  assertBillingShape(privateLessonsService, 'per_session');
+
+  const stripeCustomerId = await ensureStripeCustomer(parent);
+
+  const enrollment = await PrivateClassEnrollment.create({
+    studentId: student._id,
+    parentId: parent._id,
+    coachId: coach._id,
+    coachContractId: contract._id,
+    agreedHourlyRate: contract.studentBillingRate,
+    sessionDurationMinutes: schedule.durationMinutes,
+    quantity: option.quantity,
+    discountPercent: option.discountPercent,
+    sessionsUsed: 0,
+    status: 'pending',
+  });
+
+  let session;
+
+  try {
+    session = await privateClassSessionService.reserveSlot({
+      scheduleId: schedule._id,
+      enrollmentId: enrollment._id,
+      coachId: coach._id,
+      studentId: student._id,
+      parentId: parent._id,
+      startDate,
+      endDate,
+      status: 'pending',
+    });
+  } catch (error) {
+    // Nothing references the purchase yet — remove it rather than leave an
+    // empty failed record behind.
+    await PrivateClassEnrollment.deleteOne({ _id: enrollment._id });
+    throw error;
+  }
+
+  const row = await PerSessionRegistration.create({
+    serviceId: privateLessonsService._id,
+    sessionId: session._id,
+    enrollmentId: enrollment._id,
+    parentId: parent._id,
+    studentId: student._id,
+    quantity: option.quantity,
+    unitPrice,
+    discountPercent: option.discountPercent,
+    amount: option.total,
+    status: 'pending',
+    attempt: 1,
+  });
+
+  const charge = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
+
+  if (charge.outcome !== 'succeeded') {
+    await PerSessionRegistration.updateOne(
+      { _id: row._id },
+      {
+        $set: {
+          status: 'failed',
+          failureMessage: charge.failureMessage,
+          stripePaymentIntentId: charge.paymentIntentId,
+        },
+      }
+    );
+    await PrivateClassEnrollment.updateOne({ _id: enrollment._id }, { $set: { status: 'failed' } });
+    await PrivateClassSession.updateOne(
+      { _id: session._id },
+      { $set: { status: 'released', releaseReason: 'payment_failed' } }
+    );
+
+    throw httpError(402, charge.failureMessage);
+  }
+
+  const completedRow = await PerSessionRegistration.findByIdAndUpdate(
+    row._id,
+    { $set: { status: 'completed', stripePaymentIntentId: charge.paymentIntentId, paidAt: new Date() } },
+    { new: true }
+  );
+  const activeEnrollment = await PrivateClassEnrollment.findByIdAndUpdate(
+    enrollment._id,
+    { $set: { status: 'active', sessionsUsed: 1 } },
+    { new: true }
+  );
+  const confirmedSession = await PrivateClassSession.findByIdAndUpdate(
+    session._id,
+    { $set: { status: 'confirmed' } },
+    { new: true }
+  );
+
+  await privateClassSessionService.onBookingConfirmed({
+    session: confirmedSession,
+    enrollment: activeEnrollment,
+    parent,
+    student,
+    coach,
+    purchaseRow: completedRow,
+  });
+
+  return {
+    enrollment: activeEnrollment,
+    session: confirmedSession,
+    registration: completedRow,
+    remaining: remainingOf(activeEnrollment),
+  };
+}
 
 function populateEnrollment(query) {
   return query
@@ -19,197 +252,70 @@ function populateEnrollment(query) {
     .populate('coachId', 'firstName lastName email');
 }
 
-// Self-registration (D4: born active, no admin-created-then-parent-accepts
-// step — that's CKQ's model, this is the parent-self-registers model).
-async function create({ studentId, scheduleId }, requestingUser) {
-  const student = await User.findById(studentId);
+// Each purchase with its remaining credits, its ledger row (what was paid),
+// and its bookings (with attendance from the Visit ledger).
+async function withPaymentsAndBookings(enrollments) {
+  if (enrollments.length === 0) return [];
 
-  if (!student || student.role !== 'student') {
-    throw notFoundError('Student not found');
-  }
+  const enrollmentIds = enrollments.map((enrollment) => enrollment._id);
+  const [payments, sessions] = await Promise.all([
+    PerSessionRegistration.find({ enrollmentId: { $in: enrollmentIds }, status: 'completed' }).lean(),
+    privateClassSessionService.listForEnrollments(enrollmentIds),
+  ]);
 
-  if (String(student.parentId) !== String(requestingUser._id)) {
-    throw forbiddenError('This student does not belong to you');
-  }
-
-  const schedule = await PrivateClassSchedule.findById(scheduleId).populate(
-    'coachId',
-    'firstName lastName email'
-  );
-
-  // schedule.coachId is null when the coach was deleted without a
-  // delete-guard blocking it (orphaned-coach-reference-fix-plan D4) — a
-  // stale bookmarked slot link must 404, not crash on a null populate.
-  if (!schedule || !schedule.isActive || !schedule.coachId) {
-    throw notFoundError('Private class schedule not found');
-  }
-
-  const contract = await coachContractService.getActiveForCoach(schedule.coachId._id);
-
-  if (!contract) {
-    throw conflictError('This coach is not currently accepting private students');
-  }
-
-  const paymentMethod = await paymentMethodService.getMine(requestingUser._id);
-
-  if (!paymentMethod) {
-    throw badRequestError('Add a payment method before registering');
-  }
-
-  await ensureStripeCustomer(requestingUser);
-
-  const enrollment = await PrivateClassEnrollment.create({
-    studentId,
-    parentId: requestingUser._id,
-    coachId: schedule.coachId._id,
-    coachContractId: contract._id,
-    agreedHourlyRate: contract.studentBillingRate,
-    status: 'active',
+  const paymentByEnrollment = new Map(payments.map((payment) => [String(payment.enrollmentId), payment]));
+  const sessionsByEnrollment = new Map();
+  sessions.forEach((session) => {
+    const key = String(session.enrollmentId);
+    if (!sessionsByEnrollment.has(key)) sessionsByEnrollment.set(key, []);
+    sessionsByEnrollment.get(key).push(session);
   });
 
-  // CKQ-BUG-FIX (atomic slot claim — CKQ's read-then-write races): claim
-  // the slot with one atomic conditional update instead of a separate
-  // read-then-write, so two parents racing the same slot can never both
-  // "win." The loser's orphan enrollment is deleted immediately.
-  const claimed = await PrivateClassSchedule.findOneAndUpdate(
-    { _id: scheduleId, studentId: null, isActive: true },
-    { $set: { studentId, enrollmentId: enrollment._id } },
-    { new: true }
-  ).populate('coachId', 'firstName lastName email');
+  return enrollments.map((enrollment) => {
+    const payment = paymentByEnrollment.get(String(enrollment._id)) || null;
 
-  if (!claimed) {
-    await PrivateClassEnrollment.deleteOne({ _id: enrollment._id });
-    throw conflictError('This time slot was just taken — please pick another');
-  }
-
-  const { sessions, firstSessionDate } = await generateSessions({ enrollmentId: enrollment._id });
-
-  const sessionPrice = sessions.length
-    ? computeSessionPrice(contract.studentBillingRate, claimed.durationMinutes)
-    : null;
-
-  // Fire-and-forget confirmation email — never throws, never affects this
-  // response (see mail.service.js's send-function contract).
-  try {
-    await mailService.sendPrivateClassConfirmationEmail({
-      parent: requestingUser,
-      student,
-      coach: claimed.coachId,
-      slotLabel: `${claimed.startTime} · ${claimed.durationMinutes} min`,
-      rateLabel: `$${contract.studentBillingRate}/hr — $${sessionPrice} per session`,
-      firstSessionDate,
-      sessionPriceLabel: `$${sessionPrice}`,
-    });
-  } catch (error) {
-    // eslint-disable-next-line no-console -- operational logging for a
-    // fire-and-forget email side effect, not debug output.
-    console.error('privateClassEnrollment.service: failed to send confirmation email:', error.message);
-  }
-
-  return {
-    enrollment: await populateEnrollment(PrivateClassEnrollment.findById(enrollment._id)),
-    schedule: claimed,
-    sessionPrice,
-    firstSessionDate,
-  };
+    return {
+      enrollment,
+      remaining: remainingOf(enrollment),
+      payment: payment && {
+        _id: payment._id,
+        amount: payment.amount,
+        quantity: payment.quantity,
+        unitPrice: payment.unitPrice,
+        discountPercent: payment.discountPercent,
+        paidAt: payment.paidAt,
+      },
+      sessions: sessionsByEnrollment.get(String(enrollment._id)) || [],
+    };
+  });
 }
 
+// A parent's paid purchases, newest first. Failed purchases are not credit
+// balances — they appear only in payment history.
 async function listMine(parentId) {
-  const enrollments = await populateEnrollment(PrivateClassEnrollment.find({ parentId })).sort({
+  const enrollments = await populateEnrollment(PrivateClassEnrollment.find({ parentId, status: 'active' })).sort({
     createdAt: -1,
   });
 
-  const withSlotsAndCharges = await Promise.all(
-    enrollments.map(async (enrollment) => {
-      const slot = await PrivateClassSchedule.findOne({ enrollmentId: enrollment._id });
-      const charges = await PerSessionRegistration.find({ enrollmentId: enrollment._id })
-        .sort({ createdAt: -1 })
-        .limit(10);
-
-      return { enrollment, slot, charges };
-    })
-  );
-
-  return withSlotsAndCharges;
+  return withPaymentsAndBookings(enrollments);
 }
 
 async function listAll({ status, coachId } = {}) {
-  const filter = {};
+  const filter = { status: status || 'active' };
 
-  if (status) {
-    filter.status = status;
+  if (!PrivateClassEnrollment.PRIVATE_CLASS_ENROLLMENT_STATUSES.includes(filter.status)) {
+    throw badRequestError(
+      `status must be one of: ${PrivateClassEnrollment.PRIVATE_CLASS_ENROLLMENT_STATUSES.join(', ')}`
+    );
   }
 
   if (coachId) {
     filter.coachId = coachId;
   }
 
-  return populateEnrollment(PrivateClassEnrollment.find(filter)).sort({ createdAt: -1 });
+  const enrollments = await populateEnrollment(PrivateClassEnrollment.find(filter)).sort({ createdAt: -1 });
+
+  return withPaymentsAndBookings(enrollments);
 }
 
-// parent-own | admin. Frees every slot the enrollment claimed and deletes
-// only FUTURE (money-free) sessions — charging requires attendance, and
-// attendance requires startDate <= now, so a future session can never have
-// been charged (keep this argument in the comment, per plan).
-async function cancel(enrollmentId, requestingUser) {
-  const enrollment = await PrivateClassEnrollment.findById(enrollmentId);
-
-  if (!enrollment) {
-    throw notFoundError('Private class enrollment not found');
-  }
-
-  const isAdmin = hasAdminRole(requestingUser);
-  const isOwningParent =
-    requestingUser.role === 'parent' && String(enrollment.parentId) === String(requestingUser._id);
-
-  if (!isAdmin && !isOwningParent) {
-    throw forbiddenError('This enrollment does not belong to you');
-  }
-
-  if (enrollment.status !== 'active') {
-    throw conflictError('This enrollment is already cancelled');
-  }
-
-  const now = new Date();
-
-  // Captured BEFORE the roster-free write below clears studentId/
-  // enrollmentId, so the cancellation email can still describe which slot
-  // was released.
-  const slot = await PrivateClassSchedule.findOne({ enrollmentId: enrollment._id });
-  const slotLabel = slot ? `${slot.startTime} · ${slot.durationMinutes} min` : '';
-
-  enrollment.status = 'cancelled';
-  enrollment.endDate = now;
-  await enrollment.save();
-
-  await PrivateClassSchedule.updateMany(
-    { enrollmentId: enrollment._id },
-    { $set: { studentId: null, enrollmentId: null } }
-  );
-
-  await PrivateClassSession.deleteMany({
-    enrollmentId: enrollment._id,
-    startDate: { $gt: now },
-  });
-
-  try {
-    const student = await User.findById(enrollment.studentId);
-    const parent = await User.findById(enrollment.parentId);
-    const coach = await User.findById(enrollment.coachId);
-
-    await mailService.sendPrivateClassCancellationEmail({
-      parent,
-      student,
-      coach,
-      slotLabel,
-    });
-  } catch (error) {
-    // eslint-disable-next-line no-console -- operational logging for a
-    // fire-and-forget email side effect, not debug output.
-    console.error('privateClassEnrollment.service: failed to send cancellation email:', error.message);
-  }
-
-  return enrollment;
-}
-
-module.exports = { create, listMine, listAll, cancel };
+module.exports = { quote, purchaseAndBook, listMine, listAll };

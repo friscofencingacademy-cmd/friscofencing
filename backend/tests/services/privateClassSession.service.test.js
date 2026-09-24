@@ -1,180 +1,157 @@
 const mongoose = require('mongoose');
 
-const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
-const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
+const Service = require('../../src/models/service.model');
 const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
 const PrivateClassSession = require('../../src/models/privateClassSession.model');
-const User = require('../../src/models/user.model');
-
-const { generateSessions } = require('../../src/services/privateClassSession.service');
-
-// Fakes ONLY Date (via `now`) and explicitly leaves every timer function
-// real — faking setTimeout/setImmediate/nextTick here would hang the real
-// mongodb-memory-server driver this suite's tests all use (same pattern as
-// tests/services/groupClassSession.service.test.js and
-// tests/routes/groupClassSession.routes.test.js's own "today-inclusive"
-// test).
-function freezeAt(iso) {
-  jest.useFakeTimers({
-    now: new Date(iso),
-    doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick'],
-  });
-}
+const { PerSessionRegistration } = require('../../src/models/registration.model');
+const { reserveSlot, PENDING_HOLD_TTL_MINUTES } = require('../../src/services/privateClassSession.service');
+const { combineDayAndTimeInTZ } = require('../../src/utils/dateShapes');
+const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 
 let mongod;
 
 beforeAll(async () => {
   mongod = await connectTestDB();
+  // The partial unique index is the thing under test — make sure it exists
+  // before the first insert races it.
+  await PrivateClassSession.init();
 });
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
 });
 
-afterEach(async () => {
-  await clearTestDB();
-  jest.useRealTimers();
+beforeEach(async () => {
+  await seedServices();
 });
 
-async function seedClaimedSlot({ dayOfWeek, startTime, durationMinutes = 60 }) {
-  const coach = await User.create({
-    role: 'coach',
-    firstName: 'Dana',
-    lastName: 'Coach',
-    email: `coach-${dayOfWeek}-${startTime}-${Math.random()}@example.com`,
-    passwordHash: 'x',
-  });
-  const parent = await User.create({
-    role: 'parent',
-    firstName: 'Pat',
-    lastName: 'Parent',
-    email: `parent-${dayOfWeek}-${startTime}-${Math.random()}@example.com`,
-    passwordHash: 'x',
-  });
-  const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'One', parentId: parent._id });
+afterEach(async () => {
+  await clearTestDB();
+});
 
-  const enrollment = await PrivateClassEnrollment.create({
-    studentId: student._id,
-    parentId: parent._id,
-    coachId: coach._id,
-    coachContractId: new mongoose.Types.ObjectId(),
-    agreedHourlyRate: 65,
-    status: 'active',
-  });
+const id = () => new mongoose.Types.ObjectId();
+const SCHEDULE_ID = id();
+const START = combineDayAndTimeInTZ('2026-10-06', '16:30');
+const END = new Date(START.getTime() + 30 * 60000);
 
-  const schedule = await PrivateClassSchedule.create({
-    coachId: coach._id,
-    dayOfWeek,
-    startTime,
-    durationMinutes,
-    studentId: student._id,
-    enrollmentId: enrollment._id,
-    isActive: true,
-  });
-
-  return { coach, parent, student, enrollment, schedule };
+function bookingDoc(overrides = {}) {
+  return {
+    scheduleId: SCHEDULE_ID,
+    enrollmentId: id(),
+    coachId: id(),
+    studentId: id(),
+    parentId: id(),
+    startDate: START,
+    endDate: END,
+    status: 'confirmed',
+    ...overrides,
+  };
 }
 
-describe('privateClassSession.service — generateSessions', () => {
-  // The regression this fix closes (docs/plans/utc-date-standard-plan.md) —
-  // confirmed against real staging data before writing this fix: every
-  // stored PrivateClassSession.startDate was off by exactly the Central/UTC
-  // offset, because the OLD combineDateAndTime() wrote a Central wall-clock
-  // time's raw numbers directly into the UTC field on a UTC production
-  // server. A "16:45 Central" slot must resolve to the true UTC instant —
-  // 21:45Z in CDT — never the old broken 16:45Z.
-  it('resolves a Central wall-clock startTime to the true UTC instant, not the raw clock numbers (CDT)', async () => {
-    freezeAt('2026-08-24T12:00:00.000Z'); // Monday, midday UTC
+async function backdate(session, minutesAgo) {
+  await PrivateClassSession.collection.updateOne(
+    { _id: session._id },
+    { $set: { createdAt: new Date(Date.now() - minutesAgo * 60000) } }
+  );
+}
 
-    const { enrollment } = await seedClaimedSlot({ dayOfWeek: 2, startTime: '16:45' }); // Tuesday
+// docs/decisions/011-private-per-session-booking.md — the insert IS the slot
+// claim; the partial unique index on (scheduleId, startDate) decides it.
+describe('privateClassSession.service — reserveSlot (the atomic slot claim)', () => {
+  it('lets exactly one of two concurrent claims for the same slot win', async () => {
+    const results = await Promise.allSettled([reserveSlot(bookingDoc()), reserveSlot(bookingDoc())]);
 
-    const { sessions } = await generateSessions({ enrollmentId: enrollment._id });
-
-    expect(sessions[0].startDate.toISOString()).toBe('2026-08-25T21:45:00.000Z');
-    // NOT the old bug's result — the raw clock numbers written straight
-    // into the UTC field.
-    expect(sessions[0].startDate.toISOString()).not.toBe('2026-08-25T16:45:00.000Z');
+    expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected.reason).toMatchObject({ status: 409 });
+    expect(await PrivateClassSession.countDocuments({})).toBe(1);
   });
 
-  it('resolves a Central wall-clock startTime to the true UTC instant in winter (CST)', async () => {
-    freezeAt('2026-01-12T12:00:00.000Z'); // Monday, midday UTC
+  it.each(['cancelled', 'released'])('a %s booking frees the slot without deleting its history', async (status) => {
+    await PrivateClassSession.create(bookingDoc({ status }));
 
-    const { enrollment } = await seedClaimedSlot({ dayOfWeek: 2, startTime: '15:33' }); // exact staging shape
-
-    const { sessions } = await generateSessions({ enrollmentId: enrollment._id });
-
-    expect(sessions[0].startDate.toISOString()).toBe('2026-01-13T21:33:00.000Z'); // CST, UTC-6
-    expect(sessions[0].startDate.toISOString()).not.toBe('2026-01-13T15:33:00.000Z');
+    await expect(reserveSlot(bookingDoc())).resolves.toBeTruthy();
+    expect(await PrivateClassSession.countDocuments({})).toBe(2);
   });
 
-  it('derives endDate from the schedule\'s own durationMinutes, off the corrected startDate', async () => {
-    freezeAt('2026-08-24T12:00:00.000Z');
+  it('the same time on another schedule, or another time on this schedule, never conflicts', async () => {
+    await reserveSlot(bookingDoc());
 
-    const { enrollment } = await seedClaimedSlot({ dayOfWeek: 2, startTime: '16:45', durationMinutes: 90 });
-
-    const { sessions } = await generateSessions({ enrollmentId: enrollment._id });
-
-    expect(sessions[0].endDate.getTime() - sessions[0].startDate.getTime()).toBe(90 * 60000);
+    await expect(reserveSlot(bookingDoc({ scheduleId: id() }))).resolves.toBeTruthy();
+    await expect(
+      reserveSlot(bookingDoc({ startDate: new Date(START.getTime() + 7 * 86400000), endDate: new Date(END.getTime() + 7 * 86400000) }))
+    ).resolves.toBeTruthy();
   });
 
-  // "Prove the fix" pattern (docs/TESTING_STRATEGY.md's Timezone section) —
-  // stepping happens INSIDE the tz-anchored moment chain (never setDate()
-  // on an already-resolved instant), so an 8-week run stays genuinely 7
-  // Central calendar days apart even across the real 2026-11-01 US
-  // fall-back transition — contrasted against what naive "+7*24h" instant
-  // stepping would have produced (a 1-hour-early Nov 3rd session).
-  it('generates 8 sessions exactly 7 Central calendar days apart, with the UTC offset correctly shifting across the Nov 1 2026 fall-back transition', async () => {
-    freezeAt('2026-10-06T12:00:00.000Z'); // a Tuesday, midday UTC — 3 weeks before the transition
+  describe('abandoned purchase holds', () => {
+    async function seedHold({ minutesAgo, ledgerStatus = null }) {
+      const privateService = await Service.findOne({ code: 'private-lessons' });
+      const enrollment = await PrivateClassEnrollment.create({
+        studentId: id(),
+        parentId: id(),
+        coachId: id(),
+        coachContractId: id(),
+        agreedHourlyRate: 65,
+        sessionDurationMinutes: 30,
+        quantity: 1,
+        status: 'pending',
+      });
+      const hold = await PrivateClassSession.create(bookingDoc({ status: 'pending', enrollmentId: enrollment._id }));
+      await backdate(hold, minutesAgo);
 
-    const { enrollment } = await seedClaimedSlot({ dayOfWeek: 2, startTime: '16:45' }); // Tuesday
+      if (ledgerStatus) {
+        await PerSessionRegistration.create({
+          serviceId: privateService._id,
+          sessionId: hold._id,
+          enrollmentId: enrollment._id,
+          parentId: enrollment.parentId,
+          studentId: enrollment.studentId,
+          quantity: 1,
+          unitPrice: 32.5,
+          amount: 32.5,
+          status: ledgerStatus,
+        });
+      }
 
-    const { sessions } = await generateSessions({ enrollmentId: enrollment._id });
-    const isoDates = sessions.map((s) => s.startDate.toISOString());
+      return { hold, enrollment };
+    }
 
-    expect(isoDates).toEqual([
-      '2026-10-13T21:45:00.000Z', // CDT (UTC-5)
-      '2026-10-20T21:45:00.000Z',
-      '2026-10-27T21:45:00.000Z',
-      '2026-11-03T22:45:00.000Z', // CST (UTC-6) — the transition: 1 hour later in UTC for the SAME 16:45 Central
-      '2026-11-10T22:45:00.000Z',
-      '2026-11-17T22:45:00.000Z',
-      '2026-11-24T22:45:00.000Z',
-      '2026-12-01T22:45:00.000Z',
-    ]);
+    it(`releases a pending hold older than ${PENDING_HOLD_TTL_MINUTES} minutes with no charge, then claims the slot`, async () => {
+      const { hold, enrollment } = await seedHold({ minutesAgo: PENDING_HOLD_TTL_MINUTES + 5 });
 
-    // Naive "+7 days of real time" stepping (what the old setDate()-on-an-
-    // instant approach effectively did) would have produced Nov 3rd at
-    // 21:45Z, not 22:45Z — a real, provable 1-hour drift this fix avoids.
-    expect(isoDates[3]).not.toBe('2026-11-03T21:45:00.000Z');
-  });
+      await expect(reserveSlot(bookingDoc())).resolves.toBeTruthy();
+      expect(await PrivateClassSession.findById(hold._id)).toMatchObject({ status: 'released', releaseReason: 'abandoned' });
+      expect((await PrivateClassEnrollment.findById(enrollment._id)).status).toBe('failed');
+    });
 
-  it('is idempotent — re-running against the same claimed slot creates no duplicates', async () => {
-    freezeAt('2026-08-24T12:00:00.000Z');
+    it('also releases one whose charge already failed', async () => {
+      await seedHold({ minutesAgo: PENDING_HOLD_TTL_MINUTES + 5, ledgerStatus: 'failed' });
 
-    const { enrollment } = await seedClaimedSlot({ dayOfWeek: 2, startTime: '16:45' });
+      await expect(reserveSlot(bookingDoc())).resolves.toBeTruthy();
+    });
 
-    const first = await generateSessions({ enrollmentId: enrollment._id });
-    expect(first.sessions).toHaveLength(8);
+    it('never releases a hold younger than the TTL', async () => {
+      const { hold } = await seedHold({ minutesAgo: PENDING_HOLD_TTL_MINUTES - 5 });
 
-    const second = await generateSessions({ enrollmentId: enrollment._id });
-    expect(second.sessions).toHaveLength(0);
+      await expect(reserveSlot(bookingDoc())).rejects.toMatchObject({ status: 409 });
+      expect((await PrivateClassSession.findById(hold._id)).status).toBe('pending');
+    });
 
-    const allSessions = await PrivateClassSession.find({ enrollmentId: enrollment._id });
-    expect(allSessions).toHaveLength(8);
-  });
+    it.each(['pending', 'completed'])('never releases a hold whose charge is %s — money may have moved', async (ledgerStatus) => {
+      const { hold, enrollment } = await seedHold({ minutesAgo: PENDING_HOLD_TTL_MINUTES + 60, ledgerStatus });
 
-  it('returns firstSessionDate matching the first generated session\'s real startDate instant', async () => {
-    freezeAt('2026-08-24T12:00:00.000Z');
+      await expect(reserveSlot(bookingDoc())).rejects.toMatchObject({ status: 409 });
+      expect((await PrivateClassSession.findById(hold._id)).status).toBe('pending');
+      expect((await PrivateClassEnrollment.findById(enrollment._id)).status).toBe('pending');
+    });
 
-    const { enrollment } = await seedClaimedSlot({ dayOfWeek: 2, startTime: '16:45' });
+    it('never releases a confirmed booking, however old', async () => {
+      const confirmed = await PrivateClassSession.create(bookingDoc());
+      await backdate(confirmed, 24 * 60);
 
-    const { sessions, firstSessionDate } = await generateSessions({ enrollmentId: enrollment._id });
-
-    expect(firstSessionDate.toISOString()).toBe(sessions[0].startDate.toISOString());
-  });
-
-  it('returns an empty result for an unknown enrollment id, without throwing', async () => {
-    const result = await generateSessions({ enrollmentId: new mongoose.Types.ObjectId() });
-    expect(result).toEqual({ sessions: [], firstSessionDate: null });
+      await expect(reserveSlot(bookingDoc())).rejects.toMatchObject({ status: 409 });
+      expect((await PrivateClassSession.findById(confirmed._id)).status).toBe('confirmed');
+    });
   });
 });

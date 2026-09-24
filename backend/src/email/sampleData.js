@@ -82,34 +82,33 @@ const SAMPLE_DATA = {
     preheaderLine: "We couldn't charge your saved card — please update your payment method.",
   },
 
-  privateClassConfirmation: {
+  privateClassBookingConfirmation: {
     studentName: 'Sam Rivera',
     coachName: 'Dana Cole',
-    slotLabel: 'Tuesday · 4:00 PM · 60 min',
-    rateLabel: '$65/hr — $65 per session',
-    firstSessionDateLabel: 'Tuesday, Aug 26, 2026',
-    sessionPriceLabel: '$65',
+    lessonLabel: 'Tuesday, Oct 6, 2026 · 4:30 PM',
+    durationLabel: '30 min',
+    remainingLabel: '9 of 10',
+    cancelCutoffHours: 24,
+    purchase: {
+      itemLabel: '10 sessions × $32.50',
+      subtotalLabel: '$325.00',
+      discountLabel: '10% — −$32.50',
+      totalLabel: '$292.50',
+    },
   },
 
-  privateClassSessionReceipt: {
+  privateClassCoachBooking: {
+    studentName: 'Sam Rivera',
+    parentName: 'Alex Rivera',
+    lessonLabel: 'Tuesday, Oct 6, 2026 · 4:30 PM',
+    durationLabel: '30 min',
+  },
+
+  privateClassBookingCancelled: {
     studentName: 'Sam Rivera',
     coachName: 'Dana Cole',
-    sessionDateLabel: 'Tuesday, Aug 26, 2026',
-    durationLabel: '60 min',
-    amountLabel: '$65.00',
-  },
-
-  privateClassPaymentFailed: {
-    studentName: 'Sam Rivera',
-    sessionDateLabel: 'Tuesday, Aug 26, 2026',
-    amountLabel: '$65.00',
-    paymentMethodUrl: 'http://localhost:3000/parent/payment-method',
-  },
-
-  privateClassCancellation: {
-    studentName: 'Sam Rivera',
-    coachName: 'Dana Cole',
-    slotLabel: 'Tuesday · 4:00 PM · 60 min',
+    lessonLabel: 'Tuesday, Oct 6, 2026 · 4:30 PM',
+    remainingLabel: '10 of 10',
   },
 };
 

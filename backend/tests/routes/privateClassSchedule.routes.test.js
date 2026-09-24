@@ -2,19 +2,23 @@ process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
 const request = require('supertest');
-const mongoose = require('mongoose');
 
 const app = require('../../src/app');
-const User = require('../../src/models/user.model');
+const Holiday = require('../../src/models/holiday.model');
+const Setting = require('../../src/models/setting.model');
 const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
-const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
-const CoachContract = require('../../src/models/coachContract.model');
-const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
-const { computeSessionPrice } = require('../../src/utils/privateClassPricing');
 const { seedServices } = require('../../scripts/lib/seedServices');
-
-const TEST_PASSWORD = 'correct-password';
+const {
+  DEFAULT_RULES,
+  freezeDate,
+  seedUser,
+  loginAgent,
+  seedCoachWithRules,
+  seedParentWithStudent,
+  seedActiveEnrollment,
+  seedBooking,
+} = require('../testUtils/privateLessons');
 
 let mongod;
 
@@ -27,416 +31,319 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Coach contract setup (used throughout this file) resolves the
-  // private-lessons Service internally now (docs/plans/service-registry-
-  // unified-ledger-plan.md).
+  freezeDate();
   await seedServices();
 });
 
 afterEach(async () => {
+  jest.useRealTimers();
   await clearTestDB();
 });
 
-async function seedUser(overrides = {}) {
-  const passwordHash = await hashPassword(TEST_PASSWORD);
-
-  return User.create({
-    firstName: 'Test',
-    lastName: 'User',
-    passwordHash,
-    ...overrides,
-  });
-}
-
-async function loginAgent(email) {
-  const agent = request.agent(app);
-  await agent.post('/api/v1/auth/login').send({ email, password: TEST_PASSWORD });
-  return agent;
-}
-
-async function seedCoachWithContract({ email, studentBillingRate = 65, coachCompensationRate = 40 }) {
-  const coach = await seedUser({ role: 'coach', email });
-  const adminEmail = `admin-setup-${Date.now()}-${Math.random()}@example.com`;
-  await seedUser({ role: 'admin', email: adminEmail });
-  const adminAgent = await loginAgent(adminEmail);
-
-  await adminAgent.post('/api/v1/coach-contracts').send({
-    coachId: coach._id.toString(),
-    studentBillingRate,
-    coachCompensationRate,
-  });
-
-  return coach;
-}
-
+// docs/decisions/011-private-per-session-booking.md — a schedule is an
+// availability rule; bookable dates are computed, never generated.
 describe('Private class schedule routes', () => {
-  describe('POST /api/v1/private-class-schedules', () => {
-    it('lets a coach create their own slot (self)', async () => {
-      const coach = await seedCoachWithContract({ email: 'pcs-coach1@example.com' });
-      const coachAgent = await loginAgent('pcs-coach1@example.com');
+  describe('POST /api/v1/private-class-schedules (bulk publish)', () => {
+    it('publishes one rule per weekday x slot, with the range as calendar-day sentinels and no sessions', async () => {
+      const { coach, coachAgent } = await seedCoachWithRules({ suffix: 'bulk', rules: null });
 
       const res = await coachAgent.post('/api/v1/private-class-schedules').send({
-        dayOfWeek: 2,
-        startTime: '16:00',
-        durationMinutes: 60,
+        daysOfWeek: [4, 2],
+        windowStart: '17:00',
+        windowEnd: '20:00',
+        slotDurationMinutes: 30,
+        startDate: '2026-10-01',
+        endDate: '2026-12-31',
       });
 
       expect(res.status).toBe(201);
-      expect(String(res.body.schedule.coachId)).toBe(String(coach._id));
-      expect(res.body.schedule.studentId).toBeNull();
+      expect(res.body.schedules).toHaveLength(12);
+
+      const rules = await PrivateClassSchedule.find({ coachId: coach._id }).sort({ dayOfWeek: 1, startTime: 1 });
+      expect(rules.map((rule) => `${rule.dayOfWeek} ${rule.startTime}`)).toEqual([
+        '2 17:00', '2 17:30', '2 18:00', '2 18:30', '2 19:00', '2 19:30',
+        '4 17:00', '4 17:30', '4 18:00', '4 18:30', '4 19:00', '4 19:30',
+      ]);
+      rules.forEach((rule) => {
+        expect(rule.durationMinutes).toBe(30);
+        expect(rule.startDate.toISOString()).toBe('2026-10-01T00:00:00.000Z');
+        expect(rule.endDate.toISOString()).toBe('2026-12-31T00:00:00.000Z');
+      });
     });
 
-    it('lets an admin create a slot on behalf of a coach (body coachId)', async () => {
-      const coach = await seedCoachWithContract({ email: 'pcs-coach2@example.com' });
-      await seedUser({ role: 'admin', email: 'pcs-admin2@example.com' });
-      const adminAgent = await loginAgent('pcs-admin2@example.com');
+    it("defaults the slot length to the coach's contract and drops a partial slot at the end of the window", async () => {
+      const { coachAgent } = await seedCoachWithRules({ suffix: 'default-len', sessionDurationMinutes: 60, rules: null });
 
-      const res = await adminAgent.post('/api/v1/private-class-schedules').send({
-        coachId: coach._id.toString(),
-        dayOfWeek: 3,
-        startTime: '17:00',
+      const res = await coachAgent.post('/api/v1/private-class-schedules').send({
+        daysOfWeek: [1],
+        windowStart: '17:00',
+        windowEnd: '19:30',
+        startDate: '2026-10-01',
+        endDate: '2026-10-31',
       });
 
       expect(res.status).toBe(201);
-      expect(String(res.body.schedule.coachId)).toBe(String(coach._id));
+      expect(res.body.schedules.map((rule) => rule.startTime)).toEqual(['17:00', '18:00']);
+      expect(res.body.schedules[0].durationMinutes).toBe(60);
     });
 
-    it('returns 400 when the coach has no active contract', async () => {
-      const coach = await seedUser({ role: 'coach', email: 'pcs-nocontract@example.com' });
-      const coachAgent = await loginAgent('pcs-nocontract@example.com');
+    it('lets an admin publish on behalf of a coach, and requires coachId to do so', async () => {
+      const { coach, adminAgent } = await seedCoachWithRules({ suffix: 'admin-pub', rules: null });
 
-      const res = await coachAgent.post('/api/v1/private-class-schedules').send({
-        dayOfWeek: 2,
-        startTime: '16:00',
-      });
+      const missing = await adminAgent.post('/api/v1/private-class-schedules').send(DEFAULT_RULES);
+      expect(missing.status).toBe(400);
+
+      const res = await adminAgent
+        .post('/api/v1/private-class-schedules')
+        .send({ ...DEFAULT_RULES, coachId: coach._id.toString() });
+      expect(res.status).toBe(201);
+      expect(res.body.schedules.every((rule) => rule.coachId === coach._id.toString())).toBe(true);
+    });
+
+    it('returns 400 for a coach with no active contract, creating nothing', async () => {
+      const coach = await seedUser({ role: 'coach', email: 'coach-nocontract@example.com' });
+      const coachAgent = await loginAgent(coach.email);
+
+      const res = await coachAgent.post('/api/v1/private-class-schedules').send(DEFAULT_RULES);
 
       expect(res.status).toBe(400);
+      expect(await PrivateClassSchedule.countDocuments({})).toBe(0);
     });
 
-    it('returns 409 on a duplicate slot (same coach + day + time)', async () => {
-      await seedCoachWithContract({ email: 'pcs-dup@example.com' });
-      const coachAgent = await loginAgent('pcs-dup@example.com');
+    it('rejects any slot overlapping published availability (time AND date range), creating nothing, and names every conflict', async () => {
+      const { coachAgent } = await seedCoachWithRules({ suffix: 'overlap' }); // Tue 16:30, 17:00 (30 min)
 
-      const firstRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 2, startTime: '16:00' });
-      expect(firstRes.status).toBe(201);
+      const res = await coachAgent.post('/api/v1/private-class-schedules').send({
+        daysOfWeek: [2],
+        windowStart: '16:45',
+        windowEnd: '17:45',
+        slotDurationMinutes: 60,
+        startDate: '2026-12-01',
+        endDate: '2027-01-31',
+      });
 
-      const secondRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 2, startTime: '16:00' });
-      expect(secondRes.status).toBe(409);
+      expect(res.status).toBe(409);
+      expect(res.body.message).toContain('Tuesday 16:45');
+      expect(await PrivateClassSchedule.countDocuments({})).toBe(2);
     });
-  });
 
-  describe('GET /api/v1/private-class-schedules/mine', () => {
-    it("returns only the coach's own slots", async () => {
-      await seedCoachWithContract({ email: 'pcs-mine1@example.com' });
-      const coachAgent1 = await loginAgent('pcs-mine1@example.com');
-      await coachAgent1.post('/api/v1/private-class-schedules').send({ dayOfWeek: 1, startTime: '15:00' });
+    it('allows back-to-back slots, another weekday, and a non-intersecting date range', async () => {
+      const { coachAgent } = await seedCoachWithRules({ suffix: 'no-overlap' }); // Tue 16:30–17:30
 
-      await seedCoachWithContract({ email: 'pcs-mine2@example.com' });
-      const coachAgent2 = await loginAgent('pcs-mine2@example.com');
-      await coachAgent2.post('/api/v1/private-class-schedules').send({ dayOfWeek: 2, startTime: '16:00' });
+      const adjacent = await coachAgent.post('/api/v1/private-class-schedules').send({ ...DEFAULT_RULES, windowStart: '17:30', windowEnd: '18:00' });
+      const otherDay = await coachAgent.post('/api/v1/private-class-schedules').send({ ...DEFAULT_RULES, daysOfWeek: [3] });
+      const laterRange = await coachAgent
+        .post('/api/v1/private-class-schedules')
+        .send({ ...DEFAULT_RULES, startDate: '2027-01-01', endDate: '2027-03-31' });
 
-      const res = await coachAgent1.get('/api/v1/private-class-schedules/mine');
+      expect([adjacent.status, otherDay.status, laterRange.status]).toEqual([201, 201, 201]);
+    });
 
-      expect(res.status).toBe(200);
-      expect(res.body.schedules).toHaveLength(1);
-      expect(res.body.schedules[0].startTime).toBe('15:00');
+    it.each([
+      ['a malformed date', { startDate: '10/01/2026' }, /YYYY-MM-DD/],
+      ['an impossible date', { startDate: '2026-02-30' }, /not a real calendar date/],
+      ['an end before the start', { startDate: '2026-12-31', endDate: '2026-10-01' }, /on or after startDate/],
+      ['a range over a year', { startDate: '2026-10-01', endDate: '2027-10-05' }, /at most 366 days/],
+      ['a range already over', { startDate: '2026-01-01', endDate: '2026-09-30' }, /in the past/],
+      ['an empty weekday list', { daysOfWeek: [] }, /daysOfWeek/],
+      ['an invalid weekday', { daysOfWeek: [7] }, /daysOfWeek/],
+      ['a window that ends before it starts', { windowStart: '18:00', windowEnd: '17:00' }, /after windowStart/],
+      ['a window shorter than one slot', { windowStart: '17:00', windowEnd: '17:15' }, /shorter than one/],
+      ['a malformed time', { windowStart: '5pm' }, /HH:mm/],
+      ['a too-short slot', { slotDurationMinutes: 10 }, /at least 15/],
+    ])('returns 400 for %s, creating nothing', async (_label, override, message) => {
+      const { coachAgent } = await seedCoachWithRules({ suffix: `bad-${Math.random()}`, rules: null });
+
+      const res = await coachAgent.post('/api/v1/private-class-schedules').send({ ...DEFAULT_RULES, ...override });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(message);
+      expect(await PrivateClassSchedule.countDocuments({})).toBe(0);
     });
 
     it('returns 403 for a parent', async () => {
-      const parent = await seedUser({ role: 'parent', email: 'pcs-mine-parent@example.com' });
-      const parentAgent = await loginAgent('pcs-mine-parent@example.com');
-
-      const res = await parentAgent.get('/api/v1/private-class-schedules/mine');
+      const { parentAgent } = await seedParentWithStudent('pub-403');
+      const res = await parentAgent.post('/api/v1/private-class-schedules').send(DEFAULT_RULES);
       expect(res.status).toBe(403);
     });
   });
 
-  describe('DELETE /api/v1/private-class-schedules/:id', () => {
-    it('lets a coach delete their own free slot', async () => {
-      await seedCoachWithContract({ email: 'pcs-del1@example.com' });
-      const coachAgent = await loginAgent('pcs-del1@example.com');
+  describe('GET /mine and GET / (admin)', () => {
+    it("lists a coach's current rules with bookedCount, hiding rules whose range is over", async () => {
+      const { coach, contract, coachAgent, schedules } = await seedCoachWithRules({ suffix: 'mine' });
+      await PrivateClassSchedule.create({
+        coachId: coach._id,
+        dayOfWeek: 3,
+        startTime: '10:00',
+        durationMinutes: 30,
+        startDate: new Date('2026-01-01'),
+        endDate: new Date('2026-06-30'),
+      });
+      const { parent, student } = await seedParentWithStudent('mine');
+      const enrollment = await seedActiveEnrollment({ parent, student, coach, contract });
+      await seedBooking({ schedule: schedules[0], day: '2026-10-06', enrollment });
+      await seedBooking({ schedule: schedules[0], day: '2026-10-13', enrollment, status: 'cancelled' });
 
-      const createRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 1, startTime: '15:00' });
-
-      const res = await coachAgent.delete(`/api/v1/private-class-schedules/${createRes.body.schedule._id}`);
+      const res = await coachAgent.get('/api/v1/private-class-schedules/mine');
 
       expect(res.status).toBe(200);
-      expect(await PrivateClassSchedule.findById(createRes.body.schedule._id)).toBeNull();
+      expect(res.body.schedules).toHaveLength(2);
+      const first = res.body.schedules.find((rule) => rule._id === String(schedules[0]._id));
+      expect(first.bookedCount).toBe(1);
     });
 
-    // docs/plans/booking-and-private-class-fixes-plan.md §4 — real
-    // production claims always set BOTH studentId and enrollmentId
-    // together (privateClassEnrollment.service.js's atomic slot claim),
-    // and a real active PrivateClassEnrollment doc backs the claim. This
-    // fixture matches that shape (previously it set only studentId, which
-    // never occurs from a real claim — see the "stale claim" tests below
-    // for what the guard now does with data that only has studentId set).
-    it('returns 409 when the slot has an active enrolled student', async () => {
-      const coach = await seedCoachWithContract({ email: 'pcs-del2@example.com' });
-      const coachAgent = await loginAgent('pcs-del2@example.com');
+    it('lets an admin list every coach, filtered by coachId, with the coach populated', async () => {
+      const { coach, adminAgent } = await seedCoachWithRules({ suffix: 'admin-list' });
+      await seedCoachWithRules({ suffix: 'admin-list-2' });
 
-      const createRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 1, startTime: '15:00' });
+      const res = await adminAgent.get(`/api/v1/private-class-schedules?coachId=${coach._id}`);
 
-      const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'Occupied' });
-      const contract = await CoachContract.findOne({ coachId: coach._id, isActive: true });
-      const enrollment = await PrivateClassEnrollment.create({
-        studentId: student._id,
-        parentId: student._id,
-        coachId: coach._id,
-        coachContractId: contract._id,
-        agreedHourlyRate: contract.studentBillingRate,
-        status: 'active',
-      });
-      await PrivateClassSchedule.findByIdAndUpdate(createRes.body.schedule._id, {
-        studentId: student._id,
-        enrollmentId: enrollment._id,
-      });
-
-      const res = await coachAgent.delete(`/api/v1/private-class-schedules/${createRes.body.schedule._id}`);
-      expect(res.status).toBe(409);
-      expect(await PrivateClassSchedule.findById(createRes.body.schedule._id)).not.toBeNull();
-    });
-
-    // docs/plans/booking-and-private-class-fixes-plan.md §4 — the real bug
-    // report: after cancelling a private enrollment, the schedule stayed
-    // undeletable. cancel() frees a slot by matching enrollmentId; the old
-    // guard 409'd on the raw studentId field alone and never re-checked
-    // reality, so any stale claim was permanently stuck. Four shapes of
-    // "stale" all self-heal into a successful delete now.
-    describe('stale-claim self-heal', () => {
-      async function seedOccupiedSlot(coachEmail) {
-        const coach = await seedCoachWithContract({ email: coachEmail });
-        const coachAgent = await loginAgent(coachEmail);
-        const createRes = await coachAgent
-          .post('/api/v1/private-class-schedules')
-          .send({ dayOfWeek: 1, startTime: '15:00' });
-        const student = await User.create({ role: 'student', firstName: 'Kid', lastName: 'Stale' });
-        const contract = await CoachContract.findOne({ coachId: coach._id, isActive: true });
-
-        return { coach, coachAgent, scheduleId: createRes.body.schedule._id, student, contract };
-      }
-
-      it('deletes a slot whose claiming enrollment is cancelled', async () => {
-        const { coachAgent, scheduleId, student, contract, coach } = await seedOccupiedSlot('pcs-stale1@example.com');
-
-        const enrollment = await PrivateClassEnrollment.create({
-          studentId: student._id,
-          parentId: student._id,
-          coachId: coach._id,
-          coachContractId: contract._id,
-          agreedHourlyRate: contract.studentBillingRate,
-          status: 'cancelled',
-        });
-        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, {
-          studentId: student._id,
-          enrollmentId: enrollment._id,
-        });
-
-        const res = await coachAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
-
-        expect(res.status).toBe(200);
-        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
-      });
-
-      it('deletes a slot with studentId set but enrollmentId null (denormalization drift)', async () => {
-        const { coachAgent, scheduleId, student } = await seedOccupiedSlot('pcs-stale2@example.com');
-
-        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, { studentId: student._id });
-
-        const res = await coachAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
-
-        expect(res.status).toBe(200);
-        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
-      });
-
-      it('deletes a slot whose enrollmentId points at a deleted enrollment document', async () => {
-        const { coachAgent, scheduleId, student, contract, coach } = await seedOccupiedSlot('pcs-stale3@example.com');
-
-        const enrollment = await PrivateClassEnrollment.create({
-          studentId: student._id,
-          parentId: student._id,
-          coachId: coach._id,
-          coachContractId: contract._id,
-          agreedHourlyRate: contract.studentBillingRate,
-          status: 'active',
-        });
-        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, {
-          studentId: student._id,
-          enrollmentId: enrollment._id,
-        });
-        await PrivateClassEnrollment.deleteOne({ _id: enrollment._id });
-
-        const res = await coachAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
-
-        expect(res.status).toBe(200);
-        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
-      });
-
-      it('still 403s a non-owning coach on a stale-claimed slot — ownership is checked before the claim is', async () => {
-        const { scheduleId, student } = await seedOccupiedSlot('pcs-stale4-owner@example.com');
-        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, { studentId: student._id });
-
-        await seedCoachWithContract({ email: 'pcs-stale4-other@example.com' });
-        const otherAgent = await loginAgent('pcs-stale4-other@example.com');
-
-        const res = await otherAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
-
-        expect(res.status).toBe(403);
-        expect(await PrivateClassSchedule.findById(scheduleId)).not.toBeNull();
-      });
-
-      it('lets an admin delete a stale-claimed slot too', async () => {
-        const { scheduleId, student } = await seedOccupiedSlot('pcs-stale5@example.com');
-        await PrivateClassSchedule.findByIdAndUpdate(scheduleId, { studentId: student._id });
-
-        await seedUser({ role: 'admin', email: 'pcs-stale5-admin@example.com' });
-        const adminAgent = await loginAgent('pcs-stale5-admin@example.com');
-
-        const res = await adminAgent.delete(`/api/v1/private-class-schedules/${scheduleId}`);
-
-        expect(res.status).toBe(200);
-        expect(await PrivateClassSchedule.findById(scheduleId)).toBeNull();
-      });
-    });
-
-    it("returns 403 when a different coach tries to delete someone else's slot", async () => {
-      await seedCoachWithContract({ email: 'pcs-del3-owner@example.com' });
-      const ownerAgent = await loginAgent('pcs-del3-owner@example.com');
-      const createRes = await ownerAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 1, startTime: '15:00' });
-
-      await seedCoachWithContract({ email: 'pcs-del3-other@example.com' });
-      const otherAgent = await loginAgent('pcs-del3-other@example.com');
-
-      const res = await otherAgent.delete(`/api/v1/private-class-schedules/${createRes.body.schedule._id}`);
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
+      expect(res.body.schedules).toHaveLength(2);
+      expect(res.body.schedules[0].coachId.lastName).toBe('Coachadmin-list');
     });
   });
 
-  describe('GET /api/v1/private-class-schedules/public', () => {
-    it('requires no auth, excludes taken/inactive slots and contract-less coaches, and matches computeSessionPrice', async () => {
-      const coach = await seedCoachWithContract({
-        email: 'pcs-public1@example.com',
-        studentBillingRate: 60,
-      });
-      const coachAgent = await loginAgent('pcs-public1@example.com');
+  describe('GET /public', () => {
+    it('lists coaches with an active contract, each rule priced, plus the academy pack offers — no student data', async () => {
+      await seedCoachWithRules({ suffix: 'public', studentBillingRate: 65 });
+      const { contract } = await seedCoachWithRules({ suffix: 'public-gone' });
+      await Setting.create({ privateClassPackages: [{ quantity: 10, discountPercent: 10 }] });
+      contract.isActive = false;
+      await contract.save();
 
-      const availableRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 2, startTime: '16:00', durationMinutes: 60 });
-      const takenRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 3, startTime: '17:00', durationMinutes: 60 });
-      const inactiveRes = await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 4, startTime: '18:00', durationMinutes: 60 });
-
-      const student = await User.create({ role: 'student', firstName: 'Taken', lastName: 'Kid' });
-      await PrivateClassSchedule.findByIdAndUpdate(takenRes.body.schedule._id, { studentId: student._id });
-      await PrivateClassSchedule.findByIdAndUpdate(inactiveRes.body.schedule._id, { isActive: false });
-
-      // A coach with no active contract publishing a slot directly (bypassing
-      // the create-route guard) must still be excluded from the public list.
-      const noContractCoach = await seedUser({ role: 'coach', email: 'pcs-public-nc@example.com' });
-      await PrivateClassSchedule.create({
-        coachId: noContractCoach._id,
-        dayOfWeek: 5,
-        startTime: '19:00',
-        durationMinutes: 60,
-      });
-
-      // No Authorization/cookie at all.
       const res = await request(app).get('/api/v1/private-class-schedules/public');
 
       expect(res.status).toBe(200);
       expect(res.body.coaches).toHaveLength(1);
-      expect(res.body.coaches[0].coachId).toBe(String(coach._id));
-      expect(res.body.coaches[0].slots).toHaveLength(1);
-
-      const slot = res.body.coaches[0].slots[0];
-      expect(slot.scheduleId).toBe(String(availableRes.body.schedule._id));
-      expect(slot.sessionPrice).toBe(computeSessionPrice(60, 60));
-      expect(slot.hourlyRate).toBe(60);
-      expect(slot.dayName).toBe('Tuesday');
-      // Raw "HH:mm" — the frontend formats it (lib/formatTime.ts), never
-      // the backend. Regression lock: a redundant `displayTime` field
-      // (byte-identical to startTime, but named as if pre-formatted) used
-      // to sit here too and was the exact trap that shipped 24-hour times
-      // to parents on /private-classes and /parent/register-private —
-      // never reintroduce it.
-      expect(slot.startTime).toBe('16:00');
-      expect(slot).not.toHaveProperty('displayTime');
-      // No student/parent data leaks.
-      expect(JSON.stringify(res.body)).not.toContain('email');
+      expect(res.body.coaches[0].coachName).toBe('Dana Coachpublic');
+      expect(res.body.coaches[0].slots[0]).toEqual({
+        scheduleId: expect.any(String),
+        dayOfWeek: 2,
+        dayName: 'Tuesday',
+        startTime: '16:30',
+        durationMinutes: 30,
+        startDate: '2026-10-01T00:00:00.000Z',
+        endDate: '2026-12-31T00:00:00.000Z',
+        sessionPrice: 32.5,
+        hourlyRate: 65,
+      });
+      expect(res.body.packageOffers).toEqual([
+        { quantity: 1, discountPercent: 0 },
+        { quantity: 10, discountPercent: 10 },
+      ]);
     });
+  });
 
-    // orphaned-coach-reference-fix-plan D1 — reproduces the live
-    // /private-classes 500: a coach hard-deleted (bypassing the D5
-    // delete-guard, simulating a pre-existing orphan from before that guard
-    // shipped) leaves a free PrivateClassSchedule with a coachId that no
-    // longer resolves. The endpoint must degrade (exclude the slot), not
-    // crash on the null populate.
-    it('excludes a slot whose coach was deleted, instead of crashing', async () => {
-      const coach = await seedCoachWithContract({ email: 'pcs-orphan@example.com' });
-      const coachAgent = await loginAgent('pcs-orphan@example.com');
-      await coachAgent
-        .post('/api/v1/private-class-schedules')
-        .send({ dayOfWeek: 2, startTime: '16:00', durationMinutes: 60 });
+  describe('GET /:id/available-dates', () => {
+    async function datesFor(scheduleId, query = '') {
+      return request(app).get(`/api/v1/private-class-schedules/${scheduleId}/available-dates${query}`);
+    }
 
-      await User.deleteOne({ _id: coach._id });
+    it("returns the rule's weekdays in the window as real instants, minus holidays and slots already held", async () => {
+      const { coach, contract, schedules } = await seedCoachWithRules({ suffix: 'dates' });
+      const [slot] = schedules; // Tuesday 16:30
+      await Holiday.create({ name: 'Fall break', startDate: new Date('2026-10-13'), endDate: new Date('2026-10-13') });
+      const { parent, student } = await seedParentWithStudent('dates');
+      const enrollment = await seedActiveEnrollment({ parent, student, coach, contract });
+      await seedBooking({ schedule: slot, day: '2026-10-20', enrollment });
+      await seedBooking({ schedule: slot, day: '2026-10-27', enrollment, status: 'cancelled' });
+      await seedBooking({ schedule: slot, day: '2026-11-03', enrollment, status: 'released' });
 
-      const res = await request(app).get('/api/v1/private-class-schedules/public');
+      const res = await datesFor(slot._id, '?days=35');
 
       expect(res.status).toBe(200);
-      expect(res.body.coaches).toHaveLength(0);
+      // Frozen now = Mon Oct 5; window to Nov 9. Oct 13 holiday and Oct 20
+      // confirmed are gone; cancelled/released bookings free their slot.
+      expect(res.body.dates.map((date) => date.day)).toEqual(['2026-10-06', '2026-10-27', '2026-11-03']);
+      // 4:30 PM Central: CDT (UTC-5) before Nov 1, CST (UTC-6) after.
+      expect(res.body.dates[0]).toEqual({
+        day: '2026-10-06',
+        startDate: '2026-10-06T21:30:00.000Z',
+        endDate: '2026-10-06T22:00:00.000Z',
+      });
+      expect(res.body.dates[2].startDate).toBe('2026-11-03T22:30:00.000Z');
     });
 
-    it('firstSessionDate is strictly after "today", never today itself', async () => {
-      // Fakes ONLY Date (via `now`) and explicitly leaves every timer
-      // function real — faking setTimeout/setImmediate/nextTick here would
-      // hang the real Mongo driver + supertest's HTTP round trip this test
-      // still needs to make.
-      jest.useFakeTimers({
-        now: new Date('2026-08-25T12:00:00.000Z'), // a Tuesday, UTC midday
-        doNotFake: [
-          'setTimeout',
-          'clearTimeout',
-          'setInterval',
-          'clearInterval',
-          'setImmediate',
-          'clearImmediate',
-          'nextTick',
-        ],
+    it("offers today's lesson until it starts, then never again", async () => {
+      const { schedules } = await seedCoachWithRules({ suffix: 'today' });
+
+      freezeDate(new Date('2026-10-06T21:29:00.000Z')); // Tue 4:29 PM CDT
+      expect((await datesFor(schedules[0]._id, '?days=1')).body.dates.map((date) => date.day)).toEqual(['2026-10-06']);
+
+      freezeDate(new Date('2026-10-06T21:30:00.000Z')); // 4:30 PM — started
+      expect((await datesFor(schedules[0]._id, '?days=1')).body.dates).toEqual([]);
+    });
+
+    it("never offers a date outside the rule's range (both edges inclusive)", async () => {
+      const { schedules } = await seedCoachWithRules({
+        suffix: 'edges',
+        rules: { ...DEFAULT_RULES, windowEnd: '17:00', startDate: '2026-10-13', endDate: '2026-10-20' },
       });
 
-      try {
-        const coach = await seedCoachWithContract({ email: 'pcs-public2@example.com' });
-        const coachAgent = await loginAgent('pcs-public2@example.com');
+      const res = await datesFor(schedules[0]._id);
 
-        // dayOfWeek 2 = Tuesday, same day as "today" in the frozen clock.
-        await coachAgent
-          .post('/api/v1/private-class-schedules')
-          .send({ dayOfWeek: 2, startTime: '16:00', durationMinutes: 60 });
+      expect(res.body.dates.map((date) => date.day)).toEqual(['2026-10-13', '2026-10-20']);
+    });
 
-        const res = await request(app).get('/api/v1/private-class-schedules/public');
+    it('returns 400 for an invalid days value and 404 for an unknown or retired rule', async () => {
+      const { schedules } = await seedCoachWithRules({ suffix: 'dates-bad' });
 
-        expect(res.status).toBe(200);
-        const firstSessionDate = new Date(res.body.coaches[0].slots[0].firstSessionDate);
-        // Strictly after today (Aug 25) -> the NEXT Tuesday, Sept 1, not today.
-        expect(firstSessionDate.getTime()).toBeGreaterThan(new Date('2026-08-25T23:59:59.999Z').getTime());
-        expect(String(coach._id)).toBe(res.body.coaches[0].coachId);
-      } finally {
-        jest.useRealTimers();
-      }
+      expect((await datesFor(schedules[0]._id, '?days=0')).status).toBe(400);
+      expect((await datesFor(schedules[0]._id, '?days=500')).status).toBe(400);
+      expect((await datesFor('64b000000000000000000000')).status).toBe(404);
+
+      await PrivateClassSchedule.updateOne({ _id: schedules[0]._id }, { isActive: false });
+      expect((await datesFor(schedules[0]._id)).status).toBe(404);
+    });
+  });
+
+  describe('DELETE /:id', () => {
+    it('deletes a rule nobody ever booked', async () => {
+      const { coachAgent, schedules } = await seedCoachWithRules({ suffix: 'del' });
+
+      const res = await coachAgent.delete(`/api/v1/private-class-schedules/${schedules[0]._id}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('deleted');
+      expect(await PrivateClassSchedule.findById(schedules[0]._id)).toBeNull();
+    });
+
+    it('returns 409 while the rule has an upcoming booking', async () => {
+      const { coach, contract, coachAgent, schedules } = await seedCoachWithRules({ suffix: 'del-409' });
+      const { parent, student } = await seedParentWithStudent('del-409');
+      const enrollment = await seedActiveEnrollment({ parent, student, coach, contract });
+      await seedBooking({ schedule: schedules[0], day: '2026-10-06', enrollment });
+
+      const res = await coachAgent.delete(`/api/v1/private-class-schedules/${schedules[0]._id}`);
+
+      expect(res.status).toBe(409);
+      expect(await PrivateClassSchedule.findById(schedules[0]._id)).not.toBeNull();
+    });
+
+    it('retires (never deletes) a rule with only past bookings, so their scheduleId stays valid', async () => {
+      const { coach, contract, coachAgent, schedules } = await seedCoachWithRules({ suffix: 'retire' });
+      const { parent, student } = await seedParentWithStudent('retire');
+      const enrollment = await seedActiveEnrollment({ parent, student, coach, contract });
+      await seedBooking({ schedule: schedules[0], day: '2026-10-06', enrollment });
+      freezeDate(new Date('2026-10-07T14:00:00.000Z'));
+
+      const res = await coachAgent.delete(`/api/v1/private-class-schedules/${schedules[0]._id}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.outcome).toBe('retired');
+      expect((await PrivateClassSchedule.findById(schedules[0]._id)).isActive).toBe(false);
+      const mine = await coachAgent.get('/api/v1/private-class-schedules/mine');
+      expect(mine.body.schedules.map((rule) => rule._id)).not.toContain(String(schedules[0]._id));
+    });
+
+    it("returns 403 for another coach's rule", async () => {
+      const { schedules } = await seedCoachWithRules({ suffix: 'owner' });
+      const { coachAgent: otherAgent } = await seedCoachWithRules({ suffix: 'other', rules: null });
+
+      const res = await otherAgent.delete(`/api/v1/private-class-schedules/${schedules[0]._id}`);
+
+      expect(res.status).toBe(403);
     });
   });
 });

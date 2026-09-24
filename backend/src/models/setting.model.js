@@ -42,6 +42,22 @@ const settingSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // Private-lesson packs offered at purchase (docs/plans/private-class-
+    // per-session-booking-plan.md D13), e.g. [{ quantity: 10,
+    // discountPercent: 10 }]. A single session (quantity 1, 0%) is always
+    // offered and is never stored here. Validated and normalized ONLY by
+    // utils/privateClassPricing.js's normalizePackageOffers — the single home
+    // of every pack rule.
+    privateClassPackages: {
+      type: [
+        {
+          _id: false,
+          quantity: { type: Number, required: true, min: 2 },
+          discountPercent: { type: Number, required: true, min: 0, max: 99 },
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,

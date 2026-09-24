@@ -255,26 +255,50 @@ const SubscriptionCycleRegistration = Registration.discriminator(
 );
 
 // ─── Discriminator 2: per_session (private lessons) ────────────────────────
-// Absorbs the former standalone PrivateClassCharge collection — same fields,
-// same guarantee, now living on the unified ledger.
+// A PURCHASE of `quantity` private-lesson sessions (docs/decisions/011-
+// private-per-session-booking.md): `amount` = what was charged =
+// privateClassPricing.js's computePackTotal(unitPrice, quantity,
+// discountPercent), computed once at purchase and never re-derived.
+// Every purchase accompanies a booking, so the row is anchored to that
+// booking (`sessionId`) and to the purchase it paid for (`enrollmentId`).
+// A booking paid with an existing credit writes NO row — no money moved.
 const perSessionSchema = new Schema({
+  // The booking that triggered this purchase.
   sessionId: {
     type: Schema.Types.ObjectId,
     ref: 'PrivateClassSession',
     required: true,
   },
+  // The purchase (credit balance) this charge paid for — one row each.
   enrollmentId: {
     type: Schema.Types.ObjectId,
     ref: 'PrivateClassEnrollment',
     required: true,
   },
+  quantity: {
+    type: Number,
+    required: true,
+    min: 1,
+  },
+  // Per-session price before the pack discount (computeSessionPrice).
+  unitPrice: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  discountPercent: {
+    type: Number,
+    required: true,
+    min: 0,
+    max: 100,
+    default: 0,
+  },
 });
 
-// A session may have at most one non-failed charge at a time, so a
-// double-save of the same attendance can never double-charge. 'failed' is
-// excluded on purpose — a failed charge must never block a retry from
-// creating a new one. `sessionId: { $exists: true }` scopes this to
-// per_session rows only, same idiom as Guard B above.
+// Money dedup: a booking may have at most one non-failed charge, so a
+// double-submitted purchase can never double-charge. 'failed' is excluded
+// on purpose (same idiom as Guard B above). `sessionId: { $exists: true }`
+// scopes this to per_session rows only.
 perSessionSchema.index(
   { sessionId: 1 },
   {
@@ -282,6 +306,19 @@ perSessionSchema.index(
     partialFilterExpression: {
       status: { $in: ['pending', 'completed'] },
       sessionId: { $exists: true },
+    },
+  }
+);
+
+// One non-failed ledger row per purchase — the enrollment <-> ledger row
+// pairing check-private-credit-ledger.js relies on.
+perSessionSchema.index(
+  { enrollmentId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ['pending', 'completed'] },
+      enrollmentId: { $exists: true },
     },
   }
 );

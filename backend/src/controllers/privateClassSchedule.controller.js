@@ -1,5 +1,7 @@
 const privateClassScheduleService = require('../services/privateClassSchedule.service');
 
+// POST /private-class-schedules — publish availability in bulk. A coach
+// publishes for themselves; an admin names the coach in the body.
 async function create(req, res, next) {
   try {
     const coachId = req.user.role === 'coach' ? req.user._id : req.body.coachId;
@@ -8,14 +10,17 @@ async function create(req, res, next) {
       return res.status(400).json({ message: 'coachId is required' });
     }
 
-    const schedule = await privateClassScheduleService.create({
+    const schedules = await privateClassScheduleService.createBulk({
       coachId,
-      dayOfWeek: req.body.dayOfWeek,
-      startTime: req.body.startTime,
-      durationMinutes: req.body.durationMinutes,
+      daysOfWeek: req.body.daysOfWeek,
+      windowStart: req.body.windowStart,
+      windowEnd: req.body.windowEnd,
+      slotDurationMinutes: req.body.slotDurationMinutes,
+      startDate: req.body.startDate,
+      endDate: req.body.endDate,
     });
 
-    return res.status(201).json({ schedule });
+    return res.status(201).json({ schedules });
   } catch (error) {
     return next(error);
   }
@@ -32,10 +37,7 @@ async function listMine(req, res, next) {
 
 async function listAll(req, res, next) {
   try {
-    const schedules = await privateClassScheduleService.listAll({
-      coachId: req.query.coachId,
-      available: req.query.available,
-    });
+    const schedules = await privateClassScheduleService.listAll({ coachId: req.query.coachId });
     return res.status(200).json({ schedules });
   } catch (error) {
     return next(error);
@@ -44,8 +46,8 @@ async function listAll(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    await privateClassScheduleService.remove(req.params.id, req.user);
-    return res.status(200).json({ success: true });
+    const { outcome } = await privateClassScheduleService.remove(req.params.id, req.user);
+    return res.status(200).json({ outcome });
   } catch (error) {
     return next(error);
   }
@@ -53,11 +55,20 @@ async function remove(req, res, next) {
 
 async function listPublic(req, res, next) {
   try {
-    const coaches = await privateClassScheduleService.listPublic();
-    return res.status(200).json({ coaches });
+    const { coaches, packageOffers } = await privateClassScheduleService.listPublic();
+    return res.status(200).json({ coaches, packageOffers });
   } catch (error) {
     return next(error);
   }
 }
 
-module.exports = { create, listMine, listAll, remove, listPublic };
+async function listAvailableDates(req, res, next) {
+  try {
+    const dates = await privateClassScheduleService.listAvailableDates(req.params.id, { days: req.query.days });
+    return res.status(200).json({ dates });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+module.exports = { create, listMine, listAll, remove, listPublic, listAvailableDates };

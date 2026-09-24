@@ -422,7 +422,13 @@ describe('User routes', () => {
       const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
       await seedUser({ email: 'admin24@example.com' });
       const coach = await seedUser({ role: 'coach', email: 'coach24@example.com' });
-      await PrivateClassSchedule.create({ coachId: coach._id, dayOfWeek: 1, startTime: '16:00' });
+      await PrivateClassSchedule.create({
+        coachId: coach._id,
+        dayOfWeek: 1,
+        startTime: '16:00',
+        startDate: new Date('2026-01-01'),
+        endDate: new Date('2026-03-31'),
+      });
       const agent = await loginAgent('admin24@example.com');
 
       const res = await agent.delete(`/api/v1/users/${coach._id}`);
@@ -464,6 +470,8 @@ describe('User routes', () => {
         coachId: coach._id,
         coachContractId: new mongoose.Types.ObjectId(),
         agreedHourlyRate: 60,
+        sessionDurationMinutes: 60,
+        quantity: 1,
       });
       const agent = await loginAgent('admin26@example.com');
 
@@ -486,6 +494,8 @@ describe('User routes', () => {
         coachId: coach._id,
         coachContractId: new mongoose.Types.ObjectId(),
         agreedHourlyRate: 60,
+        sessionDurationMinutes: 60,
+        quantity: 1,
       });
       const agent = await loginAgent('admin27@example.com');
 

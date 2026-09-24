@@ -1,9 +1,27 @@
 const privateClassEnrollmentService = require('../services/privateClassEnrollment.service');
 
+async function quote(req, res, next) {
+  try {
+    const result = await privateClassEnrollmentService.quote(
+      { studentId: req.query.studentId, scheduleId: req.query.scheduleId },
+      req.user
+    );
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// Buy sessions and book the first one.
 async function create(req, res, next) {
   try {
-    const result = await privateClassEnrollmentService.create(
-      { studentId: req.body.studentId, scheduleId: req.body.scheduleId },
+    const result = await privateClassEnrollmentService.purchaseAndBook(
+      {
+        studentId: req.body.studentId,
+        scheduleId: req.body.scheduleId,
+        day: req.body.day,
+        quantity: req.body.quantity,
+      },
       req.user
     );
     return res.status(201).json(result);
@@ -33,13 +51,4 @@ async function listAll(req, res, next) {
   }
 }
 
-async function cancel(req, res, next) {
-  try {
-    const enrollment = await privateClassEnrollmentService.cancel(req.params.id, req.user);
-    return res.status(200).json({ enrollment });
-  } catch (error) {
-    return next(error);
-  }
-}
-
-module.exports = { create, listMine, listAll, cancel };
+module.exports = { quote, create, listMine, listAll };

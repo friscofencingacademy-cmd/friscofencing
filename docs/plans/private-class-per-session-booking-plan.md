@@ -1,7 +1,9 @@
 # Private Classes — Per-Session Booking Plan
 
-**Status:** READY TO EXECUTE — spec'd 2026-09-24 from a full read of the current private-class
-stack and CKQ's private-class + Visit code; not started.
+**Status:** IN PROGRESS — spec'd 2026-09-24 from a full read of the current private-class stack and
+CKQ's private-class + Visit code. PR 1 merged (#96). PR 2 built (backend, 76 suites / 944 tests
+green). PR 3 (frontend) next. **§5 records every place the build diverged from this spec — read it
+before relying on an endpoint or field name below.**
 **Goal:** Replace the CKQ-style *recurring* private enrollment (a parent claims one weekly slot,
 eight weeks of sessions are generated, each session is charged after attendance) with Frisco's
 *per-session* model: a coach publishes bookable slots in bulk over a date range; a parent buys one
@@ -522,4 +524,66 @@ it, do not refactor book-trial here).
    + attendance), then `check-private-credit-ledger.js`.
 
 Each PR follows CLAUDE.md's hard rules: tests before commit, owner local test before commit, no
-auto-fix on a red suite. Explicit staging by file name; no `git add .`.
+auto-fix on a red suite. Explicit staging by file name; no `git add .`. *(2026-09-24: the owner
+authorized building and shipping all three PRs to `develop` autonomously, reviewing afterward.)*
+
+---
+
+## §5 As built — where the implementation diverged from this spec
+
+Each change below was made during the build because it removes a duplicate, keeps a reference
+valid, or matches an existing repo convention. `docs/features/private-class.md` describes the
+system as built.
+
+**PR 1**
+1. **Scripts use `--live`, with no npm script** — the repo's existing convention
+   (`backfill-session-instants.js`), not `--apply` + an npm script.
+2. **The Service lookup lives inside `visit.service.js`**, so five suites that write Visits now seed
+   the Service registry, and one hand-built `Visit.create` fixture was switched to the real writer.
+
+**PR 2**
+3. **One publish endpoint.** `POST /private-class-schedules` takes the bulk body; there is no
+   separate `/bulk` route and no single-slot body (one slot = a one-slot window). The overlap check
+   compares time windows, not just identical start times.
+4. **`GET /private-class-enrollments/quote?studentId&scheduleId`** replaces
+   `/preview?scheduleId&quantity`: every option is priced in one call, with `availableCredits`, so
+   the wizard never refetches per choice and never adds numbers itself.
+5. **Nothing is deleted on a decline or an abandoned hold.** The session gets a fourth status,
+   `released` (with `releaseReason` `payment_failed` or `abandoned`), and the purchase gets `failed`.
+   Deleting them would have left the failed ledger row pointing at documents that no longer exist.
+   Only a purchase that never got as far as a booking (lost slot race) is deleted — nothing refers
+   to it yet.
+6. **The purchase charge goes through `chargeLedgerRow`** (idempotency key `payment_<rowId>`),
+   the existing single Stripe charge path, instead of a second hand-rolled Stripe call keyed
+   `pcs_<sessionId>_<attempt>`. Every purchase attempt is its own row, so `attempt` is always 1.
+7. **Credit booking takes the credit first, then inserts the booking `confirmed`.** No pending state
+   exists on the credit path, so the abandoned-hold rule only ever sees purchase holds. The one crash
+   window (credit taken, insert never ran) shows up as `credit_count_drift` in the check script.
+8. **A second unique partial index on `enrollmentId`** (pending/completed) makes "one ledger row
+   per purchase" a database invariant, not a convention.
+9. **Parent-inside-cutoff cancellation is 409, not 403** — the parent owns the booking; it is a time
+   rule.
+10. **Paid credits are honored after a coach's contract is deactivated.** A new purchase needs an
+    active contract; the quote then offers only the credit path.
+11. **Emails:** the parent confirmation carries the purchase lines and the PDF invoice (no separate
+    receipt template); the coach gets their own email instead of being cc'd on the parent's.
+    `privateClassSessionReceipt`, `privateClassPaymentFailed`, and the two recurring-model
+    templates are gone.
+12. **`packageOffers` is top-level** on `GET /public`, not repeated per coach — packs are
+    academy-wide.
+13. **Removing a rule with past bookings retires it** (`isActive: false`) instead of deleting it, so
+    every past booking keeps a valid `scheduleId`.
+14. **Legacy import:** the `IMPORT_PRIVATE_CLASS_ENROLLMENTS` flag and its enrollment branch are
+    removed, not rewritten — an enrollment is paid credit and there is no payment to import. A
+    flagged student now produces a warning.
+15. **`find-orphaned-references.js` keeps its User-reference scope.** Only the schedule's
+    `studentId` check was dropped, because the field no longer exists.
+16. **Slot-index behavior was verified, not assumed:** booting the new code against the old
+    same-named index logs `IndexKeySpecsConflict` and keeps the old non-partial index. So the
+    cutover must run before deploy, and `check-private-credit-ledger.js` reports
+    `slot_index_not_partial`.
+17. **Partial-index tests live in `privateClassSession.service.test.js`**, where they exercise
+    `reserveSlot`, rather than in a separate model test. Shared fixtures are in
+    `tests/testUtils/privateLessons.js`.
+18. **The student delete-guard is unchanged.** Every booking belongs to a purchase, so the existing
+    enrollment count already covers bookings.

@@ -1,33 +1,27 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
-// mail.service is mocked (same rationale as registration.routes.test.js) —
-// this suite is about attendance/charge behavior, not email content.
+// mail.service is mocked — this suite asserts which emails fire, not their
+// content (mail.service.test.js covers rendering).
 jest.mock('../../src/services/mail.service');
-
-// STRIPE_SECRET_KEY must be loaded from the real .env BEFORE app.js is
-// required — this suite hits Stripe's real TEST-mode API for real charges,
-// same convention as registration.routes.test.js.
-require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 const request = require('supertest');
 
 const app = require('../../src/app');
-const User = require('../../src/models/user.model');
-const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
+const Visit = require('../../src/models/visit.model');
+const Registration = require('../../src/models/registration.model');
 const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
 const PrivateClassSession = require('../../src/models/privateClassSession.model');
-const { PerSessionRegistration } = require('../../src/models/registration.model');
-const PaymentMethod = require('../../src/models/paymentMethod.model');
-const stripe = require('../../src/config/stripe');
-const { hashPassword } = require('../../src/utils/password');
+const mailService = require('../../src/services/mail.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
-const { computeSessionPrice } = require('../../src/utils/privateClassPricing');
-const privateClassSessionService = require('../../src/services/privateClassSession.service');
 const { seedServices } = require('../../scripts/lib/seedServices');
-
-const TEST_PASSWORD = 'correct-password';
-const HOURLY_RATE = 60;
+const {
+  freezeDate,
+  seedCoachWithRules,
+  seedParentWithStudent,
+  seedActiveEnrollment,
+  seedBooking,
+} = require('../testUtils/privateLessons');
 
 let mongod;
 
@@ -40,395 +34,278 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Coach contract setup + chargeSession() itself both resolve the
-  // private-lessons Service now (docs/plans/service-registry-unified-
-  // ledger-plan.md).
+  freezeDate();
   await seedServices();
 });
 
 afterEach(async () => {
+  jest.useRealTimers();
+  jest.clearAllMocks();
   await clearTestDB();
-  jest.restoreAllMocks();
 });
 
-async function seedUser(overrides = {}) {
-  const passwordHash = await hashPassword(TEST_PASSWORD);
-  return User.create({ firstName: 'Test', lastName: 'User', passwordHash, ...overrides });
-}
-
-async function loginAgent(email) {
-  const agent = request.agent(app);
-  await agent.post('/api/v1/auth/login').send({ email, password: TEST_PASSWORD });
-  return agent;
-}
-
-async function mintTestPaymentMethodId() {
-  const paymentMethod = await stripe.paymentMethods.create({ type: 'card', card: { token: 'tok_visa' } });
-  return paymentMethod.id;
-}
-
-async function savePaymentMethodFor(parentAgent) {
-  const stripePaymentMethodId = await mintTestPaymentMethodId();
-  const res = await parentAgent.post('/api/v1/payment-methods').send({ stripePaymentMethodId });
-  expect(res.status).toBe(201);
-}
-
-// Builds a fully self-registered enrollment (coach + active contract +
-// slot + parent + student + saved card + POST /private-class-enrollments),
-// then backdates its FIRST generated session to `startDate` (default: an
-// hour ago) so attendance can be marked against it. Returns everything the
-// caller might need.
-async function seedEnrollmentWithPastSession({
-  suffix,
-  startDate = new Date(Date.now() - 60 * 60 * 1000),
-  durationMinutes = 60,
-}) {
-  const coach = await seedUser({ role: 'coach', email: `pcsess-coach-${suffix}@example.com` });
-  const adminEmail = `pcsess-admin-${suffix}-${Date.now()}-${Math.random()}@example.com`;
-  await seedUser({ role: 'admin', email: adminEmail });
-  const adminAgent = await loginAgent(adminEmail);
-
-  await adminAgent.post('/api/v1/coach-contracts').send({
-    coachId: coach._id.toString(),
-    studentBillingRate: HOURLY_RATE,
-    coachCompensationRate: 35,
+// A coach (Tuesdays 16:30 + 17:00, 30 min) and a parent whose child already
+// holds a paid purchase of `quantity` 30-minute credits.
+async function seedCreditScene(suffix, { quantity = 10, sessionsUsed = 0 } = {}) {
+  const coachScene = await seedCoachWithRules({ suffix });
+  const parentScene = await seedParentWithStudent(suffix);
+  const enrollment = await seedActiveEnrollment({
+    parent: parentScene.parent,
+    student: parentScene.student,
+    coach: coachScene.coach,
+    contract: coachScene.contract,
+    quantity,
+    sessionsUsed,
   });
 
-  const coachAgent = await loginAgent(`pcsess-coach-${suffix}@example.com`);
-  const scheduleRes = await coachAgent
-    .post('/api/v1/private-class-schedules')
-    .send({ dayOfWeek: 2, startTime: '16:00', durationMinutes });
+  return { ...coachScene, ...parentScene, enrollment, slot: coachScene.schedules[0], lateSlot: coachScene.schedules[1] };
+}
 
-  const parent = await seedUser({ role: 'parent', email: `pcsess-parent-${suffix}@example.com` });
-  const student = await User.create({ role: 'student', firstName: 'Kid', lastName: suffix, parentId: parent._id });
-  const parentAgent = await loginAgent(`pcsess-parent-${suffix}@example.com`);
-  await savePaymentMethodFor(parentAgent);
-
-  const enrollRes = await parentAgent.post('/api/v1/private-class-enrollments').send({
+function book(parentAgent, { student, slot, day = '2026-10-06' }) {
+  return parentAgent.post('/api/v1/private-class-sessions').send({
     studentId: student._id.toString(),
-    scheduleId: scheduleRes.body.schedule._id,
+    scheduleId: String(slot._id),
+    day,
   });
-  expect(enrollRes.status).toBe(201);
-
-  const enrollmentId = enrollRes.body.enrollment._id;
-  const sessions = await PrivateClassSession.find({ enrollmentId }).sort({ startDate: 1 });
-  const target = sessions[0];
-
-  const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-  await PrivateClassSession.findByIdAndUpdate(target._id, { startDate, endDate });
-
-  return {
-    coach,
-    coachAgent,
-    parent,
-    parentAgent,
-    student,
-    enrollmentId,
-    sessionId: target._id.toString(),
-  };
 }
 
-describe('Private class session routes', () => {
-  describe('PATCH /api/v1/private-class-sessions/:id/attendance', () => {
-    it(
-      "marks attended, charges completed for rate x duration/60, and sends the receipt email",
-      async () => {
-        const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'attend1' });
+// docs/decisions/011-private-per-session-booking.md
+describe('Private class session (booking) routes', () => {
+  describe('POST / (book with an already-paid session)', () => {
+    it('uses one credit, confirms the booking, creates the scheduled Visit, writes no ledger row, and emails parent + coach', async () => {
+      const { parentAgent, student, slot, enrollment } = await seedCreditScene('credit');
 
-        const res = await coachAgent
-          .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-          .send({ status: 'attended' });
+      const res = await book(parentAgent, { student, slot });
 
-        expect(res.status).toBe(200);
-        expect(res.body.session.attendance).toBe('attended');
-        expect(res.body.charged).toBe(true);
-        expect(res.body.charge.status).toBe('completed');
-        expect(res.body.charge.amount).toBe(computeSessionPrice(HOURLY_RATE, 60));
+      expect(res.status).toBe(201);
+      expect(res.body.remaining).toBe(9);
+      expect((await PrivateClassEnrollment.findById(enrollment._id)).sessionsUsed).toBe(1);
 
-        const chargeInDb = await PerSessionRegistration.findOne({ sessionId });
-        expect(chargeInDb.status).toBe('completed');
-        expect(chargeInDb.stripePaymentIntentId).toBeTruthy();
+      const session = await PrivateClassSession.findById(res.body.session._id);
+      expect(session.status).toBe('confirmed');
+      expect(String(session.enrollmentId)).toBe(String(enrollment._id));
+      expect(await Visit.findOne({ privateClassSessionId: session._id })).toMatchObject({ status: 'scheduled' });
+      expect(await Registration.countDocuments({})).toBe(0);
 
-        const mailService = require('../../src/services/mail.service');
-        expect(mailService.sendPrivateClassSessionReceiptEmail).toHaveBeenCalled();
-      },
-      20000
-    );
-
-    // docs/plans/manual-charge-and-pdf-invoice-plan.md PR 2.
-    it(
-      'attaches an invoice PDF to the receipt email on a successful charge',
-      async () => {
-        const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'invoice1' });
-
-        const res = await coachAgent
-          .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-          .send({ status: 'attended' });
-
-        expect(res.status).toBe(200);
-
-        // Mock call counts accumulate across this whole test file (no
-        // clearAllMocks between tests, same convention this file's other
-        // tests already note) — read the LAST call, not index 0.
-        const mailService = require('../../src/services/mail.service');
-        const calls = mailService.sendPrivateClassSessionReceiptEmail.mock.calls;
-        const call = calls[calls.length - 1][0];
-        expect(call.invoiceNumber).toMatch(/^INV-/);
-        expect(Buffer.isBuffer(call.invoicePdf)).toBe(true);
-        expect(call.invoicePdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-      },
-      20000
-    );
-
-    it(
-      'a PDF generation failure still sends the receipt email (no attachment) and does not affect the charge outcome',
-      async () => {
-        const invoiceService = require('../../src/services/invoice.service');
-        const buildInvoiceDataSpy = jest
-          .spyOn(invoiceService, 'buildInvoiceData')
-          .mockRejectedValue(new Error('PDF generation exploded'));
-
-        const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'invoicefail1' });
-
-        const res = await coachAgent
-          .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-          .send({ status: 'attended' });
-
-        expect(res.status).toBe(200);
-        expect(res.body.charged).toBe(true);
-        expect(res.body.charge.status).toBe('completed');
-
-        const mailService = require('../../src/services/mail.service');
-        const calls = mailService.sendPrivateClassSessionReceiptEmail.mock.calls;
-        const call = calls[calls.length - 1][0];
-        expect(call.invoicePdf).toBeUndefined();
-        expect(call.invoiceNumber).toBeUndefined();
-
-        buildInvoiceDataSpy.mockRestore();
-      },
-      20000
-    );
-
-    it('returns 400 for a session that has not yet occurred', async () => {
-      const futureStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({
-        suffix: 'future1',
-        startDate: futureStart,
-      });
-
-      const res = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'attended' });
-
-      expect(res.status).toBe(400);
+      const confirmation = mailService.sendPrivateClassBookingConfirmationEmail.mock.calls[0][0];
+      expect(confirmation.purchaseRow).toBeNull();
+      expect(mailService.sendPrivateClassCoachBookingEmail).toHaveBeenCalledTimes(1);
     });
 
-    it('ownership regression: a different coach gets 403; the assigned coach and an admin both succeed', async () => {
-      const { sessionId } = await seedEnrollmentWithPastSession({ suffix: 'owner1' });
+    it('draws from the oldest purchase that still has a credit, skipping an exhausted one', async () => {
+      const scene = await seedCreditScene('oldest', { quantity: 2, sessionsUsed: 2 });
+      const older = await seedActiveEnrollment({
+        ...scene,
+        quantity: 5,
+        sessionsUsed: 1,
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+      });
+      const newer = await seedActiveEnrollment({ ...scene, quantity: 5 });
 
-      await seedUser({ role: 'coach', email: 'pcsess-other-coach@example.com' });
-      const otherCoachAgent = await loginAgent('pcsess-other-coach@example.com');
+      const res = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
 
-      const forbiddenRes = await otherCoachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'missed' });
-      expect(forbiddenRes.status).toBe(403);
+      expect(res.status).toBe(201);
+      expect(res.body.session.enrollmentId).toBe(String(older._id));
+      expect((await PrivateClassEnrollment.findById(older._id)).sessionsUsed).toBe(2);
+      expect((await PrivateClassEnrollment.findById(newer._id)).sessionsUsed).toBe(0);
+      expect((await PrivateClassEnrollment.findById(scene.enrollment._id)).sessionsUsed).toBe(2);
+    });
 
-      await seedUser({ role: 'admin', email: 'pcsess-owner-admin@example.com' });
-      const adminAgent = await loginAgent('pcsess-owner-admin@example.com');
+    it('returns 409 with no usable credit (none left, or only credits of another length), writing nothing', async () => {
+      const scene = await seedCreditScene('none', { quantity: 1, sessionsUsed: 1 });
+      await seedActiveEnrollment({ ...scene, quantity: 5, sessionDurationMinutes: 60 });
 
-      const adminRes = await adminAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'missed' });
-      expect(adminRes.status).toBe(200);
-    }, 20000);
+      const res = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
 
-    it('marking missed records no charge', async () => {
-      const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'missed1' });
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/no 30-minute sessions left/);
+      expect(await PrivateClassSession.countDocuments({})).toBe(0);
+    });
 
-      const res = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'missed' });
+    it('returns 409 when the slot is already held, and gives the credit straight back', async () => {
+      const scene = await seedCreditScene('taken');
+      const other = await seedCreditScene('taken-other');
+      await seedBooking({ schedule: scene.slot, day: '2026-10-06', enrollment: other.enrollment });
 
-      expect(res.status).toBe(200);
-      expect(res.body.session.attendance).toBe('missed');
-      expect(res.body.charged).toBe(false);
-      expect(await PerSessionRegistration.countDocuments({ sessionId })).toBe(0);
-    }, 20000);
+      const res = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
 
-    it('idempotency: marking attended twice results in exactly one non-failed charge', async () => {
-      const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'idem1' });
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/just taken/);
+      expect((await PrivateClassEnrollment.findById(scene.enrollment._id)).sessionsUsed).toBe(0);
+    });
 
-      const firstRes = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'attended' });
-      expect(firstRes.status).toBe(200);
-      expect(firstRes.body.charge.status).toBe('completed');
+    it('two bookings racing for the last credit: exactly one succeeds', async () => {
+      const scene = await seedCreditScene('last', { quantity: 1 });
 
-      const secondRes = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'attended' });
-      expect(secondRes.status).toBe(200);
-      expect(secondRes.body.charged).toBe(true);
-
-      const charges = await PerSessionRegistration.find({ sessionId, status: { $in: ['pending', 'completed'] } });
-      expect(charges).toHaveLength(1);
-    }, 30000);
-
-    it('a genuine race between two concurrent charge attempts still produces exactly one non-failed charge (E11000 dedup)', async () => {
-      const { sessionId } = await seedEnrollmentWithPastSession({ suffix: 'race1' });
-      const session = await PrivateClassSession.findById(sessionId);
-      const requestingUser = { role: 'admin' };
-
-      const [first, second] = await Promise.all([
-        privateClassSessionService.markAttendance(sessionId, 'attended', requestingUser),
-        privateClassSessionService.markAttendance(sessionId, 'attended', requestingUser),
+      const results = await Promise.all([
+        book(scene.parentAgent, { student: scene.student, slot: scene.slot }),
+        book(scene.parentAgent, { student: scene.student, slot: scene.lateSlot }),
       ]);
 
-      expect([first.charged, second.charged]).toContain(true);
+      expect(results.map((res) => res.status).sort()).toEqual([201, 409]);
+      expect((await PrivateClassEnrollment.findById(scene.enrollment._id)).sessionsUsed).toBe(1);
+      expect(await PrivateClassSession.countDocuments({ status: 'confirmed' })).toBe(1);
+    });
 
-      const nonFailedCharges = await PerSessionRegistration.find({
-        sessionId,
-        status: { $in: ['pending', 'completed'] },
-      });
-      expect(nonFailedCharges).toHaveLength(1);
-    }, 30000);
+    it('honors paid credits even after the coach stops taking new students', async () => {
+      const scene = await seedCreditScene('honor');
+      scene.contract.isActive = false;
+      await scene.contract.save();
 
-    it('cancel-then-charge race: enrollment cancelled before the session date -> attendance recorded, charged:false, zero Stripe calls', async () => {
-      const { parentAgent, enrollmentId, sessionId } = await seedEnrollmentWithPastSession({
-        suffix: 'cancelrace1',
-      });
+      expect((await book(scene.parentAgent, { student: scene.student, slot: scene.slot })).status).toBe(201);
+    });
 
-      // Cancel BEFORE the session's start (a delivered-nothing cancellation).
-      const session = await PrivateClassSession.findById(sessionId);
-      await PrivateClassEnrollment.findByIdAndUpdate(enrollmentId, {
-        status: 'cancelled',
-        endDate: new Date(session.startDate.getTime() - 60 * 60 * 1000),
-      });
+    it('returns 400 for an unbookable day and 403 for a coach', async () => {
+      const scene = await seedCreditScene('bad-day');
 
-      const createSpy = jest.spyOn(stripe.paymentIntents, 'create');
-
-      const coach = await User.findOne({ role: 'coach' });
-      const coachAgent = await loginAgent(coach.email);
-
-      const res = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'attended' });
-
-      expect(res.status).toBe(200);
-      expect(res.body.session.attendance).toBe('attended');
-      expect(res.body.charged).toBe(false);
-      expect(res.body.reason).toBe('enrollment_cancelled');
-      expect(createSpy).not.toHaveBeenCalled();
-      expect(await PerSessionRegistration.countDocuments({ sessionId })).toBe(0);
-    }, 20000);
-
-    it('delivered-before-cancellation: session start is before the cancellation endDate -> still charges', async () => {
-      const { parentAgent, enrollmentId, sessionId } = await seedEnrollmentWithPastSession({
-        suffix: 'deliveredrace1',
-      });
-
-      const session = await PrivateClassSession.findById(sessionId);
-      // Cancellation endDate is AFTER the session's start -> this session was
-      // delivered before the cancellation took effect.
-      await PrivateClassEnrollment.findByIdAndUpdate(enrollmentId, {
-        status: 'cancelled',
-        endDate: new Date(session.startDate.getTime() + 60 * 60 * 1000),
-      });
-
-      const coach = await User.findOne({ role: 'coach' });
-      const coachAgent = await loginAgent(coach.email);
-
-      const res = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'attended' });
-
-      expect(res.status).toBe(200);
-      expect(res.body.charged).toBe(true);
-    }, 20000);
-
-    it(
-      'a declined card fails the charge and sends the failure email; retry with a fresh attempt succeeds',
-      async () => {
-        const { parent, coachAgent, sessionId } = await seedEnrollmentWithPastSession({
-          suffix: 'decline1',
-        });
-
-        await PaymentMethod.updateOne(
-          { parentId: parent._id },
-          { stripePaymentMethodId: 'pm_card_chargeDeclined' }
-        );
-
-        const attendRes = await coachAgent
-          .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-          .send({ status: 'attended' });
-
-        expect(attendRes.status).toBe(200);
-        expect(attendRes.body.session.attendance).toBe('attended');
-        expect(attendRes.body.charged).toBe(false);
-        expect(attendRes.body.chargeStatus).toBe('failed');
-
-        const mailService = require('../../src/services/mail.service');
-        expect(mailService.sendPrivateClassPaymentFailedEmail).toHaveBeenCalled();
-
-        const failedCharge = await PerSessionRegistration.findOne({ sessionId });
-        expect(failedCharge.attempt).toBe(1);
-
-        // Fix the card, then retry.
-        await PaymentMethod.updateOne({ parentId: parent._id }, { stripePaymentMethodId: (await mintTestPaymentMethodId()) });
-
-        const retryRes = await coachAgent.post(`/api/v1/private-class-sessions/${sessionId}/retry-charge`);
-
-        expect(retryRes.status).toBe(200);
-        expect(retryRes.body.charged).toBe(true);
-        expect(retryRes.body.charge.attempt).toBe(2);
-        expect(retryRes.body.charge.status).toBe('completed');
-      },
-      30000
-    );
-
-    it('returns 409 when attempting attended -> missed after a completed charge', async () => {
-      const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'flip1' });
-
-      const attendRes = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'attended' });
-      expect(attendRes.body.charge.status).toBe('completed');
-
-      const flipRes = await coachAgent
-        .patch(`/api/v1/private-class-sessions/${sessionId}/attendance`)
-        .send({ status: 'missed' });
-
-      expect(flipRes.status).toBe(409);
-    }, 20000);
-  });
-
-  describe('POST /api/v1/private-class-sessions/:id/retry-charge', () => {
-    it('returns 409 when the latest charge is not failed', async () => {
-      const { coachAgent, sessionId } = await seedEnrollmentWithPastSession({ suffix: 'retryguard1' });
-
-      const res = await coachAgent.post(`/api/v1/private-class-sessions/${sessionId}/retry-charge`);
-      expect(res.status).toBe(409);
+      expect((await book(scene.parentAgent, { student: scene.student, slot: scene.slot, day: '2026-10-07' })).status).toBe(400);
+      expect((await book(scene.coachAgent, { student: scene.student, slot: scene.slot })).status).toBe(403);
+      expect((await PrivateClassEnrollment.findById(scene.enrollment._id)).sessionsUsed).toBe(0);
     });
   });
 
-  describe('GET /api/v1/private-class-sessions/mine', () => {
-    it('enriches each session with a computed sessionPrice and a populated parent name, filtered by window', async () => {
-      const { coachAgent, parent, sessionId } = await seedEnrollmentWithPastSession({
-        suffix: 'listmine1',
-      });
+  describe('PATCH /:id/attendance', () => {
+    async function bookedAndStarted(suffix) {
+      const scene = await seedCreditScene(suffix);
+      const res = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
+      freezeDate(new Date('2026-10-06T21:35:00.000Z')); // lesson started 4:30 PM CDT
+      return { ...scene, sessionId: res.body.session._id };
+    }
 
-      const unmarkedRes = await coachAgent.get('/api/v1/private-class-sessions/mine?window=unmarked');
-      expect(unmarkedRes.status).toBe(200);
-      expect(unmarkedRes.body.sessions).toHaveLength(1);
-      expect(unmarkedRes.body.sessions[0]._id).toBe(sessionId);
-      expect(unmarkedRes.body.sessions[0].sessionPrice).toBe(computeSessionPrice(HOURLY_RATE, 60));
-      expect(unmarkedRes.body.sessions[0].parentId.firstName).toBe(parent.firstName);
+    it('records attended/missed on the Visit (coach, then a re-mark), and never moves money', async () => {
+      const { coachAgent, coach, sessionId } = await bookedAndStarted('attend');
 
-      const upcomingRes = await coachAgent.get('/api/v1/private-class-sessions/mine?window=upcoming');
-      // 7 of the 8 generated sessions remain in the future (one was
-      // backdated by the test helper).
-      expect(upcomingRes.body.sessions).toHaveLength(7);
+      const attended = await coachAgent.patch(`/api/v1/private-class-sessions/${sessionId}/attendance`).send({ status: 'attended' });
+
+      expect(attended.status).toBe(200);
+      expect(attended.body.session.attendance).toBe('attended');
+      const visit = await Visit.findOne({ privateClassSessionId: sessionId });
+      expect(visit).toMatchObject({ status: 'attended', markedVia: 'coach' });
+      expect(String(visit.markedBy)).toBe(String(coach._id));
+
+      const missed = await coachAgent.patch(`/api/v1/private-class-sessions/${sessionId}/attendance`).send({ status: 'missed' });
+      expect(missed.body.visit.status).toBe('missed');
+      expect(await Visit.countDocuments({ privateClassSessionId: sessionId })).toBe(1);
+      expect(await Registration.countDocuments({})).toBe(0);
+    });
+
+    it("lets an admin mark (markedVia 'admin') and forbids another coach", async () => {
+      const { adminAgent, sessionId } = await bookedAndStarted('attend-admin');
+      const { coachAgent: otherCoach } = await seedCoachWithRules({ suffix: 'attend-other', rules: null });
+
+      expect((await otherCoach.patch(`/api/v1/private-class-sessions/${sessionId}/attendance`).send({ status: 'attended' })).status).toBe(403);
+
+      const res = await adminAgent.patch(`/api/v1/private-class-sessions/${sessionId}/attendance`).send({ status: 'attended' });
+      expect(res.status).toBe(200);
+      expect(res.body.visit.markedVia).toBe('admin');
+    });
+
+    it('returns 400 before the lesson starts and for an invalid status; 409 for a cancelled booking', async () => {
+      const scene = await seedCreditScene('attend-early');
+      const res = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
+      const url = `/api/v1/private-class-sessions/${res.body.session._id}/attendance`;
+
+      expect((await scene.coachAgent.patch(url).send({ status: 'attended' })).status).toBe(400);
+
+      await scene.parentAgent.post(`/api/v1/private-class-sessions/${res.body.session._id}/cancel`);
+      freezeDate(new Date('2026-10-06T21:35:00.000Z'));
+      expect((await scene.coachAgent.patch(url).send({ status: 'attended' })).status).toBe(409);
+
+      // The 5:00 PM slot the same day (kept within the 7-day login token).
+      const booked = await book(scene.parentAgent, { student: scene.student, slot: scene.lateSlot, day: '2026-10-06' });
+      freezeDate(new Date('2026-10-06T22:05:00.000Z'));
+      const bad = await scene.coachAgent.patch(`/api/v1/private-class-sessions/${booked.body.session._id}/attendance`).send({ status: 'late' });
+      expect(bad.status).toBe(400);
+    });
+  });
+
+  describe('POST /:id/cancel', () => {
+    async function bookedScene(suffix) {
+      const scene = await seedCreditScene(suffix);
+      const res = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
+      return { ...scene, sessionId: res.body.session._id };
+    }
+
+    it('a parent more than 24h ahead: the credit comes back, the Visit is cancelled, the slot reopens, the email goes out', async () => {
+      const { parentAgent, enrollment, sessionId, slot } = await bookedScene('cancel');
+
+      const res = await parentAgent.post(`/api/v1/private-class-sessions/${sessionId}/cancel`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.remaining).toBe(10);
+      expect(res.body.session.status).toBe('cancelled');
+      expect((await PrivateClassEnrollment.findById(enrollment._id)).sessionsUsed).toBe(0);
+      expect((await Visit.findOne({ privateClassSessionId: sessionId })).status).toBe('cancelled');
+      expect(mailService.sendPrivateClassBookingCancelledEmail).toHaveBeenCalledTimes(1);
+
+      const dates = await request(app).get(`/api/v1/private-class-schedules/${slot._id}/available-dates?days=2`);
+      expect(dates.body.dates.map((date) => date.day)).toEqual(['2026-10-06']);
+    });
+
+    it('a parent inside the 24h cutoff gets 409; the coach may still cancel until the lesson starts', async () => {
+      const { parentAgent, coachAgent, sessionId } = await bookedScene('cutoff');
+      freezeDate(new Date('2026-10-05T22:00:00.000Z')); // 23.5h before 4:30 PM Tuesday
+
+      const parentTry = await parentAgent.post(`/api/v1/private-class-sessions/${sessionId}/cancel`);
+      expect(parentTry.status).toBe(409);
+      expect(parentTry.body.message).toMatch(/24 hours/);
+
+      freezeDate(new Date('2026-10-06T21:00:00.000Z')); // 30 minutes before
+      expect((await coachAgent.post(`/api/v1/private-class-sessions/${sessionId}/cancel`)).status).toBe(200);
+    });
+
+    it('nobody can cancel once the lesson started, a second cancel is a 409, and another parent gets 403', async () => {
+      const scene = await bookedScene('cancel-late');
+      const { parentAgent: stranger } = await seedParentWithStudent('cancel-stranger');
+
+      expect((await stranger.post(`/api/v1/private-class-sessions/${scene.sessionId}/cancel`)).status).toBe(403);
+
+      expect((await scene.adminAgent.post(`/api/v1/private-class-sessions/${scene.sessionId}/cancel`)).status).toBe(200);
+      expect((await scene.adminAgent.post(`/api/v1/private-class-sessions/${scene.sessionId}/cancel`)).status).toBe(409);
+      expect((await PrivateClassEnrollment.findById(scene.enrollment._id)).sessionsUsed).toBe(0);
+
+      const again = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
+      freezeDate(new Date('2026-10-06T21:31:00.000Z'));
+      const started = await scene.adminAgent.post(`/api/v1/private-class-sessions/${again.body.session._id}/cancel`);
+      expect(started.status).toBe(409);
+      expect(started.body.message).toMatch(/already started/);
+    });
+  });
+
+  describe('GET /mine (coach) and GET / (admin)', () => {
+    it('splits a coach\'s bookings into upcoming, unmarked (started, not yet marked) and past, reading attendance from the Visit', async () => {
+      const scene = await seedCreditScene('windows');
+      const first = await book(scene.parentAgent, { student: scene.student, slot: scene.slot, day: '2026-10-06' });
+      const second = await book(scene.parentAgent, { student: scene.student, slot: scene.lateSlot, day: '2026-10-06' });
+      await book(scene.parentAgent, { student: scene.student, slot: scene.slot, day: '2026-10-20' });
+      freezeDate(new Date('2026-10-07T14:00:00.000Z'));
+      await scene.coachAgent.patch(`/api/v1/private-class-sessions/${first.body.session._id}/attendance`).send({ status: 'attended' });
+
+      const upcoming = await scene.coachAgent.get('/api/v1/private-class-sessions/mine?window=upcoming');
+      const unmarked = await scene.coachAgent.get('/api/v1/private-class-sessions/mine?window=unmarked');
+      const past = await scene.coachAgent.get('/api/v1/private-class-sessions/mine?window=past');
+
+      expect(upcoming.body.sessions.map((session) => session.startDate)).toEqual(['2026-10-20T21:30:00.000Z']);
+      expect(unmarked.body.sessions.map((session) => session._id)).toEqual([second.body.session._id]);
+      expect(past.body.sessions.map((session) => session.attendance).sort()).toEqual(['attended', 'scheduled']);
+      expect(upcoming.body.sessions[0].studentId.firstName).toBe('Sam');
+      expect((await scene.coachAgent.get('/api/v1/private-class-sessions/mine?window=bogus')).status).toBe(400);
+    });
+
+    it('lists every booking for an admin (confirmed + cancelled by default), filterable, and 400s an unknown status', async () => {
+      const scene = await seedCreditScene('admin-list');
+      const kept = await book(scene.parentAgent, { student: scene.student, slot: scene.slot });
+      const dropped = await book(scene.parentAgent, { student: scene.student, slot: scene.lateSlot });
+      await scene.parentAgent.post(`/api/v1/private-class-sessions/${dropped.body.session._id}/cancel`);
+
+      const all = await scene.adminAgent.get('/api/v1/private-class-sessions');
+      const cancelledOnly = await scene.adminAgent.get('/api/v1/private-class-sessions?status=cancelled');
+
+      expect(all.body.sessions).toHaveLength(2);
+      expect(cancelledOnly.body.sessions.map((session) => session._id)).toEqual([dropped.body.session._id]);
+      expect(cancelledOnly.body.sessions[0].attendance).toBe('cancelled');
+      expect(all.body.sessions.find((session) => session._id === kept.body.session._id).coachId.firstName).toBe('Dana');
+      expect((await scene.adminAgent.get('/api/v1/private-class-sessions?status=bogus')).status).toBe(400);
     });
   });
 });
