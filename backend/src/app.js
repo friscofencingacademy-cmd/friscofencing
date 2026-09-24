@@ -28,6 +28,7 @@ const auditRunRoutes = require('./routes/auditRun.routes');
 const evaluationRoutes = require('./routes/evaluation.routes');
 const settingRoutes = require('./routes/setting.routes');
 const holidayRoutes = require('./routes/holiday.routes');
+const errorHandler = require('./middlewares/errorHandler');
 
 configurePassport(passport);
 
@@ -84,5 +85,10 @@ app.use('/api/v1/audit-runs', auditRunRoutes);
 app.use('/api/v1/evaluations', evaluationRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/holidays', holidayRoutes);
+
+// Must be the LAST middleware: every controller's catch block hands its error
+// to next(error) and this is the only place one becomes an HTTP response
+// (docs/plans/duplication-cleanup-plan.md B-D4).
+app.use(errorHandler);
 
 module.exports = app;

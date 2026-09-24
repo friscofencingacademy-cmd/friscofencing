@@ -66,6 +66,41 @@ describe('Level routes', () => {
     expect(listRes.body.levels).toHaveLength(1);
   });
 
+  // docs/plans/duplication-cleanup-plan.md B-D4 — end to end through the REAL
+  // app: an unexpected server error must reach the client as a generic 500,
+  // never the internal text (a raw DB/Stripe message used to be sent verbatim).
+  it('returns a generic 500 — never the internal error text — when a service fails unexpectedly', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const findSpy = jest.spyOn(Level, 'find').mockRejectedValueOnce(new Error('E11000 secret internal db detail'));
+
+    try {
+      const res = await agent.get('/api/v1/levels');
+
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ message: 'Something went wrong' });
+      expect(JSON.stringify(res.body)).not.toContain('secret internal db detail');
+      // ...but the real cause is logged server-side for the operator.
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(String(errorSpy.mock.calls[0][0])).toContain('secret internal db detail');
+    } finally {
+      findSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('returns 400 (not 500) for a malformed level id in the URL', async () => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent.get('/api/v1/levels/not-a-real-object-id');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: 'Invalid _id' });
+  });
+
   it('returns 403 when a non-admin tries to create a level', async () => {
     await seedUser({ role: 'coach', email: 'test-coach@example.com' });
     const agent = await loginAgent('test-coach@example.com');

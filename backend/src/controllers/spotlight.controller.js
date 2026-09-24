@@ -1,56 +1,51 @@
 const spotlightService = require('../services/spotlight.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const spotlight = await spotlightService.create(req.body);
     return res.status(201).json({ spotlight });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create spotlight' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const spotlights = await spotlightService.list();
     return res.status(200).json({ spotlights });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list spotlights' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const spotlight = await spotlightService.getById(req.params.id);
     return res.status(200).json({ spotlight });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch spotlight' });
+    return next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
     const spotlight = await spotlightService.update(req.params.id, req.body);
     return res.status(200).json({ spotlight });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to update spotlight' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await spotlightService.remove(req.params.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete spotlight' });
+    return next(error);
   }
 }
 
-async function listPublic(req, res) {
+async function listPublic(req, res, next) {
   try {
     const { type } = req.query;
 
@@ -61,18 +56,16 @@ async function listPublic(req, res) {
     const spotlights = await spotlightService.listPublic(type);
     return res.status(200).json({ spotlights });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list spotlights' });
+    return next(error);
   }
 }
 
-async function uploadImage(req, res) {
+async function uploadImage(req, res, next) {
   try {
     const imageUrl = await spotlightService.uploadImage(req.file);
     return res.status(201).json({ imageUrl });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to upload image' });
+    return next(error);
   }
 }
 

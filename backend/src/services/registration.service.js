@@ -24,30 +24,8 @@ const { computeAvailability } = require('./groupClassSchedule.service');
 const { isPremiumRegistrationEnabled } = require('../config/registrationMode');
 const mailService = require('./mail.service');
 const invoiceService = require('./invoice.service');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 // Shared by create() and previewChargeAmount() — the auth-critical,
 // order-sensitive first checks (does this student exist, does it belong to
@@ -731,7 +709,7 @@ async function getInvoice(registrationId, requestingUser) {
     throw notFoundError('Registration not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isOwningParent =
     requestingUser.role === 'parent' && String(row.parentId) === String(requestingUser._id);
 

@@ -2,12 +2,7 @@ const GroupClass = require('../models/groupClass.model');
 const Level = require('../models/level.model');
 const Location = require('../models/location.model');
 const GroupClassSchedule = require('../models/groupClassSchedule.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
+const { notFoundError, conflictError } = require('../utils/errors');
 
 async function assertRefsExist({ levelId, locationId }) {
   if (levelId !== undefined) {
@@ -70,11 +65,9 @@ async function remove(id) {
   const referencingCount = await GroupClassSchedule.countDocuments({ classId: id });
 
   if (referencingCount > 0) {
-    const error = new Error(
+    throw conflictError(
       `Cannot delete: ${referencingCount} schedule(s) reference this class.`
     );
-    error.status = 409;
-    throw error;
   }
 
   await GroupClass.deleteOne({ _id: id });

@@ -1,52 +1,47 @@
 const groupClassService = require('../services/groupClass.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const groupClass = await groupClassService.create(req.body);
     return res.status(201).json({ groupClass });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to create group class' });
+    return next(error);
   }
 }
 
-async function list(req, res) {
+async function list(req, res, next) {
   try {
     const groupClasses = await groupClassService.list();
     return res.status(200).json({ groupClasses });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list group classes' });
+    return next(error);
   }
 }
 
-async function getById(req, res) {
+async function getById(req, res, next) {
   try {
     const groupClass = await groupClassService.getById(req.params.id);
     return res.status(200).json({ groupClass });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to fetch group class' });
+    return next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
     const groupClass = await groupClassService.update(req.params.id, req.body);
     return res.status(200).json({ groupClass });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to update group class' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await groupClassService.remove(req.params.id);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete group class' });
+    return next(error);
   }
 }
 

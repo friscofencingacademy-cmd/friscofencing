@@ -6,24 +6,8 @@ const { SubscriptionCycleRegistration } = require('../models/registration.model'
 const { addStudentToRoster, removeStudentFromRoster } = require('./roster.service');
 const { computeAvailability } = require('./groupClassSchedule.service');
 const mailService = require('./mail.service');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
+const { forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 // Shared populate chain for the admin subscriptions list + every mutation's
 // return value — one place that defines "what a fully-populated
@@ -149,7 +133,7 @@ async function cancel(subscriptionId, requestingUser) {
     throw notFoundError('Subscription not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isOwningParent =
     requestingUser.role === 'parent' &&
     String(subscription.parentId) === String(requestingUser._id);
@@ -209,7 +193,7 @@ async function reactivate(subscriptionId, requestingUser) {
     throw notFoundError('Subscription not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isOwningParent =
     requestingUser.role === 'parent' &&
     String(subscription.parentId) === String(requestingUser._id);

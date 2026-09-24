@@ -1,11 +1,6 @@
 const Price = require('../models/price.model');
 const Level = require('../models/level.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
+const { notFoundError, conflictError } = require('../utils/errors');
 
 async function assertLevelExists(levelId) {
   if (levelId === undefined) {
@@ -23,9 +18,7 @@ async function assertNoExistingPrice(levelId, excludeId) {
   const existing = await Price.findOne({ levelId });
 
   if (existing && String(existing._id) !== String(excludeId)) {
-    const error = new Error('A price already exists for this level');
-    error.status = 409;
-    throw error;
+    throw conflictError('A price already exists for this level');
   }
 }
 

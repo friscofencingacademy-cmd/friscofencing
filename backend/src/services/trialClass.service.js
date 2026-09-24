@@ -8,24 +8,8 @@ const Location = require('../models/location.model');
 const mailService = require('./mail.service');
 const visitService = require('./visit.service');
 const holidayService = require('./holiday.service');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 function populateTrialClass(trialClassId) {
   return TrialClass.findById(trialClassId)
@@ -43,7 +27,7 @@ async function create({ studentId, sessionId }, requestingUser) {
     throw notFoundError('Student not found');
   }
 
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
 
   if (!isAdmin && String(student.parentId) !== String(requestingUser._id)) {
     throw forbiddenError('This student does not belong to you');
@@ -80,9 +64,7 @@ async function create({ studentId, sessionId }, requestingUser) {
   const existingTrial = await TrialClass.findOne({ studentId });
 
   if (existingTrial) {
-    const error = new Error('This student has already used their trial class');
-    error.status = 409;
-    throw error;
+    throw conflictError('This student has already used their trial class');
   }
 
   const session = await GroupClassSession.findById(sessionId);

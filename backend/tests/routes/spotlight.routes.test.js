@@ -113,7 +113,10 @@ describe('Spotlight routes', () => {
         bullets: ['one', 'two', 'three', 'four'],
       });
 
-      expect(res.status).toBe(500);
+      // A Mongoose ValidationError -> 400 with the model's own message via the
+      // central error middleware (docs/plans/duplication-cleanup-plan.md B-D4).
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('A spotlight can have at most 3 bullets.');
       expect(await Spotlight.countDocuments()).toBe(0);
     });
   });

@@ -31,24 +31,13 @@ const { sessionDurationMinutes } = require('../utils/privateClassPricing');
 const { dateFull, dateOnlyFull } = require('../email/dates');
 const { LOGO_URL } = require('../email/tokens');
 const academy = require('../config/academy');
+const { notFoundError, conflictError } = require('../utils/errors');
 
 // docs/plans/manual-charge-and-pdf-invoice-plan.md, PR 2 — the invoice PDF
 // draws entirely from one immutable, completed Registration ledger row
 // (ADR 004). Split into data-assembly (this file's buildInvoiceData, unit-
 // testable without parsing PDF binary) and rendering (renderInvoicePdf) so
 // field logic and layout can be verified independently.
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
 
 function fullName(user) {
   if (!user) return '';

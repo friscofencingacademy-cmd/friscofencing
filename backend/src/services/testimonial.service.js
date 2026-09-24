@@ -3,18 +3,7 @@ const path = require('path');
 const { put } = require('@vercel/blob');
 
 const Testimonial = require('../models/testimonial.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, notFoundError } = require('../utils/errors');
 
 async function create(data) {
   return Testimonial.create(data);

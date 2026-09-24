@@ -11,6 +11,7 @@ const {
   uploadImage,
 } = require('../controllers/spotlight.controller');
 const { requireAuth, requireRole } = require('../middlewares/auth');
+const { ADMIN_ROLES } = require('../utils/roles');
 
 const router = express.Router();
 
@@ -42,14 +43,14 @@ router.get('/public', listPublic);
 router.post(
   '/upload-image',
   requireAuth,
-  requireRole('admin', 'superadmin'),
+  requireRole(...ADMIN_ROLES),
   uploadSingleImage,
   uploadImage
 );
-router.get('/', requireAuth, requireRole('admin', 'superadmin'), list);
-router.get('/:id', requireAuth, requireRole('admin', 'superadmin'), getById);
-router.post('/', requireAuth, requireRole('admin', 'superadmin'), create);
-router.put('/:id', requireAuth, requireRole('admin', 'superadmin'), update);
-router.delete('/:id', requireAuth, requireRole('admin', 'superadmin'), remove);
+router.get('/', requireAuth, requireRole(...ADMIN_ROLES), list);
+router.get('/:id', requireAuth, requireRole(...ADMIN_ROLES), getById);
+router.post('/', requireAuth, requireRole(...ADMIN_ROLES), create);
+router.put('/:id', requireAuth, requireRole(...ADMIN_ROLES), update);
+router.delete('/:id', requireAuth, requireRole(...ADMIN_ROLES), remove);
 
 module.exports = router;

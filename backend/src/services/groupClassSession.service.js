@@ -11,33 +11,11 @@ const {
   sentinelDayString,
   combineDayAndTimeInTZ,
 } = require('../utils/dateShapes');
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
+const { hasAdminRole } = require('../utils/roles');
 
 const SESSION_COUNT = 8;
 const DAYS_PER_WEEK = 7;
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
 
 // `GroupClassSession.date` is a calendar-day sentinel, not a real instant
 // (docs/plans/utc-date-standard-plan.md) — every date this generator
@@ -339,7 +317,7 @@ async function markAttendance(sessionId, studentUpdates, requestingUser) {
 }
 
 async function assertCoachOrAdmin(schedule, requestingUser) {
-  const isAdmin = requestingUser.role === 'admin' || requestingUser.role === 'superadmin';
+  const isAdmin = hasAdminRole(requestingUser);
   const isAssignedCoach =
     requestingUser.role === 'coach' && String(schedule.coachId) === String(requestingUser._id);
 

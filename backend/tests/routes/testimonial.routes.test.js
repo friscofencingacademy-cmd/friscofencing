@@ -107,7 +107,12 @@ describe('Testimonial routes', () => {
 
       const res = await agent.post('/api/v1/testimonials').send({ caption: 'No quote or name' });
 
-      expect(res.status).toBe(500);
+      // A Mongoose ValidationError -> 400 with every missing field named, via
+      // the central error middleware (docs/plans/duplication-cleanup-plan.md
+      // B-D4).
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/quote/);
+      expect(res.body.message).toMatch(/authorName/);
       expect(await Testimonial.countDocuments()).toBe(0);
     });
   });

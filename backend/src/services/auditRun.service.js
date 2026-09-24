@@ -1,16 +1,5 @@
 const AuditRun = require('../models/auditRun.model');
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError, notFoundError } = require('../utils/errors');
 
 const REQUIRED_FIELDS = ['auditName', 'overall', 'startedAt', 'finishedAt'];
 

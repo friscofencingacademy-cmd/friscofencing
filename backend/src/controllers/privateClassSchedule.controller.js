@@ -1,6 +1,6 @@
 const privateClassScheduleService = require('../services/privateClassSchedule.service');
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
     const coachId = req.user.role === 'coach' ? req.user._id : req.body.coachId;
 
@@ -17,24 +17,20 @@ async function create(req, res) {
 
     return res.status(201).json({ schedule });
   } catch (error) {
-    const status = error.status || 500;
-    return res
-      .status(status)
-      .json({ message: error.message || 'Failed to create private class schedule' });
+    return next(error);
   }
 }
 
-async function listMine(req, res) {
+async function listMine(req, res, next) {
   try {
     const schedules = await privateClassScheduleService.listMine(req.user._id);
     return res.status(200).json({ schedules });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to list your slots' });
+    return next(error);
   }
 }
 
-async function listAll(req, res) {
+async function listAll(req, res, next) {
   try {
     const schedules = await privateClassScheduleService.listAll({
       coachId: req.query.coachId,
@@ -42,30 +38,25 @@ async function listAll(req, res) {
     });
     return res.status(200).json({ schedules });
   } catch (error) {
-    const status = error.status || 500;
-    return res
-      .status(status)
-      .json({ message: error.message || 'Failed to list private class schedules' });
+    return next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await privateClassScheduleService.remove(req.params.id, req.user);
     return res.status(200).json({ success: true });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to delete slot' });
+    return next(error);
   }
 }
 
-async function listPublic(req, res) {
+async function listPublic(req, res, next) {
   try {
     const coaches = await privateClassScheduleService.listPublic();
     return res.status(200).json({ coaches });
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({ message: error.message || 'Failed to load available slots' });
+    return next(error);
   }
 }
 

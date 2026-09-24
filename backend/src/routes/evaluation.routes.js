@@ -2,6 +2,7 @@ const express = require('express');
 
 const { create, getById, getByStudent, update } = require('../controllers/evaluation.controller');
 const { requireAuth, requireRole } = require('../middlewares/auth');
+const { ADMIN_ROLES } = require('../utils/roles');
 
 const router = express.Router();
 
@@ -9,9 +10,9 @@ const router = express.Router();
 // enforced middleware exactly (its own route comments mention "Parent"
 // access, but the real gate applied to every one of its routes is
 // adminOrCoachOnly; followed the verified code, not the comment).
-router.post('/', requireAuth, requireRole('coach', 'admin', 'superadmin'), create);
-router.get('/student/:studentId', requireAuth, requireRole('coach', 'admin', 'superadmin'), getByStudent);
-router.get('/:id', requireAuth, requireRole('coach', 'admin', 'superadmin'), getById);
-router.put('/:id', requireAuth, requireRole('coach', 'admin', 'superadmin'), update);
+router.post('/', requireAuth, requireRole('coach', ...ADMIN_ROLES), create);
+router.get('/student/:studentId', requireAuth, requireRole('coach', ...ADMIN_ROLES), getByStudent);
+router.get('/:id', requireAuth, requireRole('coach', ...ADMIN_ROLES), getById);
+router.put('/:id', requireAuth, requireRole('coach', ...ADMIN_ROLES), update);
 
 module.exports = router;

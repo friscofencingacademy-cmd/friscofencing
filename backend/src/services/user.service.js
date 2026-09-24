@@ -7,34 +7,11 @@ const CoachContract = require('../models/coachContract.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const { hashPassword } = require('../utils/password');
 const { withAge } = require('../utils/age');
+const { badRequestError, forbiddenError, notFoundError, conflictError } = require('../utils/errors');
 
 // Roles that get a passwordHash and can log in. Students never get one in
 // this MVP — mirrors the comment on user.model.js's passwordHash field.
 const LOGIN_CAPABLE_ROLES = ['parent', 'coach', 'admin', 'superadmin'];
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function forbiddenError(message) {
-  const error = new Error(message);
-  error.status = 403;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
 
 function normalizeEmail(email) {
   return String(email || '')

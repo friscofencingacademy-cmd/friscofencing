@@ -2,12 +2,7 @@ const User = require('../models/user.model');
 const Subscription = require('../models/subscription.model');
 const TrialClass = require('../models/trialClass.model');
 const { withAge } = require('../utils/age');
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
+const { badRequestError } = require('../utils/errors');
 
 // A parent adding their own child, or an admin/superadmin adding a child on
 // behalf of a specific parent. Security-critical: when the requester is a

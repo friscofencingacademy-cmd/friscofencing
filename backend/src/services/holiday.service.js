@@ -1,26 +1,9 @@
 const Holiday = require('../models/holiday.model');
 const { dateOnlyUTC } = require('../utils/dateShapes');
+const { badRequestError, notFoundError, conflictError } = require('../utils/errors');
 
 const MAX_DURATION_DAYS = 31;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function notFoundError(message) {
-  const error = new Error(message);
-  error.status = 404;
-  return error;
-}
-
-function badRequestError(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-function conflictError(message) {
-  const error = new Error(message);
-  error.status = 409;
-  return error;
-}
 
 // Parses + normalizes a client-supplied date (a 'YYYY-MM-DD' string, or
 // anything `new Date()` can parse) into a calendar-day sentinel via the
