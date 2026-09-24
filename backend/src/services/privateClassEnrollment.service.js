@@ -95,6 +95,9 @@ async function quote({ studentId, scheduleId }, parent) {
     hourlyRate: terms ? terms.contract.studentBillingRate : null,
     options: terms ? terms.options : [],
     availableCredits,
+    // The cancellation policy the parent agrees to — shown in the wizard's
+    // consent line, from the same constant the cancel endpoint enforces.
+    cancelCutoffHours: privateClassSessionService.PARENT_CANCEL_CUTOFF_HOURS,
   };
 }
 

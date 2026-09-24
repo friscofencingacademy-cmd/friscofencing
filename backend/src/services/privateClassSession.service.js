@@ -282,10 +282,30 @@ async function markAttendance(sessionId, status, requestingUser) {
 
 // ── Cancellation ──────────────────────────────────────────────────────────
 
-// Parent-own (until PARENT_CANCEL_CUTOFF_HOURS before the lesson), coach-own
-// or admin (until it starts). The credit goes back to the purchase; no money
-// moves (ADR 001 — no refunds). The slot reopens (the partial unique index
-// no longer counts a cancelled booking).
+// THE cancellation rule — used by cancel() to reject, and by every booking
+// listing to set `canCancel`, so the UI never re-derives it. Returns why a
+// booking cannot be cancelled by this kind of requester right now, or null
+// when it can. Staff (the assigned coach or an admin) may cancel until the
+// lesson starts; a parent until PARENT_CANCEL_CUTOFF_HOURS before it.
+function cancelBlockReason(session, { asStaff }, now = new Date()) {
+  if (session.status !== 'confirmed') {
+    return 'Only a booked lesson can be cancelled';
+  }
+
+  if (session.startDate <= now) {
+    return 'This lesson has already started — mark attendance instead';
+  }
+
+  if (!asStaff && session.startDate.getTime() - now.getTime() < PARENT_CANCEL_CUTOFF_HOURS * MS_PER_HOUR) {
+    return `Lessons can be cancelled online up to ${PARENT_CANCEL_CUTOFF_HOURS} hours before they start — please contact the academy`;
+  }
+
+  return null;
+}
+
+// Parent-own, coach-own or admin, per cancelBlockReason. The credit goes back
+// to the purchase; no money moves (ADR 001 — no refunds). The slot reopens
+// (the partial unique index no longer counts a cancelled booking).
 async function cancel(sessionId, requestingUser) {
   const session = await PrivateClassSession.findById(sessionId);
 
@@ -303,20 +323,11 @@ async function cancel(sessionId, requestingUser) {
     throw forbiddenError('This booking does not belong to you');
   }
 
-  if (session.status !== 'confirmed') {
-    throw conflictError('Only a booked lesson can be cancelled');
-  }
-
   const now = new Date();
+  const blocked = cancelBlockReason(session, { asStaff: isAdmin || isAssignedCoach }, now);
 
-  if (session.startDate <= now) {
-    throw conflictError('This lesson has already started — mark attendance instead');
-  }
-
-  if (!isAdmin && !isAssignedCoach && session.startDate.getTime() - now.getTime() < PARENT_CANCEL_CUTOFF_HOURS * MS_PER_HOUR) {
-    throw conflictError(
-      `Lessons can be cancelled online up to ${PARENT_CANCEL_CUTOFF_HOURS} hours before they start — please contact the academy`
-    );
+  if (blocked) {
+    throw conflictError(blocked);
   }
 
   const cancelled = await PrivateClassSession.findOneAndUpdate(
@@ -356,14 +367,22 @@ async function cancel(sessionId, requestingUser) {
 
 // Every listing reads attendance from the Visit ledger (one query per list)
 // and exposes it as `attendance` — a confirmed booking with no Visit reads
-// 'scheduled'; a cancelled one reads 'cancelled'.
-async function withAttendance(sessions) {
+// 'scheduled'; a cancelled one reads 'cancelled'. `canCancel` is
+// cancelBlockReason for the viewer (`asStaff`: coach/admin views; false:
+// the parent's own view), so a Cancel button can never disagree with the
+// endpoint behind it.
+async function withAttendance(sessions, { asStaff }) {
   const statusBySession = await visitService.getPrivateVisitStatusBySession(sessions.map((session) => session._id));
+  const now = new Date();
 
   return sessions.map((session) => {
     const plain = session.toObject ? session.toObject() : session;
     const fallback = plain.status === 'cancelled' ? 'cancelled' : 'scheduled';
-    return { ...plain, attendance: statusBySession.get(String(plain._id)) || fallback };
+    return {
+      ...plain,
+      attendance: statusBySession.get(String(plain._id)) || fallback,
+      canCancel: cancelBlockReason(plain, { asStaff }, now) === null,
+    };
   });
 }
 
@@ -391,7 +410,7 @@ async function listMine(coachId, window) {
     .populate('parentId', 'firstName lastName')
     .sort({ startDate: window === 'upcoming' ? 1 : -1 });
 
-  const rows = await withAttendance(sessions);
+  const rows = await withAttendance(sessions, { asStaff: true });
 
   return window === 'unmarked' ? rows.filter((row) => row.attendance === 'scheduled') : rows;
 }
@@ -420,7 +439,7 @@ async function listAll({ coachId, status } = {}) {
     .populate('parentId', 'firstName lastName')
     .sort({ startDate: -1 });
 
-  return withAttendance(sessions);
+  return withAttendance(sessions, { asStaff: true });
 }
 
 // A purchase's bookings, soonest first — the parent's view of one enrollment.
@@ -430,11 +449,12 @@ async function listForEnrollments(enrollmentIds) {
     status: { $in: ADMIN_DEFAULT_STATUSES },
   }).sort({ startDate: 1 });
 
-  return withAttendance(sessions);
+  return withAttendance(sessions, { asStaff: false });
 }
 
 module.exports = {
   PARENT_CANCEL_CUTOFF_HOURS,
+  cancelBlockReason,
   PENDING_HOLD_TTL_MINUTES,
   loadBookingContext,
   reserveSlot,

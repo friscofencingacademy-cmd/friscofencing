@@ -95,6 +95,7 @@ describe('Private class enrollment (purchase) routes', () => {
         durationMinutes: 30,
         hourlyRate: 65,
         availableCredits: 0,
+        cancelCutoffHours: 24,
         options: [
           { unitPrice: 32.5, quantity: 1, discountPercent: 0, subtotal: 32.5, discountAmount: 0, total: 32.5 },
           { unitPrice: 32.5, quantity: 10, discountPercent: 10, subtotal: 325, discountAmount: 32.5, total: 292.5 },
@@ -384,7 +385,9 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(entry.enrollment.coachId.firstName).toBe('Dana');
         expect(entry.payment).toMatchObject({ amount: 292.5, quantity: 10, unitPrice: 32.5, discountPercent: 10 });
         expect(entry.sessions).toHaveLength(1);
-        expect(entry.sessions[0]).toMatchObject({ status: 'confirmed', attendance: 'scheduled' });
+        // Oct 6 4:30 PM is 31.5h after the frozen Monday 9 AM — still inside
+        // the parent's online-cancel window.
+        expect(entry.sessions[0]).toMatchObject({ status: 'confirmed', attendance: 'scheduled', canCancel: true });
 
         const history = await parentAgent.get('/api/v1/registrations/history');
         expect(history.status).toBe(200);

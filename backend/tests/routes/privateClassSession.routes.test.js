@@ -242,9 +242,14 @@ describe('Private class session (booking) routes', () => {
       expect(dates.body.dates.map((date) => date.day)).toEqual(['2026-10-06']);
     });
 
-    it('a parent inside the 24h cutoff gets 409; the coach may still cancel until the lesson starts', async () => {
+    it('a parent inside the 24h cutoff gets 409; the coach may still cancel until the lesson starts; canCancel says so per viewer', async () => {
       const { parentAgent, coachAgent, sessionId } = await bookedScene('cutoff');
       freezeDate(new Date('2026-10-05T22:00:00.000Z')); // 23.5h before 4:30 PM Tuesday
+
+      const parentView = await parentAgent.get('/api/v1/private-class-enrollments/mine');
+      expect(parentView.body.enrollments[0].sessions[0].canCancel).toBe(false);
+      const coachView = await coachAgent.get('/api/v1/private-class-sessions/mine?window=upcoming');
+      expect(coachView.body.sessions[0].canCancel).toBe(true);
 
       const parentTry = await parentAgent.post(`/api/v1/private-class-sessions/${sessionId}/cancel`);
       expect(parentTry.status).toBe(409);
@@ -303,7 +308,8 @@ describe('Private class session (booking) routes', () => {
 
       expect(all.body.sessions).toHaveLength(2);
       expect(cancelledOnly.body.sessions.map((session) => session._id)).toEqual([dropped.body.session._id]);
-      expect(cancelledOnly.body.sessions[0].attendance).toBe('cancelled');
+      expect(cancelledOnly.body.sessions[0]).toMatchObject({ attendance: 'cancelled', canCancel: false });
+      expect(all.body.sessions.find((session) => session._id === kept.body.session._id).canCancel).toBe(true);
       expect(all.body.sessions.find((session) => session._id === kept.body.session._id).coachId.firstName).toBe('Dana');
       expect((await scene.adminAgent.get('/api/v1/private-class-sessions?status=bogus')).status).toBe(400);
     });
