@@ -18,6 +18,7 @@ const Evaluation = require('../../src/models/evaluation.model');
 const visitService = require('../../src/services/visit.service');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 const mailService = require('../../src/services/mail.service');
 
 const TEST_PASSWORD = 'correct-password';
@@ -30,6 +31,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+// Visit writes resolve their serviceId by Service code (ADR 010), so the
+// Service registry must be seeded before any test writes a Visit.
+beforeEach(async () => {
+  await seedServices();
 });
 
 afterEach(async () => {

@@ -15,7 +15,9 @@ const Subscription = require('../../src/models/subscription.model');
 const Holiday = require('../../src/models/holiday.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
+const { createScheduledVisit } = require('../../src/services/visit.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 const { createSession, makeSessionAttendable } = require('../testUtils/sessions');
 
 const TEST_PASSWORD = 'correct-password';
@@ -40,6 +42,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+// Visit writes resolve their serviceId by Service code (ADR 010), so the
+// Service registry must be seeded before any test writes a Visit.
+beforeEach(async () => {
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -659,13 +667,7 @@ describe('GroupClassSession routes', () => {
       const coachAgent = await loginAgent(coach.email);
 
       const session = await createSession(schedule, new Date(`${dateStr}T00:00:00.000Z`));
-      await Visit.create({
-        studentId: student1._id,
-        groupClassSessionId: session._id,
-        groupClassScheduleId: schedule._id,
-        classType: 'regular',
-        status: 'scheduled',
-      });
+      await createScheduledVisit(student1._id, session._id, schedule._id, 'regular');
 
       return { coachAgent, student1, sessionId: session._id.toString() };
     }

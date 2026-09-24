@@ -5,6 +5,7 @@ const GroupClassSession = require('../../src/models/groupClassSession.model');
 const Visit = require('../../src/models/visit.model');
 const { addStudentToRoster, removeStudentFromRoster } = require('../../src/services/roster.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { seedServices } = require('../../scripts/lib/seedServices');
 const { createSession } = require('../testUtils/sessions');
 
 // docs/plans/session-start-time-cutoff-plan.md D8 — the roster helpers act
@@ -20,6 +21,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+// Visit writes resolve their serviceId by Service code (ADR 010), so the
+// Service registry must be seeded before any test writes a Visit.
+beforeEach(async () => {
+  await seedServices();
 });
 
 afterEach(async () => {

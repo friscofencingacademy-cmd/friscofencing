@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
 const Visit = require('../../src/models/visit.model');
+const Service = require('../../src/models/service.model');
+const { seedServices } = require('../../scripts/lib/seedServices');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const {
   upsertScheduledVisits,
@@ -11,6 +13,11 @@ const {
   markAsMakeupClass,
   cancelVisitsForStudent,
   getVisitsByStudent,
+  createScheduledPrivateVisit,
+  findActivePrivateVisit,
+  markPrivateAttendance,
+  cancelPrivateVisit,
+  getPrivateVisitStatusBySession,
 } = require('../../src/services/visit.service');
 
 let mongod;
@@ -21,6 +28,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+// Every Visit write resolves its serviceId by Service code (ADR 010), so the
+// registry must exist before any test writes one.
+beforeEach(async () => {
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -211,6 +224,181 @@ describe('visit.service', () => {
 
       const visits = await getVisitsByStudent(studentId);
       expect(visits).toHaveLength(2);
+    });
+  });
+
+  describe('serviceId stamping (ADR 010)', () => {
+    it('stamps the group-classes Service on every group write path', async () => {
+      const groupService = await Service.findOne({ code: 'group-classes' });
+      const studentId = id();
+      const scheduleId = id();
+      const [scheduledSession, walkInSession] = [id(), id()];
+
+      await createScheduledVisit(studentId, scheduledSession, scheduleId, 'regular');
+      await markAttendance(studentId, walkInSession, scheduleId, 'regular', 'attended');
+
+      const visits = await Visit.find({ studentId });
+      expect(visits).toHaveLength(2);
+      visits.forEach((visit) => expect(String(visit.serviceId)).toBe(String(groupService._id)));
+    });
+
+    it('fails closed (500-shaped) when the Service registry is not seeded', async () => {
+      await Service.deleteMany({});
+
+      await expect(createScheduledVisit(id(), id(), id(), 'regular')).rejects.toMatchObject({ status: 500 });
+      expect(await Visit.countDocuments({})).toBe(0);
+    });
+  });
+
+  describe('schema validator — exactly one session ref', () => {
+    let groupServiceId;
+
+    beforeEach(async () => {
+      groupServiceId = (await Service.findOne({ code: 'group-classes' }))._id;
+    });
+
+    const base = () => ({ studentId: id(), serviceId: groupServiceId, status: 'scheduled' });
+
+    it('rejects a Visit with no session ref', async () => {
+      await expect(Visit.create({ ...base(), classType: 'regular' })).rejects.toThrow(/exactly one/);
+    });
+
+    it('rejects a Visit with both session refs', async () => {
+      await expect(
+        Visit.create({
+          ...base(),
+          classType: 'private',
+          groupClassSessionId: id(),
+          groupClassScheduleId: id(),
+          privateClassSessionId: id(),
+        })
+      ).rejects.toThrow(/exactly one/);
+    });
+
+    it('rejects a group Visit without its schedule ref', async () => {
+      await expect(Visit.create({ ...base(), classType: 'regular', groupClassSessionId: id() })).rejects.toThrow(
+        /groupClassScheduleId/
+      );
+    });
+
+    it("rejects a group Visit with classType 'private'", async () => {
+      await expect(
+        Visit.create({ ...base(), classType: 'private', groupClassSessionId: id(), groupClassScheduleId: id() })
+      ).rejects.toThrow(/cannot have classType 'private'/);
+    });
+
+    it("rejects a private Visit whose classType is not 'private'", async () => {
+      await expect(Visit.create({ ...base(), classType: 'regular', privateClassSessionId: id() })).rejects.toThrow(
+        /must have classType 'private'/
+      );
+    });
+
+    it('rejects a private Visit that carries a group schedule ref', async () => {
+      await expect(
+        Visit.create({ ...base(), classType: 'private', privateClassSessionId: id(), groupClassScheduleId: id() })
+      ).rejects.toThrow(/cannot reference a group-class schedule/);
+    });
+
+    it('accepts a well-formed group Visit and a well-formed private Visit', async () => {
+      await expect(
+        Visit.create({ ...base(), classType: 'trial', groupClassSessionId: id(), groupClassScheduleId: id() })
+      ).resolves.toBeTruthy();
+      await expect(Visit.create({ ...base(), classType: 'private', privateClassSessionId: id() })).resolves.toBeTruthy();
+    });
+  });
+
+  describe('private-lesson visits', () => {
+    it("creates a scheduled 'private' Visit stamped with the private-lessons Service and no group refs", async () => {
+      const privateService = await Service.findOne({ code: 'private-lessons' });
+      const studentId = id();
+      const sessionId = id();
+
+      await createScheduledPrivateVisit(studentId, sessionId);
+
+      const visit = await Visit.findOne({ privateClassSessionId: sessionId });
+      expect(visit.status).toBe('scheduled');
+      expect(visit.classType).toBe('private');
+      expect(String(visit.serviceId)).toBe(String(privateService._id));
+      expect(visit.groupClassSessionId).toBeNull();
+      expect(visit.groupClassScheduleId).toBeNull();
+      // The row an upsert stored must still satisfy the schema validator.
+      await expect(visit.validate()).resolves.toBeUndefined();
+    });
+
+    it('is idempotent and never downgrades a marked Visit back to scheduled', async () => {
+      const studentId = id();
+      const sessionId = id();
+
+      await createScheduledPrivateVisit(studentId, sessionId);
+      await markPrivateAttendance(studentId, sessionId, 'attended', id(), 'coach');
+      await createScheduledPrivateVisit(studentId, sessionId);
+
+      expect(await Visit.countDocuments({ privateClassSessionId: sessionId })).toBe(1);
+      expect((await Visit.findOne({ privateClassSessionId: sessionId })).status).toBe('attended');
+    });
+
+    it('marks attendance in place, recording who marked it and how', async () => {
+      const studentId = id();
+      const sessionId = id();
+      const coachId = id();
+
+      await createScheduledPrivateVisit(studentId, sessionId);
+      await markPrivateAttendance(studentId, sessionId, 'missed', coachId, 'coach');
+
+      const visit = await Visit.findOne({ privateClassSessionId: sessionId });
+      expect(visit.status).toBe('missed');
+      expect(String(visit.markedBy)).toBe(String(coachId));
+      expect(visit.markedVia).toBe('coach');
+    });
+
+    it('markPrivateAttendance creates the Visit when the scheduled one is missing (safety net)', async () => {
+      const studentId = id();
+      const sessionId = id();
+
+      await markPrivateAttendance(studentId, sessionId, 'attended', id(), 'admin');
+
+      const visit = await Visit.findOne({ privateClassSessionId: sessionId });
+      expect(visit.classType).toBe('private');
+      expect(visit.status).toBe('attended');
+      expect(visit.serviceId).toBeTruthy();
+      await expect(visit.validate()).resolves.toBeUndefined();
+    });
+
+    it('cancel, then re-create, reactivates the same row', async () => {
+      const studentId = id();
+      const sessionId = id();
+
+      await createScheduledPrivateVisit(studentId, sessionId);
+      await cancelPrivateVisit(sessionId);
+      expect(await findActivePrivateVisit(studentId, sessionId)).toBeNull();
+
+      await createScheduledPrivateVisit(studentId, sessionId);
+
+      expect(await Visit.countDocuments({ privateClassSessionId: sessionId })).toBe(1);
+      expect((await findActivePrivateVisit(studentId, sessionId)).status).toBe('scheduled');
+    });
+
+    it('getPrivateVisitStatusBySession maps each session to its Visit status in one call', async () => {
+      const [a, b, c] = [id(), id(), id()];
+      const studentB = id();
+      await createScheduledPrivateVisit(id(), a);
+      await createScheduledPrivateVisit(studentB, b);
+      await markPrivateAttendance(studentB, b, 'attended');
+
+      const statuses = await getPrivateVisitStatusBySession([a, b, c]);
+
+      expect(statuses.get(String(a))).toBe('scheduled');
+      expect(statuses.get(String(b))).toBe('attended');
+      expect(statuses.has(String(c))).toBe(false);
+      expect((await getPrivateVisitStatusBySession([])).size).toBe(0);
+    });
+
+    it('a private visit never appears in a group session roster read', async () => {
+      const sessionId = id();
+      await createScheduledPrivateVisit(id(), sessionId);
+
+      expect(await getActiveVisitsForSession(sessionId)).toHaveLength(0);
+      expect(await findActiveVisit(id(), sessionId)).toBeNull();
     });
   });
 });
