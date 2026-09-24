@@ -132,6 +132,11 @@ export interface GroupClassSession {
   // caller that doesn't know this field.
   isHoliday?: boolean;
   holidayName?: string | null;
+  // Additive (docs/plans/duplication-cleanup-plan.md A-D4) — false only when
+  // the session's day hasn't started yet (attendance opens on the session's
+  // own Central day). Blocked ONLY when `=== false`; absent means open, the
+  // same permissive default as `isHoliday`.
+  attendanceOpen?: boolean;
 }
 
 // GET /group-class-sessions/:id (attendance page) populates each entry's
@@ -159,6 +164,9 @@ export interface GroupClassSessionDetail {
   // page render its blocked state without a second fetch.
   isHoliday?: boolean;
   holidayName?: string | null;
+  // See GroupClassSession.attendanceOpen above — declared here too because
+  // this is the separate shape GET /group-class-sessions/:id returns.
+  attendanceOpen?: boolean;
 }
 
 // GET /group-class-sessions/by-class/:classId — trial booking's session

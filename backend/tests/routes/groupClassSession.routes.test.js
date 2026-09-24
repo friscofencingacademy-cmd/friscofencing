@@ -16,8 +16,21 @@ const Holiday = require('../../src/models/holiday.model');
 const { hashPassword } = require('../../src/utils/password');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { createSession, makeSessionAttendable } = require('../testUtils/sessions');
 
 const TEST_PASSWORD = 'correct-password';
+
+// Fakes ONLY Date, leaving every timer real — the real Mongo driver and
+// supertest's HTTP round trip need them.
+const REAL_TIMERS = [
+  'setTimeout',
+  'clearTimeout',
+  'setInterval',
+  'clearInterval',
+  'setImmediate',
+  'clearImmediate',
+  'nextTick',
+];
 
 let mongod;
 
@@ -115,12 +128,110 @@ async function seedScheduleWithSession(adminAgent) {
 
   // The LAST generated session — always weeks ahead, so the roster helper
   // (which only creates Visits for not-yet-started sessions) has always
-  // created its Visits. sessions[0] may be today's already-started
-  // occurrence, which would make these tests depend on the time of day.
+  // created its Visits; sessions[0] may be today's occurrence, which would
+  // make these tests depend on the day they run. It is then made attendable
+  // (moved to a fixed past day — attendance opens on a session's own day,
+  // docs/plans/duplication-cleanup-plan.md A-D1). The second-to-last session
+  // stays weeks ahead: tests that need a CLOSED session use `closedSessionId`.
   const sessions = await GroupClassSession.find({ scheduleId }).sort({ date: 1 });
-  const session = sessions[sessions.length - 1];
+  const session = await makeSessionAttendable(sessions[sessions.length - 1], schedule);
+  const closedSession = sessions[sessions.length - 2];
 
-  return { coach, otherCoach, student1, student2, scheduleId, sessionId: session._id.toString() };
+  return {
+    coach,
+    otherCoach,
+    student1,
+    student2,
+    schedule,
+    scheduleId,
+    sessionId: session._id.toString(),
+    closedSessionId: closedSession._id.toString(),
+  };
+}
+
+// Two schedules under the SAME class, different coaches, one student
+// enrolled on each — exactly the "premium student attends a sibling
+// schedule of their level" scenario the walk-in mechanism exists for.
+async function seedTwoSchedulesSameClass(adminAgent) {
+  const groupClass = await seedClass();
+
+  const coachA = await User.create({
+    role: 'coach',
+    firstName: 'Coach',
+    lastName: 'A',
+    email: 'walkin-coach-a@example.com',
+    passwordHash: await hashPassword(TEST_PASSWORD),
+  });
+  const coachB = await User.create({
+    role: 'coach',
+    firstName: 'Coach',
+    lastName: 'B',
+    email: 'walkin-coach-b@example.com',
+    passwordHash: await hashPassword(TEST_PASSWORD),
+  });
+
+  const scheduleARes = await adminAgent.post('/api/v1/group-class-schedules').send({
+    classId: groupClass._id.toString(),
+    coachId: coachA._id.toString(),
+    dayOfWeek: 2,
+    startTime: '16:00',
+    endTime: '17:00',
+  });
+  const scheduleBRes = await adminAgent.post('/api/v1/group-class-schedules').send({
+    classId: groupClass._id.toString(),
+    coachId: coachB._id.toString(),
+    dayOfWeek: 4,
+    startTime: '18:00',
+    endTime: '19:00',
+  });
+
+  const scheduleA = await GroupClassSchedule.findById(scheduleARes.body.schedule._id);
+  const scheduleB = await GroupClassSchedule.findById(scheduleBRes.body.schedule._id);
+
+  const studentA = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleA' });
+  const studentB = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleB' });
+  const unrelatedStudent = await User.create({ role: 'student', firstName: 'No', lastName: 'Subscription' });
+
+  await addStudentToRoster(scheduleA, studentA._id);
+  await addStudentToRoster(scheduleB, studentB._id);
+
+  const parent = await User.create({ role: 'parent', firstName: 'P', lastName: 'Rent' });
+  await Subscription.create({
+    studentId: studentA._id,
+    scheduleId: scheduleA._id,
+    parentId: parent._id,
+    status: 'active',
+    currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+    currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+    nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+    isPremium: true,
+  });
+  await Subscription.create({
+    studentId: studentB._id,
+    scheduleId: scheduleB._id,
+    parentId: parent._id,
+    status: 'active',
+    currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+    currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+    nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+    isPremium: true,
+  });
+
+  // Same convention as seedScheduleWithSession: the last session is made
+  // attendable (a fixed past day); the one before it stays weeks ahead,
+  // for tests that need a CLOSED session.
+  const sessionsA = await GroupClassSession.find({ scheduleId: scheduleA._id }).sort({ date: 1 });
+  const sessionA = await makeSessionAttendable(sessionsA[sessionsA.length - 1], scheduleA);
+
+  return {
+    coachA,
+    coachB,
+    studentA,
+    studentB,
+    unrelatedStudent,
+    sessionAId: sessionA._id.toString(),
+    closedSessionAId: sessionsA[sessionsA.length - 2]._id.toString(),
+  };
 }
 
 async function seedParent(overrides = {}) {
@@ -216,15 +327,7 @@ describe('GroupClassSession routes', () => {
       // still needs to make.
       jest.useFakeTimers({
         now: new Date('2026-08-25T12:00:00.000Z'), // a Tuesday, UTC midday
-        doNotFake: [
-          'setTimeout',
-          'clearTimeout',
-          'setInterval',
-          'clearInterval',
-          'setImmediate',
-          'clearImmediate',
-          'nextTick',
-        ],
+        doNotFake: REAL_TIMERS,
       });
 
       try {
@@ -414,90 +517,13 @@ describe('GroupClassSession routes', () => {
         .send({ students: [{ studentId: strangerStudent._id.toString(), isPresent: true }] });
 
       expect(res.status).toBe(400);
+      // Asserted so this can never pass for the wrong reason (e.g. the
+      // same-day gate firing first).
+      expect(res.body.message).toMatch(/Unknown studentId/);
     });
   });
 
   describe('Walk-in attendance (Phase 3 — addStudentToSession/removeStudentFromSession/getEligibleStudentsForSession)', () => {
-    // Two schedules under the SAME class, different coaches, one student
-    // enrolled on each — exactly the "premium student attends a sibling
-    // schedule of their level" scenario the walk-in mechanism exists for.
-    async function seedTwoSchedulesSameClass(adminAgent) {
-      const groupClass = await seedClass();
-
-      const coachA = await User.create({
-        role: 'coach',
-        firstName: 'Coach',
-        lastName: 'A',
-        email: 'walkin-coach-a@example.com',
-        passwordHash: await hashPassword(TEST_PASSWORD),
-      });
-      const coachB = await User.create({
-        role: 'coach',
-        firstName: 'Coach',
-        lastName: 'B',
-        email: 'walkin-coach-b@example.com',
-        passwordHash: await hashPassword(TEST_PASSWORD),
-      });
-
-      const scheduleARes = await adminAgent.post('/api/v1/group-class-schedules').send({
-        classId: groupClass._id.toString(),
-        coachId: coachA._id.toString(),
-        dayOfWeek: 2,
-        startTime: '16:00',
-        endTime: '17:00',
-      });
-      const scheduleBRes = await adminAgent.post('/api/v1/group-class-schedules').send({
-        classId: groupClass._id.toString(),
-        coachId: coachB._id.toString(),
-        dayOfWeek: 4,
-        startTime: '18:00',
-        endTime: '19:00',
-      });
-
-      const scheduleA = await GroupClassSchedule.findById(scheduleARes.body.schedule._id);
-      const scheduleB = await GroupClassSchedule.findById(scheduleBRes.body.schedule._id);
-
-      const studentA = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleA' });
-      const studentB = await User.create({ role: 'student', firstName: 'On', lastName: 'ScheduleB' });
-      const unrelatedStudent = await User.create({ role: 'student', firstName: 'No', lastName: 'Subscription' });
-
-      await addStudentToRoster(scheduleA, studentA._id);
-      await addStudentToRoster(scheduleB, studentB._id);
-
-      const parent = await User.create({ role: 'parent', firstName: 'P', lastName: 'Rent' });
-      await Subscription.create({
-        studentId: studentA._id,
-        scheduleId: scheduleA._id,
-        parentId: parent._id,
-        status: 'active',
-        currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
-        currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
-        nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
-        isPremium: true,
-      });
-      await Subscription.create({
-        studentId: studentB._id,
-        scheduleId: scheduleB._id,
-        parentId: parent._id,
-        status: 'active',
-        currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
-        currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
-        nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
-        isPremium: true,
-      });
-
-      const sessionsA = await GroupClassSession.find({ scheduleId: scheduleA._id }).sort({ date: 1 });
-
-      return {
-        coachA,
-        coachB,
-        studentA,
-        studentB,
-        unrelatedStudent,
-        sessionAId: sessionsA[sessionsA.length - 1]._id.toString(),
-      };
-    }
-
     it("eligible-students returns the sibling-schedule student, excluding this session's own roster and anyone with no subscription", async () => {
       await seedAdmin();
       const adminAgent = await loginAgent('test-admin@example.com');
@@ -559,6 +585,7 @@ describe('GroupClassSession routes', () => {
         .send({ studentId: unrelatedStudent._id.toString() });
 
       expect(res.status).toBe(400);
+      expect(res.body.message).toBe('This student is not eligible to be added to this session');
     });
 
     it('removes a walk-in (isMakeupClass) but refuses to remove a genuine roster student', async () => {
@@ -599,7 +626,184 @@ describe('GroupClassSession routes', () => {
         .send({ studentId: studentB._id.toString() });
 
       expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Attendance cannot be marked on an academy holiday');
       expect(await Visit.findOne({ groupClassSessionId: sessionAId, studentId: studentB._id })).toBeNull();
+    });
+  });
+
+  // docs/plans/duplication-cleanup-plan.md PR A — attendance opens on the
+  // session's own calendar day (Central), for admins and coaches alike, with
+  // no late cutoff. The seed helpers' attendable session sits on a fixed PAST
+  // day, so every existing "lets ... mark attendance" test above already
+  // proves the no-late-cutoff half; these cover the closed half.
+  describe('Same-day attendance gate', () => {
+    const GATE_MESSAGE = "Attendance can only be marked on or after the session's day";
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    function markAs(agent, sessionId, studentId) {
+      return agent
+        .patch(`/api/v1/group-class-sessions/${sessionId}/attendance`)
+        .send({ students: [{ studentId: studentId.toString(), isPresent: true }] });
+    }
+
+    // A real schedule + coach + a roster student, plus ONE extra session on a
+    // fixed calendar day (with the roster Visit a real registration would
+    // have created). Logins happen here, BEFORE any test freezes the clock.
+    async function seedDatedSession(dateStr) {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coach, student1, schedule } = await seedScheduleWithSession(adminAgent);
+      const coachAgent = await loginAgent(coach.email);
+
+      const session = await createSession(schedule, new Date(`${dateStr}T00:00:00.000Z`));
+      await Visit.create({
+        studentId: student1._id,
+        groupClassSessionId: session._id,
+        groupClassScheduleId: schedule._id,
+        classType: 'regular',
+        status: 'scheduled',
+      });
+
+      return { coachAgent, student1, sessionId: session._id.toString() };
+    }
+
+    it('returns 400 with the same-day message for a coach marking a not-yet-open session, and changes nothing', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coach, student1, closedSessionId } = await seedScheduleWithSession(adminAgent);
+      const coachAgent = await loginAgent(coach.email);
+
+      const res = await markAs(coachAgent, closedSessionId, student1._id);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(GATE_MESSAGE);
+      const visit = await Visit.findOne({ groupClassSessionId: closedSessionId, studentId: student1._id });
+      expect(visit.status).toBe('scheduled');
+    });
+
+    it('applies the same rule to an admin — no override', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { student1, closedSessionId } = await seedScheduleWithSession(adminAgent);
+
+      const res = await markAs(adminAgent, closedSessionId, student1._id);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(GATE_MESSAGE);
+    });
+
+    it('returns 400 with the same-day message for a walk-in add to a not-yet-open session, writing no Visit', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, studentB, closedSessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      const res = await coachAAgent
+        .post(`/api/v1/group-class-sessions/${closedSessionAId}/students`)
+        .send({ studentId: studentB._id.toString() });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(GATE_MESSAGE);
+      expect(await Visit.findOne({ groupClassSessionId: closedSessionAId, studentId: studentB._id })).toBeNull();
+    });
+
+    it('does NOT gate removing a walk-in — the request reaches its own rule, not the same-day guard', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coachA, studentA, closedSessionAId } = await seedTwoSchedulesSameClass(adminAgent);
+      const coachAAgent = await loginAgent(coachA.email);
+
+      const res = await coachAAgent.delete(
+        `/api/v1/group-class-sessions/${closedSessionAId}/students/${studentA._id}`
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Cannot remove a student who is enrolled/);
+    });
+
+    it('holiday wins over the same-day message when a not-yet-open session is also a holiday', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { coach, student1, closedSessionId } = await seedScheduleWithSession(adminAgent);
+      const coachAgent = await loginAgent(coach.email);
+
+      const closed = await GroupClassSession.findById(closedSessionId);
+      await Holiday.create({ name: 'Holiday', startDate: closed.date, endDate: closed.date });
+
+      const res = await markAs(coachAgent, closedSessionId, student1._id);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Attendance cannot be marked on an academy holiday');
+    });
+
+    // Session day Wed 2026-08-26 (CDT, UTC-5): Central midnight is 05:00Z.
+    it('opens exactly at Central midnight of the session day — CDT', async () => {
+      const { coachAgent, student1, sessionId } = await seedDatedSession('2026-08-26');
+
+      jest.useFakeTimers({ now: new Date('2026-08-26T04:59:00.000Z'), doNotFake: REAL_TIMERS }); // Tue 23:59 CDT
+      const before = await markAs(coachAgent, sessionId, student1._id);
+      expect(before.status).toBe(400);
+      expect(before.body.message).toBe(GATE_MESSAGE);
+
+      jest.setSystemTime(new Date('2026-08-26T05:00:00.000Z')); // Wed 00:00 CDT
+      const at = await markAs(coachAgent, sessionId, student1._id);
+      expect(at.status).toBe(200);
+    });
+
+    // Session day Wed 2026-01-14 (CST, UTC-6): Central midnight is 06:00Z.
+    it('opens exactly at Central midnight of the session day — CST', async () => {
+      const { coachAgent, student1, sessionId } = await seedDatedSession('2026-01-14');
+
+      jest.useFakeTimers({ now: new Date('2026-01-14T05:59:00.000Z'), doNotFake: REAL_TIMERS }); // Tue 23:59 CST
+      const before = await markAs(coachAgent, sessionId, student1._id);
+      expect(before.status).toBe(400);
+
+      jest.setSystemTime(new Date('2026-01-14T06:00:00.000Z')); // Wed 00:00 CST
+      const at = await markAs(coachAgent, sessionId, student1._id);
+      expect(at.status).toBe(200);
+    });
+
+    it('is open all day on the session day, including before the class starts (same-day is the grace period)', async () => {
+      const { coachAgent, student1, sessionId } = await seedDatedSession('2026-08-26');
+
+      jest.useFakeTimers({ now: new Date('2026-08-26T14:00:00.000Z'), doNotFake: REAL_TIMERS }); // Wed 09:00 CDT, class is 16:00
+      const res = await markAs(coachAgent, sessionId, student1._id);
+
+      expect(res.status).toBe(200);
+    });
+
+    // 20:00 Central on Tuesday is already Wednesday in UTC. A comparison made
+    // in UTC would wrongly open Wednesday's session five hours early.
+    it('stays closed at 20:00 Central the evening before, even though it is already the session day in UTC', async () => {
+      const { coachAgent, student1, sessionId } = await seedDatedSession('2026-08-26');
+
+      jest.useFakeTimers({ now: new Date('2026-08-26T01:00:00.000Z'), doNotFake: REAL_TIMERS }); // Tue 20:00 CDT
+      const res = await markAs(coachAgent, sessionId, student1._id);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(GATE_MESSAGE);
+    });
+
+    it('GET /:id and GET /by-schedule/:scheduleId report attendanceOpen consistently with what PATCH actually does', async () => {
+      await seedAdmin();
+      const adminAgent = await loginAgent('test-admin@example.com');
+      const { student1, scheduleId, sessionId, closedSessionId } = await seedScheduleWithSession(adminAgent);
+
+      const list = await adminAgent.get(`/api/v1/group-class-sessions/by-schedule/${scheduleId}`);
+      const rowFor = (id) => list.body.sessions.find((s) => s._id === id);
+
+      const closedDetail = await adminAgent.get(`/api/v1/group-class-sessions/${closedSessionId}`);
+      expect(closedDetail.body.session.attendanceOpen).toBe(false);
+      expect(rowFor(closedSessionId).attendanceOpen).toBe(false);
+      expect((await markAs(adminAgent, closedSessionId, student1._id)).status).toBe(400);
+
+      const openDetail = await adminAgent.get(`/api/v1/group-class-sessions/${sessionId}`);
+      expect(openDetail.body.session.attendanceOpen).toBe(true);
+      expect(rowFor(sessionId).attendanceOpen).toBe(true);
+      expect((await markAs(adminAgent, sessionId, student1._id)).status).toBe(200);
     });
   });
 
@@ -619,6 +823,7 @@ describe('GroupClassSession routes', () => {
         .send({ students: [{ studentId: student1._id.toString(), isPresent: true }] });
 
       expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Attendance cannot be marked on an academy holiday');
       const visit = await Visit.findOne({ groupClassSessionId: sessionId, studentId: student1._id });
       // A Visit already exists from roster enrollment (status 'scheduled') —
       // the guard must fire before markAttendance() ever changes it.

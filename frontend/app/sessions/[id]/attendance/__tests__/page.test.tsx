@@ -126,6 +126,54 @@ describe('AttendancePage', () => {
     });
   });
 
+  // docs/plans/duplication-cleanup-plan.md A-D1/A-D5 — attendance opens on
+  // the session's own day. Blocked ONLY on an explicit `attendanceOpen:
+  // false`; the absent case is the very first test above (open, no field).
+  describe('not-yet-open session (docs/plans/duplication-cleanup-plan.md A-D1)', () => {
+    it('renders a blocked alert with the session date instead of the roster, with no Save Attendance button', async () => {
+      server.use(
+        http.get('*/group-class-sessions/session-1', () =>
+          HttpResponse.json({ session: { ...SESSION, attendanceOpen: false } })
+        )
+      );
+
+      renderAttendancePage();
+
+      expect(await screen.findByText(/attendance opens on mar 4, 2026/i)).toBeInTheDocument();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /save attendance/i })).not.toBeInTheDocument();
+    });
+
+    it('renders the normal roster when attendanceOpen is true', async () => {
+      server.use(
+        http.get('*/group-class-sessions/session-1', () =>
+          HttpResponse.json({ session: { ...SESSION, attendanceOpen: true } })
+        )
+      );
+
+      renderAttendancePage();
+
+      expect(await screen.findByText('Ada One')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /save attendance/i })).toBeInTheDocument();
+      expect(screen.queryByText(/attendance opens on/i)).not.toBeInTheDocument();
+    });
+
+    it('shows the holiday message, not the not-yet-open one, when a session is both', async () => {
+      server.use(
+        http.get('*/group-class-sessions/session-1', () =>
+          HttpResponse.json({
+            session: { ...SESSION, isHoliday: true, holidayName: 'Winter Break', attendanceOpen: false },
+          })
+        )
+      );
+
+      renderAttendancePage();
+
+      expect(await screen.findByText(/attendance is disabled/i)).toBeInTheDocument();
+      expect(screen.queryByText(/attendance opens on/i)).not.toBeInTheDocument();
+    });
+  });
+
   it('offers Evaluate only for a trial student already marked present, and submits the evaluation', async () => {
     renderAttendancePage();
 

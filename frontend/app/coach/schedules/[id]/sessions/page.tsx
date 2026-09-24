@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 
 import api from '../../../../../lib/api';
 import { formatDateOnly } from '../../../../../lib/formatDate';
+import type { GroupClassSession } from '../../../../../lib/types';
 import ProtectedRoute from '../../../../components/ProtectedRoute';
 import AppShell from '../../../../components/layout/AppShell';
 import Button from '../../../../components/ui/Button/Button';
@@ -12,21 +13,11 @@ import Card from '../../../../components/ui/Card/Card';
 import Alert from '../../../../components/ui/Alert/Alert';
 import styles from '../../../../components/ui/shared.module.css';
 
-interface SessionItem {
-  _id: string;
-  date: string;
-  students: { studentId: string; isPresent: boolean }[];
-  // Additive (docs/plans/holiday-blocking-plan.md D6) — a holiday-date
-  // session is annotated, not dropped, so the row still explains itself.
-  isHoliday?: boolean;
-  holidayName?: string | null;
-}
-
 function CoachSessionsPageContent() {
   const params = useParams<{ id: string }>();
   const scheduleId = params.id;
 
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [sessions, setSessions] = useState<GroupClassSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +27,7 @@ function CoachSessionsPageContent() {
     async function fetchSessions() {
       setLoading(true);
       try {
-        const res = await api.get<{ sessions: SessionItem[] }>(
+        const res = await api.get<{ sessions: GroupClassSession[] }>(
           `/group-class-sessions/by-schedule/${scheduleId}`
         );
         if (isMounted) {
@@ -99,14 +90,22 @@ function CoachSessionsPageContent() {
                     <td>{formatDateOnly(session.date)}</td>
                     <td>{session.students.length}</td>
                     <td>
-                      <Button
-                        as="a"
-                        href={`/sessions/${session._id}/attendance`}
-                        size="sm"
-                        variant="secondary"
-                      >
-                        Mark Attendance
-                      </Button>
+                      {session.attendanceOpen === false ? (
+                        // Attendance opens on the session's own day
+                        // (docs/plans/duplication-cleanup-plan.md A-D1) — the
+                        // row keeps its student count but offers no link yet.
+                        // Blocked only on an explicit `false`.
+                        <span className={`${styles.chip} ${styles.chipMuted}`}>Not open yet</span>
+                      ) : (
+                        <Button
+                          as="a"
+                          href={`/sessions/${session._id}/attendance`}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          Mark Attendance
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 )

@@ -5,9 +5,10 @@ import { useParams } from 'next/navigation';
 import axios from 'axios';
 
 import api from '../../../../lib/api';
+import { formatDateOnly } from '../../../../lib/formatDate';
 import { fetchLevels } from '../../../../lib/services/catalog';
 import { createEvaluation } from '../../../../lib/services/evaluation';
-import type { Level } from '../../../../lib/types';
+import type { GroupClassSessionDetail, Level } from '../../../../lib/types';
 import ProtectedRoute from '../../../components/ProtectedRoute';
 import AppShell from '../../../components/layout/AppShell';
 import Button from '../../../components/ui/Button/Button';
@@ -15,36 +16,11 @@ import Card from '../../../components/ui/Card/Card';
 import Alert from '../../../components/ui/Alert/Alert';
 import styles from '../../../components/ui/shared.module.css';
 
-interface PopulatedStudent {
-  _id: string;
-  firstName: string;
-  lastName: string;
-}
-
-interface SessionStudentEntry {
-  studentId: PopulatedStudent;
-  isPresent: boolean;
-  // Additive (docs/plans/premium-registration-and-attendance-plan.md §5) —
-  // only a 'trial' row that's actually present gets an Evaluate action.
-  classType?: 'regular' | 'trial';
-}
-
-interface SessionDetail {
-  _id: string;
-  date: string;
-  students: SessionStudentEntry[];
-  // Additive (docs/plans/holiday-blocking-plan.md D6) — lets this page
-  // render its blocked state without a second fetch. The backend's own
-  // markAttendance guard (400) is the real enforcement; this is display-only.
-  isHoliday?: boolean;
-  holidayName?: string | null;
-}
-
 function AttendancePageContent() {
   const params = useParams<{ id: string }>();
   const sessionId = params.id;
 
-  const [session, setSession] = useState<SessionDetail | null>(null);
+  const [session, setSession] = useState<GroupClassSessionDetail | null>(null);
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
   const [levels, setLevels] = useState<Level[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +38,7 @@ function AttendancePageContent() {
   const [evaluatedStudentIds, setEvaluatedStudentIds] = useState<Set<string>>(new Set());
 
   async function fetchSession() {
-    const res = await api.get<{ session: SessionDetail }>(`/group-class-sessions/${sessionId}`);
+    const res = await api.get<{ session: GroupClassSessionDetail }>(`/group-class-sessions/${sessionId}`);
     setSession(res.data.session);
 
     const initialAttendance: Record<string, boolean> = {};
@@ -190,6 +166,16 @@ function AttendancePageContent() {
         <Card>
           <Alert variant="error">
             This session falls on {session.holidayName} — attendance is disabled.
+          </Alert>
+        </Card>
+      ) : session?.attendanceOpen === false ? (
+        // Attendance opens on the session's own day (docs/plans/duplication-
+        // cleanup-plan.md A-D1). Blocked ONLY on an explicit `false` — absent
+        // means open, same permissive default as isHoliday. Display-only: the
+        // backend's 400 is the real enforcement.
+        <Card>
+          <Alert variant="error">
+            Attendance opens on {formatDateOnly(session.date)} — it can&apos;t be marked before the session&apos;s day.
           </Alert>
         </Card>
       ) : session ? (
