@@ -23,6 +23,8 @@ const PUBLIC_NAV_LINKS: NavLink[] = [
   { href: '/classes', label: 'Programs' },
   { href: '/coaches', label: 'Our Team' },
   { href: '/private-classes', label: 'Private Lessons' },
+  // docs/plans/calendar-view-plan.md §2.4.
+  { href: '/calendar', label: 'Calendar' },
 ];
 
 const NAV_LINKS_BY_ROLE: Record<Role, NavLink[]> = {

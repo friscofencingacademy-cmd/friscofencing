@@ -133,6 +133,54 @@ export const FIXTURE_PRIVATE_BOOKING = {
   status: 'confirmed',
 };
 
+// Calendar (docs/plans/calendar-view-plan.md) — shapes from the backend's
+// calendar.service.js makeEvent. Coach ids are real-looking ObjectIds: the
+// page ignores a `coach` URL value that isn't one. Pin the clock to
+// CALENDAR_NOW (Mon Oct 5 2026) so the default month is October 2026.
+export const CALENDAR_NOW = new Date('2026-10-05T14:00:00.000Z');
+export const FIXTURE_CALENDAR_COACH_PRIVATE = { id: '64b0000000000000000000c1', name: 'Dana Cole' };
+export const FIXTURE_CALENDAR_COACH_GROUP = { id: '64b0000000000000000000c2', name: 'Gia Park' };
+const CALENDAR_EVENT_DEFAULTS = {
+  locationName: null,
+  levelName: null,
+  sessionId: null,
+  price: null,
+  mine: false,
+  students: [],
+  isHoliday: false,
+  holidayName: null,
+};
+export const FIXTURE_CALENDAR_EVENTS = [
+  {
+    ...CALENDAR_EVENT_DEFAULTS,
+    id: `private-open:${FIXTURE_PRIVATE_SLOT.scheduleId}:${FIXTURE_PRIVATE_DATE.day}`,
+    kind: 'private-open',
+    day: FIXTURE_PRIVATE_DATE.day,
+    startsAt: FIXTURE_PRIVATE_DATE.startDate,
+    endsAt: FIXTURE_PRIVATE_DATE.endDate,
+    title: 'Private lesson — 30 min',
+    coach: FIXTURE_CALENDAR_COACH_PRIVATE,
+    durationMinutes: 30,
+    scheduleId: FIXTURE_PRIVATE_SLOT.scheduleId,
+    price: FIXTURE_PRIVATE_SLOT.sessionPrice,
+  },
+  {
+    ...CALENDAR_EVENT_DEFAULTS,
+    id: 'group:session-1',
+    kind: 'group',
+    day: '2026-10-07',
+    startsAt: '2026-10-07T21:00:00.000Z',
+    endsAt: '2026-10-07T22:00:00.000Z',
+    title: 'Fencing Foundation',
+    coach: FIXTURE_CALENDAR_COACH_GROUP,
+    locationName: FIXTURE_LOCATION.name,
+    levelName: FIXTURE_LEVEL_A.name,
+    durationMinutes: 60,
+    scheduleId: FIXTURE_SCHEDULE_A._id,
+    sessionId: 'session-1',
+  },
+];
+
 const DEFAULT_RULES: MockRule[] = [
   // Session — logged out by default; loginAs() in fixtures/auth.ts
   // prepends an override that wins over this one.
@@ -310,6 +358,29 @@ const DEFAULT_RULES: MockRule[] = [
     handler: (route) => json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 }),
   },
   { method: 'GET', path: '/private-class-sessions/mine', handler: (route) => json(route, 200, { sessions: [] }) },
+
+  // Calendar — honors the coachId/type filters like the real endpoint, so a
+  // spec that filters sees the narrowed result the backend would send.
+  {
+    method: 'GET',
+    path: '/calendar/public',
+    handler: (route, { url }) => {
+      const coachId = url.searchParams.get('coachId');
+      const type = url.searchParams.get('type');
+      const events = FIXTURE_CALENDAR_EVENTS.filter(
+        (event) =>
+          (!coachId || event.coach.id === coachId) &&
+          (!type || (type === 'group' ? event.kind === 'group' : event.kind !== 'group'))
+      );
+      return json(route, 200, {
+        from: url.searchParams.get('from'),
+        to: url.searchParams.get('to'),
+        horizonTo: '2026-12-06',
+        events,
+        coaches: [FIXTURE_CALENDAR_COACH_PRIVATE, FIXTURE_CALENDAR_COACH_GROUP],
+      });
+    },
+  },
   {
     method: 'PATCH',
     path: '/private-class-sessions/:id/attendance',

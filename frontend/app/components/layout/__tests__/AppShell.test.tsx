@@ -24,7 +24,7 @@ function renderShell() {
 }
 
 describe('AppShell', () => {
-  it('renders the public nav (Home, Programs, Our Team, Private Lessons, Log In, Take a Trial Class) when logged out', async () => {
+  it('renders the public nav (Home, Programs, Our Team, Private Lessons, Calendar, Log In, Take a Trial Class) when logged out', async () => {
     renderShell();
 
     // Waits out AuthProvider's /auth/me restore before asserting the
@@ -38,6 +38,8 @@ describe('AppShell', () => {
       'href',
       '/private-classes'
     );
+    // docs/plans/calendar-view-plan.md §2.4.
+    expect(screen.getByRole('link', { name: 'Calendar' })).toHaveAttribute('href', '/calendar');
     expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login');
     expect(screen.getByRole('link', { name: 'Take a Trial Class' })).toHaveAttribute(
       'href',
@@ -61,5 +63,6 @@ describe('AppShell', () => {
     // ADR 011 — the coach's page covers availability, bookings and attendance.
     expect(screen.getByRole('link', { name: 'Private Lessons' })).toHaveAttribute('href', '/coach/private-students');
     expect(screen.queryByRole('link', { name: 'Take a Trial Class' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument();
   });
 });

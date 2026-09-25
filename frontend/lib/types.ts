@@ -1000,3 +1000,61 @@ export interface Evaluation {
   assignedLevelId: { _id: string; name: string };
   notes: string;
 }
+
+// ── Calendar (docs/plans/calendar-view-plan.md) ────────────────────────────
+// GET /calendar/public, /calendar/mine (parent), /calendar (admin) — one
+// event shape for all three (backend calendar.service.js's makeEvent). Every
+// field is always present; fields a kind or audience doesn't use are null /
+// false / []. `day` is the event's Central calendar day, computed by the
+// backend — place an event by `day` only, never from `startsAt`.
+
+export type CalendarEventKind = 'group' | 'private-open' | 'private-booked' | 'holiday';
+
+// The `type` filter the endpoints accept.
+export type CalendarEventType = 'all' | 'group' | 'private';
+
+export interface CalendarPersonRef {
+  id: string;
+  name: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  kind: CalendarEventKind;
+  day: string; // 'YYYY-MM-DD'
+  startsAt: string | null; // real instant; null for a holiday
+  endsAt: string | null;
+  title: string;
+  coach: CalendarPersonRef | null;
+  locationName: string | null;
+  levelName: string | null;
+  durationMinutes: number | null;
+  scheduleId: string | null;
+  sessionId: string | null;
+  // private-open only: the single-session price, a backend value.
+  price: number | null;
+  // Parent calendar only: this family's own item.
+  mine: boolean;
+  // Admin, and the parent's own children, only. Always [] on /calendar/public.
+  students: CalendarPersonRef[];
+  isHoliday: boolean;
+  holidayName: string | null;
+}
+
+export interface CalendarResponse {
+  // Echo of the requested range.
+  from: string;
+  to: string;
+  // Last day a public/parent caller may see; null for admin (no horizon).
+  horizonTo: string | null;
+  events: CalendarEvent[];
+  // Every coach with something in range — the coach filter's options.
+  coaches: CalendarPersonRef[];
+}
+
+export interface CalendarQuery {
+  from: string;
+  to: string;
+  coachId: string | null;
+  type: CalendarEventType;
+}

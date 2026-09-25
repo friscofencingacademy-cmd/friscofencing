@@ -1,0 +1,331 @@
+/* The shared calendar (docs/plans/calendar-view-plan.md §2.3). Tokens only —
+   no raw colors. Color is never the only signal: every chip also writes its
+   kind out in text. */
+
+.calendar {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.monthNav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.monthTitle {
+  margin: 0 0 0 var(--space-2);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.coachFilter {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 180px;
+}
+
+.filterLabel {
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body), sans-serif;
+  font-size: 14px;
+  color: var(--color-ink);
+  background: var(--color-white);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 1px var(--color-ink);
+}
+
+.pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-white);
+  color: var(--color-ink);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pill:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.pillSelected {
+  border-color: var(--color-accent);
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+/* ── Month grid ──────────────────────────────────────────────────────── */
+
+.grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.weekday {
+  padding: var(--space-2);
+  background: var(--color-navy-deep);
+  color: var(--color-white);
+  font-family: var(--font-heading), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.cell {
+  height: 112px;
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-soft);
+  vertical-align: top;
+  overflow: hidden;
+}
+
+.cellOtherMonth {
+  background: var(--color-bg);
+}
+
+.cellOtherMonth .dayNumber {
+  color: var(--color-muted);
+}
+
+.cellToday .dayNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-white);
+}
+
+.dayNumber {
+  display: inline-block;
+  margin: 0 0 var(--space-1) var(--space-1);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.cellEvents {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.moreButton {
+  margin-top: 2px;
+  padding-left: var(--space-1);
+  padding-right: var(--space-1);
+  font-size: 0.75rem;
+}
+
+/* ── Event chip ──────────────────────────────────────────────────────── */
+
+.chip {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 2px var(--space-1);
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--color-ink);
+  text-decoration: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+a.chip:hover {
+  text-decoration: underline;
+}
+
+a.chip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.chipKind {
+  flex: none;
+  font-weight: 700;
+}
+
+.chipTime {
+  flex: none;
+}
+
+.chipTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chipGroup {
+  border-left-color: var(--color-ink);
+  background: var(--color-bg);
+}
+
+.chipOpen {
+  border-left-color: var(--color-accent);
+  background: var(--sidebar-active-bg);
+}
+
+.chipOpen .chipKind {
+  color: var(--sidebar-active);
+}
+
+.chipBooked {
+  border-left-color: var(--color-accent);
+  background: var(--color-ink);
+  color: var(--color-white);
+}
+
+.chipHoliday {
+  border-left-color: var(--color-border);
+  background: var(--color-border-soft);
+  color: var(--color-ink);
+  font-style: italic;
+}
+
+/* ── Agenda list ─────────────────────────────────────────────────────── */
+
+.agenda {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.agendaDay {
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.agendaHeading {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.agendaHeading:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.agendaEvents {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agendaRow {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.agendaRow:first-child {
+  border-top: none;
+}
+
+.agendaTime {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.agendaBody {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.agendaBody .chip {
+  font-size: 0.875rem;
+  white-space: normal;
+}
+
+.agendaDetails {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    align-items: stretch;
+  }
+
+  .agendaRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
