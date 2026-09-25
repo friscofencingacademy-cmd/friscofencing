@@ -324,9 +324,9 @@ describe('Private class schedule routes', () => {
       expect((await datesFor(schedules[0]._id, '?days=1')).body.dates).toEqual([]);
     });
 
-    it('looks ahead PRIVATE_BOOKING_HORIZON_DAYS (92) by default — the same horizon as the calendar', async () => {
+    it('looks ahead PRIVATE_BOOKING_HORIZON_DAYS (62) by default — the same horizon as the calendar', async () => {
       // docs/plans/calendar-view-plan.md C6. Frozen now = Mon Oct 5, so the
-      // default window ends Jan 5 2027; the rule runs to Dec 31.
+      // default window ends Sun Dec 6; the rule runs to Mar 31.
       const { schedules } = await seedCoachWithRules({
         suffix: 'horizon',
         rules: { ...DEFAULT_RULES, windowEnd: '17:00', endDate: '2027-03-31' },
@@ -334,11 +334,11 @@ describe('Private class schedule routes', () => {
 
       const days = (await datesFor(schedules[0]._id)).body.dates.map((date) => date.day);
 
-      // Tuesday Dec 29 is day 85, Tuesday Jan 5 is day 92 (inclusive edge),
-      // Tuesday Jan 12 is past it. The old 56-day default stopped at Nov 24.
+      // Tuesday Dec 1 is day 57 — past the old 56-day default (which stopped
+      // at Nov 24) and inside the 62-day horizon; Tuesday Dec 8 is day 64.
       expect(days[0]).toBe('2026-10-06');
-      expect(days).toContain('2026-12-29');
-      expect(days[days.length - 1]).toBe('2027-01-05');
+      expect(days[days.length - 1]).toBe('2026-12-01');
+      expect(days).not.toContain('2026-12-08');
     });
 
     it("never offers a date outside the rule's range (both edges inclusive)", async () => {

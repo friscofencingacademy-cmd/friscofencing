@@ -141,7 +141,7 @@ describe('Calendar routes', () => {
       expect((await publicCalendar('?from=2026-10-01&to=2026-11-11')).status).toBe(200);
     });
 
-    it('clips the public range to today … today + 92 days and says where the horizon is', async () => {
+    it('clips the public range to today … today + 62 days and says where the horizon is', async () => {
       await seedGroupClass({ suffix: 'clip', days: ['2026-09-30', '2026-10-07'] });
 
       const res = await publicCalendar();
@@ -149,7 +149,8 @@ describe('Calendar routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.from).toBe('2026-10-01');
       expect(res.body.to).toBe('2026-10-31');
-      expect(res.body.horizonTo).toBe('2027-01-05');
+      // Frozen Mon Oct 5 + 62 days = Sun Dec 6.
+      expect(res.body.horizonTo).toBe('2026-12-06');
       // Sep 30 is before today — outside even the requested range; Oct 7 is in.
       expect(res.body.events.map((event) => event.day)).toEqual(['2026-10-07']);
     });
@@ -157,19 +158,20 @@ describe('Calendar routes', () => {
     it('serves an empty month, not an error, for a range wholly past the horizon', async () => {
       await seedCoachWithRules({ suffix: 'far', rules: { ...DEFAULT_RULES, endDate: '2027-03-31' } });
 
-      const res = await publicCalendar('?from=2027-02-01&to=2027-02-28');
+      const res = await publicCalendar('?from=2027-01-01&to=2027-01-31');
 
       expect(res.status).toBe(200);
       expect(res.body.events).toEqual([]);
-      expect(res.body.horizonTo).toBe('2027-01-05');
+      expect(res.body.horizonTo).toBe('2026-12-06');
     });
 
     it('never serves a public day past the horizon, even inside a requested range', async () => {
       await seedCoachWithRules({ suffix: 'edge', rules: { ...DEFAULT_RULES, windowEnd: '17:00', endDate: '2027-03-31' } });
 
-      const res = await publicCalendar('?from=2026-12-27&to=2027-01-30');
+      const res = await publicCalendar('?from=2026-11-22&to=2026-12-31');
 
-      expect(res.body.events.map((event) => event.day)).toEqual(['2026-12-29', '2027-01-05']);
+      // Tuesday Dec 1 is inside the Dec 6 horizon; Tuesday Dec 8 is past it.
+      expect(res.body.events.map((event) => event.day)).toEqual(['2026-11-24', '2026-12-01']);
     });
 
     it('lets an admin look back into past months, with no horizon', async () => {
@@ -457,7 +459,7 @@ describe('Calendar routes', () => {
       expect(byDay['2026-10-07'].mine).toBe(true);
       expect(byDay['2026-10-07'].students).toEqual([{ id: String(student._id), name: 'Sam fam' }]);
       expect(byDay['2026-11-04'].students.map((ref) => ref.name).sort()).toEqual(['Kit fam', 'Sam fam']);
-      expect(res.body.horizonTo).toBe('2027-01-05');
+      expect(res.body.horizonTo).toBe('2026-12-06');
     });
 
     it("marks a child's trial session", async () => {

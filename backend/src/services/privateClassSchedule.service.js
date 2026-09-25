@@ -25,11 +25,12 @@ const { dayOfWeekLabel } = require('../email/dates');
 // they can never disagree.
 
 // How far ahead a parent can book — THE one number (docs/plans/calendar-view-
-// plan.md C6, owner decision O3: 3 months). It is both the booking wizard's
+// plan.md C6, owner decision O3: 2 months — 62 days, never shorter than two
+// calendar months from any start day). It is both the booking wizard's
 // date-picker default window AND the public/parent calendar's clip, so the
 // calendar can never offer a day the picker does not. MAX_AVAILABLE_DAYS
 // still caps an explicit `days` query.
-const PRIVATE_BOOKING_HORIZON_DAYS = 92;
+const PRIVATE_BOOKING_HORIZON_DAYS = 62;
 const MAX_AVAILABLE_DAYS = 120;
 
 // A published range may not exceed a year — a typo guard (e.g. 2062 for

@@ -57,8 +57,8 @@ async function rulesById(...schedules) {
 // docs/plans/calendar-view-plan.md C2 — THE "is this private slot open?" rule,
 // shared by the booking wizard's date picker and the calendar.
 describe('privateClassSchedule.service — openSlotsForRules', () => {
-  it('uses a 3-month booking horizon (owner decision O3)', () => {
-    expect(PRIVATE_BOOKING_HORIZON_DAYS).toBe(92);
+  it('uses a 2-month booking horizon of 62 days (owner decision O3)', () => {
+    expect(PRIVATE_BOOKING_HORIZON_DAYS).toBe(62);
   });
 
   it("returns each rule's weekdays in the range as real instants, tagged with their rule", async () => {
