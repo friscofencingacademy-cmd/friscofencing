@@ -47,7 +47,8 @@ const EMPTY_FORM: ContractForm = {
   coachId: '',
   studentBillingRate: '',
   coachCompensationRate: '',
-  sessionDurationMinutes: '60',
+  // Most private lessons are 30 minutes (owner decision 2026-09-25).
+  sessionDurationMinutes: '30',
 };
 
 // effectiveFrom/effectiveTo are real instants, not calendar-day sentinels, so

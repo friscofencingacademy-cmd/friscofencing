@@ -200,6 +200,7 @@ describe('AdminCoachContractsPage', () => {
     await user.click(screen.getByRole('button', { name: /add contract/i }));
     const dialog = await screen.findByRole('dialog', { name: /add contract/i });
 
+    expect(within(dialog).getByLabelText(/default session duration/i)).toHaveValue(30);
     const coachSelect = within(dialog).getByLabelText(/^coach$/i);
     expect(within(coachSelect).queryByRole('option', { name: 'Dana Cole' })).not.toBeInTheDocument();
     await user.selectOptions(coachSelect, 'coach-2');
@@ -214,12 +215,13 @@ describe('AdminCoachContractsPage', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /^create$/i }));
 
+    // The form's default lesson length is 30 minutes (owner decision 2026-09-25).
     await waitFor(() =>
       expect(createdPayload).toEqual({
         coachId: 'coach-2',
         studentBillingRate: 60,
         coachCompensationRate: 35,
-        sessionDurationMinutes: 60,
+        sessionDurationMinutes: 30,
         privateLessonPacks: [{ sessionDurationMinutes: 30, quantity: 5, price: 140 }],
       })
     );
