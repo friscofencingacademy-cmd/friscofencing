@@ -55,8 +55,8 @@ async function remove(req, res, next) {
 
 async function listPublic(req, res, next) {
   try {
-    const { coaches, packageOffers } = await privateClassScheduleService.listPublic();
-    return res.status(200).json({ coaches, packageOffers });
+    const { coaches } = await privateClassScheduleService.listPublic();
+    return res.status(200).json({ coaches });
   } catch (error) {
     return next(error);
   }

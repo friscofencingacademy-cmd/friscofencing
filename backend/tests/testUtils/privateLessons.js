@@ -56,9 +56,16 @@ async function loginAgent(email) {
   return agent;
 }
 
-// A coach with an active contract, logged in, with DEFAULT_RULES (or
+// A coach with an active contract (and `privateLessonPacks`, when given —
+// docs/plans/coach-pack-pricing-plan.md), logged in, with DEFAULT_RULES (or
 // `rules`) published through the real bulk endpoint.
-async function seedCoachWithRules({ suffix, studentBillingRate = 65, sessionDurationMinutes = 30, rules = DEFAULT_RULES }) {
+async function seedCoachWithRules({
+  suffix,
+  studentBillingRate = 65,
+  sessionDurationMinutes = 30,
+  rules = DEFAULT_RULES,
+  privateLessonPacks,
+}) {
   const coach = await seedUser({ role: 'coach', firstName: 'Dana', lastName: `Coach${suffix}`, email: `coach-${suffix}@example.com` });
   const adminEmail = `admin-${suffix}@example.com`;
   await seedUser({ role: 'admin', email: adminEmail });
@@ -69,6 +76,7 @@ async function seedCoachWithRules({ suffix, studentBillingRate = 65, sessionDura
     studentBillingRate,
     coachCompensationRate: 40,
     sessionDurationMinutes,
+    ...(privateLessonPacks ? { privateLessonPacks } : {}),
   });
 
   if (contractRes.status !== 201) {
@@ -126,7 +134,6 @@ async function seedActiveEnrollment({ parent, student, coach, contract, quantity
     agreedHourlyRate: contract.studentBillingRate,
     sessionDurationMinutes,
     quantity,
-    discountPercent: 0,
     sessionsUsed,
     status: 'active',
   });

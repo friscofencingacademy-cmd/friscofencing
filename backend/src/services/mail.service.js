@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
 const { renderEmail } = require('../email');
 const { dateFull, dateOnlyFull, timeOfDay, timeOfInstant, dayOfWeekLabel } = require('../email/dates');
-const { computePackQuote } = require('../utils/privateClassPricing');
+const { purchaseBreakdown } = require('../utils/privateClassPricing');
 const { MAX_PAYMENT_RETRIES } = require('../config/billing');
 
 // Lazy, memoized module-level cache — created once per process. If
@@ -422,19 +422,19 @@ function remainingLabel(enrollment) {
 }
 
 // The purchase block of a booking confirmation, from the completed ledger
-// row. The charged total is ALWAYS the row's own `amount` (what Stripe
-// charged); the subtotal/discount lines come from the same pricing function
-// the charge used.
+// row, via purchaseBreakdown (the same lines the invoice prints). The
+// charged total is ALWAYS the row's own `amount` (what Stripe charged);
+// the savings line is derived, never stored (coach-pack-pricing-plan D6).
 function purchaseLines(row) {
   if (!row) return null;
 
-  const { subtotal, discountAmount } = computePackQuote(row.unitPrice, row.quantity, row.discountPercent);
+  const { subtotal, savings } = purchaseBreakdown(row);
   const sessions = row.quantity === 1 ? '1 session' : `${row.quantity} sessions`;
 
   return {
     itemLabel: `${sessions} × ${money(row.unitPrice)}`,
     subtotalLabel: money(subtotal),
-    discountLabel: row.discountPercent > 0 ? `${row.discountPercent}% — −${money(discountAmount)}` : '',
+    savingsLabel: savings > 0 ? `−${money(savings)}` : '',
     totalLabel: money(row.amount),
   };
 }

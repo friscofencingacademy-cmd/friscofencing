@@ -5,12 +5,11 @@ const PrivateClassSession = require('../models/privateClassSession.model');
 const { PerSessionRegistration } = require('../models/registration.model');
 const coachContractService = require('./coachContract.service');
 const paymentMethodService = require('./paymentMethod.service');
-const settingService = require('./setting.service');
 const { ensureStripeCustomer } = require('./stripeCustomer.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const { chargeLedgerRow } = require('./billing/chargeFinalization.service');
 const privateClassSessionService = require('./privateClassSession.service');
-const { computeSessionPrice, computePackQuote, resolvePackOptions } = require('../utils/privateClassPricing');
+const { purchaseOptionsFor, purchaseBreakdown } = require('../utils/privateClassPricing');
 const { badRequestError, forbiddenError, notFoundError, conflictError, httpError } = require('../utils/errors');
 
 // Private-lesson PURCHASES (docs/decisions/011-private-per-session-booking.md).
@@ -24,10 +23,11 @@ function remainingOf(enrollment) {
   return enrollment.quantity - enrollment.sessionsUsed;
 }
 
-// The one place a purchase's price is resolved: the coach's active contract
-// rate x the rule's lesson length (computeSessionPrice), then each offered
-// quantity's quote (computePackQuote). Used by the quote endpoint AND the
-// charge, so what the parent is shown is exactly what they are charged.
+// The one place a purchase's price is resolved: the coach's ACTIVE contract,
+// through purchaseOptionsFor — the single session at the contract's rate x
+// the rule's lesson length, then that coach's packs of exactly that length
+// (docs/plans/coach-pack-pricing-plan.md). Used by the quote endpoint AND
+// the charge, so what the parent is shown is exactly what they are charged.
 async function resolvePurchaseTerms(schedule) {
   const coachId = schedule.coachId._id || schedule.coachId;
   const contract = await coachContractService.getActiveForCoach(coachId);
@@ -36,13 +36,9 @@ async function resolvePurchaseTerms(schedule) {
     throw conflictError('This coach is not currently accepting private students');
   }
 
-  const unitPrice = computeSessionPrice(contract.studentBillingRate, schedule.durationMinutes);
-  const { privateClassPackages } = await settingService.getSettings();
-  const options = resolvePackOptions(privateClassPackages).map(({ quantity, discountPercent }) =>
-    computePackQuote(unitPrice, quantity, discountPercent)
-  );
+  const options = purchaseOptionsFor(contract, schedule.durationMinutes);
 
-  return { contract, unitPrice, options };
+  return { contract, unitPrice: options[0].unitPrice, options };
 }
 
 // Credits the student can still use for a rule (same coach, same length).
@@ -101,8 +97,8 @@ async function quote({ studentId, scheduleId }, parent) {
   };
 }
 
-// POST /private-class-enrollments — buy `quantity` sessions and book the
-// first one, in the order ADR 011 fixes (reserve before charging, ADR 008's
+// POST /private-class-enrollments — buy a single session (no `packId`) or
+// one of the coach's packs (`packId`), and book the first lesson, in the order ADR 011 fixes (reserve before charging, ADR 008's
 // lesson):
 //   1. validate everything (no writes)
 //   2. create the purchase `pending`
@@ -116,17 +112,23 @@ async function quote({ studentId, scheduleId }, parent) {
 // An unexpected Stripe error (not a decline) propagates with the ledger row
 // still `pending`, so the slot stays held and is never silently released
 // while money may have moved; check-private-credit-ledger.js reports it.
-async function purchaseAndBook({ studentId, scheduleId, day, quantity }, parent) {
+async function purchaseAndBook({ studentId, scheduleId, day, packId }, parent) {
   const { student, schedule, coach, startDate, endDate } = await privateClassSessionService.loadBookingContext(
     { studentId, scheduleId, day },
     parent
   );
 
   const { contract, unitPrice, options } = await resolvePurchaseTerms(schedule);
-  const option = options.find((candidate) => candidate.quantity === quantity);
+  // The request names a CHOICE, never a price (Hard Rule 7, plan D4). A
+  // pack that no longer exists on the coach's active contract, was edited
+  // (an edited pack gets a new id, plan D7), or is for another lesson length
+  // is not in `options` — the parent was shown a price that is no longer
+  // offered, so nothing is charged (D11).
+  const wantedPackId = packId === undefined || packId === null || packId === '' ? null : String(packId);
+  const option = options.find((candidate) => candidate.packId === wantedPackId);
 
   if (!option) {
-    throw badRequestError(`quantity must be one of: ${options.map((candidate) => candidate.quantity).join(', ')}`);
+    throw conflictError('This pack is no longer offered — please review the prices');
   }
 
   if (!(option.total > 0)) {
@@ -154,7 +156,6 @@ async function purchaseAndBook({ studentId, scheduleId, day, quantity }, parent)
     agreedHourlyRate: contract.studentBillingRate,
     sessionDurationMinutes: schedule.durationMinutes,
     quantity: option.quantity,
-    discountPercent: option.discountPercent,
     sessionsUsed: 0,
     status: 'pending',
   });
@@ -187,7 +188,6 @@ async function purchaseAndBook({ studentId, scheduleId, day, quantity }, parent)
     studentId: student._id,
     quantity: option.quantity,
     unitPrice,
-    discountPercent: option.discountPercent,
     amount: option.total,
     status: 'pending',
     attempt: 1,
@@ -285,7 +285,8 @@ async function withPaymentsAndBookings(enrollments) {
         amount: payment.amount,
         quantity: payment.quantity,
         unitPrice: payment.unitPrice,
-        discountPercent: payment.discountPercent,
+        // Derived from the immutable ledger fields, never stored (plan D6).
+        savings: purchaseBreakdown(payment).savings,
         paidAt: payment.paidAt,
       },
       sessions: sessionsByEnrollment.get(String(enrollment._id)) || [],

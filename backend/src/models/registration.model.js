@@ -256,9 +256,12 @@ const SubscriptionCycleRegistration = Registration.discriminator(
 
 // ─── Discriminator 2: per_session (private lessons) ────────────────────────
 // A PURCHASE of `quantity` private-lesson sessions (docs/decisions/011-
-// private-per-session-booking.md): `amount` = what was charged =
-// privateClassPricing.js's computePackTotal(unitPrice, quantity,
-// discountPercent), computed once at purchase and never re-derived.
+// private-per-session-booking.md): `amount` = what was charged = the
+// chosen option's total (the single-session price, or the coach's fixed
+// pack price — docs/plans/coach-pack-pricing-plan.md), set once at purchase
+// and never re-derived. Savings are NOT stored: they are always derived as
+// quantity x unitPrice - amount (privateClassPricing.js's
+// purchaseBreakdown), so a savings figure can never disagree with a charge.
 // Every purchase accompanies a booking, so the row is anchored to that
 // booking (`sessionId`) and to the purchase it paid for (`enrollmentId`).
 // A booking paid with an existing credit writes NO row — no money moved.
@@ -280,18 +283,11 @@ const perSessionSchema = new Schema({
     required: true,
     min: 1,
   },
-  // Per-session price before the pack discount (computeSessionPrice).
+  // The single-session price at purchase (computeSessionPrice).
   unitPrice: {
     type: Number,
     required: true,
     min: 0,
-  },
-  discountPercent: {
-    type: Number,
-    required: true,
-    min: 0,
-    max: 100,
-    default: 0,
   },
 });
 

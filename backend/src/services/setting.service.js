@@ -1,6 +1,5 @@
 const Setting = require('../models/setting.model');
 const { badRequestError } = require('../utils/errors');
-const { normalizePackageOffers } = require('../utils/privateClassPricing');
 
 // No caching, deliberately — every other billing read in this codebase
 // (calculateChargeAmount, resolveCurrentFee) reads fresh every time, never
@@ -11,25 +10,21 @@ const { normalizePackageOffers } = require('../utils/privateClassPricing');
 
 // Always returns a usable object, even before any admin has ever saved one
 // — an empty settings collection means "the defaults," never an error, so
-// callers never need a null-check. privateClassPackages is the stored pack
-// list only — resolvePackOptions (utils/privateClassPricing.js) adds the
-// always-offered single session. prorationEnabled is deliberately not
+// callers never need a null-check. prorationEnabled is deliberately not
 // exposed here — it's deprecated (docs/decisions/007-calendar-month-
-// billing.md), no code path reads it anymore.
+// billing.md), no code path reads it anymore. Private-lesson packs are not
+// a setting — they live on each CoachContract (docs/plans/coach-pack-
+// pricing-plan.md D10).
 async function getSettings() {
   const doc = await Setting.findOne();
 
   if (!doc) {
-    return { registrationFee: 0, returningStudentGracePeriodMonths: 0, privateClassPackages: [] };
+    return { registrationFee: 0, returningStudentGracePeriodMonths: 0 };
   }
 
   return {
     registrationFee: doc.registrationFee,
     returningStudentGracePeriodMonths: doc.returningStudentGracePeriodMonths,
-    privateClassPackages: (doc.privateClassPackages || []).map(({ quantity, discountPercent }) => ({
-      quantity,
-      discountPercent,
-    })),
   };
 }
 
@@ -55,14 +50,6 @@ async function updateSettings(patch) {
       throw badRequestError('returningStudentGracePeriodMonths must be a number >= 0');
     }
     setFields.returningStudentGracePeriodMonths = patch.returningStudentGracePeriodMonths;
-  }
-
-  if (patch.privateClassPackages !== undefined) {
-    try {
-      setFields.privateClassPackages = normalizePackageOffers(patch.privateClassPackages);
-    } catch (error) {
-      throw badRequestError(error.message);
-    }
   }
 
   await Setting.findOneAndUpdate(

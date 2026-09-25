@@ -400,8 +400,8 @@ const TEMPLATES = [
           ['Purchased', esc(v.purchase.itemLabel)],
           ['Subtotal', esc(v.purchase.subtotalLabel)],
         ];
-        if (v.purchase.discountLabel) {
-          rows.push(['Pack discount', esc(v.purchase.discountLabel)]);
+        if (v.purchase.savingsLabel) {
+          rows.push(['Pack savings', esc(v.purchase.savingsLabel)]);
         }
         rows.push(['Charged to your card', strong(v.purchase.totalLabel)]);
 

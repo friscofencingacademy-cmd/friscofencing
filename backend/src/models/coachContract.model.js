@@ -51,6 +51,24 @@ const coachContractSchema = new Schema(
     notes: {
       type: String,
     },
+    // This coach's private-lesson packs (docs/plans/coach-pack-pricing-
+    // plan.md): a fixed total `price` for `quantity` lessons of exactly
+    // `sessionDurationMinutes`. A single session at the hourly rate is always
+    // offered and is never a row here. Each pack's Mongoose `_id` is the
+    // `packId` a parent's purchase request carries. Validated ONLY by
+    // utils/privateClassPricing.js's validatePacks (the price band, D8) —
+    // called by coachContract.service.js on every write. Editable on the
+    // active contract (D7); an edited pack gets a new `_id`.
+    privateLessonPacks: {
+      type: [
+        {
+          sessionDurationMinutes: { type: Number, required: true, min: 15 },
+          quantity: { type: Number, required: true, min: 2 },
+          price: { type: Number, required: true, min: 0.01 },
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,

@@ -521,15 +521,34 @@ describe('mail.service', () => {
         coach: { firstName: 'Dana', lastName: 'Coach' },
         session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
         enrollment: { quantity: 10, sessionsUsed: 1, sessionDurationMinutes: 30 },
-        purchaseRow: { quantity: 10, unitPrice: 32.5, discountPercent: 10, amount: 292.5 },
+        // A coach's 10-pack for $300 (docs/plans/coach-pack-pricing-plan.md).
+        purchaseRow: { quantity: 10, unitPrice: 32.5, amount: 300 },
         cancelCutoffHours: 24,
       });
 
       const { text } = sendMail.mock.calls[0][0];
       expect(text).toContain('10 sessions × $32.50');
       expect(text).toContain('$325.00');
-      expect(text).toContain('10% — −$32.50');
-      expect(text).toContain('Charged to your card: $292.50');
+      expect(text).toContain('Pack savings: −$25.00');
+      expect(text).toContain('Charged to your card: $300.00');
+    });
+
+    it('sendPrivateClassBookingConfirmationEmail shows no savings line for a single session', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendPrivateClassBookingConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        coach: { firstName: 'Dana', lastName: 'Coach' },
+        session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
+        enrollment: { quantity: 1, sessionsUsed: 1, sessionDurationMinutes: 30 },
+        purchaseRow: { quantity: 1, unitPrice: 32.5, amount: 32.5 },
+        cancelCutoffHours: 24,
+      });
+
+      const { text } = sendMail.mock.calls[0][0];
+      expect(text).toContain('Charged to your card: $32.50');
+      expect(text).not.toContain('Pack savings');
     });
 
     it('sendPrivateClassCoachBookingEmail goes to the coach, cc ADMIN_EMAIL', async () => {
@@ -698,7 +717,7 @@ describe('mail.service', () => {
       coach: { firstName: 'Dana', lastName: 'Coach' },
       session: { startDate: new Date('2026-10-06T21:30:00.000Z') },
       enrollment: { quantity: 1, sessionsUsed: 1, sessionDurationMinutes: 30 },
-      purchaseRow: { quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 },
+      purchaseRow: { quantity: 1, unitPrice: 32.5, amount: 32.5 },
       cancelCutoffHours: 24,
     };
 

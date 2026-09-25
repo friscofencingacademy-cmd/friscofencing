@@ -17,8 +17,10 @@ const PRIVATE_CLASS_ENROLLMENT_STATUSES = ['pending', 'active', 'failed'];
 // which is the source of truth in any disagreement
 // (scripts/check-private-credit-ledger.js reconciles the two).
 //
-// agreedHourlyRate, sessionDurationMinutes, quantity and discountPercent are
-// PINNED at purchase and immutable afterward — one purchase, one price.
+// agreedHourlyRate, sessionDurationMinutes and quantity are PINNED at
+// purchase and immutable afterward. There is deliberately NO price field
+// here: what the purchase cost lives only on its Registration row
+// (docs/plans/coach-pack-pricing-plan.md D5).
 // sessionsUsed is the only field that moves after activation, and only
 // through privateClassSession.service.js's atomic guarded $inc. Remaining
 // credits are always derived (quantity - sessionsUsed), never stored.
@@ -60,13 +62,6 @@ const privateClassEnrollmentSchema = new Schema(
       type: Number,
       required: true,
       min: 1,
-    },
-    discountPercent: {
-      type: Number,
-      required: true,
-      min: 0,
-      max: 100,
-      default: 0,
     },
     sessionsUsed: {
       type: Number,
