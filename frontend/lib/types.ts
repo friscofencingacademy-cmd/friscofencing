@@ -461,12 +461,11 @@ export interface RegistrationPricePreview extends ProrationInfo {
 // prorationEnabled is deprecated (docs/decisions/007-calendar-month-
 // billing.md) and no longer part of the API contract — proration always
 // runs now.
+// Private-lesson packs are not a setting — they live on each CoachContract
+// (docs/plans/coach-pack-pricing-plan.md D10).
 export interface Setting {
   registrationFee: number;
   returningStudentGracePeriodMonths: number;
-  // Private-lesson packs (ADR 011) — a single session is always offered and
-  // never stored here.
-  privateClassPackages: PrivatePackageOffer[];
 }
 
 // Shared by RegistrationPricePreview and RegistrationCreateResponse —
@@ -694,6 +693,43 @@ export interface CoachContract {
   effectiveFrom: string;
   isActive: boolean;
   notes?: string;
+  // This coach's fixed-price packs (docs/plans/coach-pack-pricing-plan.md).
+  privateLessonPacks: PrivateLessonPack[];
+}
+
+// One pack on a coach's contract: a fixed total `price` for `quantity`
+// lessons of exactly `sessionDurationMinutes`. `_id` is the `packId` a
+// purchase sends; an edited pack gets a new one.
+export interface PrivateLessonPack {
+  _id: string;
+  sessionDurationMinutes: number;
+  quantity: number;
+  price: number;
+}
+
+// A pack as the editor holds and sends it — `_id` only for a pack that is
+// already saved (the backend keeps it only if nothing about the pack changed).
+export interface PrivateLessonPackDraft {
+  _id?: string;
+  sessionDurationMinutes: number;
+  quantity: number;
+  price: number;
+}
+
+// POST /coach-contracts/pack-quotes — the pack editor's preview of one pack,
+// every figure from the backend's own pack check. `error` is the exact
+// message saving would return, or null. Figures are null when they cannot
+// be computed (an unusable length, quantity or price).
+export interface PackQuoteRow {
+  sessionDurationMinutes: number;
+  quantity: number;
+  price: number;
+  perLessonPrice: number | null;
+  subtotal: number | null;
+  savings: number | null;
+  savingsPercent: number | null;
+  allowedRange: { min: number; max: number } | null;
+  error: string | null;
 }
 
 // An availability rule (PrivateClassSchedule). startTime is raw "HH:mm"
@@ -748,6 +784,9 @@ export interface PublicPrivateClassSlot {
   endDate: string;
   sessionPrice: number;
   hourlyRate: number;
+  // That coach's purchase options for this slot's length — the single session,
+  // then its packs. The SAME shape the purchase quote returns.
+  options: PrivatePurchaseOption[];
 }
 
 export interface PublicPrivateClassCoach {
@@ -756,16 +795,8 @@ export interface PublicPrivateClassCoach {
   slots: PublicPrivateClassSlot[];
 }
 
-// An academy-wide purchase option (Setting.privateClassPackages plus the
-// always-offered single session).
-export interface PrivatePackageOffer {
-  quantity: number;
-  discountPercent: number;
-}
-
 export interface PublicPrivateLessons {
   coaches: PublicPrivateClassCoach[];
-  packageOffers: PrivatePackageOffer[];
 }
 
 // GET /private-class-schedules/:id/available-dates — `day` is 'YYYY-MM-DD';
@@ -777,13 +808,15 @@ export interface PrivateAvailableDate {
 }
 
 // One priced purchase option — every figure computed by the backend
-// (privateClassPricing.js's computePackQuote); render verbatim.
+// (privateClassPricing.js's purchaseOptionsFor); render verbatim. `packId`
+// is null for the single session. Used by both the purchase quote and the
+// public listing's slots (one shape, coach-pack-pricing-plan D14 d).
 export interface PrivatePurchaseOption {
+  packId: string | null;
   unitPrice: number;
   quantity: number;
-  discountPercent: number;
   subtotal: number;
-  discountAmount: number;
+  savings: number;
   total: number;
 }
 
@@ -862,19 +895,19 @@ export interface PrivateClassEnrollmentRow {
   agreedHourlyRate: number;
   sessionDurationMinutes: number;
   quantity: number;
-  discountPercent: number;
   sessionsUsed: number;
   status: PrivateEnrollmentStatus;
   createdAt: string;
 }
 
 // What the purchase actually charged — from its Registration ledger row.
+// `savings` is derived by the backend (quantity x unitPrice - amount).
 export interface PrivatePurchasePayment {
   _id: string;
   amount: number;
   quantity: number;
   unitPrice: number;
-  discountPercent: number;
+  savings: number;
   paidAt: string | null;
 }
 

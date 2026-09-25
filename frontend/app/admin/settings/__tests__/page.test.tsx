@@ -1,5 +1,4 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -26,7 +25,6 @@ const ADMIN_USER = {
 const SETTINGS: Setting = {
   registrationFee: 25,
   returningStudentGracePeriodMonths: 6,
-  privateClassPackages: [{ quantity: 10, discountPercent: 10 }],
 };
 
 let patchPayload: unknown = null;
@@ -75,7 +73,6 @@ describe('AdminSettingsPage', () => {
       expect(patchPayload).toEqual({
         registrationFee: 40,
         returningStudentGracePeriodMonths: 6,
-        privateClassPackages: [{ quantity: 10, discountPercent: 10 }],
       });
     });
 
@@ -128,57 +125,13 @@ describe('AdminSettingsPage', () => {
     expect(await screen.findByLabelText('Default Registration Fee ($)')).toHaveValue(25);
   });
 
-  // docs/plans/private-class-per-session-booking-plan.md D13 — the page only
-  // collects numbers; which packs are valid is the backend's rule.
-  describe('private-lesson packs', () => {
-    it('shows the saved packs, and adding + removing rows round-trips in the save payload', async () => {
-      const user = userEvent.setup();
-      renderPage();
+  // Packs moved to each coach's contract (docs/plans/coach-pack-pricing-plan.md
+  // D10) — this page no longer edits them.
+  it('has no private-lesson pack editor', async () => {
+    renderPage();
 
-      expect(await screen.findByLabelText('Pack 1 sessions')).toHaveValue(10);
-      expect(screen.getByLabelText('Pack 1 discount percent')).toHaveValue(10);
-
-      await user.click(screen.getByRole('button', { name: 'Add pack' }));
-      await user.type(screen.getByLabelText('Pack 2 sessions'), '20');
-      await user.type(screen.getByLabelText('Pack 2 discount percent'), '15');
-      await user.click(screen.getByRole('button', { name: 'Remove pack 1' }));
-      await user.click(screen.getByRole('button', { name: /^save$/i }));
-
-      await waitFor(() =>
-        expect(patchPayload).toEqual({
-          registrationFee: 25,
-          returningStudentGracePeriodMonths: 6,
-          privateClassPackages: [{ quantity: 20, discountPercent: 15 }],
-        })
-      );
-    });
-
-    it('never submits a pack with no number of sessions', async () => {
-      const user = userEvent.setup();
-      renderPage();
-
-      await user.click(await screen.findByRole('button', { name: 'Add pack' }));
-      await user.click(screen.getByRole('button', { name: /^save$/i }));
-
-      expect(await screen.findByText(/each pack needs a number of sessions/i)).toBeInTheDocument();
-      expect(patchPayload).toBeNull();
-    });
-
-    it("shows the backend's pack rule message verbatim", async () => {
-      server.use(
-        http.patch('*/settings', () =>
-          HttpResponse.json({ message: 'Only one private-lesson pack may have quantity 10' }, { status: 400 })
-        )
-      );
-      const user = userEvent.setup();
-      renderPage();
-
-      await user.click(await screen.findByRole('button', { name: 'Add pack' }));
-      await user.type(screen.getByLabelText('Pack 2 sessions'), '10');
-      await user.type(screen.getByLabelText('Pack 2 discount percent'), '5');
-      await user.click(screen.getByRole('button', { name: /^save$/i }));
-
-      expect(await screen.findByRole('alert')).toHaveTextContent('Only one private-lesson pack may have quantity 10');
-    });
+    await screen.findByLabelText('Default Registration Fee ($)');
+    expect(screen.queryByText(/private-lesson packs/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add pack' })).not.toBeInTheDocument();
   });
 });

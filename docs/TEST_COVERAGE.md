@@ -6,12 +6,12 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 91.02% | 89.62% |
-| Branches | — (informational) | 81.12% | 79.48% |
-| Functions | — (informational) | 93.06% | 89.03% |
-| Lines | — (informational) | 91.13% | 90.87% |
+| Statements | 80% | 92.66% | 90.73% |
+| Branches | — (informational) | 83.65% | 84% |
+| Functions | — (informational) | 95.15% | 88.75% |
+| Lines | — (informational) | 92.85% | 92.01% |
 
-Backend re-measured 2026-09-24 via `TZ=UTC npm test -- --coverage` after `docs/plans/duplication-cleanup-plan.md` PR B (shared error factories, admin-role SOT, central error middleware). 74 suites / 866 tests: 865 pass and 1 fails — `subscription.service.test.js` "changeSchedule", a known time-of-day dependency (fails on Wednesdays after 4 pm Central; introduced by the roster change in #93, tracked as a separate fix, not caused by PR B). Frontend figures carried forward (untouched by PR B). Both clear the 80%-statements target.
+Both re-measured 2026-09-24 via `TZ=UTC npm test -- --coverage` (backend) and `TZ=UTC npx jest --coverage` (frontend) after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract). Backend: 76 suites / 980 tests, all passing. Frontend: 60 suites / 472 tests, all passing. Both clear the 80%-statements target.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
@@ -24,20 +24,22 @@ frontend branch and function coverage already beat that number. CKQ's real edge 
 
 | Directory | Branches |
 |---|---|
-| `src/utils` | 97.36% |
-| `src/middlewares` | 94.28% (incl. the new `errorHandler.js`) |
-| `src/models` | 87.5% |
+| `src/utils` | 99.01% |
+| `src/middlewares` | 94.28% (incl. `errorHandler.js`) |
+| `src/models` | 96.77% |
 | `src/services/billing` | 88.37% |
-| `src/services` (the real business logic) | 80.29% |
-| `src/controllers` | 68.75% (was 24.9% before PR B) |
+| `src/services` (the real business logic) | 83.19% |
+| `src/controllers` | 71.87% (was 24.9% before PR B) |
 | `src/routes` | 50% |
 
 The controllers jump is structural, not new tests chasing branches: every controller's catch block used to carry an untestable `error.status || 500` / `error.message || 'Failed to ...'` fallback (104 of them); PR B replaced each with `return next(error)` and moved the logic into one directly-tested middleware. `src/routes` (50%) is the same kind of number — mostly multer upload-handler branches in `spotlight`/`testimonial` — not business logic. Full reasoning in `docs/TESTING_STRATEGY.md`'s "Branch coverage" section.
 
 ## Backend (`backend/`)
 
-**Current state: 76 test suites / 944 tests, all passing under `TZ=UTC` — re-run in full 2026-09-24
-after `docs/plans/private-class-per-session-booking-plan.md` PRs 1–2 (universal `Visit`, per-session
+**Current state: 76 test suites / 980 tests, all passing under `TZ=UTC` — re-run in full 2026-09-24
+after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract; the pack band, the
+edited-pack id rule, and the purchase-by-`packId` path, incl. real-Stripe proofs that an edited or
+removed pack charges nothing). Before that: `docs/plans/private-class-per-session-booking-plan.md` PRs 1–2 (universal `Visit`, per-session
 private-lesson bookings). The private-lesson suites freeze only `Date` (`tests/testUtils/privateLessons.js`
 `freezeDate`), so none of them depends on the time of day they run. Previously documented here: on a
 non-`TZ=UTC` local dev host, a class of tests reads a UTC-midnight calendar-day sentinel via a
@@ -50,13 +52,13 @@ cd backend && TZ=UTC npm test
 | Layer | Location | What it tests | DB? |
 |---|---|---|---|
 | Unit | `tests/utils/{jwt,password}.test.js` | Token signing/verification, bcrypt hashing | No |
-| Unit | `tests/utils/privateClassPricing.test.js` | Per-session pricing, pack subtotal/total/quote (discount once, lines always sum), pack-offer validation, the always-offered single session; fail-closed throws | No |
+| Unit | `tests/utils/privateClassPricing.test.js` | Per-session pricing; `quotePurchase` (the one savings formula, whole cents); the pack price band's exact edges incl. a half-cent floor; `describePack` errors (never throws) and `validatePacks` throwing the identical message; `purchaseOptionsFor` (single first, only the slot's length); `purchaseBreakdown`; fail-closed throws | No |
 | Unit | `tests/services/billing/{calculateChargeAmount,proration}.service.test.js` | Sibling-discount math; proration math incl. `resolveFirstChargePeriod`'s current-vs-future-month branch (docs/plans/payment-airtight-plan.md D1) | No |
 | Unit | `tests/models/registration.model.test.js` | `periodMonth` derivation (schema pre-validate hook), `manualNote` validation, Guard B's re-keyed unique index — incl. the exact same-month-different-day collision case the old index missed (docs/plans/payment-airtight-plan.md D7) | Yes (memory) |
 | Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
 | Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
 | Service | `tests/services/holiday.service.test.js` | CRUD incl. date-sentinel normalization, ≤31-day duration cap, unique-name + inclusive-overlap 409s (self-excluded on update), `getHolidaysInRange`/`findHolidayForDate` boundary inclusivity (`docs/plans/holiday-blocking-plan.md`) | Yes (memory) |
-| Route-integration | `tests/routes/*.routes.test.js` (21 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing, **holiday-date filtering/annotation, attendance/walk-in blocked on a holiday**), prices, students, users, trial-classes (**incl. holiday-blocked booking**), registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race, holiday-blocked `startDate`**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts, private-lesson availability (bulk publish, overlap 409s, bookable-date computation incl. holidays/DST/started lessons, retire-vs-delete), private-lesson purchases (real Stripe: single + discounted pack, 402 decline releases the slot, two-parent race = one charge, abandoned-hold takeover rules, payment-history description), private-lesson bookings (oldest-credit-first, last-credit race, credit returned on a lost slot, Visit-backed attendance with no money, 24h parent cancel cutoff), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`), holidays (admin/superadmin-only CRUD, `docs/plans/holiday-blocking-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
+| Route-integration | `tests/routes/*.routes.test.js` (21 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing, **holiday-date filtering/annotation, attendance/walk-in blocked on a holiday**), prices, students, users, trial-classes (**incl. holiday-blocked booking**), registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race, holiday-blocked `startDate`**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts (incl. packs: band 400s, carry-over re-check on a rate change, edit keeps an unchanged pack's id and mints a new one for an edited pack, the side-effect-free `pack-quotes` preview returning the save's exact error text), private-lesson availability (bulk publish, overlap 409s, bookable-date computation incl. holidays/DST/started lessons, retire-vs-delete), private-lesson purchases (real Stripe: single session + the coach's own pack by `packId`, a pack for another length / removed / edited after the quote = 409 with zero PaymentIntents, 402 decline releases the slot, two-parent race = one charge, abandoned-hold takeover rules, payment-history description), private-lesson bookings (oldest-credit-first, last-credit race, credit returned on a lost slot, Visit-backed attendance with no money, 24h parent cancel cutoff), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`), holidays (admin/superadmin-only CRUD, `docs/plans/holiday-blocking-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
 | Script | `tests/scripts/lib/migrateRegistrationsToLedger.test.js` | The one-time old-shape-Registration → payment-ledger migration script (`docs/plans/registration-ledger-plan.md` D8): dry-run writes nothing, live run rewrites matched docs (incl. the prorated-periodEnd variant), orphaned docs left untouched and reported, safe to re-run | Yes (memory) |
 | Script | `tests/scripts/lib/migratePeriodMonth.test.js` | The one-time `periodMonth` backfill + Guard B index re-key (docs/plans/payment-airtight-plan.md D7): dry-run vs. live, idempotent re-run, collision abort with zero writes, a `failed` row never blocks | Yes (memory) |
 | Service | `tests/services/{visit,privateClassSession}.service.test.js` | Universal Visit: serviceId stamping, fail-closed without the Service registry, the one-session-ref validator, private visit lifecycle, private never in a group roster (ADR 010). The private slot claim: concurrent claims, cancelled/released free the slot, abandoned-hold release rules (ADR 011) | Yes (memory) |
@@ -71,7 +73,7 @@ cd backend && TZ=UTC npm test
 
 ## Frontend (`frontend/`)
 
-**Current state: 57 test suites / 448 tests, all passing under `TZ=UTC`, 2026-09-24 (after `docs/plans/private-class-per-session-booking-plan.md` PR 3 — the private-lesson pages rebuilt for per-session bookings, a new `lib/services/__tests__/privateClass.test.ts` contract suite, and the portal context's removed private fetch guarded by a test). `tsc --noEmit` clean, `next build` succeeds. E2E: 31 passed + the 2 known visual-baseline skips, including the new `private-booking.spec.ts`.**
+**Current state: 60 test suites / 472 tests, all passing under `TZ=UTC`, 2026-09-24 (after `docs/plans/coach-pack-pricing-plan.md` PR 2 — the shared `PackEditor` with its server-verbatim preview guard and a fake-timer debounce test, the new `useDebouncedValue` hook and `lib/services/__tests__/coachContracts.test.ts` contract suite, packs chosen by `packId` in the booking wizard). Before that: `docs/plans/private-class-per-session-booking-plan.md` PR 3 — the private-lesson pages rebuilt for per-session bookings, a new `lib/services/__tests__/privateClass.test.ts` contract suite, and the portal context's removed private fetch guarded by a test). `tsc --noEmit` clean, `next build` succeeds. E2E: 31 passed + the 2 known visual-baseline skips, including the new `private-booking.spec.ts`.**
 
 ```
 cd frontend && TZ=UTC npm test

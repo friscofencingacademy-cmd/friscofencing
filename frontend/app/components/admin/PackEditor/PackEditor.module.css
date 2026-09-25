@@ -1,0 +1,13 @@
+/* PackEditor — one pack per row: length, sessions, price, Remove.
+   Tokens only (docs/design-system.md). */
+
+.pack {
+  margin-bottom: var(--space-3);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+}

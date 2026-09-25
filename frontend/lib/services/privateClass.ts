@@ -48,12 +48,14 @@ export async function fetchMyPrivatePurchases(): Promise<PrivatePurchaseEntry[]>
   return res.data.enrollments;
 }
 
-// Buy `quantity` sessions and book the first one on `day` ('YYYY-MM-DD').
+// Buy a single session (no `packId`) or one of the coach's packs, and book
+// the first lesson on `day` ('YYYY-MM-DD'). The request names a choice,
+// never a price; a pack that is no longer offered is a 409.
 export async function purchasePrivateLessons(data: {
   studentId: string;
   scheduleId: string;
   day: string;
-  quantity: number;
+  packId?: string;
 }): Promise<MutationResult<PrivateBookingResult>> {
   try {
     const res = await api.post<PrivateBookingResult>('/private-class-enrollments', data);

@@ -30,6 +30,16 @@ const STUDENT: Student = {
   enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
 };
 
+// Server-verbatim regression guard (docs/design-system.md anti-pattern 10):
+// the pack's figures deliberately do NOT add up (325 - 291.11 is 33.89, not
+// 31.11) — any client-side recomputation would render the wrong numbers.
+// Options are keyed by packId, never by quantity or price
+// (docs/plans/coach-pack-pricing-plan.md D4).
+const OPTIONS: PrivatePurchaseQuote['options'] = [
+  { packId: null, unitPrice: 32.5, quantity: 1, subtotal: 32.5, savings: 0, total: 32.5 },
+  { packId: 'pack-10', unitPrice: 32.5, quantity: 10, subtotal: 325, savings: 31.11, total: 291.11 },
+];
+
 const LESSONS: PublicPrivateLessons = {
   coaches: [
     {
@@ -46,13 +56,10 @@ const LESSONS: PublicPrivateLessons = {
           endDate: '2026-12-31T00:00:00.000Z',
           sessionPrice: 32.5,
           hourlyRate: 65,
+          options: OPTIONS,
         },
       ],
     },
-  ],
-  packageOffers: [
-    { quantity: 1, discountPercent: 0 },
-    { quantity: 10, discountPercent: 10 },
   ],
 };
 
@@ -61,18 +68,12 @@ const DATES: PrivateAvailableDate[] = [
   { day: '2026-10-13', startDate: '2026-10-13T21:30:00.000Z', endDate: '2026-10-13T22:00:00.000Z' },
 ];
 
-// Server-verbatim regression guard (docs/design-system.md anti-pattern 10):
-// the pack's figures deliberately do NOT satisfy 10 x 32.5 x 0.9 — any
-// client-side recomputation would render the wrong numbers.
 const QUOTE: PrivatePurchaseQuote = {
   durationMinutes: 30,
   hourlyRate: 65,
   availableCredits: 0,
   cancelCutoffHours: 24,
-  options: [
-    { unitPrice: 32.5, quantity: 1, discountPercent: 0, subtotal: 32.5, discountAmount: 0, total: 32.5 },
-    { unitPrice: 32.5, quantity: 10, discountPercent: 10, subtotal: 325, discountAmount: 31.11, total: 291.11 },
-  ],
+  options: OPTIONS,
 };
 
 const PAYMENT_METHOD: PaymentMethodInfo = { _id: 'pm-1', cardBrand: 'visa', cardLast4: '4242', cardExpMonth: 1, cardExpYear: 2030 };
@@ -157,13 +158,15 @@ describe('RegisterPrivatePage — book a private lesson', () => {
     expect(await screen.findByText(/cancel at least 24 hours before a lesson/i)).toBeInTheDocument();
     expect(screen.getByText(/visa ending in 4242/i)).toBeInTheDocument();
     expect(screen.getByText('10 × $32.50')).toBeInTheDocument();
+    expect(screen.getByText('Pack savings')).toBeInTheDocument();
     expect(screen.getByText('−$31.11')).toBeInTheDocument();
     expect(screen.getByText('$291.11')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Pay $291.11 & book' }));
 
+    // The request names the pack, never a quantity or a price.
     await waitFor(() =>
-      expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'sched-1', day: '2026-10-06', quantity: 10 })
+      expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'sched-1', day: '2026-10-06', packId: 'pack-10' })
     );
     expect(await screen.findByText(/you're booked/i)).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
@@ -194,6 +197,50 @@ describe('RegisterPrivatePage — book a private lesson', () => {
     );
     expect(purchasePayload).toBeNull();
     expect(await screen.findByText(/you're booked/i)).toBeInTheDocument();
+  });
+
+  it('buys a single session with no packId in the request', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await walkToSessions(user);
+
+    await user.click(screen.getByRole('radio', { name: /buy 1 session/i }));
+    expect(screen.queryByText('Pack savings')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    await user.click(await screen.findByRole('button', { name: 'Pay $32.50 & book' }));
+
+    await waitFor(() =>
+      expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'sched-1', day: '2026-10-06' })
+    );
+  });
+
+  // docs/plans/coach-pack-pricing-plan.md D11 — a pack edited or removed after
+  // the quote is refused (409) through the SAME inline error path as a
+  // decline: nothing charged, the quote refetched, "Pick another date".
+  it('shows a pack that is no longer offered (409) inline, refetches the quote, and offers "Pick another date"', async () => {
+    let quoteFetches = 0;
+    server.use(
+      http.post('*/private-class-enrollments', () =>
+        HttpResponse.json({ message: 'This pack is no longer offered — please review the prices' }, { status: 409 })
+      ),
+      http.get('*/private-class-enrollments/quote', () => {
+        quoteFetches += 1;
+        return HttpResponse.json(QUOTE);
+      })
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await walkToSessions(user);
+    await user.click(screen.getByRole('radio', { name: /buy 10 sessions/i }));
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+
+    const fetchesBeforeSubmit = quoteFetches;
+    await user.click(await screen.findByRole('button', { name: 'Pay $291.11 & book' }));
+
+    expect(await screen.findByText(/this pack is no longer offered/i)).toBeInTheDocument();
+    await waitFor(() => expect(quoteFetches).toBeGreaterThan(fetchesBeforeSubmit));
+    expect(screen.getByRole('button', { name: /pick another date/i })).toBeInTheDocument();
+    expect(screen.queryByText(/you're booked/i)).not.toBeInTheDocument();
   });
 
   it('blocks paying without a saved card', async () => {

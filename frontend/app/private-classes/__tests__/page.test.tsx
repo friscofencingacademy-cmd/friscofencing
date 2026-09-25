@@ -27,13 +27,16 @@ const LESSONS: PublicPrivateLessons = {
           // value, never compute one.
           sessionPrice: 31.99,
           hourlyRate: 65,
+          // This coach's own packs for this slot's length
+          // (docs/plans/coach-pack-pricing-plan.md) — the pack total is a
+          // server value too, deliberately not 10 x 31.99.
+          options: [
+            { packId: null, unitPrice: 31.99, quantity: 1, subtotal: 31.99, savings: 0, total: 31.99 },
+            { packId: 'pack-10', unitPrice: 31.99, quantity: 10, subtotal: 319.9, savings: 22.22, total: 297.77 },
+          ],
         },
       ],
     },
-  ],
-  packageOffers: [
-    { quantity: 1, discountPercent: 0 },
-    { quantity: 10, discountPercent: 10 },
   ],
 };
 
@@ -91,10 +94,32 @@ describe('PrivateClassesPage', () => {
     expect(screen.queryByText(/register/i)).not.toBeInTheDocument();
   });
 
-  it('lists the academy packs (the always-offered single session is not a "pack")', async () => {
+  it("lists each slot's own packs from the server (the single session is not a pack)", async () => {
+    // A second slot at another length, where this coach has no pack.
+    const sixtyMinuteSlot: PublicPrivateLessons['coaches'][number]['slots'][number] = {
+      scheduleId: 'sched-2',
+      dayOfWeek: 4,
+      dayName: 'Thursday',
+      startTime: '17:00',
+      durationMinutes: 60,
+      startDate: '2026-10-01T00:00:00.000Z',
+      endDate: '2026-12-31T00:00:00.000Z',
+      sessionPrice: 65,
+      hourlyRate: 65,
+      options: [{ packId: null, unitPrice: 65, quantity: 1, subtotal: 65, savings: 0, total: 65 }],
+    };
+    server.use(
+      http.get('*/private-class-schedules/public', () =>
+        HttpResponse.json({
+          coaches: [{ ...LESSONS.coaches[0], slots: [...LESSONS.coaches[0].slots, sixtyMinuteSlot] }],
+        })
+      )
+    );
     renderPage();
 
-    expect(await screen.findByText('Save with a pack: 10 sessions, 10% off')).toBeInTheDocument();
+    expect(await screen.findByText('Packs: 10 lessons for $297.77')).toBeInTheDocument();
+    // Only the 30-minute slot has a pack; the 60-minute slot shows none.
+    expect(screen.getAllByText(/^Packs:/)).toHaveLength(1);
   });
 
   it('sends a logged-out visitor to log in first, carrying the slot, and offers registration', async () => {
@@ -108,14 +133,14 @@ describe('PrivateClassesPage', () => {
   it('shows an empty state when no coach has open times, and no packs line when none are configured', async () => {
     server.use(
       http.get('*/private-class-schedules/public', () =>
-        HttpResponse.json({ coaches: [], packageOffers: [{ quantity: 1, discountPercent: 0 }] })
+        HttpResponse.json({ coaches: [] })
       )
     );
 
     renderPage();
 
     expect(await screen.findByText(/no private lesson times are open/i)).toBeInTheDocument();
-    expect(screen.queryByText(/save with a pack/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Packs:/)).not.toBeInTheDocument();
   });
 
   it('renders LoadError with a working retry on a failed load', async () => {

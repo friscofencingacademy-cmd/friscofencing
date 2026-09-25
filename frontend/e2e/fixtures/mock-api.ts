@@ -86,7 +86,14 @@ export const FIXTURE_STUDENT = {
 export const FIXTURE_PAYMENT_METHOD = { cardBrand: 'visa', cardLast4: '4242' };
 
 // Private lessons (docs/decisions/011-private-per-session-booking.md) —
-// shapes from privateClassSchedule/Enrollment/Session.service.js.
+// shapes from privateClassSchedule/Enrollment/Session.service.js. A purchase
+// option is the coach's own pack for the slot's length, keyed by packId
+// (docs/plans/coach-pack-pricing-plan.md) — one shape for the quote and the
+// public listing.
+export const FIXTURE_PRIVATE_OPTIONS = [
+  { packId: null, unitPrice: 32.5, quantity: 1, subtotal: 32.5, savings: 0, total: 32.5 },
+  { packId: 'private-pack-10', unitPrice: 32.5, quantity: 10, subtotal: 325, savings: 25, total: 300 },
+];
 export const FIXTURE_PRIVATE_SLOT = {
   scheduleId: 'private-rule-1',
   dayOfWeek: 2,
@@ -97,6 +104,7 @@ export const FIXTURE_PRIVATE_SLOT = {
   endDate: '2026-12-31T00:00:00.000Z',
   sessionPrice: 32.5,
   hourlyRate: 65,
+  options: FIXTURE_PRIVATE_OPTIONS,
 };
 export const FIXTURE_PRIVATE_DATE = {
   day: '2026-10-06',
@@ -108,10 +116,7 @@ export const FIXTURE_PRIVATE_QUOTE = {
   hourlyRate: 65,
   availableCredits: 0,
   cancelCutoffHours: 24,
-  options: [
-    { unitPrice: 32.5, quantity: 1, discountPercent: 0, subtotal: 32.5, discountAmount: 0, total: 32.5 },
-    { unitPrice: 32.5, quantity: 10, discountPercent: 10, subtotal: 325, discountAmount: 32.5, total: 292.5 },
-  ],
+  options: FIXTURE_PRIVATE_OPTIONS,
 };
 export const FIXTURE_PRIVATE_BOOKING = {
   _id: 'private-booking-1',
@@ -282,10 +287,6 @@ const DEFAULT_RULES: MockRule[] = [
     handler: (route) =>
       json(route, 200, {
         coaches: [{ coachId: 'user-coach', coachName: 'Dana Cole', slots: [FIXTURE_PRIVATE_SLOT] }],
-        packageOffers: [
-          { quantity: 1, discountPercent: 0 },
-          { quantity: 10, discountPercent: 10 },
-        ],
       }),
   },
   {

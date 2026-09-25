@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import { useDebouncedValue } from '../../../lib/hooks/useDebouncedValue';
 import { fetchGroupClasses } from '../../../lib/services/catalog';
 import { fetchSchedules } from '../../../lib/services/scheduling';
 import {
@@ -243,15 +244,11 @@ export default function AdminSubscriptionsPage() {
 
   const [statusTab, setStatusTab] = useState<StatusTab>('all');
   const [searchInput, setSearchInput] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [page, setPage] = useState(1);
 
   // Client debounce (400ms) on the search box before it becomes a request
   // param — avoids firing a request on every keystroke.
-  useEffect(() => {
-    const handle = setTimeout(() => setDebouncedQuery(searchInput.trim()), 400);
-    return () => clearTimeout(handle);
-  }, [searchInput]);
+  const debouncedQuery = useDebouncedValue(searchInput.trim(), 400);
 
   // Any filter change resets to page 1 — a stale page number for a new
   // filter would otherwise show an empty "page 3 of 1" state.

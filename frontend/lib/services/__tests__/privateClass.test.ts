@@ -18,7 +18,7 @@ const QUOTE: PrivatePurchaseQuote = {
   hourlyRate: 65,
   availableCredits: 0,
   cancelCutoffHours: 24,
-  options: [{ unitPrice: 32.5, quantity: 1, discountPercent: 0, subtotal: 32.5, discountAmount: 0, total: 32.5 }],
+  options: [{ packId: null, unitPrice: 32.5, quantity: 1, subtotal: 32.5, savings: 0, total: 32.5 }],
 };
 
 let quoteParams: Record<string, string> = {};
@@ -60,7 +60,7 @@ describe('privateClass service — queries throw on failure', () => {
 describe('privateClass service — mutations resolve a status object, never throw', () => {
   it.each([
     ['purchasePrivateLessons', 'post', '*/private-class-enrollments', () =>
-      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', quantity: 1 })],
+      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', packId: 'pack-10' })],
     ['bookPrivateLessonWithCredit', 'post', '*/private-class-sessions', () =>
       bookPrivateLessonWithCredit({ studentId: 's', scheduleId: 'r', day: '2026-10-06' })],
     ['cancelPrivateBooking', 'post', '*/private-class-sessions/:id/cancel', () => cancelPrivateBooking('b')],
@@ -78,8 +78,28 @@ describe('privateClass service — mutations resolve a status object, never thro
     server.use(http.post('*/private-class-enrollments', () => new HttpResponse(null, { status: 500 })));
 
     await expect(
-      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', quantity: 1 })
+      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06' })
     ).resolves.toEqual({ status: 'error', message: 'Payment or booking failed. Please try again.' });
+  });
+
+  // docs/plans/coach-pack-pricing-plan.md D4 — the request names a pack by
+  // id (or none, for a single session), never a quantity or a price.
+  it('purchasePrivateLessons posts the packId as given, and nothing for a single session', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('*/private-class-enrollments', async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ session: {}, remaining: 9 }, { status: 201 });
+      })
+    );
+
+    await purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', packId: 'pack-10' });
+    await purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06' });
+
+    expect(bodies).toEqual([
+      { studentId: 's', scheduleId: 'r', day: '2026-10-06', packId: 'pack-10' },
+      { studentId: 's', scheduleId: 'r', day: '2026-10-06' },
+    ]);
   });
 
   it('removePrivateAvailabilityRule resolves the server outcome on success', async () => {
