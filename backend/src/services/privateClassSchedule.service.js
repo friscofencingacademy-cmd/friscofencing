@@ -24,8 +24,12 @@ const { dayOfWeekLabel } = require('../email/dates');
 // date picker (listAvailableDates) and every booking write path use it, so
 // they can never disagree.
 
-// How far ahead the date picker looks by default, and at most.
-const DEFAULT_AVAILABLE_DAYS = 56;
+// How far ahead a parent can book — THE one number (docs/plans/calendar-view-
+// plan.md C6, owner decision O3: 3 months). It is both the booking wizard's
+// date-picker default window AND the public/parent calendar's clip, so the
+// calendar can never offer a day the picker does not. MAX_AVAILABLE_DAYS
+// still caps an explicit `days` query.
+const PRIVATE_BOOKING_HORIZON_DAYS = 92;
 const MAX_AVAILABLE_DAYS = 120;
 
 // A published range may not exceed a year — a typo guard (e.g. 2062 for
@@ -331,10 +335,76 @@ async function resolveBookableInstant(schedule, day, now = new Date()) {
   return { startDate, endDate: new Date(startDate.getTime() + schedule.durationMinutes * 60000) };
 }
 
-// Every bookable, still-open date of one rule within the next `days` days:
-// the rule's weekdays inside its range, minus holidays, minus lesson times
-// already started, minus dates someone already holds. Public — returns only
-// dates, never who booked them.
+// THE answer to "which (rule, day) pairs are open to book" for any set of
+// rules over a calendar-day range (docs/plans/calendar-view-plan.md C2): each
+// rule's weekdays inside both its own range and [fromDay, toDay], minus
+// academy holidays, minus lesson times already started at `now`, minus slots
+// someone already holds. One holidays read and one held-bookings read for ALL
+// rules. Both the date picker (listAvailableDates) and the calendar
+// (calendar.service.js) call this, so they can never disagree.
+//
+// `fromDay`/`toDay` are calendar-day sentinels. Returns `[{ scheduleId, day,
+// startDate, endDate }]` in rule order, then day order. Returns only dates —
+// never who holds a slot.
+async function openSlotsForRules(rules, fromDay, toDay, now = new Date()) {
+  if (rules.length === 0 || toDay < fromDay) {
+    return [];
+  }
+
+  const holidays = await holidayService.getHolidaysInRange(fromDay, toDay);
+  const candidates = [];
+
+  rules.forEach((rule) => {
+    const rangeStart = rule.startDate > fromDay ? rule.startDate : fromDay;
+    const rangeEnd = rule.endDate < toDay ? rule.endDate : toDay;
+
+    for (
+      let day = nextDateOnlyOnOrAfter(rangeStart, rule.dayOfWeek);
+      day <= rangeEnd;
+      day = addDaysToDateOnly(day, 7)
+    ) {
+      if (!holidayService.findHolidayForDate(day, holidays)) {
+        const dayString = sentinelDayString(day);
+        const startDate = combineDayAndTimeInTZ(dayString, rule.startTime);
+
+        if (startDate > now) {
+          candidates.push({
+            scheduleId: rule._id,
+            day: dayString,
+            startDate,
+            endDate: new Date(startDate.getTime() + rule.durationMinutes * 60000),
+          });
+        }
+      }
+    }
+  });
+
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const times = candidates.map((candidate) => candidate.startDate.getTime());
+  const held = await PrivateClassSession.find(
+    {
+      scheduleId: { $in: rules.map((rule) => rule._id) },
+      status: { $in: SLOT_HOLDING_STATUSES },
+      startDate: { $gte: new Date(Math.min(...times)), $lte: new Date(Math.max(...times)) },
+    },
+    'scheduleId startDate'
+  ).lean();
+
+  // Keyed (scheduleId, startDate) — the slot-claim unique index's own key.
+  // A booking on one coach's rule must never hide another coach's slot at
+  // the same instant.
+  const slotKey = (scheduleId, startDate) => `${String(scheduleId)}:${startDate.getTime()}`;
+  const heldSlots = new Set(held.map((session) => slotKey(session.scheduleId, session.startDate)));
+
+  return candidates.filter((candidate) => !heldSlots.has(slotKey(candidate.scheduleId, candidate.startDate)));
+}
+
+// Every bookable, still-open date of one rule within the next `days` days
+// (default PRIVATE_BOOKING_HORIZON_DAYS) — openSlotsForRules for one rule.
+// Public — returns only dates, never who booked them.
 async function listAvailableDates(scheduleId, { days } = {}) {
   const schedule = await PrivateClassSchedule.findById(scheduleId);
 
@@ -342,7 +412,7 @@ async function listAvailableDates(scheduleId, { days } = {}) {
     throw notFoundError('Private class schedule not found');
   }
 
-  let windowDays = DEFAULT_AVAILABLE_DAYS;
+  let windowDays = PRIVATE_BOOKING_HORIZON_DAYS;
 
   if (days !== undefined) {
     const parsed = Number(days);
@@ -353,56 +423,24 @@ async function listAvailableDates(scheduleId, { days } = {}) {
     windowDays = parsed;
   }
 
-  const now = new Date();
   const today = todayDateOnly();
-  const rangeStart = schedule.startDate > today ? schedule.startDate : today;
-  const horizon = addDaysToDateOnly(today, windowDays);
-  const rangeEnd = schedule.endDate < horizon ? schedule.endDate : horizon;
+  const slots = await openSlotsForRules([schedule], today, addDaysToDateOnly(today, windowDays));
 
-  if (rangeEnd < rangeStart) {
-    return [];
-  }
-
-  const holidays = await holidayService.getHolidaysInRange(rangeStart, rangeEnd);
-  const candidates = [];
-
-  for (
-    let day = nextDateOnlyOnOrAfter(rangeStart, schedule.dayOfWeek);
-    day <= rangeEnd;
-    day = addDaysToDateOnly(day, 7)
-  ) {
-    if (!holidayService.findHolidayForDate(day, holidays)) {
-      const dayString = sentinelDayString(day);
-      const startDate = combineDayAndTimeInTZ(dayString, schedule.startTime);
-
-      if (startDate > now) {
-        candidates.push({
-          day: dayString,
-          startDate,
-          endDate: new Date(startDate.getTime() + schedule.durationMinutes * 60000),
-        });
-      }
-    }
-  }
-
-  if (candidates.length === 0) {
-    return [];
-  }
-
-  const held = await PrivateClassSession.find(
-    {
-      scheduleId: schedule._id,
-      status: { $in: SLOT_HOLDING_STATUSES },
-      startDate: { $in: candidates.map((candidate) => candidate.startDate) },
-    },
-    'startDate'
-  ).lean();
-  const heldTimes = new Set(held.map((session) => session.startDate.getTime()));
-
-  return candidates.filter((candidate) => !heldTimes.has(candidate.startDate.getTime()));
+  return slots.map(({ day, startDate, endDate }) => ({ day, startDate, endDate }));
 }
 
 // ── Public listing ────────────────────────────────────────────────────────
+
+// coachId (string) -> that coach's active contract, for coaches that have
+// one. The one "is this coach currently selling private lessons" gate the
+// public listing and the calendar share: no active contract means the rule
+// has no valid price, so it is not offered.
+async function activeContractsByCoach(coachIds) {
+  const unique = [...new Set(coachIds.map(String))];
+  const contracts = await Promise.all(unique.map((coachId) => coachContractService.getActiveForCoach(coachId)));
+
+  return new Map(unique.map((coachId, index) => [coachId, contracts[index]]).filter(([, contract]) => contract));
+}
 
 // Unauthenticated public listing — coaches with an active contract AND at
 // least one current rule. No student/parent data: only coach name + rule,
@@ -420,11 +458,7 @@ async function listPublic() {
   // it (orphaned-coach-reference-fix-plan D1).
   const schedules = allSchedules.filter((schedule) => schedule.coachId);
 
-  const coachIds = [...new Set(schedules.map((schedule) => String(schedule.coachId._id)))];
-  const contracts = await Promise.all(coachIds.map((coachId) => coachContractService.getActiveForCoach(coachId)));
-  const contractByCoachId = new Map(
-    coachIds.map((coachId, index) => [coachId, contracts[index]]).filter(([, contract]) => contract)
-  );
+  const contractByCoachId = await activeContractsByCoach(schedules.map((schedule) => schedule.coachId._id));
 
   const grouped = new Map();
 
@@ -470,12 +504,16 @@ async function listPublic() {
 }
 
 module.exports = {
+  PRIVATE_BOOKING_HORIZON_DAYS,
   createBulk,
   listMine,
   listAll,
   remove,
   resolveBookableInstant,
+  openSlotsForRules,
   listAvailableDates,
   listPublic,
   currentLengthsForCoach,
+  currentRulesFilter,
+  activeContractsByCoach,
 };

@@ -53,6 +53,9 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 | Question | Answered only by |
 |---|---|
 | Is this (rule, day) bookable? | `privateClassSchedule.service.js` `resolveBookableInstant` — used by the date picker and both booking paths |
+| Which (rule, day) slots are open, for any set of rules over a range? | `privateClassSchedule.service.js` `openSlotsForRules` — weekdays in range, minus holidays, minus started, minus held (keyed `(scheduleId, startDate)`, the slot-claim index's own key). Used by the date picker (`listAvailableDates`) and the calendar (`calendar.service.js`), so the two never disagree (`docs/plans/calendar-view-plan.md` C2) |
+| How far ahead can a parent book? | `privateClassSchedule.service.js` `PRIVATE_BOOKING_HORIZON_DAYS` (92) — the picker's default window AND the public/parent calendar's clip |
+| Is this coach selling private lessons right now? | `privateClassSchedule.service.js` `activeContractsByCoach` — an active contract; shared by the public listing and the calendar |
 | Who holds this slot? | The partial unique index on `PrivateClassSession` |
 | What does a session / a pack cost, and what does it save? | `utils/privateClassPricing.js` — `computeSessionPrice`, `quotePurchase` (the only savings formula), `purchaseOptionsFor` (the one shape of a purchase option, used by the quote, the purchase and the public listing) |
 | Which packs are offered? | The coach's active `CoachContract.privateLessonPacks`, only those of the slot's length |
@@ -89,7 +92,8 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 | `GET /private-class-schedules/mine` | coach | Current rules with `bookedCount` |
 | `GET /private-class-schedules` | admin | Same, all coaches, `?coachId=` |
 | `GET /private-class-schedules/public` | none | `{ coaches: [{ coachId, coachName, slots: [...] }] }` — slot = rule + `sessionPrice` + `hourlyRate` + `options` (the quote's exact option shape: single session, then that coach's packs for the slot's length). No student data. |
-| `GET /private-class-schedules/:id/available-dates?days=` | none | `{ dates: [{ day, startDate, endDate }] }` — default 56 days, max 120 |
+| `GET /private-class-schedules/:id/available-dates?days=` | none | `{ dates: [{ day, startDate, endDate }] }` — default `PRIVATE_BOOKING_HORIZON_DAYS` (92, was 56 until the calendar plan), max 120 |
+| `GET /calendar/public`, `/calendar/mine`, `/calendar` | none / parent / admin | Open private slots (and booked lessons for parent-own/admin) as calendar events — see `docs/features/public-site.md` and `docs/plans/calendar-view-plan.md` §1 |
 | `DELETE /private-class-schedules/:id` | coach-own \| admin | 409 with an upcoming booking; `retired` if it has past bookings; else `deleted` |
 | `GET /private-class-enrollments/quote?studentId&scheduleId` | parent | `{ contractId, durationMinutes, hourlyRate, options: [{ packId, quantity, unitPrice, subtotal, savings, total }], availableCredits, cancelCutoffHours }` |
 | `POST /private-class-enrollments` | parent | Buy + book `{ studentId, scheduleId, day, contractId, packId? }` -> `{ enrollment, session, registration, remaining }`. `contractId` is the quote's; 409 "Prices have changed" when the contract was edited since the quote, 409 when `packId` is not an offered option. |

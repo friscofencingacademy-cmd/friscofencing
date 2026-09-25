@@ -84,10 +84,21 @@ function combineDayAndTimeInTZ(dayStr, hhmm, tz = DEFAULT_TIMEZONE) {
   return moment.tz(`${dayStr} ${hhmm}`, 'YYYY-MM-DD HH:mm', tz).toDate();
 }
 
+// The reverse of combineDayAndTimeInTZ's day half: a real instant -> the
+// 'YYYY-MM-DD' calendar day it falls on in `tz` (default Central). The ONLY
+// way to put a real instant on a calendar day (docs/plans/calendar-view-
+// plan.md C3/C4) — an 11:30 PM Central lesson is that day, even though its
+// UTC date is already the next one. Never use toISOString().slice(0, 10) for
+// this; that answers "which UTC day", not "which academy day".
+function instantDayString(instant, tz = DEFAULT_TIMEZONE) {
+  return moment(instant).tz(tz).format('YYYY-MM-DD');
+}
+
 module.exports = {
   dateOnlyUTC,
   addDaysToDateOnly,
   nextDateOnlyOnOrAfter,
   sentinelDayString,
   combineDayAndTimeInTZ,
+  instantDayString,
 };
