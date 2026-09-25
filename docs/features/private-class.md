@@ -39,7 +39,7 @@ Coach marks the Visit attended / missed after the lesson starts (no money)
 
 | Model | Role | Key fields |
 |---|---|---|
-| `CoachContract` | Rate and pack source | `studentBillingRate` ($/hr), `coachCompensationRate` (audit only), `sessionDurationMinutes` (default slot length), `privateLessonPacks` (`[{ _id, sessionDurationMinutes, quantity, price }]` — fixed-price packs per lesson length, editable on the active contract), `isActive`. One active contract per coach. |
+| `CoachContract` | Rate and pack source | `studentBillingRate` ($/hr), `coachCompensationRate` (audit only), `sessionDurationMinutes` (default slot length), `privateLessonPacks` (`[{ _id, sessionDurationMinutes, quantity, price }]` — fixed-price packs per lesson length), `isActive`, `effectiveFrom`/`effectiveTo`, `endReason` (`revised`/`deactivated`). **Versioned**: an edit ends the current version and starts a new one; a version never changes. One active version per coach. |
 | `PrivateClassSchedule` | Availability rule | `coachId`, `dayOfWeek`, `startTime` "HH:mm" Central, `durationMinutes`, `startDate`/`endDate` (calendar-day sentinels, inclusive), `isActive`. No student is ever stored here. |
 | `PrivateClassEnrollment` | One purchase of credits (no price field) | `studentId`/`parentId`/`coachId`, `coachContractId`, pinned `agreedHourlyRate`, `sessionDurationMinutes`, `quantity`, `sessionsUsed`, `status` `pending`/`active`/`failed`. Remaining = `quantity - sessionsUsed`, never stored. |
 | `PrivateClassSession` | One booking | `scheduleId`, `enrollmentId`, `coachId`/`studentId`/`parentId`, `startDate`/`endDate` (real instants), `status` `pending`/`confirmed`/`cancelled`/`released`, `releaseReason`, `cancelledAt`/`cancelledBy`. **Partial unique index `(scheduleId, startDate)` where status is pending or confirmed** — the slot claim. |
@@ -56,7 +56,7 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 | Who holds this slot? | The partial unique index on `PrivateClassSession` |
 | What does a session / a pack cost, and what does it save? | `utils/privateClassPricing.js` — `computeSessionPrice`, `quotePurchase` (the only savings formula), `purchaseOptionsFor` (the one shape of a purchase option, used by the quote, the purchase and the public listing) |
 | Which packs are offered? | The coach's active `CoachContract.privateLessonPacks`, only those of the slot's length |
-| Is a pack's price allowed? | `privateClassPricing.js` `describePack` (the one check; `validatePacks` runs it on save, `POST /coach-contracts/pack-quotes` runs it for the editor preview) against `packPriceBand`: `[ceil(subtotal × PACK_PRICE_FLOOR_RATIO), subtotal − $0.01]`, whole cents |
+| Is a pack's price allowed? | `privateClassPricing.js` `describePack` (the one check; `validatePacks` runs it on save, `POST /coach-contracts/preview` runs it for the editor preview) against `packPriceBand`: `[ceil(subtotal × PACK_PRICE_FLOOR_RATIO), subtotal − $0.01]`, whole cents |
 | What lines does a purchase's email / invoice show? | `privateClassPricing.js` `purchaseBreakdown(row)` — from the ledger row, total always `row.amount` |
 | What was paid? | The `Registration` row. `amount` is never re-derived. |
 | How many credits are left? | `PrivateClassEnrollment` counters, reconciled against the ledger by `scripts/check-private-credit-ledger.js` |
@@ -66,7 +66,7 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 
 ## Booking pipeline guards
 
-1. **Validation before any write**: own student, live rule and coach, bookable day (range, weekday, holiday, not started), an offered option (`packId` absent = single session; a `packId` not among the slot's current options — removed, edited, or another length — is a 409 "This pack is no longer offered", nothing written), positive price, card on file, `private-lessons` Service active with the `per_session` shape.
+1. **Validation before any write**: own student, live rule and coach, bookable day (range, weekday, holiday, not started), the quoted contract version is still current (`contractId` from the quote — any edit since is a 409 "Prices have changed", single sessions included), an offered option (`packId` absent = single session; a `packId` not among the slot's current options — removed, edited, or another length — is a 409 "This pack is no longer offered", nothing written), positive price, card on file, `private-lessons` Service active with the `per_session` shape.
 2. **Reserve before charging**: the booking is inserted `pending` before Stripe is called. A lost race is a 409 with nothing charged.
 3. **One Stripe path**: `billing/chargeFinalization.service.js` `chargeLedgerRow`, idempotency-keyed `payment_<rowId>`.
 4. **Money dedup**: the ledger's unique partial index on `sessionId`.
@@ -91,16 +91,17 @@ Full field tables: `DATABASE_SCHEMA_DOCUMENTATION.md`.
 | `GET /private-class-schedules/public` | none | `{ coaches: [{ coachId, coachName, slots: [...] }] }` — slot = rule + `sessionPrice` + `hourlyRate` + `options` (the quote's exact option shape: single session, then that coach's packs for the slot's length). No student data. |
 | `GET /private-class-schedules/:id/available-dates?days=` | none | `{ dates: [{ day, startDate, endDate }] }` — default 56 days, max 120 |
 | `DELETE /private-class-schedules/:id` | coach-own \| admin | 409 with an upcoming booking; `retired` if it has past bookings; else `deleted` |
-| `GET /private-class-enrollments/quote?studentId&scheduleId` | parent | `{ durationMinutes, hourlyRate, options: [{ packId, quantity, unitPrice, subtotal, savings, total }], availableCredits, cancelCutoffHours }` |
-| `POST /private-class-enrollments` | parent | Buy + book `{ studentId, scheduleId, day, packId? }` -> `{ enrollment, session, registration, remaining }`. 409 when `packId` is not an offered option. |
+| `GET /private-class-enrollments/quote?studentId&scheduleId` | parent | `{ contractId, durationMinutes, hourlyRate, options: [{ packId, quantity, unitPrice, subtotal, savings, total }], availableCredits, cancelCutoffHours }` |
+| `POST /private-class-enrollments` | parent | Buy + book `{ studentId, scheduleId, day, contractId, packId? }` -> `{ enrollment, session, registration, remaining }`. `contractId` is the quote's; 409 "Prices have changed" when the contract was edited since the quote, 409 when `packId` is not an offered option. |
 | `GET /private-class-enrollments/mine` | parent | Active purchases: `{ enrollment, remaining, payment: { amount, quantity, unitPrice, savings, paidAt }, sessions }` |
 | `GET /private-class-enrollments` | admin | Same, `?status=&coachId=` |
 | `POST /private-class-sessions` | parent | Book with a credit `{ studentId, scheduleId, day }` -> `{ session, enrollment, remaining }` |
 | `GET /private-class-sessions/mine?window=upcoming\|unmarked\|past` | coach | Confirmed bookings with `attendance` (from the Visit) and `canCancel` |
 | `GET /private-class-sessions` | admin | Confirmed + cancelled by default, `?status=&coachId=` |
-| `POST /coach-contracts` | admin | Create a contract; `privateLessonPacks` optional (omitted = the previous active contract's packs carry over), every pack re-checked against the new rate |
-| `PUT /coach-contracts/:id/packs` | admin | Replace the active contract's packs `{ privateLessonPacks }`; an unchanged pack keeps its `_id`, an edited one gets a new one; 409 on an inactive contract |
-| `POST /coach-contracts/pack-quotes` | admin | Pack-editor preview `{ studentBillingRate, packs }` -> `{ quotes: [{ …pack, perLessonPrice, subtotal, savings, savingsPercent, allowedRange, error }] }`. Writes nothing; `error` is the exact message a save would return. |
+| `POST /coach-contracts` | admin | Add — a coach's first current contract; `privateLessonPacks` optional (default none). 409 "This coach already has a contract — edit it instead" |
+| `POST /coach-contracts/:id/revisions` | admin | Edit — ends the current version (`effectiveTo`, `endReason: 'revised'`) and starts a new one with the sent terms (fields left out keep their value; packs get new ids). 400 "Nothing changed"; 409 on a version that is no longer current. -> `{ contract, previous }` |
+| `POST /coach-contracts/:id/deactivate` | admin | Ends the current version with no successor (`endReason: 'deactivated'`) |
+| `POST /coach-contracts/preview` | admin | Editor preview `{ studentBillingRate, sessionDurationMinutes, packs, coachId? }` -> `{ sessionPrices: [{ durationMinutes, price }], packs: [{ …pack, perLessonPrice, subtotal, savings, savingsPercent, allowedRange, error }] }`. Lesson prices cover the default length, every pack length and every length the coach publishes. Writes nothing; each pack's `error` is the exact message a save would return. |
 | `PATCH /private-class-sessions/:id/attendance` | coach-own \| admin | `{ status: 'attended' \| 'missed' }` -> `{ session, visit }` |
 | `POST /private-class-sessions/:id/cancel` | parent-own \| coach-own \| admin | -> `{ session, remaining }` |
 
@@ -136,7 +137,7 @@ Management pages show a fallback label for a missing person.
 | `/parent/subscriptions` (Private Lessons section) | parent | Each purchase — sessions left, amount paid — with its bookings; Cancel where `canCancel` |
 | `/coach/private-students` ("Private Lessons" in the nav) | coach | Tabs: Needs attendance (Attended / Missed — a Visit, no money) · Upcoming (Cancel where `canCancel`) · Availability (publish in bulk, remove) |
 | `/admin/private-classes` | admin | Tabs: Purchases (read-only) · Bookings (cancel) · Availability (publish for any coach, remove) |
-| `/admin/coach-contracts` | admin | Rate contracts plus each coach's packs: one `PackEditor` (live backend preview per pack) in the create dialog, prefilled from the current contract, and behind an "Edit packs" action on the active contract |
+| `/admin/coach-contracts` | admin | Every contract version: the current one with Edit and Deactivate, older ones read-only with "Replaced on"/"Ended on". One dialog (Add for a coach with no contract, Edit otherwise) with Rates — lesson prices shown under the rate — and Packs, each with a live backend preview |
 
 Shared frontend pieces: `lib/services/privateClass.ts` (one client function per endpoint; mutations used
 by several roles live here once), `lib/services/privateClassCoach.ts` / `privateClassAdmin.ts` (role

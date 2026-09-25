@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const app = require('../../src/app');
 const User = require('../../src/models/user.model');
 const CoachContract = require('../../src/models/coachContract.model');
+const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { seedServices } = require('../../scripts/lib/seedServices');
@@ -50,60 +51,102 @@ async function loginAgent(email) {
   return agent;
 }
 
-describe('Coach contract routes', () => {
-  describe('POST /api/v1/coach-contracts', () => {
-    it('lets an admin create a contract for a coach', async () => {
-      const coach = await seedUser({ role: 'coach', email: 'cc-coach1@example.com' });
-      await seedUser({ role: 'admin', email: 'cc-admin1@example.com' });
-      const adminAgent = await loginAgent('cc-admin1@example.com');
+// $65/hr x 30 min = $32.50; a 10 x 30-minute pack's allowed range is $162.50–$324.99.
+const TEN_PACK = { sessionDurationMinutes: 30, quantity: 10, price: 300 };
+const OUT_OF_BAND = '10 × 30 min: price must be between $162.50 and $324.99';
 
-      const res = await adminAgent.post('/api/v1/coach-contracts').send({
-        coachId: coach._id.toString(),
-        studentBillingRate: 65,
-        coachCompensationRate: 40,
-        sessionDurationMinutes: 60,
-      });
+let userCounter = 0;
+
+async function setup(role = 'admin') {
+  userCounter += 1;
+  const coach = await seedUser({ role: 'coach', email: `cc-coach-${userCounter}@example.com` });
+  await seedUser({ role, email: `cc-${role}-${userCounter}@example.com` });
+  const agent = await loginAgent(`cc-${role}-${userCounter}@example.com`);
+  return { coach, agent };
+}
+
+async function agentFor(role) {
+  userCounter += 1;
+  await seedUser({ role, email: `cc-other-${role}-${userCounter}@example.com` });
+  return loginAgent(`cc-other-${role}-${userCounter}@example.com`);
+}
+
+function createContract(agent, coach, extra = {}) {
+  return agent.post('/api/v1/coach-contracts').send({
+    coachId: coach._id.toString(),
+    studentBillingRate: 65,
+    coachCompensationRate: 40,
+    sessionDurationMinutes: 60,
+    ...extra,
+  });
+}
+
+function revise(agent, contractId, changes) {
+  return agent.post(`/api/v1/coach-contracts/${contractId}/revisions`).send(changes);
+}
+
+// docs/plans/coach-pack-pricing-plan.md — packs on the contract (§1) and
+// contracts kept as versions (§8).
+describe('Coach contract routes', () => {
+  describe('POST /api/v1/coach-contracts (Add — a coach with no current contract)', () => {
+    it('creates a contract with its packs, each with an id', async () => {
+      const { coach, agent } = await setup();
+
+      const res = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
 
       expect(res.status).toBe(201);
-      expect(res.body.contract.studentBillingRate).toBe(65);
-      expect(res.body.contract.isActive).toBe(true);
+      expect(res.body.contract).toMatchObject({ studentBillingRate: 65, isActive: true });
+      expect(res.body.contract.privateLessonPacks[0]).toMatchObject(TEN_PACK);
+      expect(res.body.contract.privateLessonPacks[0]._id).toBeDefined();
+      expect(res.body.contract.effectiveTo).toBeUndefined();
     });
 
-    it('deactivates the coach\'s previous active contract when a new one is created', async () => {
-      const coach = await seedUser({ role: 'coach', email: 'cc-coach2@example.com' });
-      await seedUser({ role: 'admin', email: 'cc-admin2@example.com' });
-      const adminAgent = await loginAgent('cc-admin2@example.com');
+    it('defaults to no packs', async () => {
+      const { coach, agent } = await setup();
 
-      const firstRes = await adminAgent.post('/api/v1/coach-contracts').send({
-        coachId: coach._id.toString(),
-        studentBillingRate: 60,
-        coachCompensationRate: 35,
-      });
-      expect(firstRes.status).toBe(201);
+      const res = await createContract(agent, coach);
 
-      const secondRes = await adminAgent.post('/api/v1/coach-contracts').send({
-        coachId: coach._id.toString(),
-        studentBillingRate: 70,
-        coachCompensationRate: 40,
-      });
-      expect(secondRes.status).toBe(201);
+      expect(res.status).toBe(201);
+      expect(res.body.contract.privateLessonPacks).toEqual([]);
+    });
 
-      const firstInDb = await CoachContract.findById(firstRes.body.contract._id);
-      expect(firstInDb.isActive).toBe(false);
+    it('refuses a second contract for a coach who already has one (409) — edit it instead', async () => {
+      const { coach, agent } = await setup();
+      await createContract(agent, coach);
 
-      const secondInDb = await CoachContract.findById(secondRes.body.contract._id);
-      expect(secondInDb.isActive).toBe(true);
+      const res = await createContract(agent, coach, { studentBillingRate: 70 });
 
-      const activeContracts = await CoachContract.find({ coachId: coach._id, isActive: true });
-      expect(activeContracts).toHaveLength(1);
+      expect(res.status).toBe(409);
+      expect(res.body.message).toBe('This coach already has a contract — edit it instead');
+      expect(await CoachContract.countDocuments({ coachId: coach._id })).toBe(1);
+    });
+
+    it('allows a new contract after the previous one was deactivated', async () => {
+      const { coach, agent } = await setup();
+      const first = await createContract(agent, coach);
+      await agent.post(`/api/v1/coach-contracts/${first.body.contract._id}/deactivate`);
+
+      const res = await createContract(agent, coach, { studentBillingRate: 70 });
+
+      expect(res.status).toBe(201);
+      expect(await CoachContract.countDocuments({ coachId: coach._id, isActive: true })).toBe(1);
+    });
+
+    it('refuses a pack outside the price band with a 400 naming it, and writes nothing', async () => {
+      const { coach, agent } = await setup();
+
+      const res = await createContract(agent, coach, { privateLessonPacks: [{ ...TEN_PACK, price: 325 }] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(OUT_OF_BAND);
+      expect(await CoachContract.countDocuments({ coachId: coach._id })).toBe(0);
     });
 
     it('returns 400 when coachId does not refer to a coach', async () => {
+      const { agent } = await setup();
       const notACoach = await seedUser({ role: 'parent', email: 'cc-notcoach@example.com' });
-      await seedUser({ role: 'admin', email: 'cc-admin3@example.com' });
-      const adminAgent = await loginAgent('cc-admin3@example.com');
 
-      const res = await adminAgent.post('/api/v1/coach-contracts').send({
+      const res = await agent.post('/api/v1/coach-contracts').send({
         coachId: notACoach._id.toString(),
         studentBillingRate: 65,
         coachCompensationRate: 40,
@@ -112,261 +155,234 @@ describe('Coach contract routes', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 403 for a non-admin role', async () => {
-      const coach = await seedUser({ role: 'coach', email: 'cc-coach4@example.com' });
-      const coachAgent = await loginAgent('cc-coach4@example.com');
+    it('returns 400 for an unusable rate', async () => {
+      const { coach, agent } = await setup();
 
-      const res = await coachAgent.post('/api/v1/coach-contracts').send({
-        coachId: coach._id.toString(),
-        studentBillingRate: 65,
-        coachCompensationRate: 40,
-      });
+      const res = await createContract(agent, coach, { studentBillingRate: 'lots' });
 
-      expect(res.status).toBe(403);
-    });
-  });
-
-  describe('GET /api/v1/coach-contracts', () => {
-    it('lists contracts populated with coach info, filterable by coachId', async () => {
-      const coachA = await seedUser({ role: 'coach', email: 'cc-list-a@example.com' });
-      const coachB = await seedUser({ role: 'coach', email: 'cc-list-b@example.com' });
-      await seedUser({ role: 'admin', email: 'cc-list-admin@example.com' });
-      const adminAgent = await loginAgent('cc-list-admin@example.com');
-
-      await adminAgent
-        .post('/api/v1/coach-contracts')
-        .send({ coachId: coachA._id.toString(), studentBillingRate: 65, coachCompensationRate: 40 });
-      await adminAgent
-        .post('/api/v1/coach-contracts')
-        .send({ coachId: coachB._id.toString(), studentBillingRate: 55, coachCompensationRate: 30 });
-
-      const allRes = await adminAgent.get('/api/v1/coach-contracts');
-      expect(allRes.status).toBe(200);
-      expect(allRes.body.contracts).toHaveLength(2);
-      expect(allRes.body.contracts[0].coachId.email).toBeDefined();
-
-      const filteredRes = await adminAgent.get(`/api/v1/coach-contracts?coachId=${coachA._id}`);
-      expect(filteredRes.body.contracts).toHaveLength(1);
-      expect(filteredRes.body.contracts[0].studentBillingRate).toBe(65);
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('studentBillingRate must be a number >= 0');
     });
 
     it('returns 403 for a coach', async () => {
-      const coach = await seedUser({ role: 'coach', email: 'cc-list-coach@example.com' });
-      const coachAgent = await loginAgent('cc-list-coach@example.com');
+      const { coach } = await setup();
+      const coachAgent = await agentFor('coach');
 
-      const res = await coachAgent.get('/api/v1/coach-contracts');
-      expect(res.status).toBe(403);
+      expect((await createContract(coachAgent, coach)).status).toBe(403);
+    });
+  });
+
+  describe('POST /api/v1/coach-contracts/:id/revisions (Edit — a new version)', () => {
+    it('ends the current version and starts a new one with the edited terms, from the same instant', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
+      const oldId = created.body.contract._id;
+
+      const res = await revise(agent, oldId, {
+        studentBillingRate: 70,
+        coachCompensationRate: 45,
+        sessionDurationMinutes: 60,
+        privateLessonPacks: [TEN_PACK],
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.contract).toMatchObject({ studentBillingRate: 70, coachCompensationRate: 45, isActive: true });
+      expect(res.body.contract._id).not.toBe(oldId);
+      expect(res.body.previous).toMatchObject({ _id: oldId, isActive: false, endReason: 'revised', studentBillingRate: 65 });
+      expect(res.body.previous.effectiveTo).toBe(res.body.contract.effectiveFrom);
+
+      // The old version is unchanged apart from being ended.
+      const old = await CoachContract.findById(oldId);
+      expect(old.studentBillingRate).toBe(65);
+      expect(old.coachCompensationRate).toBe(40);
+      expect(await CoachContract.countDocuments({ coachId: coach._id, isActive: true })).toBe(1);
+    });
+
+    it("gives the new version's packs new ids, even when a pack is unchanged", async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
+      const oldPack = created.body.contract.privateLessonPacks[0];
+
+      const res = await revise(agent, created.body.contract._id, {
+        studentBillingRate: 70,
+        privateLessonPacks: [oldPack],
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.contract.privateLessonPacks[0]).toMatchObject(TEN_PACK);
+      expect(res.body.contract.privateLessonPacks[0]._id).not.toBe(oldPack._id);
+    });
+
+    it('keeps fields left out of the request', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK], notes: 'Fridays only' });
+
+      const res = await revise(agent, created.body.contract._id, { coachCompensationRate: 42 });
+
+      expect(res.status).toBe(201);
+      expect(res.body.contract).toMatchObject({
+        studentBillingRate: 65,
+        coachCompensationRate: 42,
+        sessionDurationMinutes: 60,
+        notes: 'Fridays only',
+      });
+      expect(res.body.contract.privateLessonPacks[0]).toMatchObject(TEN_PACK);
+    });
+
+    it('refuses a save that changes nothing (400), writing nothing', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
+
+      const res = await revise(agent, created.body.contract._id, {
+        studentBillingRate: 65,
+        coachCompensationRate: 40,
+        sessionDurationMinutes: 60,
+        privateLessonPacks: [TEN_PACK],
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Nothing changed');
+      expect(await CoachContract.countDocuments({ coachId: coach._id })).toBe(1);
+      expect((await CoachContract.findById(created.body.contract._id)).isActive).toBe(true);
+    });
+
+    it('refuses a rate change that pushes a pack out of the band, leaving the current version untouched', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
+
+      // $20/hr x 30 min = $10; 10 of them = $100, so a $300 pack is far above the ceiling.
+      const res = await revise(agent, created.body.contract._id, { studentBillingRate: 20 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('10 × 30 min: price must be between $50.00 and $99.99');
+      const current = await CoachContract.findById(created.body.contract._id);
+      expect(current.isActive).toBe(true);
+      expect(current.effectiveTo).toBeUndefined();
+      expect(await CoachContract.countDocuments({ coachId: coach._id })).toBe(1);
+    });
+
+    it('refuses a pack edit outside the band (400) with the same message a preview shows', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach);
+      const badPack = { ...TEN_PACK, price: 100 };
+
+      const res = await revise(agent, created.body.contract._id, { privateLessonPacks: [badPack] });
+      const previewRes = await agent
+        .post('/api/v1/coach-contracts/preview')
+        .send({ studentBillingRate: 65, sessionDurationMinutes: 60, packs: [badPack] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(OUT_OF_BAND);
+      expect(previewRes.body.packs[0].error).toBe(res.body.message);
+    });
+
+    it('returns 409 when editing a version that is no longer current', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach);
+      await revise(agent, created.body.contract._id, { studentBillingRate: 70 });
+
+      const res = await revise(agent, created.body.contract._id, { studentBillingRate: 75 });
+
+      expect(res.status).toBe(409);
+      expect(res.body.message).toBe('Only the current contract can be edited');
+    });
+
+    it('returns 404 for an unknown contract', async () => {
+      const { agent } = await setup();
+
+      const res = await revise(agent, new mongoose.Types.ObjectId(), { studentBillingRate: 70 });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('lets a plain admin (not only a superadmin) edit (plan D13)', async () => {
+      const { coach, agent } = await setup('admin');
+      const created = await createContract(agent, coach);
+
+      expect((await revise(agent, created.body.contract._id, { studentBillingRate: 70 })).status).toBe(201);
+    });
+
+    it.each(['coach', 'parent'])('returns 403 for a %s', async (role) => {
+      const { coach, agent: adminAgent } = await setup();
+      const created = await createContract(adminAgent, coach);
+      const agent = await agentFor(role);
+
+      expect((await revise(agent, created.body.contract._id, { studentBillingRate: 70 })).status).toBe(403);
     });
   });
 
   describe('POST /api/v1/coach-contracts/:id/deactivate', () => {
-    it('deactivates an active contract', async () => {
-      const coach = await seedUser({ role: 'coach', email: 'cc-deact1@example.com' });
-      await seedUser({ role: 'admin', email: 'cc-deact-admin1@example.com' });
-      const adminAgent = await loginAgent('cc-deact-admin1@example.com');
+    it('ends the current version with no successor, recording when and why', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach);
 
-      const createRes = await adminAgent
-        .post('/api/v1/coach-contracts')
-        .send({ coachId: coach._id.toString(), studentBillingRate: 65, coachCompensationRate: 40 });
-
-      const res = await adminAgent.post(`/api/v1/coach-contracts/${createRes.body.contract._id}/deactivate`);
+      const res = await agent.post(`/api/v1/coach-contracts/${created.body.contract._id}/deactivate`);
 
       expect(res.status).toBe(200);
-      expect(res.body.contract.isActive).toBe(false);
+      expect(res.body.contract).toMatchObject({ isActive: false, endReason: 'deactivated' });
+      expect(res.body.contract.effectiveTo).toBeDefined();
+      expect(await CoachContract.countDocuments({ coachId: coach._id, isActive: true })).toBe(0);
+    });
+
+    it('leaves an already-ended version as it was', async () => {
+      const { coach, agent } = await setup();
+      const created = await createContract(agent, coach);
+      const revised = await revise(agent, created.body.contract._id, { studentBillingRate: 70 });
+
+      const res = await agent.post(`/api/v1/coach-contracts/${created.body.contract._id}/deactivate`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.contract).toMatchObject({ endReason: 'revised', effectiveTo: revised.body.previous.effectiveTo });
     });
 
     it('returns 404 for an unknown contract id', async () => {
-      await seedUser({ role: 'admin', email: 'cc-deact-admin2@example.com' });
-      const adminAgent = await loginAgent('cc-deact-admin2@example.com');
+      const { agent } = await setup();
 
-      const res = await adminAgent.post(
-        `/api/v1/coach-contracts/${new mongoose.Types.ObjectId()}/deactivate`
-      );
+      const res = await agent.post(`/api/v1/coach-contracts/${new mongoose.Types.ObjectId()}/deactivate`);
 
       expect(res.status).toBe(404);
     });
   });
-  // docs/plans/coach-pack-pricing-plan.md — packs on the contract.
-  // $65/hr x 30 min = $32.50; a 10-pack's allowed range is $162.50–$324.99.
-  describe('private-lesson packs', () => {
-    const TEN_PACK = { sessionDurationMinutes: 30, quantity: 10, price: 300 };
-    const OUT_OF_BAND = '10 × 30 min: price must be between $162.50 and $324.99';
 
-    async function setup(suffix, role = 'admin') {
-      const coach = await seedUser({ role: 'coach', email: `pk-coach-${suffix}@example.com` });
-      await seedUser({ role, email: `pk-${role}-${suffix}@example.com` });
-      const agent = await loginAgent(`pk-${role}-${suffix}@example.com`);
-      return { coach, agent };
-    }
+  describe('GET /api/v1/coach-contracts', () => {
+    it('lists every version, populated with coach info, filterable by coachId', async () => {
+      const { coach: coachA, agent } = await setup();
+      const coachB = await seedUser({ role: 'coach', email: 'cc-list-b@example.com' });
+      const created = await createContract(agent, coachA);
+      await revise(agent, created.body.contract._id, { studentBillingRate: 70 });
+      await createContract(agent, coachB, { studentBillingRate: 55 });
 
-    function createContract(agent, coach, extra = {}) {
-      return agent.post('/api/v1/coach-contracts').send({
-        coachId: coach._id.toString(),
-        studentBillingRate: 65,
-        coachCompensationRate: 40,
-        ...extra,
-      });
-    }
+      const allRes = await agent.get('/api/v1/coach-contracts');
+      expect(allRes.status).toBe(200);
+      expect(allRes.body.contracts).toHaveLength(3);
+      expect(allRes.body.contracts[0].coachId.email).toBeDefined();
 
-    describe('POST /api/v1/coach-contracts with packs', () => {
-      it('creates a contract with its packs, each with an id', async () => {
-        const { coach, agent } = await setup('create');
-
-        const res = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-
-        expect(res.status).toBe(201);
-        expect(res.body.contract.privateLessonPacks).toHaveLength(1);
-        expect(res.body.contract.privateLessonPacks[0]).toMatchObject(TEN_PACK);
-        expect(res.body.contract.privateLessonPacks[0]._id).toBeDefined();
-      });
-
-      it('refuses a pack outside the price band with a 400 naming it, and writes no contract', async () => {
-        const { coach, agent } = await setup('band');
-
-        const res = await createContract(agent, coach, { privateLessonPacks: [{ ...TEN_PACK, price: 325 }] });
-
-        expect(res.status).toBe(400);
-        expect(res.body.message).toBe(OUT_OF_BAND);
-        expect(await CoachContract.countDocuments({ coachId: coach._id })).toBe(0);
-      });
-
-      it("carries the previous contract's packs over when none are sent, as new packs", async () => {
-        const { coach, agent } = await setup('carry');
-        const first = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-
-        const second = await createContract(agent, coach, { studentBillingRate: 70 });
-
-        expect(second.status).toBe(201);
-        expect(second.body.contract.privateLessonPacks).toHaveLength(1);
-        expect(second.body.contract.privateLessonPacks[0]).toMatchObject(TEN_PACK);
-        expect(second.body.contract.privateLessonPacks[0]._id).not.toBe(first.body.contract.privateLessonPacks[0]._id);
-      });
-
-      it('refuses a rate change that pushes a carried-over pack out of the band, leaving the old contract active', async () => {
-        const { coach, agent } = await setup('carry-band');
-        const first = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-
-        // $20/hr x 30 min = $10; 10 of them = $100, so a $300 pack is far above the ceiling.
-        const second = await createContract(agent, coach, { studentBillingRate: 20 });
-
-        expect(second.status).toBe(400);
-        expect(second.body.message).toBe('10 × 30 min: price must be between $50.00 and $99.99');
-        expect((await CoachContract.findById(first.body.contract._id)).isActive).toBe(true);
-        expect(await CoachContract.countDocuments({ coachId: coach._id })).toBe(1);
-      });
-
-      it('sends an explicit empty list to drop every pack on a new contract', async () => {
-        const { coach, agent } = await setup('empty');
-        await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-
-        const res = await createContract(agent, coach, { privateLessonPacks: [] });
-
-        expect(res.status).toBe(201);
-        expect(res.body.contract.privateLessonPacks).toEqual([]);
-      });
+      const filteredRes = await agent.get(`/api/v1/coach-contracts?coachId=${coachA._id}`);
+      expect(filteredRes.body.contracts.map((contract) => contract.studentBillingRate).sort()).toEqual([65, 70]);
     });
 
-    describe('PUT /api/v1/coach-contracts/:id/packs', () => {
-      it('replaces the list, keeping the id of a pack sent back unchanged', async () => {
-        const { coach, agent } = await setup('put-keep');
-        const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-        const kept = created.body.contract.privateLessonPacks[0];
+    it('returns 403 for a coach', async () => {
+      const coachAgent = await agentFor('coach');
 
-        const res = await agent.put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`).send({
-          privateLessonPacks: [kept, { sessionDurationMinutes: 30, quantity: 5, price: 155 }],
-        });
-
-        expect(res.status).toBe(200);
-        expect(res.body.contract.privateLessonPacks).toHaveLength(2);
-        const tenPack = res.body.contract.privateLessonPacks.find((pack) => pack.quantity === 10);
-        expect(tenPack._id).toBe(kept._id);
-      });
-
-      it('mints a new id for a pack sent back with a changed price (plan D7)', async () => {
-        const { coach, agent } = await setup('put-edit');
-        const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-        const original = created.body.contract.privateLessonPacks[0];
-
-        const res = await agent
-          .put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`)
-          .send({ privateLessonPacks: [{ ...original, price: 310 }] });
-
-        expect(res.status).toBe(200);
-        expect(res.body.contract.privateLessonPacks[0].price).toBe(310);
-        expect(res.body.contract.privateLessonPacks[0]._id).not.toBe(original._id);
-      });
-
-      it('refuses a pack outside the band and leaves the stored packs unchanged', async () => {
-        const { coach, agent } = await setup('put-band');
-        const created = await createContract(agent, coach, { privateLessonPacks: [TEN_PACK] });
-
-        const res = await agent
-          .put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`)
-          .send({ privateLessonPacks: [{ ...TEN_PACK, price: 100 }] });
-
-        expect(res.status).toBe(400);
-        expect(res.body.message).toBe(OUT_OF_BAND);
-        const stored = await CoachContract.findById(created.body.contract._id);
-        expect(stored.privateLessonPacks[0].price).toBe(300);
-      });
-
-      it('returns 409 on an inactive contract', async () => {
-        const { coach, agent } = await setup('put-inactive');
-        const created = await createContract(agent, coach);
-        await agent.post(`/api/v1/coach-contracts/${created.body.contract._id}/deactivate`);
-
-        const res = await agent
-          .put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`)
-          .send({ privateLessonPacks: [TEN_PACK] });
-
-        expect(res.status).toBe(409);
-      });
-
-      it('returns 404 for an unknown contract', async () => {
-        const { agent } = await setup('put-404');
-
-        const res = await agent
-          .put(`/api/v1/coach-contracts/${new mongoose.Types.ObjectId()}/packs`)
-          .send({ privateLessonPacks: [TEN_PACK] });
-
-        expect(res.status).toBe(404);
-      });
-
-      it('lets a plain admin (not only a superadmin) edit packs (plan D13)', async () => {
-        const { coach, agent } = await setup('put-admin', 'admin');
-        const created = await createContract(agent, coach);
-
-        const res = await agent
-          .put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`)
-          .send({ privateLessonPacks: [TEN_PACK] });
-
-        expect(res.status).toBe(200);
-      });
-
-      it.each(['coach', 'parent'])('returns 403 for a %s', async (role) => {
-        const { coach, agent: adminAgent } = await setup(`put-403-${role}`);
-        const created = await createContract(adminAgent, coach);
-        await seedUser({ role, email: `pk-other-${role}@example.com` });
-        const agent = await loginAgent(`pk-other-${role}@example.com`);
-
-        const res = await agent
-          .put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`)
-          .send({ privateLessonPacks: [TEN_PACK] });
-
-        expect(res.status).toBe(403);
-      });
+      expect((await coachAgent.get('/api/v1/coach-contracts')).status).toBe(403);
     });
+  });
 
-    describe('POST /api/v1/coach-contracts/pack-quotes', () => {
-      it('previews each pack from the backend: per-lesson price, savings, percent, range', async () => {
-        const { agent } = await setup('quote');
+  describe('POST /api/v1/coach-contracts/preview', () => {
+    it('returns lesson prices and a per-pack preview, from the backend', async () => {
+      const { agent } = await setup();
 
-        const res = await agent
-          .post('/api/v1/coach-contracts/pack-quotes')
-          .send({ studentBillingRate: 65, packs: [TEN_PACK] });
+      const res = await agent
+        .post('/api/v1/coach-contracts/preview')
+        .send({ studentBillingRate: 65, sessionDurationMinutes: 60, packs: [TEN_PACK] });
 
-        expect(res.status).toBe(200);
-        expect(res.body.quotes).toEqual([
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        sessionPrices: [
+          { durationMinutes: 30, price: 32.5 },
+          { durationMinutes: 60, price: 65 },
+        ],
+        packs: [
           {
             sessionDurationMinutes: 30,
             quantity: 10,
@@ -378,55 +394,60 @@ describe('Coach contract routes', () => {
             allowedRange: { min: 162.5, max: 324.99 },
             error: null,
           },
-        ]);
+        ],
+      });
+    });
+
+    it("includes every length the coach currently publishes when given the coach", async () => {
+      const { coach, agent } = await setup();
+      await PrivateClassSchedule.create({
+        coachId: coach._id,
+        dayOfWeek: 2,
+        startTime: '16:30',
+        durationMinutes: 45,
+        startDate: new Date('2026-01-01'),
+        endDate: new Date('2099-12-31'),
       });
 
-      it('returns the exact error text a save would return', async () => {
-        const { coach, agent } = await setup('quote-same');
-        const created = await createContract(agent, coach);
-        const badPack = { ...TEN_PACK, price: 325 };
+      const res = await agent
+        .post('/api/v1/coach-contracts/preview')
+        .send({ studentBillingRate: 60, sessionDurationMinutes: 60, packs: [], coachId: coach._id.toString() });
 
-        const quoteRes = await agent
-          .post('/api/v1/coach-contracts/pack-quotes')
-          .send({ studentBillingRate: 65, packs: [badPack] });
-        const saveRes = await agent
-          .put(`/api/v1/coach-contracts/${created.body.contract._id}/packs`)
-          .send({ privateLessonPacks: [badPack] });
+      expect(res.body.sessionPrices).toEqual([
+        { durationMinutes: 45, price: 45 },
+        { durationMinutes: 60, price: 60 },
+      ]);
+    });
 
-        expect(saveRes.status).toBe(400);
-        expect(quoteRes.body.quotes[0].error).toBe(saveRes.body.message);
-      });
+    it('writes nothing', async () => {
+      const { coach, agent } = await setup();
+      await createContract(agent, coach);
 
-      it('writes nothing', async () => {
-        const { coach, agent } = await setup('quote-nowrite');
-        const created = await createContract(agent, coach);
+      await agent
+        .post('/api/v1/coach-contracts/preview')
+        .send({ studentBillingRate: 99, sessionDurationMinutes: 60, packs: [TEN_PACK] });
 
-        await agent.post('/api/v1/coach-contracts/pack-quotes').send({ studentBillingRate: 65, packs: [TEN_PACK] });
+      expect(await CoachContract.countDocuments()).toBe(1);
+      expect((await CoachContract.findOne()).studentBillingRate).toBe(65);
+    });
 
-        const stored = await CoachContract.findById(created.body.contract._id);
-        expect(stored.privateLessonPacks).toHaveLength(0);
-        expect(await CoachContract.countDocuments()).toBe(1);
-      });
+    it('returns 400 for an unusable rate', async () => {
+      const { agent } = await setup();
 
-      it('returns 400 for an unusable rate', async () => {
-        const { agent } = await setup('quote-rate');
+      const res = await agent.post('/api/v1/coach-contracts/preview').send({ packs: [TEN_PACK] });
 
-        const res = await agent.post('/api/v1/coach-contracts/pack-quotes').send({ packs: [TEN_PACK] });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('studentBillingRate must be a number >= 0');
+    });
 
-        expect(res.status).toBe(400);
-        expect(res.body.message).toBe('studentBillingRate must be a number >= 0');
-      });
+    it.each(['coach', 'parent'])('returns 403 for a %s', async (role) => {
+      const agent = await agentFor(role);
 
-      it.each(['coach', 'parent'])('returns 403 for a %s', async (role) => {
-        await seedUser({ role, email: `pk-quote-${role}@example.com` });
-        const agent = await loginAgent(`pk-quote-${role}@example.com`);
+      const res = await agent
+        .post('/api/v1/coach-contracts/preview')
+        .send({ studentBillingRate: 65, sessionDurationMinutes: 60, packs: [] });
 
-        const res = await agent
-          .post('/api/v1/coach-contracts/pack-quotes')
-          .send({ studentBillingRate: 65, packs: [TEN_PACK] });
-
-        expect(res.status).toBe(403);
-      });
+      expect(res.status).toBe(403);
     });
   });
 });

@@ -88,13 +88,26 @@ async function seedPurchaseScene(suffix, { card = true } = {}) {
   };
 }
 
-// No `packId` buys a single session; the request never carries a price.
-function purchase(parentAgent, { student, slot, day = '2026-10-06', packId }) {
+// The wizard's own order: fetch the quote, then buy, sending back the
+// quote's contractId (plan §8 V5). No `packId` buys a single session; the
+// request never carries a price. Pass `contractId` to override the quote's
+// (null sends none).
+async function purchase(parentAgent, { student, slot, day = '2026-10-06', packId, contractId }) {
+  let quotedContractId = contractId;
+
+  if (contractId === undefined) {
+    const quote = await parentAgent.get(
+      `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${slot._id}`
+    );
+    quotedContractId = quote.status === 200 ? quote.body.contractId : null;
+  }
+
   return parentAgent.post('/api/v1/private-class-enrollments').send({
     studentId: student._id.toString(),
     scheduleId: String(slot._id),
     day,
     ...(packId ? { packId } : {}),
+    ...(quotedContractId ? { contractId: quotedContractId } : {}),
   });
 }
 
@@ -102,7 +115,7 @@ function purchase(parentAgent, { student, slot, day = '2026-10-06', packId }) {
 describe('Private class enrollment (purchase) routes', () => {
   describe('GET /quote', () => {
     it("prices the single session and the coach's own packs for the slot's length, server-side", async () => {
-      const { parentAgent, student, slot, tenPackId } = await seedPurchaseScene('quote', { card: false });
+      const { parentAgent, student, slot, tenPackId, contract } = await seedPurchaseScene('quote', { card: false });
 
       const res = await parentAgent.get(
         `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${slot._id}`
@@ -110,6 +123,7 @@ describe('Private class enrollment (purchase) routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
+        contractId: String(contract._id),
         durationMinutes: 30,
         hourlyRate: 65,
         availableCredits: 0,
@@ -136,6 +150,7 @@ describe('Private class enrollment (purchase) routes', () => {
       expect(res.body.availableCredits).toBe(7);
       expect(res.body.options).toEqual([]);
       expect(res.body.hourlyRate).toBeNull();
+      expect(res.body.contractId).toBeNull();
     });
 
     it("returns 403 for another parent's child", async () => {
@@ -243,17 +258,19 @@ describe('Private class enrollment (purchase) routes', () => {
     );
 
     it(
-      'a pack removed between the quote and the purchase is refused with 409, charging nothing',
+      'an old pack id is refused with 409 even with the current contract version, charging nothing',
       async () => {
         const { parentAgent, adminAgent, parent, student, slot, contract, tenPackId } = await seedPurchaseScene('pack-removed');
         const removed = await adminAgent
-          .put(`/api/v1/coach-contracts/${contract._id}/packs`)
+          .post(`/api/v1/coach-contracts/${contract._id}/revisions`)
           .send({ privateLessonPacks: [] });
-        expect(removed.status).toBe(200);
+        expect(removed.status).toBe(201);
 
+        // A fresh quote names the NEW version, but the pack id is the old one.
         const res = await purchase(parentAgent, { student, slot, packId: tenPackId });
 
         expect(res.status).toBe(409);
+        expect(res.body.message).toBe('This pack is no longer offered — please review the prices');
         expect(await PerSessionRegistration.countDocuments({})).toBe(0);
         expect(await PrivateClassSession.countDocuments({})).toBe(0);
         expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
@@ -262,26 +279,64 @@ describe('Private class enrollment (purchase) routes', () => {
     );
 
     it(
-      'a pack whose price was edited after the quote is refused with 409 — never charged at the new price (plan D7/D11)',
+      "a pack whose price was edited after the quote is refused with 409 — never charged at the new price (plan §8 V5)",
       async () => {
         const { parentAgent, adminAgent, parent, student, slot, contract, tenPackId } = await seedPurchaseScene('pack-edited');
-        // The admin sends the pack back WITH its old id but a new price.
-        const edited = await adminAgent.put(`/api/v1/coach-contracts/${contract._id}/packs`).send({
+        const quote = await parentAgent.get(
+          `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${slot._id}`
+        );
+        // The admin edits the pack's price: a new contract version.
+        const edited = await adminAgent.post(`/api/v1/coach-contracts/${contract._id}/revisions`).send({
           privateLessonPacks: [
-            { _id: tenPackId, sessionDurationMinutes: 30, quantity: 10, price: 310 },
+            { sessionDurationMinutes: 30, quantity: 10, price: 310 },
             { sessionDurationMinutes: 60, quantity: 5, price: 300 },
           ],
         });
-        expect(edited.status).toBe(200);
+        expect(edited.status).toBe(201);
 
-        const res = await purchase(parentAgent, { student, slot, packId: tenPackId });
+        const res = await purchase(parentAgent, { student, slot, packId: tenPackId, contractId: quote.body.contractId });
 
         expect(res.status).toBe(409);
+        expect(res.body.message).toBe('Prices have changed — please review them');
         expect(await PerSessionRegistration.countDocuments({})).toBe(0);
         expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
       },
       STRIPE_TIMEOUT
     );
+
+    it(
+      'a single session quoted before a rate change is refused with 409 — never charged the new rate (plan §8 V5)',
+      async () => {
+        const { parentAgent, adminAgent, parent, student, slot, contract } = await seedPurchaseScene('rate-edited');
+        const quote = await parentAgent.get(
+          `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${slot._id}`
+        );
+        expect(quote.body.options[0].total).toBe(32.5);
+        const edited = await adminAgent
+          .post(`/api/v1/coach-contracts/${contract._id}/revisions`)
+          .send({ studentBillingRate: 70, privateLessonPacks: [] });
+        expect(edited.status).toBe(201);
+
+        const res = await purchase(parentAgent, { student, slot, contractId: quote.body.contractId });
+
+        expect(res.status).toBe(409);
+        expect(res.body.message).toBe('Prices have changed — please review them');
+        expect(await PerSessionRegistration.countDocuments({})).toBe(0);
+        expect(await PrivateClassSession.countDocuments({})).toBe(0);
+        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+      },
+      STRIPE_TIMEOUT
+    );
+
+    it('returns 400 when the purchase does not name the quoted contract, writing nothing', async () => {
+      const { parentAgent, student, slot } = await seedPurchaseScene('no-contract-id', { card: false });
+
+      const res = await purchase(parentAgent, { student, slot, contractId: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/contractId is required/);
+      expect(await PrivateClassSession.countDocuments({})).toBe(0);
+    });
 
     it('refuses an unknown packId with 409, writing nothing', async () => {
       const { parentAgent, student, slot } = await seedPurchaseScene('pack-unknown', { card: false });

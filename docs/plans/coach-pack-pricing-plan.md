@@ -377,3 +377,23 @@ rather than locally.
 remaining matches are this plan, the booking plan's superseded D13 row and §5 pointer, the ADR 011
 addendum, the schema doc's removal notes, the `setting.model.js` removal comment, and backend tests
 that assert the fields are absent.
+
+---
+
+## §8 Follow-up — an editable contract, kept as versions (owner decision 2026-09-25)
+
+After testing on staging, the owner asked for one editable contract with the packs inside it,
+instead of an uneditable contract plus a separate "Edit packs" action. Decided 2026-09-25:
+
+| # | Decision | Why |
+|---|---|---|
+| V1 | **The current contract has two actions: Edit and Deactivate.** Edit opens one form with a Rates section (rate billed to parents, coach pay, default lesson length) and a Packs section. The separate "Edit packs" action and `PUT /coach-contracts/:id/packs` are removed. | Packs are already stored inside the contract; the split was only a side effect of the contract being uneditable. |
+| V2 | **Every save of an edit creates a new version** (`POST /coach-contracts/:id/revisions`): the current contract gets `isActive: false`, `effectiveTo` = now and `endReason: 'revised'`, and a new contract starts with `effectiveFrom` = now. Old versions stay in the table, read-only, showing "Replaced on {date}". Deactivate sets `effectiveTo` and `endReason: 'deactivated'` ("Ended on {date}") without a new version. | Keeps the exact rate history — including coach pay, for any future payroll — while the owner sees one contract to edit. Past purchases are untouched either way: each one pins its rate and points at the version it was bought under. |
+| V3 | **A save that changes nothing is refused** (400 "Nothing changed"). | Keeps the history free of duplicate lines. |
+| V4 | **Add Contract is only for a coach with no current contract**; the backend refuses a second active contract with 409 "This coach already has a contract — edit it instead". Create no longer carries packs over from a previous contract. | One way to change a contract (Edit), one to start one (Add). |
+| V5 | **A purchase names the contract version it was quoted from** (`contractId`, now on the quote). If that version is no longer current the purchase is a 409 "Prices have changed — please review them" and nothing is charged. This covers single sessions too, closing the gap where a rate change between quote and payment charged a single session at the new rate. The request still never carries a price. | One guard for every stale price. Replaces D7's keep-the-pack-id rule: every version's packs are new subdocuments with new ids. |
+| V6 | **Rates stay hourly.** The editor shows the resulting lesson prices under the rate ("30 min $30.00 · 60 min $60.00"), from the backend: `POST /coach-contracts/preview` (renamed from `pack-quotes`) returns `sessionPrices` for the default length, every pack length and every length the coach currently publishes, plus the per-pack quotes. | Owner choice between hourly and per-lesson was left to the recommendation; one hourly rate keeps 30- and 60-minute prices consistent. Hard Rule 7: the form still computes nothing. |
+| V7 | **The editor's preview moves into one hook**, `useContractPreview`, shared by the create and edit dialogs; `PackEditor` becomes presentational (rows + the status the hook gives each row). | One home for the debounce, the fetch and the Save gate now that the preview also feeds the Rates section. |
+
+Two PRs again (backend, frontend), shipped to `develop` for staging testing. No data migration:
+existing contracts simply have no `effectiveTo` until they are next edited or deactivated.
