@@ -4,27 +4,37 @@ import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
+import {
+  packDraftsFromRows,
+  packRowsFromPacks,
+  parseNonNegative,
+  useContractPreview,
+  type PackEditorRow,
+} from '../../../lib/hooks/useContractPreview';
 import { fetchUsers } from '../../../lib/services/users';
 import {
   createCoachContract,
   deactivateCoachContract,
   fetchCoachContracts,
-  updateCoachContractPacks,
+  reviseCoachContract,
 } from '../../../lib/services/coachContracts';
 import { formatInstant } from '../../../lib/formatDate';
 import { formatMoney } from '../../../lib/formatMoney';
+import { contractStatusLabel, sessionPricesLabel } from '../../../lib/privateLessons';
 import type { AuthUser, CoachContract, PrivateLessonPack } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
-import PackEditor, {
-  packDraftsFromRows,
-  packRowsFromPacks,
-  type PackEditorRow,
-} from '../../components/admin/PackEditor/PackEditor';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
+import PackEditor from '../../components/admin/PackEditor/PackEditor';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
 import Modal from '../../components/ui/Modal/Modal';
 import styles from '../../components/admin/admin.module.css';
+
+// Coach contracts, kept as VERSIONS (docs/plans/coach-pack-pricing-plan.md §8):
+// the current version has Edit and Deactivate; saving an edit keeps it as a
+// read-only "Replaced" line and starts a new current one. One dialog serves
+// Add (a coach with no current contract) and Edit, with a Rates section and a
+// Packs section. Every price shown in it comes from the backend preview.
 
 interface ContractForm {
   coachId: string;
@@ -40,32 +50,40 @@ const EMPTY_FORM: ContractForm = {
   sessionDurationMinutes: '60',
 };
 
-// effectiveFrom defaults to Date.now (coachContract.model.js) — a real
-// instant, not a calendar-day sentinel — so it renders via formatInstant
-// (Central-anchored), never formatDateOnly (docs/plans/
-// utc-date-standard-plan.md).
-function formatDate(iso: string): string {
-  return formatInstant(iso);
+// effectiveFrom/effectiveTo are real instants, not calendar-day sentinels, so
+// they render via formatInstant (docs/plans/utc-date-standard-plan.md).
+function formatDate(iso: string | undefined): string {
+  return iso ? formatInstant(iso) : '—';
 }
 
 // coachId is null when the coach was deleted without a delete-guard
 // blocking it (orphaned-coach-reference-fix-plan D2) — never assume it's
 // populated.
+function coachLabel(coachId: CoachContract['coachId']): string {
+  return coachId ? `${coachId.firstName} ${coachId.lastName}` : 'Coach no longer available';
+}
+
 // "10 × 30 min — $300.00" — one saved pack, formatted from its stored fields.
 function packLine(pack: PrivateLessonPack): string {
   return `${pack.quantity} × ${pack.sessionDurationMinutes} min — ${formatMoney(pack.price)}`;
 }
 
-// The rate the pack preview checks against, or null while the typed rate
-// is not a usable number (no preview is requested then).
-function previewRate(value: string): number | null {
-  if (value.trim() === '') return null;
-  const rate = Number(value);
-  return Number.isNaN(rate) || rate < 0 ? null : rate;
+// Display order only: each coach's versions together, newest first.
+function sortForDisplay(contracts: CoachContract[]): CoachContract[] {
+  return [...contracts].sort(
+    (a, b) =>
+      coachLabel(a.coachId).localeCompare(coachLabel(b.coachId)) ||
+      new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime()
+  );
 }
 
-function coachLabel(coachId: CoachContract['coachId']): string {
-  return coachId ? `${coachId.firstName} ${coachId.lastName}` : 'Coach no longer available';
+function formFromContract(contract: CoachContract): ContractForm {
+  return {
+    coachId: contract.coachId ? contract.coachId._id : '',
+    studentBillingRate: String(contract.studentBillingRate),
+    coachCompensationRate: String(contract.coachCompensationRate),
+    sessionDurationMinutes: String(contract.sessionDurationMinutes),
+  };
 }
 
 async function fetchCoachContractsPageData() {
@@ -85,71 +103,52 @@ export default function AdminCoachContractsPage() {
     }
   }, [data]);
 
+  // The one dialog: `editing` null = Add, a contract = Edit that version.
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<CoachContract | null>(null);
   const [form, setForm] = useState<ContractForm>(EMPTY_FORM);
   const [packRows, setPackRows] = useState<PackEditorRow[]>([]);
-  const [packsCanSave, setPacksCanSave] = useState(true);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // "Edit packs" on the active contract (docs/plans/coach-pack-pricing-plan.md D7).
-  const [packsTarget, setPacksTarget] = useState<CoachContract | null>(null);
-  const [editRows, setEditRows] = useState<PackEditorRow[]>([]);
-  const [editCanSave, setEditCanSave] = useState(true);
-  const [packsError, setPacksError] = useState<string | null>(null);
-  const [savingPacks, setSavingPacks] = useState(false);
 
   const [deactivateTarget, setDeactivateTarget] = useState<CoachContract | null>(null);
   const [deactivateError, setDeactivateError] = useState<string | null>(null);
   const [deactivating, setDeactivating] = useState(false);
 
+  const preview = useContractPreview({
+    studentBillingRate: dialogOpen ? parseNonNegative(form.studentBillingRate) : null,
+    sessionDurationMinutes: parseNonNegative(form.sessionDurationMinutes),
+    rows: packRows,
+    coachId: form.coachId || undefined,
+  });
+
+  const coachesWithContract = new Set(
+    contracts.flatMap((contract) => (contract.isActive && contract.coachId ? [contract.coachId._id] : []))
+  );
+  const coachesWithoutContract = coaches.filter((coach) => !coachesWithContract.has(coach._id));
+
+  // Edit: whether anything differs from the version being edited (the
+  // backend refuses an unchanged save too; this only avoids the round trip).
+  const unchanged =
+    editing !== null &&
+    JSON.stringify(formFromContract(editing)) === JSON.stringify(form) &&
+    JSON.stringify(packDraftsFromRows(packRowsFromPacks(editing.privateLessonPacks))) ===
+      JSON.stringify(packDraftsFromRows(packRows));
+
   function openCreate() {
+    setEditing(null);
     setForm(EMPTY_FORM);
     setPackRows([]);
     setDialogError(null);
     setDialogOpen(true);
   }
 
-  // Picking a coach prefills the packs from their current active contract
-  // (plan D9): a new contract then carries them over unless the admin changes
-  // them. The dialog always sends the list it shows. Ids are dropped — a new
-  // contract's packs are new packs.
-  function selectCoach(coachId: string) {
-    setField('coachId', coachId);
-    const active = contracts.find(
-      (contract) => contract.isActive && contract.coachId !== null && contract.coachId._id === coachId
-    );
-    setPackRows(packRowsFromPacks(active ? active.privateLessonPacks : []).map(({ _id, ...row }) => row));
-  }
-
-  function openEditPacks(contract: CoachContract) {
-    setEditRows(packRowsFromPacks(contract.privateLessonPacks));
-    setPacksError(null);
-    setPacksTarget(contract);
-  }
-
-  function closeEditPacks() {
-    if (savingPacks) return;
-    setPacksTarget(null);
-    setPacksError(null);
-  }
-
-  async function handleSavePacks() {
-    if (!packsTarget) return;
-
-    setPacksError(null);
-    setSavingPacks(true);
-
-    const result = await updateCoachContractPacks(packsTarget._id, packDraftsFromRows(editRows));
-
-    setSavingPacks(false);
-
-    if (result.status === 'success') {
-      setPacksTarget(null);
-      retry();
-    } else {
-      setPacksError(result.message);
-    }
+  function openEdit(contract: CoachContract) {
+    setEditing(contract);
+    setForm(formFromContract(contract));
+    setPackRows(packRowsFromPacks(contract.privateLessonPacks));
+    setDialogError(null);
+    setDialogOpen(true);
   }
 
   function closeDialog() {
@@ -165,30 +164,27 @@ export default function AdminCoachContractsPage() {
   async function handleSave() {
     setDialogError(null);
 
-    const studentBillingRate = Number(form.studentBillingRate);
-    const coachCompensationRate = Number(form.coachCompensationRate);
-    const sessionDurationMinutes = Number(form.sessionDurationMinutes);
+    const studentBillingRate = parseNonNegative(form.studentBillingRate);
+    const coachCompensationRate = parseNonNegative(form.coachCompensationRate);
+    const sessionDurationMinutes = parseNonNegative(form.sessionDurationMinutes);
 
-    if (
-      !form.coachId ||
-      form.studentBillingRate.trim() === '' ||
-      Number.isNaN(studentBillingRate) ||
-      form.coachCompensationRate.trim() === '' ||
-      Number.isNaN(coachCompensationRate)
-    ) {
+    if (!form.coachId || studentBillingRate === null || coachCompensationRate === null) {
       setDialogError('Coach, billing rate, and compensation rate are required.');
       return;
     }
 
-    setSaving(true);
-
-    const result = await createCoachContract({
-      coachId: form.coachId,
+    const terms = {
       studentBillingRate,
       coachCompensationRate,
-      sessionDurationMinutes: Number.isNaN(sessionDurationMinutes) ? undefined : sessionDurationMinutes,
+      sessionDurationMinutes: sessionDurationMinutes === null ? undefined : sessionDurationMinutes,
       privateLessonPacks: packDraftsFromRows(packRows),
-    });
+    };
+
+    setSaving(true);
+
+    const result = editing
+      ? await reviseCoachContract(editing._id, terms)
+      : await createCoachContract({ coachId: form.coachId, ...terms });
 
     setSaving(false);
 
@@ -241,20 +237,21 @@ export default function AdminCoachContractsPage() {
                 <th className={styles.th}>Packs</th>
                 <th className={styles.th}>Status</th>
                 <th className={styles.th}>Since</th>
-                <th className={styles.th} style={{ width: 220 }} />
+                <th className={styles.th}>Until</th>
+                <th className={styles.th} style={{ width: 200 }} />
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <AdminLoadingRow colSpan={8} />
+                <AdminLoadingRow colSpan={9} />
               ) : contracts.length === 0 ? (
-                <AdminEmptyRow colSpan={8} message="No coach contracts found" />
+                <AdminEmptyRow colSpan={9} message="No coach contracts found" />
               ) : (
-                contracts.map((contract) => (
+                sortForDisplay(contracts).map((contract) => (
                   <tr key={contract._id} className={styles.trHover}>
                     <td className={styles.td}>{coachLabel(contract.coachId)}</td>
-                    <td className={styles.td}>${contract.studentBillingRate.toFixed(2)}</td>
-                    <td className={styles.td}>${contract.coachCompensationRate.toFixed(2)}</td>
+                    <td className={styles.td}>{formatMoney(contract.studentBillingRate)}</td>
+                    <td className={styles.td}>{formatMoney(contract.coachCompensationRate)}</td>
                     <td className={styles.td}>{contract.sessionDurationMinutes} min</td>
                     <td className={styles.td}>
                       {contract.privateLessonPacks.length === 0 ? (
@@ -265,26 +262,28 @@ export default function AdminCoachContractsPage() {
                     </td>
                     <td className={styles.td}>
                       {contract.isActive ? (
-                        <span className={`${styles.chip} ${styles.chipActive}`}>Active</span>
+                        <span className={`${styles.chip} ${styles.chipActive}`}>{contractStatusLabel(contract)}</span>
                       ) : (
-                        <span className={styles.chipMuted}>Inactive</span>
+                        <span className={styles.chipMuted}>{contractStatusLabel(contract)}</span>
                       )}
                     </td>
                     <td className={styles.td}>{formatDate(contract.effectiveFrom)}</td>
+                    <td className={styles.td}>{formatDate(contract.effectiveTo)}</td>
                     <td className={`${styles.td} ${styles.tdRight}`}>
                       {contract.isActive ? (
                         <div className={styles.actionBtns}>
                           <button
                             type="button"
                             className={styles.btnSecondary}
-                            aria-label={`Edit packs for ${coachLabel(contract.coachId)}`}
-                            onClick={() => openEditPacks(contract)}
+                            aria-label={`Edit contract for ${coachLabel(contract.coachId)}`}
+                            onClick={() => openEdit(contract)}
                           >
-                            Edit packs
+                            Edit
                           </button>
                           <button
                             type="button"
                             className={styles.btnSecondary}
+                            aria-label={`Deactivate contract for ${coachLabel(contract.coachId)}`}
                             onClick={() => {
                               setDeactivateError(null);
                               setDeactivateTarget(contract);
@@ -308,7 +307,7 @@ export default function AdminCoachContractsPage() {
       <Modal
         open={dialogOpen}
         onClose={closeDialog}
-        title="Add Contract"
+        title={editing ? 'Edit Contract' : 'Add Contract'}
         disableClose={saving}
         footer={
           <>
@@ -319,36 +318,45 @@ export default function AdminCoachContractsPage() {
               type="button"
               className={styles.btnPrimary}
               onClick={handleSave}
-              disabled={saving || !packsCanSave}
+              disabled={saving || !preview.canSave || unchanged}
             >
-              {saving ? 'Saving…' : 'Create'}
+              {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
             </button>
           </>
         }
       >
         {dialogError ? <Alert variant="error">{dialogError}</Alert> : null}
 
-        <div className={styles.formGroup}>
-          <label className={styles.label} htmlFor="contract-coachId">
-            Coach
-          </label>
-          <select
-            id="contract-coachId"
-            className={styles.select}
-            value={form.coachId}
-            onChange={(e) => selectCoach(e.target.value)}
-          >
-            <option value="">Select a coach</option>
-            {coaches.map((coach) => (
-              <option key={coach._id} value={coach._id}>
-                {coach.firstName} {coach.lastName}
-              </option>
-            ))}
-          </select>
-          <div className={styles.formHint}>
-            Creating a contract replaces the coach&apos;s current active contract.
+        {editing ? (
+          <p className={styles.formHint} style={{ marginTop: 0 }}>
+            {coachLabel(editing.coachId)}. Saving keeps the current version as history and starts a new version
+            today. Past purchases keep the price they were bought at.
+          </p>
+        ) : (
+          <div className={styles.formGroup}>
+            <label className={styles.label} htmlFor="contract-coachId">
+              Coach
+            </label>
+            <select
+              id="contract-coachId"
+              className={styles.select}
+              value={form.coachId}
+              onChange={(e) => setField('coachId', e.target.value)}
+            >
+              <option value="">Select a coach</option>
+              {coachesWithoutContract.map((coach) => (
+                <option key={coach._id} value={coach._id}>
+                  {coach.firstName} {coach.lastName}
+                </option>
+              ))}
+            </select>
+            <div className={styles.formHint}>
+              Coaches who already have a contract are not listed — use Edit on their contract instead.
+            </div>
           </div>
-        </div>
+        )}
+
+        <span className={styles.label}>Rates</span>
 
         <div className={styles.formGroup}>
           <label className={styles.label} htmlFor="contract-studentBillingRate">
@@ -362,6 +370,9 @@ export default function AdminCoachContractsPage() {
             value={form.studentBillingRate}
             onChange={(e) => setField('studentBillingRate', e.target.value)}
           />
+          {preview.sessionPrices && preview.sessionPrices.length > 0 ? (
+            <div className={styles.formHint}>{sessionPricesLabel(preview.sessionPrices)}</div>
+          ) : null}
         </div>
 
         <div className={styles.formGroup}>
@@ -393,53 +404,12 @@ export default function AdminCoachContractsPage() {
         </div>
 
         <PackEditor
-          studentBillingRate={previewRate(form.studentBillingRate)}
           rows={packRows}
           onChange={setPackRows}
-          onCanSaveChange={setPacksCanSave}
+          statusFor={preview.statusFor}
           disabled={saving}
           defaultMinutes={form.sessionDurationMinutes}
         />
-      </Modal>
-
-      <Modal
-        open={packsTarget !== null}
-        onClose={closeEditPacks}
-        title="Edit Packs"
-        disableClose={savingPacks}
-        footer={
-          <>
-            <button type="button" className={styles.btnSecondary} onClick={closeEditPacks} disabled={savingPacks}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              onClick={handleSavePacks}
-              disabled={savingPacks || !editCanSave}
-            >
-              {savingPacks ? 'Saving…' : 'Save packs'}
-            </button>
-          </>
-        }
-      >
-        {packsError ? <Alert variant="error">{packsError}</Alert> : null}
-        {packsTarget ? (
-          <p className={styles.formHint} style={{ marginTop: 0 }}>
-            {coachLabel(packsTarget.coachId)} · {formatMoney(packsTarget.studentBillingRate)}/hr. Changing a pack&apos;s
-            price does not change what past buyers paid.
-          </p>
-        ) : null}
-        {packsTarget ? (
-          <PackEditor
-            studentBillingRate={packsTarget.studentBillingRate}
-            rows={editRows}
-            onChange={setEditRows}
-            onCanSaveChange={setEditCanSave}
-            disabled={savingPacks}
-            defaultMinutes={String(packsTarget.sessionDurationMinutes)}
-          />
-        ) : null}
       </Modal>
 
       <Modal
@@ -473,7 +443,7 @@ export default function AdminCoachContractsPage() {
         {deactivateError ? <Alert variant="error">{deactivateError}</Alert> : null}
         <p style={{ margin: 0 }}>
           Deactivate {deactivateTarget ? coachLabel(deactivateTarget.coachId) : ''}&apos;s contract? They will no
-          longer be able to publish new private-lesson slots.
+          longer be able to publish new private-lesson slots, and parents cannot buy new lessons with them.
         </p>
       </Modal>
     </main>

@@ -49,12 +49,14 @@ export async function fetchMyPrivatePurchases(): Promise<PrivatePurchaseEntry[]>
 }
 
 // Buy a single session (no `packId`) or one of the coach's packs, and book
-// the first lesson on `day` ('YYYY-MM-DD'). The request names a choice,
-// never a price; a pack that is no longer offered is a 409.
+// the first lesson on `day` ('YYYY-MM-DD'). The request names a choice and
+// the quote's contract version, never a price; a contract edited since the
+// quote, or a pack no longer offered, is a 409.
 export async function purchasePrivateLessons(data: {
   studentId: string;
   scheduleId: string;
   day: string;
+  contractId: string;
   packId?: string;
 }): Promise<MutationResult<PrivateBookingResult>> {
   try {

@@ -69,6 +69,7 @@ const DATES: PrivateAvailableDate[] = [
 ];
 
 const QUOTE: PrivatePurchaseQuote = {
+  contractId: 'contract-1',
   durationMinutes: 30,
   hourlyRate: 65,
   availableCredits: 0,
@@ -166,7 +167,13 @@ describe('RegisterPrivatePage — book a private lesson', () => {
 
     // The request names the pack, never a quantity or a price.
     await waitFor(() =>
-      expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'sched-1', day: '2026-10-06', packId: 'pack-10' })
+      expect(purchasePayload).toEqual({
+        studentId: 'student-1',
+        scheduleId: 'sched-1',
+        day: '2026-10-06',
+        contractId: 'contract-1',
+        packId: 'pack-10',
+      })
     );
     expect(await screen.findByText(/you're booked/i)).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
@@ -210,18 +217,19 @@ describe('RegisterPrivatePage — book a private lesson', () => {
     await user.click(await screen.findByRole('button', { name: 'Pay $32.50 & book' }));
 
     await waitFor(() =>
-      expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'sched-1', day: '2026-10-06' })
+      expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'sched-1', day: '2026-10-06', contractId: 'contract-1' })
     );
   });
 
-  // docs/plans/coach-pack-pricing-plan.md D11 — a pack edited or removed after
-  // the quote is refused (409) through the SAME inline error path as a
+  // docs/plans/coach-pack-pricing-plan.md D11 / §8 V5 — a contract edited
+  // after the quote (prices changed), or a pack no longer offered, is
+  // refused (409) and handled through the SAME inline error path as a
   // decline: nothing charged, the quote refetched, "Pick another date".
-  it('shows a pack that is no longer offered (409) inline, refetches the quote, and offers "Pick another date"', async () => {
+  it('shows changed prices (409) inline, refetches the quote, and offers "Pick another date"', async () => {
     let quoteFetches = 0;
     server.use(
       http.post('*/private-class-enrollments', () =>
-        HttpResponse.json({ message: 'This pack is no longer offered — please review the prices' }, { status: 409 })
+        HttpResponse.json({ message: 'Prices have changed — please review them' }, { status: 409 })
       ),
       http.get('*/private-class-enrollments/quote', () => {
         quoteFetches += 1;
@@ -237,7 +245,7 @@ describe('RegisterPrivatePage — book a private lesson', () => {
     const fetchesBeforeSubmit = quoteFetches;
     await user.click(await screen.findByRole('button', { name: 'Pay $291.11 & book' }));
 
-    expect(await screen.findByText(/this pack is no longer offered/i)).toBeInTheDocument();
+    expect(await screen.findByText(/prices have changed/i)).toBeInTheDocument();
     await waitFor(() => expect(quoteFetches).toBeGreaterThan(fetchesBeforeSubmit));
     expect(screen.getByRole('button', { name: /pick another date/i })).toBeInTheDocument();
     expect(screen.queryByText(/you're booked/i)).not.toBeInTheDocument();

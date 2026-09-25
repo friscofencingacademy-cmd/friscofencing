@@ -43,11 +43,13 @@ test.describe('private lesson booking', () => {
     await page.getByRole('button', { name: 'Pay $300.00 & book' }).click();
 
     await expect(page.getByText("You're booked!")).toBeVisible();
-    // The request names the pack by id — never a quantity or a price.
+    // The request names the pack by id and the quoted contract version —
+    // never a quantity or a price.
     expect(purchasePayload).toEqual({
       studentId: 'student-1',
       scheduleId: 'private-rule-1',
       day: '2026-10-06',
+      contractId: 'private-contract-1',
       packId: 'private-pack-10',
     });
   });

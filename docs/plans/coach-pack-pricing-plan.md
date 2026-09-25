@@ -397,3 +397,22 @@ instead of an uneditable contract plus a separate "Edit packs" action. Decided 2
 
 Two PRs again (backend, frontend), shipped to `develop` for staging testing. No data migration:
 existing contracts simply have no `effectiveTo` until they are next edited or deactivated.
+
+### §8 as built (2026-09-25)
+
+Built exactly as decided above, with these specifics:
+
+1. **The revise endpoint is `POST /coach-contracts/:id/revisions`** and returns `{ contract, previous }`.
+   A field left out of the request keeps its current value. The new version is fully validated before
+   the current one is ended, and a failed insert puts the current version back, so a refused edit
+   never leaves a coach without a contract. The end step is guarded on `isActive`, so two
+   simultaneous edits cannot both succeed.
+2. **A purchase without `contractId` is a 400**, checked after ownership, so a stranger still gets
+   403. An old `packId` sent with the *current* `contractId` is still refused by D11's 409.
+3. **The Edit dialog also disables Save while nothing has changed**, on top of the backend's own
+   "Nothing changed" 400.
+4. **The pack-row helpers moved into `lib/hooks/useContractPreview.ts`** along with the preview.
+   `PackEditor`'s tests now cover only rendering and editing; the preview tests (verbatim figures,
+   refusal, failure, incomplete row, fake-timer debounce) live with the hook.
+5. **The table shows every version**, each coach's together, newest first, with Status (Current /
+   Replaced / Ended; "Inactive" for versions that ended before `endReason` existed) and Since/Until.
