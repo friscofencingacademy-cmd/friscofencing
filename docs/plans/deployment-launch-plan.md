@@ -167,6 +167,15 @@ pushes create Preview deployments automatically — that is our staging.
   `node scripts/check-private-credit-ledger.js` (ADR 011). The old
   `extend-private-sessions` script no longer exists — nothing is generated ahead of time.
 - **Fix the recurring cold-start MongoDB bug properly** (see the gotcha note above — recurred 4 times): `backend/api/index.js`'s `connectDB()` is fire-and-forget with no retry. Make the serverless entry await the connection (or add a disconnect-detecting reconnect) instead of relying on a manual redeploy every time a container goes cold. Highest-priority item on this list — it's a real production reliability bug, not just a launch-week hiccup.
+- **Group-session generation cron** (planned, owner decision 2026-09-25 — the CKQ model): group
+  sessions are generated once, 8 weeks ahead, only when a schedule is created
+  (`groupClassSession.service.js` `generateInitialSessions`), and nothing extends them, so every
+  schedule runs out of sessions 8 weeks after it was created. Add a weekly cron that adds one week
+  so each schedule always stays 8 weeks ahead. It must build dates through `dateShapes.js`, write
+  `startsAt`/`endsAt` through `sessionInstantsFor`, create roster Visits for the new sessions, and be
+  idempotent under the `(scheduleId, date)` unique index. **Blocks shipping the public calendar**
+  (`docs/plans/calendar-view-plan.md` §9); the trial and register start-date pickers have the same
+  gap today.
 - **Stripe webhook registration**: Stripe dashboard → Webhooks → add endpoint
   `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,
   `payment_intent.failed`) → put the signing secret in `STRIPE_WEBHOOK_SECRET`. Repeat
