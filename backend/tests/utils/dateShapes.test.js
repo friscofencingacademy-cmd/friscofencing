@@ -4,6 +4,7 @@ const {
   nextDateOnlyOnOrAfter,
   sentinelDayString,
   combineDayAndTimeInTZ,
+  instantDayString,
 } = require('../../src/utils/dateShapes');
 
 describe('dateShapes', () => {
@@ -142,6 +143,44 @@ describe('dateShapes', () => {
     it('accepts an explicit tz override', () => {
       const result = combineDayAndTimeInTZ('2026-08-25', '09:00', 'America/New_York');
       expect(result.toISOString()).toBe('2026-08-25T13:00:00.000Z'); // EDT, UTC-4
+    });
+  });
+
+  // docs/plans/calendar-view-plan.md C3/C4 — the Central day of a real instant.
+  describe('instantDayString', () => {
+    it('puts 11:30 PM Central on Oct 31 on Oct 31, although its UTC date is Nov 1', () => {
+      const instant = combineDayAndTimeInTZ('2026-10-31', '23:30');
+      expect(instant.toISOString()).toBe('2026-11-01T04:30:00.000Z');
+      expect(instantDayString(instant)).toBe('2026-10-31');
+    });
+
+    it('reads a midday instant as its own day', () => {
+      expect(instantDayString(new Date('2026-10-06T17:00:00.000Z'))).toBe('2026-10-06');
+    });
+
+    it('stays on the right day across the Nov 1 2026 fall-back change (CDT -> CST)', () => {
+      // 11:30 PM on Nov 1 is CST (UTC-6): 05:30 UTC on Nov 2.
+      const afterChange = combineDayAndTimeInTZ('2026-11-01', '23:30');
+      expect(afterChange.toISOString()).toBe('2026-11-02T05:30:00.000Z');
+      expect(instantDayString(afterChange)).toBe('2026-11-01');
+
+      // 00:30 on Nov 1 is still CDT (UTC-5): 05:30 UTC on Nov 1.
+      const beforeChange = combineDayAndTimeInTZ('2026-11-01', '00:30');
+      expect(beforeChange.toISOString()).toBe('2026-11-01T05:30:00.000Z');
+      expect(instantDayString(beforeChange)).toBe('2026-11-01');
+    });
+
+    it('round-trips every day of a DST week through combineDayAndTimeInTZ at an evening time', () => {
+      ['2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03'].forEach((day) => {
+        expect(instantDayString(combineDayAndTimeInTZ(day, '22:45'))).toBe(day);
+      });
+    });
+
+    it('accepts an explicit tz override', () => {
+      // 02:00 UTC on Oct 6 is still Oct 5 in Chicago, already Oct 6 in UTC.
+      const instant = new Date('2026-10-06T02:00:00.000Z');
+      expect(instantDayString(instant)).toBe('2026-10-05');
+      expect(instantDayString(instant, 'UTC')).toBe('2026-10-06');
     });
   });
 });
