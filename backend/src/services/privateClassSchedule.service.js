@@ -222,6 +222,14 @@ function currentRulesFilter(extra = {}) {
   return { isActive: true, endDate: { $gte: todayDateOnly() }, ...extra };
 }
 
+// The lesson lengths a coach currently publishes (sorted, distinct) — the
+// contract editor's price preview shows each one (coach-pack-pricing-plan
+// §8 V6).
+async function currentLengthsForCoach(coachId) {
+  const lengths = await PrivateClassSchedule.distinct('durationMinutes', currentRulesFilter({ coachId }));
+  return lengths.sort((a, b) => a - b);
+}
+
 async function listMine(coachId) {
   const schedules = await PrivateClassSchedule.find(currentRulesFilter({ coachId })).sort({
     dayOfWeek: 1,
@@ -469,4 +477,5 @@ module.exports = {
   resolveBookableInstant,
   listAvailableDates,
   listPublic,
+  currentLengthsForCoach,
 };

@@ -21,6 +21,7 @@ async function create(req, res, next) {
         scheduleId: req.body.scheduleId,
         day: req.body.day,
         packId: req.body.packId,
+        contractId: req.body.contractId,
       },
       req.user
     );

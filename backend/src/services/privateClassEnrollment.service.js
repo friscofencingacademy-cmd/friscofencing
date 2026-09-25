@@ -87,6 +87,9 @@ async function quote({ studentId, scheduleId }, parent) {
   }
 
   return {
+    // The contract version these prices come from — the purchase sends it
+    // back, and a changed contract refuses the purchase (plan §8 V5).
+    contractId: terms ? String(terms.contract._id) : null,
     durationMinutes: schedule.durationMinutes,
     hourlyRate: terms ? terms.contract.studentBillingRate : null,
     options: terms ? terms.options : [],
@@ -112,13 +115,24 @@ async function quote({ studentId, scheduleId }, parent) {
 // An unexpected Stripe error (not a decline) propagates with the ledger row
 // still `pending`, so the slot stays held and is never silently released
 // while money may have moved; check-private-credit-ledger.js reports it.
-async function purchaseAndBook({ studentId, scheduleId, day, packId }, parent) {
+async function purchaseAndBook({ studentId, scheduleId, day, packId, contractId }, parent) {
   const { student, schedule, coach, startDate, endDate } = await privateClassSessionService.loadBookingContext(
     { studentId, scheduleId, day },
     parent
   );
 
   const { contract, unitPrice, options } = await resolvePurchaseTerms(schedule);
+
+  // The parent was quoted from one contract version. If the coach's contract
+  // was edited since, every price may differ — even a single session's — so
+  // nothing is charged and the parent reviews the new prices (plan §8 V5).
+  if (!contractId) {
+    throw badRequestError('contractId is required — take it from the purchase quote');
+  }
+
+  if (String(contractId) !== String(contract._id)) {
+    throw conflictError('Prices have changed — please review them');
+  }
   // The request names a CHOICE, never a price (Hard Rule 7, plan D4). A
   // pack that no longer exists on the coach's active contract, was edited
   // (an edited pack gets a new id, plan D7), or is for another lesson length

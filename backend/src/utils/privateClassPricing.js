@@ -72,6 +72,17 @@ function computeSessionPrice(hourlyRate, durationMinutes) {
   return roundToCents((hourlyRate * durationMinutes) / 60);
 }
 
+// The price of one lesson at `hourlyRate` for each usable length in
+// `lengths` (distinct, ascending) — the contract editor shows these under
+// the rate (coach-pack-pricing-plan §8 V6). Unusable lengths are skipped.
+function sessionPricesFor(hourlyRate, lengths) {
+  const distinct = [...new Set(lengths.filter((minutes) => Number.isInteger(minutes) && minutes >= MIN_LESSON_MINUTES))];
+
+  return distinct
+    .sort((a, b) => a - b)
+    .map((durationMinutes) => ({ durationMinutes, price: computeSessionPrice(hourlyRate, durationMinutes) }));
+}
+
 // Every figure a purchase shows, from what one session costs and what the
 // purchase costs. `total` is `price` (the pack price, or the unit price for a
 // single session); `savings = subtotal - total`. THE ONLY SAVINGS FORMULA —
@@ -287,6 +298,7 @@ function sessionDurationMinutes(startDate, endDate) {
 module.exports = {
   PACK_PRICE_FLOOR_RATIO,
   computeSessionPrice,
+  sessionPricesFor,
   quotePurchase,
   packPriceBand,
   describePack,

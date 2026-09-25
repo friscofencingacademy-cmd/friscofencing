@@ -2,9 +2,11 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
-// The rate contract behind a coach's private-lesson slots. Creating a new
-// contract for a coach deactivates their previous active one (enforced in
-// coachContract.service.js, not here) — one active contract per coach.
+// The rate contract behind a coach's private-lesson slots — one VERSION of
+// it. Editing a contract never changes a version in place: it ends the
+// current version (effectiveTo, endReason 'revised') and starts a new one
+// (docs/plans/coach-pack-pricing-plan.md §8). One active version per coach,
+// enforced in coachContract.service.js, not here.
 const coachContractSchema = new Schema(
   {
     // Always the 'private-lessons' Service today — CoachContract has no
@@ -48,6 +50,17 @@ const coachContractSchema = new Schema(
       type: Boolean,
       default: true,
     },
+    // When this version stopped being current, and why: 'revised' (replaced
+    // by an edit — a newer version starts at the same instant) or
+    // 'deactivated'. Both unset while the version is current, and on
+    // versions that ended before these fields existed.
+    effectiveTo: {
+      type: Date,
+    },
+    endReason: {
+      type: String,
+      enum: ['revised', 'deactivated'],
+    },
     notes: {
       type: String,
     },
@@ -57,8 +70,9 @@ const coachContractSchema = new Schema(
     // offered and is never a row here. Each pack's Mongoose `_id` is the
     // `packId` a parent's purchase request carries. Validated ONLY by
     // utils/privateClassPricing.js's validatePacks (the price band, D8) —
-    // called by coachContract.service.js on every write. Editable on the
-    // active contract (D7); an edited pack gets a new `_id`.
+    // called by coachContract.service.js on every write. A version's packs
+    // never change; editing them makes a new version, whose packs are new
+    // subdocuments with new ids (plan §8 V5).
     privateLessonPacks: {
       type: [
         {

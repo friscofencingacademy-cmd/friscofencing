@@ -1,6 +1,7 @@
 const {
   PACK_PRICE_FLOOR_RATIO,
   computeSessionPrice,
+  sessionPricesFor,
   quotePurchase,
   packPriceBand,
   describePack,
@@ -18,6 +19,20 @@ const TEN_BY_THIRTY = { sessionDurationMinutes: 30, quantity: 10 };
 describe('privateClassPricing — packs', () => {
   it('defines the floor as one named constant', () => {
     expect(PACK_PRICE_FLOOR_RATIO).toBe(0.5);
+  });
+
+  describe('sessionPricesFor — lesson prices under the rate (plan §8 V6)', () => {
+    it('prices each distinct usable length, ascending', () => {
+      expect(sessionPricesFor(RATE, [60, 30, 60, 45])).toEqual([
+        { durationMinutes: 30, price: 32.5 },
+        { durationMinutes: 45, price: 48.75 },
+        { durationMinutes: 60, price: 65 },
+      ]);
+    });
+
+    it('skips lengths that are not whole minutes of at least 15', () => {
+      expect(sessionPricesFor(RATE, [undefined, 10, 22.5, 30])).toEqual([{ durationMinutes: 30, price: 32.5 }]);
+    });
   });
 
   describe('quotePurchase — the only savings formula', () => {
