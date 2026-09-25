@@ -2,6 +2,13 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
+// The default private-lesson length (owner decision 2026-09-25: most
+// fencing private lessons are 30 minutes). The one home of this default on
+// the backend — privateClassSchedule.model.js reuses it. A coach's slot
+// length is their contract's sessionDurationMinutes unless the publisher
+// types another.
+const DEFAULT_LESSON_MINUTES = 30;
+
 // The rate contract behind a coach's private-lesson slots — one VERSION of
 // it. Editing a contract never changes a version in place: it ends the
 // current version (effectiveTo, endReason 'revised') and starts a new one
@@ -39,7 +46,7 @@ const coachContractSchema = new Schema(
     },
     sessionDurationMinutes: {
       type: Number,
-      default: 60,
+      default: DEFAULT_LESSON_MINUTES,
       min: 15,
     },
     effectiveFrom: {
@@ -92,3 +99,4 @@ const coachContractSchema = new Schema(
 coachContractSchema.index({ coachId: 1, isActive: 1 });
 
 module.exports = mongoose.model('CoachContract', coachContractSchema);
+module.exports.DEFAULT_LESSON_MINUTES = DEFAULT_LESSON_MINUTES;

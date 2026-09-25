@@ -62,7 +62,8 @@ async function loginAgent(email) {
 async function seedCoachWithRules({
   suffix,
   studentBillingRate = 65,
-  sessionDurationMinutes = 30,
+  // Omitted = the contract model's own default (30 minutes).
+  sessionDurationMinutes,
   rules = DEFAULT_RULES,
   privateLessonPacks,
 }) {
@@ -75,7 +76,7 @@ async function seedCoachWithRules({
     coachId: coach._id.toString(),
     studentBillingRate,
     coachCompensationRate: 40,
-    sessionDurationMinutes,
+    ...(sessionDurationMinutes === undefined ? {} : { sessionDurationMinutes }),
     ...(privateLessonPacks ? { privateLessonPacks } : {}),
   });
 

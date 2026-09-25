@@ -183,7 +183,7 @@ unprorated fee rather than dividing by zero, still anchored to the calendar-mont
 | `coachId` | ObjectId ref `User` | required |
 | `studentBillingRate` | Number | required, min 0 — $/HOUR billed to the parent |
 | `coachCompensationRate` | Number | required, min 0 — $/hour paid to the coach; stored for audit/future payroll only, **no payout UI** (D11) |
-| `sessionDurationMinutes` | Number | default 60, min 15 — the default slot length new schedules inherit |
+| `sessionDurationMinutes` | Number | default 30 (`DEFAULT_LESSON_MINUTES`, owner decision 2026-09-25), min 15 — the default slot length new schedules inherit |
 | `effectiveFrom` | Date | default now |
 | `isActive` | Boolean | default true |
 | `notes` | String | optional |
@@ -199,7 +199,7 @@ Index: `{ coachId: 1, isActive: 1 }`. **Versioned** (`docs/plans/coach-pack-pric
 | `coachId` | ObjectId ref `User` | required |
 | `dayOfWeek` | Number 0–6 | required — `Date.getDay()` convention, matches `GroupClassSchedule` |
 | `startTime` | String `"HH:mm"` | required, 24h Central wall-clock, format-validated |
-| `durationMinutes` | Number | default 60, min 15 |
+| `durationMinutes` | Number | default 30 (the same `DEFAULT_LESSON_MINUTES`), min 15 — publishing always sets it (the typed slot length, or the contract's default) |
 | `startDate`, `endDate` | Date | required — **calendar-day sentinels**, inclusive bookable range; `endDate >= startDate` validated |
 | `isActive` | Boolean | default true — `false` = retired (removed after it had bookings, so their `scheduleId` stays valid) |
 

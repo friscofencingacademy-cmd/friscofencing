@@ -184,7 +184,7 @@ const PRIVATE_CLASS_CONTRACT = {
   coach: 'chris',
   studentBillingRate: 60,
   coachCompensationRate: 30,
-  sessionDurationMinutes: 60,
+  sessionDurationMinutes: 30,
   notes: 'PLACEHOLDER rate, created by import-legacy-data.js — confirm the real rate before go-live.',
 };
 

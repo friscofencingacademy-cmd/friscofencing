@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
+const { DEFAULT_LESSON_MINUTES } = require('./coachContract.model');
 
 // A coach's published AVAILABILITY RULE for private lessons
 // (docs/plans/private-class-per-session-booking-plan.md D1): "this weekday,
@@ -37,7 +38,7 @@ const privateClassScheduleSchema = new Schema(
     },
     durationMinutes: {
       type: Number,
-      default: 60,
+      default: DEFAULT_LESSON_MINUTES,
       min: 15,
     },
     // Calendar-day sentinels (dateShapes.js dateOnlyUTC), inclusive — the

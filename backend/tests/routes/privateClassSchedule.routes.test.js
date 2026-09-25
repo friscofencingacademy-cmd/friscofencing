@@ -86,6 +86,25 @@ describe('Private class schedule routes', () => {
       expect(res.body.schedules[0].durationMinutes).toBe(60);
     });
 
+    it('makes 30-minute slots by default: a contract with no lesson length set, and no slot length typed', async () => {
+      const { coachAgent, contract } = await seedCoachWithRules({ suffix: 'default-30', rules: null });
+      expect(contract.sessionDurationMinutes).toBe(30);
+
+      const res = await coachAgent.post('/api/v1/private-class-schedules').send({
+        daysOfWeek: [2],
+        windowStart: '16:00',
+        windowEnd: '17:00',
+        startDate: '2026-10-01',
+        endDate: '2026-10-31',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.schedules.map((rule) => [rule.startTime, rule.durationMinutes])).toEqual([
+        ['16:00', 30],
+        ['16:30', 30],
+      ]);
+    });
+
     it('lets an admin publish on behalf of a coach, and requires coachId to do so', async () => {
       const { coach, adminAgent } = await seedCoachWithRules({ suffix: 'admin-pub', rules: null });
 
