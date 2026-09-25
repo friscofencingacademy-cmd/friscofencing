@@ -112,6 +112,9 @@ export const FIXTURE_PRIVATE_DATE = {
   endDate: '2026-10-06T22:00:00.000Z',
 };
 export const FIXTURE_PRIVATE_QUOTE = {
+  // The contract version the prices come from; the purchase sends it back
+  // (docs/plans/coach-pack-pricing-plan.md §8 V5).
+  contractId: 'private-contract-1',
   durationMinutes: 30,
   hourlyRate: 65,
   availableCredits: 0,

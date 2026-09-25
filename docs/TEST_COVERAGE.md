@@ -11,7 +11,7 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 | Functions | — (informational) | 95.15% | 88.75% |
 | Lines | — (informational) | 92.85% | 92.01% |
 
-Both re-measured 2026-09-24 via `TZ=UTC npm test -- --coverage` (backend) and `TZ=UTC npx jest --coverage` (frontend) after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract). Backend: 76 suites / 980 tests, all passing. Frontend: 60 suites / 472 tests, all passing. Both clear the 80%-statements target.
+Both re-measured 2026-09-24 via `TZ=UTC npm test -- --coverage` (backend) and `TZ=UTC npx jest --coverage` (frontend) after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract). Backend: 76 suites / 980 tests, all passing. Frontend: 60 suites / 472 tests, all passing. Both clear the 80%-statements target. After the plan's §8 follow-up (contracts edited as versions, 2026-09-25) the counts are backend 76 suites / 987 tests and frontend 61 suites / 474 tests, all passing, E2E 31 + 2 known skips; the percentages above were not re-measured for that change.
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331

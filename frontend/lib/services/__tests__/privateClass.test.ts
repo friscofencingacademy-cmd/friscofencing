@@ -14,6 +14,7 @@ import {
 import type { PrivatePurchaseQuote } from '../../types';
 
 const QUOTE: PrivatePurchaseQuote = {
+  contractId: 'contract-1',
   durationMinutes: 30,
   hourlyRate: 65,
   availableCredits: 0,
@@ -60,7 +61,7 @@ describe('privateClass service — queries throw on failure', () => {
 describe('privateClass service — mutations resolve a status object, never throw', () => {
   it.each([
     ['purchasePrivateLessons', 'post', '*/private-class-enrollments', () =>
-      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', packId: 'pack-10' })],
+      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', contractId: 'contract-1', packId: 'pack-10' })],
     ['bookPrivateLessonWithCredit', 'post', '*/private-class-sessions', () =>
       bookPrivateLessonWithCredit({ studentId: 's', scheduleId: 'r', day: '2026-10-06' })],
     ['cancelPrivateBooking', 'post', '*/private-class-sessions/:id/cancel', () => cancelPrivateBooking('b')],
@@ -78,12 +79,13 @@ describe('privateClass service — mutations resolve a status object, never thro
     server.use(http.post('*/private-class-enrollments', () => new HttpResponse(null, { status: 500 })));
 
     await expect(
-      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06' })
+      purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', contractId: 'contract-1' })
     ).resolves.toEqual({ status: 'error', message: 'Payment or booking failed. Please try again.' });
   });
 
   // docs/plans/coach-pack-pricing-plan.md D4 — the request names a pack by
-  // id (or none, for a single session), never a quantity or a price.
+  // id (or none, for a single session) plus the quoted contract version
+  // (§8 V5), never a quantity or a price.
   it('purchasePrivateLessons posts the packId as given, and nothing for a single session', async () => {
     const bodies: unknown[] = [];
     server.use(
@@ -93,12 +95,12 @@ describe('privateClass service — mutations resolve a status object, never thro
       })
     );
 
-    await purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', packId: 'pack-10' });
-    await purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06' });
+    await purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', contractId: 'contract-1', packId: 'pack-10' });
+    await purchasePrivateLessons({ studentId: 's', scheduleId: 'r', day: '2026-10-06', contractId: 'contract-1' });
 
     expect(bodies).toEqual([
-      { studentId: 's', scheduleId: 'r', day: '2026-10-06', packId: 'pack-10' },
-      { studentId: 's', scheduleId: 'r', day: '2026-10-06' },
+      { studentId: 's', scheduleId: 'r', day: '2026-10-06', contractId: 'contract-1', packId: 'pack-10' },
+      { studentId: 's', scheduleId: 'r', day: '2026-10-06', contractId: 'contract-1' },
     ]);
   });
 

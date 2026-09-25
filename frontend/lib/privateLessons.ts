@@ -2,7 +2,14 @@ import { formatDateOnly, formatInstant } from './formatDate';
 import { formatTime } from './formatTime';
 import { DAY_LABELS } from './constants';
 import { formatMoney } from './formatMoney';
-import type { PackQuoteRow, PrivateAttendance, PrivateBookingStatus, PrivatePurchaseOption } from './types';
+import type {
+  CoachContract,
+  PackQuoteRow,
+  PrivateAttendance,
+  PrivateBookingStatus,
+  PrivatePurchaseOption,
+  SessionPriceRow,
+} from './types';
 
 // Display helpers shared by every private-lesson page (public listing,
 // booking wizard, parent, coach and admin views) — one wording per concept.
@@ -56,7 +63,7 @@ export function sessionCount(count: number): string {
 
 // ── Purchase options and packs (docs/plans/coach-pack-pricing-plan.md) ───────
 // Every figure below is a backend value (the quote, the public listing, the
-// ledger row, the pack-quotes preview); these only format it.
+// ledger row, the contract editor's preview); these only format it.
 
 /** "Buy 10 sessions" / "Buy 1 session" — a purchase option in the booking wizard. */
 export function purchaseOptionLabel(option: PrivatePurchaseOption): string {
@@ -88,4 +95,17 @@ export function packPreviewLabel(quote: PackQuoteRow): string {
   if (quote.error) return quote.error;
   if (quote.perLessonPrice === null || quote.savings === null || quote.savingsPercent === null) return '';
   return `${formatMoney(quote.perLessonPrice)} per lesson · saves ${formatMoney(quote.savings)} (${quote.savingsPercent}%)`;
+}
+
+/** "Lesson prices: 30 min $30.00 · 60 min $60.00" — shown under the hourly rate. */
+export function sessionPricesLabel(rows: SessionPriceRow[]): string {
+  return `Lesson prices: ${rows.map((row) => `${row.durationMinutes} min ${formatMoney(row.price)}`).join(' · ')}`;
+}
+
+/** "Current" / "Replaced" / "Ended" — where a contract version stands (plan §8). */
+export function contractStatusLabel(contract: Pick<CoachContract, 'isActive' | 'endReason'>): string {
+  if (contract.isActive) return 'Current';
+  if (contract.endReason === 'revised') return 'Replaced';
+  if (contract.endReason === 'deactivated') return 'Ended';
+  return 'Inactive';
 }

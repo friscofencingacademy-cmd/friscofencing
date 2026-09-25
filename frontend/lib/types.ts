@@ -692,9 +692,32 @@ export interface CoachContract {
   sessionDurationMinutes: number;
   effectiveFrom: string;
   isActive: boolean;
+  // A contract is VERSIONED (docs/plans/coach-pack-pricing-plan.md §8): an
+  // edit ends the current version and starts a new one. Both unset while the
+  // version is current (and on versions that ended before they existed).
+  effectiveTo?: string;
+  endReason?: 'revised' | 'deactivated';
   notes?: string;
   // This coach's fixed-price packs (docs/plans/coach-pack-pricing-plan.md).
   privateLessonPacks: PrivateLessonPack[];
+}
+
+// POST /coach-contracts/:id/revisions — the new current version and the one it replaced.
+export interface CoachContractRevision {
+  contract: CoachContract;
+  previous: CoachContract;
+}
+
+// One lesson length's price at the contract's hourly rate (backend-computed).
+export interface SessionPriceRow {
+  durationMinutes: number;
+  price: number;
+}
+
+// POST /coach-contracts/preview — the contract editor's live preview.
+export interface ContractPreview {
+  sessionPrices: SessionPriceRow[];
+  packs: PackQuoteRow[];
 }
 
 // One pack on a coach's contract: a fixed total `price` for `quantity`
@@ -716,7 +739,7 @@ export interface PrivateLessonPackDraft {
   price: number;
 }
 
-// POST /coach-contracts/pack-quotes — the pack editor's preview of one pack,
+// One pack in POST /coach-contracts/preview — the editor's preview of one pack,
 // every figure from the backend's own pack check. `error` is the exact
 // message saving would return, or null. Figures are null when they cannot
 // be computed (an unusable length, quantity or price).
@@ -825,6 +848,9 @@ export interface PrivatePurchaseOption {
 // purchases; `availableCredits` are already-paid sessions usable for this
 // slot (same coach and lesson length).
 export interface PrivatePurchaseQuote {
+  // The contract version these prices come from; the purchase sends it back
+  // and a contract edited since is a 409 (plan §8 V5). Null with no options.
+  contractId: string | null;
   durationMinutes: number;
   hourlyRate: number | null;
   options: PrivatePurchaseOption[];

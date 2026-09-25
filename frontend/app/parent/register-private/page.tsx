@@ -128,7 +128,7 @@ export default function RegisterPrivatePage() {
   }
 
   async function handleSubmit() {
-    if (!selectedDate || (!usingCredit && !purchaseOption)) return;
+    if (!selectedDate || (!usingCredit && (!purchaseOption || !quote.data || !quote.data.contractId))) return;
 
     setSubmitError(null);
     setSubmitting(true);
@@ -139,6 +139,8 @@ export default function RegisterPrivatePage() {
           studentId,
           scheduleId,
           day,
+          // The contract version these prices came from (plan §8 V5).
+          contractId: quote.data!.contractId!,
           ...(purchaseOption!.packId ? { packId: purchaseOption!.packId } : {}),
         });
 
@@ -150,8 +152,9 @@ export default function RegisterPrivatePage() {
     } else {
       setSubmitError(result.message);
       // The server's own answers may have changed (a slot taken, a credit
-      // used elsewhere, a pack no longer offered — plan D11) — refetch before
-      // the parent tries again, through this one error path.
+      // used elsewhere, prices changed or a pack no longer offered — plan
+      // D11, §8 V5) — refetch before the parent tries again, through this
+      // one error path.
       dates.retry();
       quote.retry();
     }
