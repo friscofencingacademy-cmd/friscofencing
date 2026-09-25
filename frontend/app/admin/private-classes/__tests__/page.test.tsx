@@ -30,14 +30,15 @@ const PURCHASE: PrivatePurchaseEntry = {
     agreedHourlyRate: 65,
     sessionDurationMinutes: 30,
     quantity: 10,
-    discountPercent: 10,
     sessionsUsed: 3,
     status: 'active',
     createdAt: '2026-10-05T14:00:00.000Z',
   },
   // Server values, rendered verbatim — not 10 - 3.
   remaining: 7,
-  payment: { _id: 'reg-1', amount: 292.5, quantity: 10, unitPrice: 32.5, discountPercent: 10, paidAt: '2026-10-05T14:00:00.000Z' },
+  // Server values, rendered verbatim: `savings` deliberately is NOT
+  // 10 x 32.5 - 300 (= 25), so a client-side recomputation would show.
+  payment: { _id: 'reg-1', amount: 300, quantity: 10, unitPrice: 32.5, savings: 31, paidAt: '2026-10-05T14:00:00.000Z' },
   sessions: [],
 };
 
@@ -116,8 +117,8 @@ describe('AdminPrivateClassesPage', () => {
     expect(within(row).getByText('Dana Cole')).toBeInTheDocument();
     expect(within(row).getByText('30 min')).toBeInTheDocument();
     expect(within(row).getByText('7 of 10')).toBeInTheDocument();
-    expect(within(row).getByText('$292.50')).toBeInTheDocument();
-    expect(within(row).getByText('10% pack discount')).toBeInTheDocument();
+    expect(within(row).getByText('$300.00')).toBeInTheDocument();
+    expect(within(row).getByText('Saved $31.00')).toBeInTheDocument();
   });
 
   it('switches tabs through the URL', async () => {

@@ -5,10 +5,21 @@ import { Plus } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchUsers } from '../../../lib/services/users';
-import { createCoachContract, deactivateCoachContract, fetchCoachContracts } from '../../../lib/services/coachContracts';
+import {
+  createCoachContract,
+  deactivateCoachContract,
+  fetchCoachContracts,
+  updateCoachContractPacks,
+} from '../../../lib/services/coachContracts';
 import { formatInstant } from '../../../lib/formatDate';
-import type { AuthUser, CoachContract } from '../../../lib/types';
+import { formatMoney } from '../../../lib/formatMoney';
+import type { AuthUser, CoachContract, PrivateLessonPack } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import PackEditor, {
+  packDraftsFromRows,
+  packRowsFromPacks,
+  type PackEditorRow,
+} from '../../components/admin/PackEditor/PackEditor';
 import { AdminEmptyRow, AdminLoadingRow } from '../../components/admin/AdminTableRows';
 import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
@@ -40,6 +51,19 @@ function formatDate(iso: string): string {
 // coachId is null when the coach was deleted without a delete-guard
 // blocking it (orphaned-coach-reference-fix-plan D2) — never assume it's
 // populated.
+// "10 × 30 min — $300.00" — one saved pack, formatted from its stored fields.
+function packLine(pack: PrivateLessonPack): string {
+  return `${pack.quantity} × ${pack.sessionDurationMinutes} min — ${formatMoney(pack.price)}`;
+}
+
+// The rate the pack preview checks against, or null while the typed rate
+// is not a usable number (no preview is requested then).
+function previewRate(value: string): number | null {
+  if (value.trim() === '') return null;
+  const rate = Number(value);
+  return Number.isNaN(rate) || rate < 0 ? null : rate;
+}
+
 function coachLabel(coachId: CoachContract['coachId']): string {
   return coachId ? `${coachId.firstName} ${coachId.lastName}` : 'Coach no longer available';
 }
@@ -63,8 +87,17 @@ export default function AdminCoachContractsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<ContractForm>(EMPTY_FORM);
+  const [packRows, setPackRows] = useState<PackEditorRow[]>([]);
+  const [packsCanSave, setPacksCanSave] = useState(true);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // "Edit packs" on the active contract (docs/plans/coach-pack-pricing-plan.md D7).
+  const [packsTarget, setPacksTarget] = useState<CoachContract | null>(null);
+  const [editRows, setEditRows] = useState<PackEditorRow[]>([]);
+  const [editCanSave, setEditCanSave] = useState(true);
+  const [packsError, setPacksError] = useState<string | null>(null);
+  const [savingPacks, setSavingPacks] = useState(false);
 
   const [deactivateTarget, setDeactivateTarget] = useState<CoachContract | null>(null);
   const [deactivateError, setDeactivateError] = useState<string | null>(null);
@@ -72,8 +105,51 @@ export default function AdminCoachContractsPage() {
 
   function openCreate() {
     setForm(EMPTY_FORM);
+    setPackRows([]);
     setDialogError(null);
     setDialogOpen(true);
+  }
+
+  // Picking a coach prefills the packs from their current active contract
+  // (plan D9): a new contract then carries them over unless the admin changes
+  // them. The dialog always sends the list it shows. Ids are dropped — a new
+  // contract's packs are new packs.
+  function selectCoach(coachId: string) {
+    setField('coachId', coachId);
+    const active = contracts.find(
+      (contract) => contract.isActive && contract.coachId !== null && contract.coachId._id === coachId
+    );
+    setPackRows(packRowsFromPacks(active ? active.privateLessonPacks : []).map(({ _id, ...row }) => row));
+  }
+
+  function openEditPacks(contract: CoachContract) {
+    setEditRows(packRowsFromPacks(contract.privateLessonPacks));
+    setPacksError(null);
+    setPacksTarget(contract);
+  }
+
+  function closeEditPacks() {
+    if (savingPacks) return;
+    setPacksTarget(null);
+    setPacksError(null);
+  }
+
+  async function handleSavePacks() {
+    if (!packsTarget) return;
+
+    setPacksError(null);
+    setSavingPacks(true);
+
+    const result = await updateCoachContractPacks(packsTarget._id, packDraftsFromRows(editRows));
+
+    setSavingPacks(false);
+
+    if (result.status === 'success') {
+      setPacksTarget(null);
+      retry();
+    } else {
+      setPacksError(result.message);
+    }
   }
 
   function closeDialog() {
@@ -111,6 +187,7 @@ export default function AdminCoachContractsPage() {
       studentBillingRate,
       coachCompensationRate,
       sessionDurationMinutes: Number.isNaN(sessionDurationMinutes) ? undefined : sessionDurationMinutes,
+      privateLessonPacks: packDraftsFromRows(packRows),
     });
 
     setSaving(false);
@@ -161,16 +238,17 @@ export default function AdminCoachContractsPage() {
                 <th className={styles.th}>$/hr Billed</th>
                 <th className={styles.th}>$/hr Comp</th>
                 <th className={styles.th}>Duration</th>
+                <th className={styles.th}>Packs</th>
                 <th className={styles.th}>Status</th>
                 <th className={styles.th}>Since</th>
-                <th className={styles.th} style={{ width: 140 }} />
+                <th className={styles.th} style={{ width: 220 }} />
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <AdminLoadingRow colSpan={7} />
+                <AdminLoadingRow colSpan={8} />
               ) : contracts.length === 0 ? (
-                <AdminEmptyRow colSpan={7} message="No coach contracts found" />
+                <AdminEmptyRow colSpan={8} message="No coach contracts found" />
               ) : (
                 contracts.map((contract) => (
                   <tr key={contract._id} className={styles.trHover}>
@@ -178,6 +256,13 @@ export default function AdminCoachContractsPage() {
                     <td className={styles.td}>${contract.studentBillingRate.toFixed(2)}</td>
                     <td className={styles.td}>${contract.coachCompensationRate.toFixed(2)}</td>
                     <td className={styles.td}>{contract.sessionDurationMinutes} min</td>
+                    <td className={styles.td}>
+                      {contract.privateLessonPacks.length === 0 ? (
+                        <span className={styles.cellMuted}>—</span>
+                      ) : (
+                        contract.privateLessonPacks.map((pack) => <div key={pack._id}>{packLine(pack)}</div>)
+                      )}
+                    </td>
                     <td className={styles.td}>
                       {contract.isActive ? (
                         <span className={`${styles.chip} ${styles.chipActive}`}>Active</span>
@@ -188,16 +273,26 @@ export default function AdminCoachContractsPage() {
                     <td className={styles.td}>{formatDate(contract.effectiveFrom)}</td>
                     <td className={`${styles.td} ${styles.tdRight}`}>
                       {contract.isActive ? (
-                        <button
-                          type="button"
-                          className={styles.btnSecondary}
-                          onClick={() => {
-                            setDeactivateError(null);
-                            setDeactivateTarget(contract);
-                          }}
-                        >
-                          Deactivate
-                        </button>
+                        <div className={styles.actionBtns}>
+                          <button
+                            type="button"
+                            className={styles.btnSecondary}
+                            aria-label={`Edit packs for ${coachLabel(contract.coachId)}`}
+                            onClick={() => openEditPacks(contract)}
+                          >
+                            Edit packs
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.btnSecondary}
+                            onClick={() => {
+                              setDeactivateError(null);
+                              setDeactivateTarget(contract);
+                            }}
+                          >
+                            Deactivate
+                          </button>
+                        </div>
                       ) : (
                         <span className={styles.cellMuted}>—</span>
                       )}
@@ -220,7 +315,12 @@ export default function AdminCoachContractsPage() {
             <button type="button" className={styles.btnSecondary} onClick={closeDialog} disabled={saving}>
               Cancel
             </button>
-            <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleSave}
+              disabled={saving || !packsCanSave}
+            >
               {saving ? 'Saving…' : 'Create'}
             </button>
           </>
@@ -236,7 +336,7 @@ export default function AdminCoachContractsPage() {
             id="contract-coachId"
             className={styles.select}
             value={form.coachId}
-            onChange={(e) => setField('coachId', e.target.value)}
+            onChange={(e) => selectCoach(e.target.value)}
           >
             <option value="">Select a coach</option>
             {coaches.map((coach) => (
@@ -291,6 +391,55 @@ export default function AdminCoachContractsPage() {
             onChange={(e) => setField('sessionDurationMinutes', e.target.value)}
           />
         </div>
+
+        <PackEditor
+          studentBillingRate={previewRate(form.studentBillingRate)}
+          rows={packRows}
+          onChange={setPackRows}
+          onCanSaveChange={setPacksCanSave}
+          disabled={saving}
+          defaultMinutes={form.sessionDurationMinutes}
+        />
+      </Modal>
+
+      <Modal
+        open={packsTarget !== null}
+        onClose={closeEditPacks}
+        title="Edit Packs"
+        disableClose={savingPacks}
+        footer={
+          <>
+            <button type="button" className={styles.btnSecondary} onClick={closeEditPacks} disabled={savingPacks}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleSavePacks}
+              disabled={savingPacks || !editCanSave}
+            >
+              {savingPacks ? 'Saving…' : 'Save packs'}
+            </button>
+          </>
+        }
+      >
+        {packsError ? <Alert variant="error">{packsError}</Alert> : null}
+        {packsTarget ? (
+          <p className={styles.formHint} style={{ marginTop: 0 }}>
+            {coachLabel(packsTarget.coachId)} · {formatMoney(packsTarget.studentBillingRate)}/hr. Changing a pack&apos;s
+            price does not change what past buyers paid.
+          </p>
+        ) : null}
+        {packsTarget ? (
+          <PackEditor
+            studentBillingRate={packsTarget.studentBillingRate}
+            rows={editRows}
+            onChange={setEditRows}
+            onCanSaveChange={setEditCanSave}
+            disabled={savingPacks}
+            defaultMinutes={String(packsTarget.sessionDurationMinutes)}
+          />
+        ) : null}
       </Modal>
 
       <Modal

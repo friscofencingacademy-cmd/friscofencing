@@ -20,7 +20,8 @@ import {
   formatLessonDay,
   formatLessonTime,
   formatRuleSlot,
-  sessionCount,
+  purchaseOptionLabel,
+  purchaseOptionPrice,
 } from '../../../lib/privateLessons';
 import type {
   PrivateAvailableDate,
@@ -50,8 +51,10 @@ import type { OrderSummaryLine } from '../../components/portal/flow';
 const STEPS = ['Who', 'When', 'Sessions', 'Review', 'Done'];
 const CREDIT_CHOICE = 'credit';
 
+// A purchase option is identified by its packId (null = the single session),
+// never by its quantity or price (docs/plans/coach-pack-pricing-plan.md D4).
 function purchaseKey(option: PrivatePurchaseOption): string {
-  return `buy-${option.quantity}`;
+  return option.packId ? `pack-${option.packId}` : 'single';
 }
 
 async function fetchCatalogAndCard() {
@@ -132,7 +135,12 @@ export default function RegisterPrivatePage() {
 
     const result = usingCredit
       ? await bookPrivateLessonWithCredit({ studentId, scheduleId, day })
-      : await purchasePrivateLessons({ studentId, scheduleId, day, quantity: purchaseOption!.quantity });
+      : await purchasePrivateLessons({
+          studentId,
+          scheduleId,
+          day,
+          ...(purchaseOption!.packId ? { packId: purchaseOption!.packId } : {}),
+        });
 
     setSubmitting(false);
 
@@ -142,7 +150,8 @@ export default function RegisterPrivatePage() {
     } else {
       setSubmitError(result.message);
       // The server's own answers may have changed (a slot taken, a credit
-      // used elsewhere) — refetch before the parent tries again.
+      // used elsewhere, a pack no longer offered — plan D11) — refetch before
+      // the parent tries again, through this one error path.
       dates.retry();
       quote.retry();
     }
@@ -209,10 +218,10 @@ export default function RegisterPrivatePage() {
       label: 'Sessions',
       value: `${purchaseOption.quantity} × ${formatMoney(purchaseOption.unitPrice)}`,
     });
-    if (purchaseOption.discountPercent > 0) {
+    if (purchaseOption.savings > 0) {
       summaryLines.push({
-        label: `Pack discount (${purchaseOption.discountPercent}%)`,
-        value: `−${formatMoney(purchaseOption.discountAmount)}`,
+        label: 'Pack savings',
+        value: `−${formatMoney(purchaseOption.savings)}`,
         kind: 'discount',
       });
     }
@@ -313,11 +322,8 @@ export default function RegisterPrivatePage() {
               ...(credits > 0 ? [{ key: CREDIT_CHOICE, label: 'Use a paid session', sub: `${credits} left` }] : []),
               ...options.map((option) => ({
                 key: purchaseKey(option),
-                label: `Buy ${sessionCount(option.quantity)}`,
-                sub:
-                  option.discountAmount > 0
-                    ? `${formatMoney(option.total)} · save ${formatMoney(option.discountAmount)}`
-                    : formatMoney(option.total),
+                label: purchaseOptionLabel(option),
+                sub: purchaseOptionPrice(option),
               })),
             ]}
             selectedKey={choice || null}

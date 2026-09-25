@@ -6,22 +6,21 @@ import { useAuth } from '../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
 import { fetchPublicPrivateLessons } from '../../lib/services/privateClass';
 import { formatMoney } from '../../lib/formatMoney';
-import { formatRuleRange, formatRuleSlot, sessionCount } from '../../lib/privateLessons';
-import type { PrivatePackageOffer, PublicPrivateClassSlot } from '../../lib/types';
+import { formatRuleRange, formatRuleSlot, packListingLabel } from '../../lib/privateLessons';
+import type { PublicPrivateClassSlot } from '../../lib/types';
 import AppShell from '../components/layout/AppShell';
 import Button from '../components/ui/Button/Button';
 import Card from '../components/ui/Card/Card';
 import LoadError from '../components/ui/LoadError/LoadError';
 import styles from '../components/ui/shared.module.css';
 
-// "Save with a pack: 10 sessions, 10% off" — the academy's configured packs
-// (a single session is always offered and needs no mention here).
-function packsLine(offers: PrivatePackageOffer[]): string | null {
-  const packs = offers.filter((offer) => offer.quantity > 1);
+// "Packs: 10 lessons for $300.00" — this coach's packs for this slot's length
+// (docs/plans/coach-pack-pricing-plan.md), straight from the slot's options.
+// The single session is the "/ session" price above and is not repeated.
+function packsLine(slot: PublicPrivateClassSlot): string | null {
+  const packs = slot.options.filter((option) => option.packId !== null);
   if (packs.length === 0) return null;
-  return `Save with a pack: ${packs
-    .map((offer) => `${sessionCount(offer.quantity)}, ${offer.discountPercent}% off`)
-    .join(' · ')}`;
+  return `Packs: ${packs.map(packListingLabel).join(' · ')}`;
 }
 
 function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isLoggedInParent: boolean }) {
@@ -29,6 +28,7 @@ function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isL
   // to log in first, carrying ?next= back to this exact slot.
   const bookingHref = `/parent/register-private?slot=${slot.scheduleId}`;
   const href = isLoggedInParent ? bookingHref : `/login?next=${encodeURIComponent(bookingHref)}`;
+  const packs = packsLine(slot);
 
   return (
     <div className={styles.scheduleRow}>
@@ -37,6 +37,7 @@ function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isL
         <div className={styles.pageSubtitle}>
           {formatMoney(slot.sessionPrice)} / session · Open {formatRuleRange(slot)}
         </div>
+        {packs ? <div className={styles.pageSubtitle}>{packs}</div> : null}
       </div>
       <div className={styles.scheduleRowActions}>
         <Button as="a" href={href} size="sm">
@@ -53,7 +54,6 @@ export default function PrivateClassesPage() {
   const { user, loading: authLoading } = useAuth();
   const isLoggedInParent = !!user && user.role === 'parent';
   const { data, error, isLoading, retry } = useLoadState(fetchPublicPrivateLessons, []);
-  const packs = data ? packsLine(data.packageOffers) : null;
 
   return (
     <AppShell>
@@ -63,7 +63,6 @@ export default function PrivateClassesPage() {
           One-on-one coaching. Pick a coach and a time, then book one lesson at a time — pay per lesson or
           buy a pack.
         </p>
-        {packs ? <p className={styles.pageSubtitle}>{packs}</p> : null}
       </div>
 
       {error ? (

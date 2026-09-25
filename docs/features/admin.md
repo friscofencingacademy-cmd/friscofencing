@@ -75,11 +75,13 @@ Backend `changeSchedule(subscriptionId, newScheduleId)` validation order: subscr
 
 ## Coach Contracts (`/admin/coach-contracts`)
 
-Pattern A minus edit. List: coach, `$/hr` billed to parent, `$/hr` coach compensation, default session duration, Active/Inactive status, effective-since date. Add dialog: coach select (from `?role=coach`), both rates, default duration — hint text: "Creating a contract replaces the coach's current active contract" (one active contract per coach, enforced service-side). Deactivate action: confirm dialog, no delete (a contract is an immutable audit record — see `docs/features/private-class.md`).
+Pattern A minus edit, plus **Edit packs** (`docs/plans/coach-pack-pricing-plan.md`). List: coach, `$/hr` billed to parent, `$/hr` coach compensation, default session duration, **Packs** (one line per pack, "10 × 30 min — $300.00"), Active/Inactive status, effective-since date. Add dialog: coach select (from `?role=coach`), both rates, default duration — hint text: "Creating a contract replaces the coach's current active contract" (one active contract per coach, enforced service-side) — and the shared `PackEditor`, **prefilled from the chosen coach's current active contract** (sent as new packs, without ids); the dialog always sends the list it shows. Deactivate action: confirm dialog, no delete (the rates are an immutable audit record — see `docs/features/private-class.md`).
+
+**Packs.** A pack is a fixed total price for a number of lessons of one length, offered to parents only on that coach's slots of that length. The **Edit packs** action on the active contract opens a second shared `Modal` around the same `PackEditor` and saves through `PUT /coach-contracts/:id/packs`; a saved pack's id is sent back, and the backend keeps it only when nothing about the pack changed (an edited pack gets a new id, so a parent holding a quote for the old price is refused rather than charged the new one). Both dialogs share one component (`app/components/admin/PackEditor/`): each row has lesson length, sessions and price, and under it the **backend's own preview** from `POST /coach-contracts/pack-quotes` — "$30.00 per lesson · saves $25.00 (8%)", or the exact message saving would return ("10 × 30 min: price must be between $162.50 and $324.99"). The preview is debounced (`useDebouncedValue`, 400ms). Save is disabled while a row is incomplete, being checked, or refused; a **failed** preview shows "Preview unavailable" and does not block Save, because the save's own 400 is the rule and is shown verbatim in the dialog. The form does no price arithmetic. Packs are admin + superadmin (the same as every contract route) — moved here from the superadmin-only Settings page (plan D13).
 
 ## Private Classes (`/admin/private-classes`)
 
-Per-session bookings ([ADR 011](../decisions/011-private-per-session-booking.md)). `?tab=` (default `purchases`), synced to the URL, rendered as a `role="tablist"`. **Purchases** (read-only — money is the ledger's): student, parent + email, coach, lesson length, "N of M" sessions left, amount paid (from the purchase's ledger row) with its pack discount, purchase date. **Bookings**: lesson time, student, coach, a status chip (`bookingStatusLabel` — Booked / Attended / Missed / Cancelled, attendance from the Visit), and Cancel only where the row's server-computed `canCancel` is true (shared `Modal` confirm; the family gets the session back, no money moves). **Availability**: every coach's current rules (slot, bookable range, upcoming-booking count), a **Publish Availability** button opening the shared `PublishAvailabilityDialog` with a coach picker (bulk: dates, weekdays, time window, slot length), and Remove — a 409 (upcoming bookings) flips the dialog to "Cannot Remove" with the backend message; a rule with only past bookings is retired rather than deleted. Full model/pipeline detail: `docs/features/private-class.md`.
+Per-session bookings ([ADR 011](../decisions/011-private-per-session-booking.md)). `?tab=` (default `purchases`), synced to the URL, rendered as a `role="tablist"`. **Purchases** (read-only — money is the ledger's): student, parent + email, coach, lesson length, "N of M" sessions left, amount paid (from the purchase's ledger row) with "Saved $X" when it was a pack (the server's derived `payment.savings`), purchase date. **Bookings**: lesson time, student, coach, a status chip (`bookingStatusLabel` — Booked / Attended / Missed / Cancelled, attendance from the Visit), and Cancel only where the row's server-computed `canCancel` is true (shared `Modal` confirm; the family gets the session back, no money moves). **Availability**: every coach's current rules (slot, bookable range, upcoming-booking count), a **Publish Availability** button opening the shared `PublishAvailabilityDialog` with a coach picker (bulk: dates, weekdays, time window, slot length), and Remove — a 409 (upcoming bookings) flips the dialog to "Cannot Remove" with the backend message; a rule with only past bookings is retired rather than deleted. Full model/pipeline detail: `docs/features/private-class.md`.
 
 ## Sessions (`/admin/schedules/:id/sessions`)
 
@@ -163,15 +165,12 @@ Prices.
 
 Not a Pattern A CRUD page (there's only ever one `Setting` document) — a single form: "Default
 Registration Fee ($)" (the academy-wide default — a level can override it on the Prices page, see
-above), "Waive if returning within (months)", and **Private-lesson packs** (ADR 011): one row per pack
-(sessions + discount %), with Add pack / Remove. A single session at full price is always offered and is
-never a row. Save checks only that each number is a number (and each pack has a session count), then
-`PATCH /api/v1/settings`; which packs are valid (whole quantities of at least 2, no duplicates, discount
-0–99) is the backend's rule (`privateClassPricing.js`'s `normalizePackageOffers`), and its message shows
-inline, the form staying editable. See `docs/decisions/001-in-house-subscription-billing.md`'s addenda,
-`docs/plans/per-level-registration-fee-plan.md` for the per-level override, and
-`docs/plans/private-class-per-session-booking-plan.md` D13 for packs. (The deprecated
-`prorationEnabled` field has no control on this page — proration is unconditional, ADR 007.)
+above) and "Waive if returning within (months)". Save checks that each is a number ≥ 0, then
+`PATCH /api/v1/settings`. See `docs/decisions/001-in-house-subscription-billing.md`'s addenda and
+`docs/plans/per-level-registration-fee-plan.md` for the per-level override. Private-lesson packs are
+**not** here any more — each coach's packs are set on Coach Contracts above
+(`docs/plans/coach-pack-pricing-plan.md` D10). (The deprecated `prorationEnabled` field has no control on
+this page — proration is unconditional, ADR 007.)
 
 ## Dashboard (`/admin/dashboard`)
 

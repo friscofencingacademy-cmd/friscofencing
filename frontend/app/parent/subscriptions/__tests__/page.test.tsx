@@ -58,13 +58,14 @@ const PRIVATE_ENTRY: PrivatePurchaseEntry = {
     agreedHourlyRate: 65,
     sessionDurationMinutes: 30,
     quantity: 10,
-    discountPercent: 10,
     sessionsUsed: 2,
     status: 'active',
     createdAt: '2026-10-05T14:00:00.000Z',
   },
   remaining: 8,
-  payment: { _id: 'reg-1', amount: 292.5, quantity: 10, unitPrice: 32.5, discountPercent: 10, paidAt: '2026-10-05T14:00:00.000Z' },
+  // Server values, rendered verbatim: `savings` deliberately is NOT
+  // 10 x 32.5 - 300 (= 25), so a client-side recomputation would show.
+  payment: { _id: 'reg-1', amount: 300, quantity: 10, unitPrice: 32.5, savings: 31, paidAt: '2026-10-05T14:00:00.000Z' },
   sessions: [
     {
       _id: 'booking-past',
@@ -402,7 +403,7 @@ describe('SubscriptionsPage', () => {
       renderSubscriptionsPage();
 
       expect(await screen.findByRole('heading', { name: 'Priv Lessons with Dana Cole' })).toBeInTheDocument();
-      expect(screen.getByText('8 of 10 sessions left · 30 min each · Paid $292.50')).toBeInTheDocument();
+      expect(screen.getByText('8 of 10 sessions left · 30 min each · Paid $300.00 · Saved $31.00')).toBeInTheDocument();
 
       const past = screen.getByText('Tue, Oct 6, 2026, 4:30 PM').closest('tr') as HTMLElement;
       const next = screen.getByText('Tue, Oct 20, 2026, 4:30 PM').closest('tr') as HTMLElement;

@@ -9,7 +9,7 @@ import { loginAs } from './fixtures/auth';
 // (fixtures/mock-api.ts) — the real backend flow is covered by the backend
 // route suites against real Stripe test mode.
 test.describe('private lesson booking', () => {
-  test('a parent picks a slot, a date and a 10-session pack, pays the quoted total, and is booked', async ({ page }) => {
+  test("a parent picks a slot, a date and the coach's 10-session pack, pays the pack price, and is booked", async ({ page }) => {
     let purchasePayload: unknown = null;
     const overrides: MockRule[] = [
       {
@@ -25,6 +25,7 @@ test.describe('private lesson booking', () => {
 
     await page.goto('/private-classes');
     await expect(page.getByText('Tuesdays · 4:30 PM · 30 min')).toBeVisible();
+    await expect(page.getByText('Packs: 10 lessons for $300.00')).toBeVisible();
     await page.getByRole('link', { name: 'Pick a date' }).click();
 
     await expect(page).toHaveURL(/\/parent\/register-private\?slot=private-rule-1/);
@@ -38,10 +39,17 @@ test.describe('private lesson booking', () => {
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText(/cancel at least 24 hours before a lesson/i)).toBeVisible();
-    await page.getByRole('button', { name: 'Pay $292.50 & book' }).click();
+    await expect(page.getByText('Pack savings')).toBeVisible();
+    await page.getByRole('button', { name: 'Pay $300.00 & book' }).click();
 
     await expect(page.getByText("You're booked!")).toBeVisible();
-    expect(purchasePayload).toEqual({ studentId: 'student-1', scheduleId: 'private-rule-1', day: '2026-10-06', quantity: 10 });
+    // The request names the pack by id — never a quantity or a price.
+    expect(purchasePayload).toEqual({
+      studentId: 'student-1',
+      scheduleId: 'private-rule-1',
+      day: '2026-10-06',
+      packId: 'private-pack-10',
+    });
   });
 
   test('a parent with paid sessions books with one — no card charge', async ({ page }) => {

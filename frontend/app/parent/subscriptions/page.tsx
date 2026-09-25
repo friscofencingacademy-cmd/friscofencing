@@ -11,7 +11,7 @@ import { formatDateOnly } from '../../../lib/formatDate';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { cancelPrivateBooking, fetchMyPrivatePurchases } from '../../../lib/services/privateClass';
 import { formatMoney } from '../../../lib/formatMoney';
-import { bookingStatusLabel, formatLessonTime, personName } from '../../../lib/privateLessons';
+import { bookingStatusLabel, formatLessonTime, packSavingsLabel, personName } from '../../../lib/privateLessons';
 import type { PrivateBookingRow, Subscription } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
@@ -88,6 +88,7 @@ function PrivateLessonsSection() {
               <p className={styles.pageSubtitle}>
                 {remaining} of {enrollment.quantity} sessions left · {enrollment.sessionDurationMinutes} min each
                 {payment ? ` · Paid ${formatMoney(payment.amount)}` : ''}
+                {payment && payment.savings > 0 ? ` · ${packSavingsLabel(payment.savings)}` : ''}
               </p>
 
               {sessions.length === 0 ? null : (

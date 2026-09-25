@@ -11,25 +11,17 @@ import Alert from '../../components/ui/Alert/Alert';
 import LoadError from '../../components/ui/LoadError/LoadError';
 import styles from '../../components/admin/admin.module.css';
 
-interface PackRow {
-  quantity: string;
-  discountPercent: string;
-}
-
+// Private-lesson packs are no longer a setting — each coach's packs are set
+// on Admin → Coach Contracts (docs/plans/coach-pack-pricing-plan.md D10).
 interface FormState {
   registrationFee: string;
   returningStudentGracePeriodMonths: string;
-  privateClassPackages: PackRow[];
 }
 
 function toForm(settings: Setting): FormState {
   return {
     registrationFee: String(settings.registrationFee),
     returningStudentGracePeriodMonths: String(settings.returningStudentGracePeriodMonths),
-    privateClassPackages: settings.privateClassPackages.map((pack) => ({
-      quantity: String(pack.quantity),
-      discountPercent: String(pack.discountPercent),
-    })),
   };
 }
 
@@ -54,14 +46,6 @@ export default function AdminSettingsPage() {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
-  function setPack(index: number, key: keyof PackRow, value: string) {
-    if (!form) return;
-    setField(
-      'privateClassPackages',
-      form.privateClassPackages.map((pack, i) => (i === index ? { ...pack, [key]: value } : pack))
-    );
-  }
-
   async function handleSave() {
     if (!form) return;
 
@@ -78,26 +62,12 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    // Numbers only here — which packs are valid (whole quantities of at least
-    // 2, no duplicates, discount range) is the backend's rule; its message is
-    // shown verbatim if it refuses.
-    const privateClassPackages = form.privateClassPackages.map((pack) => ({
-      quantity: Number(pack.quantity),
-      discountPercent: Number(pack.discountPercent),
-    }));
-
-    if (privateClassPackages.some((pack) => pack.quantity === 0 || Number.isNaN(pack.quantity) || Number.isNaN(pack.discountPercent))) {
-      setSaveError('Each pack needs a number of sessions and a discount (use 0 for none).');
-      return;
-    }
-
     setSaveError(null);
     setSaving(true);
 
     const result = await updateSettings({
       registrationFee,
       returningStudentGracePeriodMonths,
-      privateClassPackages,
     });
 
     setSaving(false);
@@ -130,7 +100,7 @@ export default function AdminSettingsPage() {
 
   return (
     <main>
-      <AdminPageHeader title="Settings" subtitle="Registration fee and private-lesson packs" />
+      <AdminPageHeader title="Settings" subtitle="Registration fee" />
 
       {error ? (
         <LoadError message={getErrorMessage(error)} onRetry={retry} />
@@ -178,62 +148,6 @@ export default function AdminSettingsPage() {
               A student who re-registers within this many months of a prior enrollment ending pays no
               registration fee. 0 means the fee always applies, even to a returning student.
             </p>
-          </div>
-
-          <div className={styles.formGroup}>
-            <span className={styles.label}>Private-lesson packs</span>
-            <p className={styles.formHint}>
-              Discounted bundles parents can buy when booking a private lesson. A single session at full price is
-              always offered.
-            </p>
-            {form.privateClassPackages.map((pack, index) => (
-              // eslint-disable-next-line react/no-array-index-key -- rows have no identity until saved
-              <div key={index} className={styles.formRow} style={{ gridTemplateColumns: '1fr 1fr auto' }}>
-                <input
-                  aria-label={`Pack ${index + 1} sessions`}
-                  type="number"
-                  min="2"
-                  step="1"
-                  className={styles.input}
-                  placeholder="Sessions"
-                  value={pack.quantity}
-                  onChange={(e) => setPack(index, 'quantity', e.target.value)}
-                />
-                <input
-                  aria-label={`Pack ${index + 1} discount percent`}
-                  type="number"
-                  min="0"
-                  max="99"
-                  step="1"
-                  className={styles.input}
-                  placeholder="Discount %"
-                  value={pack.discountPercent}
-                  onChange={(e) => setPack(index, 'discountPercent', e.target.value)}
-                />
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  aria-label={`Remove pack ${index + 1}`}
-                  onClick={() =>
-                    setField(
-                      'privateClassPackages',
-                      form.privateClassPackages.filter((_, i) => i !== index)
-                    )
-                  }
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              onClick={() =>
-                setField('privateClassPackages', [...form.privateClassPackages, { quantity: '', discountPercent: '' }])
-              }
-            >
-              Add pack
-            </button>
           </div>
 
           <button type="button" className={styles.btnPrimary} onClick={handleSave} disabled={saving}>

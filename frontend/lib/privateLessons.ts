@@ -1,7 +1,8 @@
 import { formatDateOnly, formatInstant } from './formatDate';
 import { formatTime } from './formatTime';
 import { DAY_LABELS } from './constants';
-import type { PrivateAttendance, PrivateBookingStatus } from './types';
+import { formatMoney } from './formatMoney';
+import type { PackQuoteRow, PrivateAttendance, PrivateBookingStatus, PrivatePurchaseOption } from './types';
 
 // Display helpers shared by every private-lesson page (public listing,
 // booking wizard, parent, coach and admin views) — one wording per concept.
@@ -51,4 +52,40 @@ export function personName(
 /** "10 sessions" / "1 session". */
 export function sessionCount(count: number): string {
   return count === 1 ? '1 session' : `${count} sessions`;
+}
+
+// ── Purchase options and packs (docs/plans/coach-pack-pricing-plan.md) ───────
+// Every figure below is a backend value (the quote, the public listing, the
+// ledger row, the pack-quotes preview); these only format it.
+
+/** "Buy 10 sessions" / "Buy 1 session" — a purchase option in the booking wizard. */
+export function purchaseOptionLabel(option: PrivatePurchaseOption): string {
+  return `Buy ${sessionCount(option.quantity)}`;
+}
+
+/** "$300.00 · save $25.00", or "$32.50" when the option saves nothing. */
+export function purchaseOptionPrice(option: PrivatePurchaseOption): string {
+  return option.savings > 0
+    ? `${formatMoney(option.total)} · save ${formatMoney(option.savings)}`
+    : formatMoney(option.total);
+}
+
+/** "10 lessons for $300.00" — a coach's pack on the public listing. */
+export function packListingLabel(option: PrivatePurchaseOption): string {
+  return `${option.quantity} lessons for ${formatMoney(option.total)}`;
+}
+
+/** "Saved $25.00" — what a completed purchase saved, from the ledger. */
+export function packSavingsLabel(savings: number): string {
+  return `Saved ${formatMoney(savings)}`;
+}
+
+/**
+ * The pack editor's preview line for one pack: "$30.00 per lesson · saves
+ * $25.00 (8%)", or the backend's own refusal message.
+ */
+export function packPreviewLabel(quote: PackQuoteRow): string {
+  if (quote.error) return quote.error;
+  if (quote.perLessonPrice === null || quote.savings === null || quote.savingsPercent === null) return '';
+  return `${formatMoney(quote.perLessonPrice)} per lesson · saves ${formatMoney(quote.savings)} (${quote.savingsPercent}%)`;
 }

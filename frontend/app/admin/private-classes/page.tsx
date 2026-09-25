@@ -19,6 +19,7 @@ import {
   formatLessonTime,
   formatRuleRange,
   formatRuleSlot,
+  packSavingsLabel,
   personName,
 } from '../../../lib/privateLessons';
 import type { AdminPrivateAvailabilityRule, AdminPrivateBookingRow } from '../../../lib/types';
@@ -94,8 +95,8 @@ function PurchasesTab() {
                 </td>
                 <td className={styles.td}>
                   {payment ? formatMoney(payment.amount) : '—'}
-                  {enrollment.discountPercent > 0 ? (
-                    <div className={styles.cellMuted}>{enrollment.discountPercent}% pack discount</div>
+                  {payment && payment.savings > 0 ? (
+                    <div className={styles.cellMuted}>{packSavingsLabel(payment.savings)}</div>
                   ) : null}
                 </td>
                 <td className={styles.td}>{formatInstant(enrollment.createdAt)}</td>
