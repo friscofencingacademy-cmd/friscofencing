@@ -1,6 +1,6 @@
 # Coach Pack Pricing Plan — private-lesson packs move to the coach contract
 
-**Status:** BOTH PRs BUILT 2026-09-24, uncommitted, pending owner local testing + review (§7 lists every as-built divergence). Spec'd 2026-09-24 from the current code (every file named below was
+**Status:** BOTH PRs MERGED TO `develop` 2026-09-25 (#102 backend, #103 frontend); the owner is testing on staging; production not promoted. §4's read-only checks passed on staging and production before the merge. §7 lists every as-built divergence. Spec'd 2026-09-24 from the current code (every file named below was
 checked against the tree, not assumed); owner decisions D7 and D8 settled 2026-09-24. Reviewed the
 same day against the tree, `docs/TESTING_STRATEGY.md`, `docs/design-system.md`,
 `docs/features/admin.md` and `docs/features/parent-portal.md`; the 13 findings are folded in below
@@ -339,9 +339,9 @@ already applied in the sections above; this list exists so a reviewer can see wh
 
 ## §7 As built (2026-09-24) — where the build diverged from this spec
 
-Both PRs were built in one working tree on `feature/coach-pack-pricing-backend`, uncommitted, for the
-owner's local testing (Hard Rule 5). They split cleanly at commit time: every PR 1 file is under
-`backend/` or is a backend doc, every PR 2 file is under `frontend/` or is a frontend doc.
+Both PRs were built in one working tree and split at commit time: PR 1 (#102) is `backend/` plus the
+backend docs, PR 2 (#103) is `frontend/` plus the frontend docs. The owner chose to test on staging
+rather than locally.
 
 1. **Wizard strings are two functions, not one.** The booking wizard's `PillRow` shows a label and a
    sub-line, so `packOfferLabel(option)` became `purchaseOptionLabel` ("Buy 10 sessions") and
