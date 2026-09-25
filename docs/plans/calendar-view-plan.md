@@ -1,7 +1,9 @@
 # Calendar View Plan — one calendar of classes and private lessons (public, parent, admin)
 
-**Status:** PR 1 (backend) OPEN as PR #109 to `develop` (2026-09-25), pending owner staging test;
-PR 2, PR 3 not started. As-built divergences: §9. Spec'd 2026-09-25 from the current code (every file, function and
+**Status:** PR 1 (backend) OPEN as PR #109 to `develop` (2026-09-25), pending owner staging test.
+PR 2 (shared component + public page) BUILT 2026-09-25 on `feature/calendar-public`, stacked on
+PR 1's branch, pending owner review, not committed. PR 3 not started. As-built divergences: §9 (PR 1),
+§10 (PR 2). As-built divergences: §9. Spec'd 2026-09-25 from the current code (every file, function and
 field named below was checked against the tree on that date), reviewed the same day (review found
 three substantive gaps and four omissions; all folded in — see §8), owner decisions O1–O5 (§7)
 decided 2026-09-25. Not started. Nothing is built until the owner says `write`.
@@ -346,3 +348,34 @@ while private slots run the full 2 months. This predates the calendar (the trial
 edge). **Owner decision 2026-09-25:** a weekly cron will add one week at a time so each schedule stays
 8 weeks ahead (the CKQ model); tracked in `docs/plans/deployment-launch-plan.md`'s deferred
 follow-ups, not built in this plan. It must land before the calendar ships publicly.
+
+---
+
+## §10 As built — PR 2 (shared component + public page, 2026-09-25)
+
+Files: `lib/types.ts` (calendar types), `lib/services/calendar.ts`, `lib/calendarView.ts`,
+`app/components/calendar/{CalendarView,MonthGrid,AgendaList,EventChip}.tsx` +
+`CalendarView.module.css`, `app/calendar/page.tsx`, `app/components/layout/AppShell.tsx` (nav),
+`app/private-classes/page.tsx` ("View on calendar"). Tests: `lib/__tests__/calendarView.test.ts`
+(new, 29), `lib/services/__tests__/calendar.test.ts` (new, 9), `app/components/calendar/__tests__/
+CalendarView.test.tsx` (new, 14), `app/calendar/__tests__/page.test.tsx` (new, 6),
+`AppShell.test.tsx` and `private-classes/__tests__/page.test.tsx` (updated, +1 case),
+`e2e/calendar.spec.ts` (new, 5) + a `/calendar/public` rule in `e2e/fixtures/mock-api.ts`. Docs:
+`design-system.md` (reversal note, "Calendar" page pattern, inventory), `public-site.md`,
+`TESTING_STRATEGY.md` (E2E table).
+
+Divergences from §2, each deliberate:
+
+| # | Plan said | Built | Why |
+|---|---|---|---|
+| 1 | `MonthGrid` is a `role="grid"` table | A plain `<table>` (caption, `th scope="col"`, `td`) | `role="grid"` promises arrow-key cell navigation; this is a table of links reached with Tab. Each cell carries a hidden full date ("Tuesday, October 6") so a cell is named and a screen reader hears the day. |
+| 2 | Props `renderEvent?`, `showCoachFilter` | `eventHref(event)`; the coach filter always shows | Every audience draws events the same way and differs only in where a click goes. PR 3 passes its own `eventHref`. |
+| 3 | Links built in the page | `bookingHref(event, isLoggedInParent)` in `lib/calendarView.ts` | One home for C8, reused by the parent calendar in PR 3. A family's own class links nowhere (they're already in it). |
+| 4 | Empty month: a message | "Nothing scheduled this month." — or, past the horizon, "Booking is open through <day>." | A shared link to a far month explains itself. |
+| 5 | — | A coach from a shared link who has nothing this month stays selected ("Selected coach") | The dropdown never silently drops the URL's filter. |
+| 6 | View toggle | Labeled Month / List (`view=month\|agenda` in the URL) | "Agenda" is jargon to parents. |
+| 7 | Default view from `matchMedia` when `view` is absent | Same, read after mount | The first client render matches the server's (no hydration mismatch); jsdom has no `matchMedia`, so tests default to month. |
+
+The e2e type-check (`tsc -p e2e/tsconfig.json`) reports an `AxeBuilder` `Page` type mismatch on
+`calendar.spec.ts` — the same pre-existing error `admin-shell.spec.ts` and `public-site.spec.ts`
+already have (two installed Playwright type versions); it is not a CI gate and all specs run green.

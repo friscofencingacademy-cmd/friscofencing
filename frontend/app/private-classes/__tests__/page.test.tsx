@@ -130,6 +130,15 @@ describe('PrivateClassesPage', () => {
     expect(await screen.findByRole('link', { name: /^register$/i })).toHaveAttribute('href', '/register');
   });
 
+  it("links each coach to their open dates on the calendar (docs/plans/calendar-view-plan.md §2.4)", async () => {
+    renderPage();
+
+    expect(await screen.findByRole('link', { name: 'View on calendar' })).toHaveAttribute(
+      'href',
+      '/calendar?coach=coach-1&type=private'
+    );
+  });
+
   it('shows an empty state when no coach has open times, and no packs line when none are configured', async () => {
     server.use(
       http.get('*/private-class-schedules/public', () =>

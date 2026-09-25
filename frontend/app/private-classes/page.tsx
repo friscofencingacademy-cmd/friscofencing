@@ -77,7 +77,19 @@ export default function PrivateClassesPage() {
         <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
           {data.coaches.map((coach) => (
             <Card key={coach.coachId}>
-              <h3 style={{ marginTop: 0 }}>{coach.coachName}</h3>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  gap: 'var(--space-2)',
+                }}
+              >
+                <h3 style={{ margin: 0 }}>{coach.coachName}</h3>
+                {/* This coach's open dates, day by day (docs/plans/calendar-view-plan.md §2.4). */}
+                <Link href={`/calendar?coach=${coach.coachId}&type=private`}>View on calendar</Link>
+              </div>
               <div>
                 {coach.slots.map((slot) => (
                   <SlotRow key={slot.scheduleId} slot={slot} isLoggedInParent={isLoggedInParent} />
