@@ -2,9 +2,11 @@
 
 **Status:** ALL 3 PRs MERGED TO `develop` 2026-09-24 (owner-authorized autonomous build): PR 1 #96,
 PR 2 #97, PR 3 #98. Backend 76 suites / 944 tests, frontend 57 / 448, E2E 31 passed, `tsc --noEmit`
-clean, `next build` succeeds, CI green on every PR. **Rollout scripts NOT yet run on any environment**
-(the build session could not read database credentials) — §4 steps are the owner's, and staging
-needs them now that `develop` has deployed. **§5 records every place the build diverged from this spec — read it
+clean, `next build` succeeds, CI green on every PR. **Staging rolled out 2026-09-24** (owner-approved):
+backfill stamped 2,137 Visits; cutover freed 4 slots, deleted 2 test enrollments + 16 unmarked
+generated sessions (0 charges — the money gate passed), replaced the slot index; ledger check clean;
+both dry runs re-run afterward find nothing left. **Production: not yet run** — same §4 steps before
+promoting `develop` to `main`. **§5 records every place the build diverged from this spec — read it
 before relying on an endpoint or field name below.**
 **Goal:** Replace the CKQ-style *recurring* private enrollment (a parent claims one weekly slot,
 eight weeks of sessions are generated, each session is charged after attendance) with Frisco's
