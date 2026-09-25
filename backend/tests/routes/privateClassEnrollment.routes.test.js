@@ -14,7 +14,6 @@ const request = require('supertest');
 
 const app = require('../../src/app');
 const Holiday = require('../../src/models/holiday.model');
-const Setting = require('../../src/models/setting.model');
 const Service = require('../../src/models/service.model');
 const Visit = require('../../src/models/visit.model');
 const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
@@ -23,6 +22,7 @@ const { PerSessionRegistration } = require('../../src/models/registration.model'
 const stripe = require('../../src/config/stripe');
 const mailService = require('../../src/services/mail.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
+const { listCustomerPaymentIntents, expectLedgerChargeSucceeded } = require('../testUtils/stripe');
 const { seedServices } = require('../../scripts/lib/seedServices');
 const {
   freezeDate,
@@ -49,7 +49,6 @@ afterAll(async () => {
 beforeEach(async () => {
   freezeDate();
   await seedServices();
-  await Setting.create({ privateClassPackages: [{ quantity: 10, discountPercent: 10 }] });
 });
 
 afterEach(async () => {
@@ -58,33 +57,52 @@ afterEach(async () => {
   await clearTestDB();
 });
 
-// A coach (Tuesdays 16:30 + 17:00, 30 min, $65/hr -> $32.50/session) and a
-// parent with a child and a saved real test card.
+// The coach's own packs (docs/plans/coach-pack-pricing-plan.md): a 30-minute
+// 10-pack for $300 (singly $325 — saves $25), and a 60-minute 5-pack that a
+// 30-minute slot must never offer.
+const COACH_PACKS = [
+  { sessionDurationMinutes: 30, quantity: 10, price: 300 },
+  { sessionDurationMinutes: 60, quantity: 5, price: 300 },
+];
+
+// A coach (Tuesdays 16:30 + 17:00, 30 min, $65/hr -> $32.50/session) with
+// COACH_PACKS on the contract, and a parent with a child and a saved real
+// test card. `tenPackId`/`sixtyPackId` are the packs' ids on the contract.
 async function seedPurchaseScene(suffix, { card = true } = {}) {
-  const coachScene = await seedCoachWithRules({ suffix });
+  const coachScene = await seedCoachWithRules({ suffix, privateLessonPacks: COACH_PACKS });
   const parentScene = await seedParentWithStudent(suffix);
 
   if (card) {
     await saveCard(parentScene.parentAgent, stripe);
   }
 
-  return { ...coachScene, ...parentScene, slot: coachScene.schedules[0] };
+  const packIdOf = (minutes) =>
+    String(coachScene.contract.privateLessonPacks.find((pack) => pack.sessionDurationMinutes === minutes)._id);
+
+  return {
+    ...coachScene,
+    ...parentScene,
+    slot: coachScene.schedules[0],
+    tenPackId: packIdOf(30),
+    sixtyPackId: packIdOf(60),
+  };
 }
 
-function purchase(parentAgent, { student, slot, day = '2026-10-06', quantity = 1 }) {
+// No `packId` buys a single session; the request never carries a price.
+function purchase(parentAgent, { student, slot, day = '2026-10-06', packId }) {
   return parentAgent.post('/api/v1/private-class-enrollments').send({
     studentId: student._id.toString(),
     scheduleId: String(slot._id),
     day,
-    quantity,
+    ...(packId ? { packId } : {}),
   });
 }
 
 // docs/decisions/011-private-per-session-booking.md
 describe('Private class enrollment (purchase) routes', () => {
   describe('GET /quote', () => {
-    it('prices every purchase option for the rule, server-side, with no credits yet', async () => {
-      const { parentAgent, student, slot } = await seedPurchaseScene('quote', { card: false });
+    it("prices the single session and the coach's own packs for the slot's length, server-side", async () => {
+      const { parentAgent, student, slot, tenPackId } = await seedPurchaseScene('quote', { card: false });
 
       const res = await parentAgent.get(
         `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${slot._id}`
@@ -96,9 +114,10 @@ describe('Private class enrollment (purchase) routes', () => {
         hourlyRate: 65,
         availableCredits: 0,
         cancelCutoffHours: 24,
+        // The 60-minute pack is not offered on a 30-minute slot.
         options: [
-          { unitPrice: 32.5, quantity: 1, discountPercent: 0, subtotal: 32.5, discountAmount: 0, total: 32.5 },
-          { unitPrice: 32.5, quantity: 10, discountPercent: 10, subtotal: 325, discountAmount: 32.5, total: 292.5 },
+          { packId: null, unitPrice: 32.5, quantity: 1, subtotal: 32.5, savings: 0, total: 32.5 },
+          { packId: tenPackId, unitPrice: 32.5, quantity: 10, subtotal: 325, savings: 25, total: 300 },
         ],
       });
     });
@@ -145,11 +164,13 @@ describe('Private class enrollment (purchase) routes', () => {
           status: 'active',
           quantity: 1,
           sessionsUsed: 1,
-          discountPercent: 0,
           agreedHourlyRate: 65,
           sessionDurationMinutes: 30,
         });
         expect(String(enrollment.coachContractId)).toBe(String(contract._id));
+        // The enrollment is a credit balance — the price lives only on the ledger row.
+        expect(enrollment.toObject()).not.toHaveProperty('discountPercent');
+        expect(enrollment.toObject()).not.toHaveProperty('price');
 
         const session = await PrivateClassSession.findById(res.body.session._id);
         expect(session.status).toBe('confirmed');
@@ -159,7 +180,8 @@ describe('Private class enrollment (purchase) routes', () => {
 
         const rows = await PerSessionRegistration.find({ parentId: parent._id });
         expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({ status: 'completed', quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 });
+        expect(rows[0]).toMatchObject({ status: 'completed', quantity: 1, unitPrice: 32.5, amount: 32.5 });
+        expect(rows[0].toObject()).not.toHaveProperty('discountPercent');
         expect(rows[0].stripePaymentIntentId).toMatch(/^pi_/);
         expect(String(rows[0].sessionId)).toBe(String(session._id));
         expect(String(rows[0].enrollmentId)).toBe(String(enrollment._id));
@@ -180,23 +202,96 @@ describe('Private class enrollment (purchase) routes', () => {
     );
 
     it(
-      'a pack of 10 at 10% off charges exactly the quoted total and leaves 9 sessions',
+      "the coach's 10-pack charges exactly the pack price and leaves 9 sessions",
       async () => {
-        const { parentAgent, student, slot } = await seedPurchaseScene('pack');
+        const { parentAgent, parent, student, slot, tenPackId } = await seedPurchaseScene('pack');
         const quote = await parentAgent.get(
           `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${slot._id}`
         );
-        const quotedTotal = quote.body.options.find((option) => option.quantity === 10).total;
+        const quoted = quote.body.options.find((option) => option.packId === tenPackId);
 
-        const res = await purchase(parentAgent, { student, slot, quantity: 10 });
+        const res = await purchase(parentAgent, { student, slot, packId: tenPackId });
 
         expect(res.status).toBe(201);
         expect(res.body.remaining).toBe(9);
-        expect(res.body.registration).toMatchObject({ amount: quotedTotal, quantity: 10, unitPrice: 32.5, discountPercent: 10 });
-        expect(quotedTotal).toBe(292.5);
+        expect(quoted.total).toBe(300);
+        expect(res.body.registration).toMatchObject({ amount: 300, quantity: 10, unitPrice: 32.5 });
+
+        const [row] = await PerSessionRegistration.find({ parentId: parent._id });
+        await expectLedgerChargeSucceeded(row, 300);
+        const enrollment = await PrivateClassEnrollment.findById(res.body.enrollment._id);
+        expect(enrollment.quantity).toBe(10);
+        expect(enrollment.toObject()).not.toHaveProperty('price');
       },
       STRIPE_TIMEOUT
     );
+
+    it(
+      "refuses the coach's pack for another lesson length with 409, charging nothing",
+      async () => {
+        const { parentAgent, parent, student, slot, sixtyPackId } = await seedPurchaseScene('pack-length');
+
+        const res = await purchase(parentAgent, { student, slot, packId: sixtyPackId });
+
+        expect(res.status).toBe(409);
+        expect(res.body.message).toBe('This pack is no longer offered — please review the prices');
+        expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
+        expect(await PerSessionRegistration.countDocuments({})).toBe(0);
+        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+      },
+      STRIPE_TIMEOUT
+    );
+
+    it(
+      'a pack removed between the quote and the purchase is refused with 409, charging nothing',
+      async () => {
+        const { parentAgent, adminAgent, parent, student, slot, contract, tenPackId } = await seedPurchaseScene('pack-removed');
+        const removed = await adminAgent
+          .put(`/api/v1/coach-contracts/${contract._id}/packs`)
+          .send({ privateLessonPacks: [] });
+        expect(removed.status).toBe(200);
+
+        const res = await purchase(parentAgent, { student, slot, packId: tenPackId });
+
+        expect(res.status).toBe(409);
+        expect(await PerSessionRegistration.countDocuments({})).toBe(0);
+        expect(await PrivateClassSession.countDocuments({})).toBe(0);
+        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+      },
+      STRIPE_TIMEOUT
+    );
+
+    it(
+      'a pack whose price was edited after the quote is refused with 409 — never charged at the new price (plan D7/D11)',
+      async () => {
+        const { parentAgent, adminAgent, parent, student, slot, contract, tenPackId } = await seedPurchaseScene('pack-edited');
+        // The admin sends the pack back WITH its old id but a new price.
+        const edited = await adminAgent.put(`/api/v1/coach-contracts/${contract._id}/packs`).send({
+          privateLessonPacks: [
+            { _id: tenPackId, sessionDurationMinutes: 30, quantity: 10, price: 310 },
+            { sessionDurationMinutes: 60, quantity: 5, price: 300 },
+          ],
+        });
+        expect(edited.status).toBe(200);
+
+        const res = await purchase(parentAgent, { student, slot, packId: tenPackId });
+
+        expect(res.status).toBe(409);
+        expect(await PerSessionRegistration.countDocuments({})).toBe(0);
+        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+      },
+      STRIPE_TIMEOUT
+    );
+
+    it('refuses an unknown packId with 409, writing nothing', async () => {
+      const { parentAgent, student, slot } = await seedPurchaseScene('pack-unknown', { card: false });
+
+      const res = await purchase(parentAgent, { student, slot, packId: 'not-a-pack' });
+
+      expect(res.status).toBe(409);
+      expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
+      expect(await PrivateClassSession.countDocuments({})).toBe(0);
+    });
 
     it(
       'a declined card returns 402, records the failed charge, and gives the slot straight back',
@@ -314,7 +409,6 @@ describe('Private class enrollment (purchase) routes', () => {
     });
 
     it.each([
-      ['a quantity that is not offered', { quantity: 5 }, /quantity must be one of: 1, 10/],
       ['a holiday', { day: '2026-10-13' }, /academy holiday \(Fall break\)/],
       ['the wrong weekday', { day: '2026-10-07' }, /only offered on Tuesdays/],
       ['a date outside the range', { day: '2027-01-05' }, /outside the dates/],
@@ -373,8 +467,8 @@ describe('Private class enrollment (purchase) routes', () => {
     it(
       "lists the parent's paid purchases with remaining credits, the payment, and each booking's attendance — and history describes the purchase",
       async () => {
-        const { parentAgent, adminAgent, student, slot } = await seedPurchaseScene('mine');
-        await purchase(parentAgent, { student, slot, quantity: 10 });
+        const { parentAgent, adminAgent, student, slot, tenPackId } = await seedPurchaseScene('mine');
+        await purchase(parentAgent, { student, slot, packId: tenPackId });
 
         const res = await parentAgent.get('/api/v1/private-class-enrollments/mine');
 
@@ -383,7 +477,9 @@ describe('Private class enrollment (purchase) routes', () => {
         const [entry] = res.body.enrollments;
         expect(entry.remaining).toBe(9);
         expect(entry.enrollment.coachId.firstName).toBe('Dana');
-        expect(entry.payment).toMatchObject({ amount: 292.5, quantity: 10, unitPrice: 32.5, discountPercent: 10 });
+        // Savings are derived from the ledger row (325 - 300), never stored.
+        expect(entry.payment).toMatchObject({ amount: 300, quantity: 10, unitPrice: 32.5, savings: 25 });
+        expect(entry.payment).not.toHaveProperty('discountPercent');
         expect(entry.sessions).toHaveLength(1);
         // Oct 6 4:30 PM is 31.5h after the frozen Monday 9 AM — still inside
         // the parent's online-cancel window.
@@ -394,7 +490,7 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(history.body.history).toHaveLength(1);
         expect(history.body.history[0]).toMatchObject({
           description: 'Private lessons with Dana Coachmine — 30 min × 10',
-          amount: 292.5,
+          amount: 300,
           status: 'completed',
           sessionDate: '2026-10-06T21:30:00.000Z',
         });

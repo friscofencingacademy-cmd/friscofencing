@@ -99,8 +99,13 @@ PDF generation failure logs and leaves `invoiceNumber`/`invoicePdf` `undefined` 
 attachment), it never skips or fails the receipt email itself, and it can never undo or fail an
 already-successful charge. Full design (location fallback rules, the hard-coded academy identity,
 the on-demand `GET /registrations/:id/invoice` download endpoint): the plan doc above; a private
-purchase's line items (sessions × unit price, then the pack discount) are described in
-`docs/features/private-class.md`.
+purchase's line items (sessions × unit price, then a negative "Pack savings" line when the purchase
+was a pack) are described in `docs/features/private-class.md`. The confirmation email's purchase
+block and the invoice's lines both come from `privateClassPricing.js`'s `purchaseBreakdown(row)`
+— savings are derived from the ledger row (`quantity × unitPrice − amount`), never stored, and the
+charged total is always `row.amount` (`docs/plans/coach-pack-pricing-plan.md` D6/D14 h). The
+template's purchase block reads `{ itemLabel, subtotalLabel, savingsLabel, totalLabel }`;
+`savingsLabel` is empty for a single session, which hides the "Pack savings" row.
 
 ## Method-aware receipt/invoice line (docs/plans/payment-airtight-plan.md D9)
 

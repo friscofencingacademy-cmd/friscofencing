@@ -27,4 +27,27 @@ async function deactivate(req, res, next) {
   }
 }
 
-module.exports = { create, list, deactivate };
+// PUT /coach-contracts/:id/packs — replace the active contract's packs.
+async function updatePacks(req, res, next) {
+  try {
+    const contract = await coachContractService.updatePacks(req.params.id, req.body.privateLessonPacks);
+    return res.status(200).json({ contract });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// POST /coach-contracts/pack-quotes — the pack editor's preview; writes nothing.
+async function quotePacks(req, res, next) {
+  try {
+    const quotes = coachContractService.quotePacks({
+      studentBillingRate: req.body.studentBillingRate,
+      packs: req.body.packs,
+    });
+    return res.status(200).json({ quotes });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+module.exports = { create, list, deactivate, updatePacks, quotePacks };

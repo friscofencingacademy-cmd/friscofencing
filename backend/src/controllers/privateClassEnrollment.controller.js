@@ -12,7 +12,7 @@ async function quote(req, res, next) {
   }
 }
 
-// Buy sessions and book the first one.
+// Buy a single session or a pack (`packId`) and book the first lesson.
 async function create(req, res, next) {
   try {
     const result = await privateClassEnrollmentService.purchaseAndBook(
@@ -20,7 +20,7 @@ async function create(req, res, next) {
         studentId: req.body.studentId,
         scheduleId: req.body.scheduleId,
         day: req.body.day,
-        quantity: req.body.quantity,
+        packId: req.body.packId,
       },
       req.user
     );

@@ -35,3 +35,14 @@ Private lessons were ported from CKQ as a recurring model: a parent claimed one 
 - **Attendance on the session.** Rejected in ADR 010.
 - **Bookings as Visits.** Visit has no unique index by design, so a cancelled visit can be reinstated. It cannot be the atomic slot claim, and it would pull payment state into the attendance ledger.
 - **One accumulating enrollment per student and coach.** The pinned price could not stay immutable across purchases, and the enrollment and its ledger rows would no longer pair one to one.
+
+## Addendum — 2026-09-24: packs belong to the coach's contract
+
+Decision 9 is replaced by `docs/plans/coach-pack-pricing-plan.md`. Pack pricing is no longer academy-wide data.
+
+- **Packs live on `CoachContract.privateLessonPacks`**, each a fixed total `price` for `quantity` lessons of one `sessionDurationMinutes`. A pack is offered only on slots of its own length, which matches how its credits can be spent.
+- **The purchase request carries a `packId`, never a price.** No `packId` buys a single session at the contract's rate. A `packId` that is not an offered option for that slot (removed, edited, or for another length) is a 409 and nothing is charged.
+- **Money stays only on the `Registration` row.** `discountPercent` is gone from both the ledger row and the enrollment. Savings are derived, `quantity × unitPrice − amount`, by `privateClassPricing.js`'s `quotePurchase`, and never stored.
+- **Packs are editable on the active contract** (`PUT /coach-contracts/:id/packs`). An edited pack gets a new id, so a parent's quote for the old price can never be charged at the new one. A rate change is still a new contract.
+- **A price band guards every pack**: at least half of buying the lessons singly (a typo guard, `PACK_PRICE_FLOOR_RATIO`) and at least one cent under it (a pack must save the family something), in whole cents.
+- **Who can set packs widens from superadmin to admin + superadmin**, because packs moved from `/admin/settings` onto the contract, which admins already own, and a pack price is the same class of number as the hourly rate.

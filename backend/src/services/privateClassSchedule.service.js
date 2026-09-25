@@ -3,8 +3,7 @@ const PrivateClassSession = require('../models/privateClassSession.model');
 const { SLOT_HOLDING_STATUSES } = require('../models/privateClassSession.model');
 const coachContractService = require('./coachContract.service');
 const holidayService = require('./holiday.service');
-const settingService = require('./setting.service');
-const { computeSessionPrice, resolvePackOptions } = require('../utils/privateClassPricing');
+const { purchaseOptionsFor } = require('../utils/privateClassPricing');
 const {
   dateOnlyUTC,
   addDaysToDateOnly,
@@ -399,9 +398,10 @@ async function listAvailableDates(scheduleId, { days } = {}) {
 
 // Unauthenticated public listing — coaches with an active contract AND at
 // least one current rule. No student/parent data: only coach name + rule,
-// price, and date-range facts. `packageOffers` are the academy-wide purchase
-// options (a single session, then any configured packs); the exact price of
-// each option for a chosen slot comes from the purchase quote endpoint.
+// price, and date-range facts. Each slot carries `options` — that coach's
+// purchase options for that slot's length, straight from purchaseOptionsFor:
+// the SAME shape the purchase quote returns (docs/plans/coach-pack-pricing-
+// plan.md D14 d), so the frontend types a purchase option once.
 async function listPublic() {
   const allSchedules = await PrivateClassSchedule.find(currentRulesFilter()).populate(
     'coachId',
@@ -431,6 +431,8 @@ async function listPublic() {
         return;
       }
 
+      const options = purchaseOptionsFor(contract, schedule.durationMinutes);
+
       if (!grouped.has(coachId)) {
         grouped.set(coachId, {
           coachId,
@@ -449,14 +451,14 @@ async function listPublic() {
         // Calendar-day sentinels — format with formatDateOnly.
         startDate: schedule.startDate,
         endDate: schedule.endDate,
-        sessionPrice: computeSessionPrice(contract.studentBillingRate, schedule.durationMinutes),
+        // The single session's price — options[0], never recomputed.
+        sessionPrice: options[0].unitPrice,
         hourlyRate: contract.studentBillingRate,
+        options,
       });
     });
 
-  const { privateClassPackages } = await settingService.getSettings();
-
-  return { coaches: [...grouped.values()], packageOffers: resolvePackOptions(privateClassPackages) };
+  return { coaches: [...grouped.values()] };
 }
 
 module.exports = {

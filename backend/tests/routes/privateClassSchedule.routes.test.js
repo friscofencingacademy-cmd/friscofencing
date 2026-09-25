@@ -5,7 +5,6 @@ const request = require('supertest');
 
 const app = require('../../src/app');
 const Holiday = require('../../src/models/holiday.model');
-const Setting = require('../../src/models/setting.model');
 const PrivateClassSchedule = require('../../src/models/privateClassSchedule.model');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { seedServices } = require('../../scripts/lib/seedServices');
@@ -205,12 +204,23 @@ describe('Private class schedule routes', () => {
   });
 
   describe('GET /public', () => {
-    it('lists coaches with an active contract, each rule priced, plus the academy pack offers — no student data', async () => {
-      await seedCoachWithRules({ suffix: 'public', studentBillingRate: 65 });
-      const { contract } = await seedCoachWithRules({ suffix: 'public-gone' });
-      await Setting.create({ privateClassPackages: [{ quantity: 10, discountPercent: 10 }] });
+    it("lists coaches with an active contract, each rule priced with that coach's own packs for its length — no student data", async () => {
+      // docs/plans/coach-pack-pricing-plan.md: packs are per coach, per length.
+      const { contract: ownContract } = await seedCoachWithRules({
+        suffix: 'public',
+        studentBillingRate: 65,
+        privateLessonPacks: [
+          { sessionDurationMinutes: 30, quantity: 10, price: 300 },
+          { sessionDurationMinutes: 60, quantity: 5, price: 300 },
+        ],
+      });
+      const { contract } = await seedCoachWithRules({
+        suffix: 'public-gone',
+        privateLessonPacks: [{ sessionDurationMinutes: 30, quantity: 10, price: 280 }],
+      });
       contract.isActive = false;
       await contract.save();
+      const tenPackId = String(ownContract.privateLessonPacks.find((pack) => pack.sessionDurationMinutes === 30)._id);
 
       const res = await request(app).get('/api/v1/private-class-schedules/public');
 
@@ -227,11 +237,31 @@ describe('Private class schedule routes', () => {
         endDate: '2026-12-31T00:00:00.000Z',
         sessionPrice: 32.5,
         hourlyRate: 65,
+        // Only this coach's 30-minute pack — never the 60-minute one, never
+        // another coach's.
+        options: [
+          { packId: null, quantity: 1, unitPrice: 32.5, subtotal: 32.5, savings: 0, total: 32.5 },
+          { packId: tenPackId, quantity: 10, unitPrice: 32.5, subtotal: 325, savings: 25, total: 300 },
+        ],
       });
-      expect(res.body.packageOffers).toEqual([
-        { quantity: 1, discountPercent: 0 },
-        { quantity: 10, discountPercent: 10 },
-      ]);
+      expect(res.body).not.toHaveProperty('packageOffers');
+    });
+
+    it("gives each slot's options the exact shape the purchase quote returns (one shape, plan D14 d)", async () => {
+      const { schedules } = await seedCoachWithRules({
+        suffix: 'public-shape',
+        privateLessonPacks: [{ sessionDurationMinutes: 30, quantity: 10, price: 300 }],
+      });
+      const { parentAgent, student } = await seedParentWithStudent('public-shape');
+
+      const listing = await request(app).get('/api/v1/private-class-schedules/public');
+      const quote = await parentAgent.get(
+        `/api/v1/private-class-enrollments/quote?studentId=${student._id}&scheduleId=${schedules[0]._id}`
+      );
+
+      const slot = listing.body.coaches[0].slots.find((candidate) => candidate.scheduleId === String(schedules[0]._id));
+      expect(quote.status).toBe(200);
+      expect(slot.options).toEqual(quote.body.options);
     });
   });
 

@@ -92,8 +92,8 @@ const SAMPLE_DATA = {
     purchase: {
       itemLabel: '10 sessions × $32.50',
       subtotalLabel: '$325.00',
-      discountLabel: '10% — −$32.50',
-      totalLabel: '$292.50',
+      savingsLabel: '−$25.00',
+      totalLabel: '$300.00',
     },
   },
 

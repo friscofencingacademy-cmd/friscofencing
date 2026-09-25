@@ -220,7 +220,7 @@ describe('invoice.service — buildInvoiceData', () => {
 
   // A per_session row is a private-lesson PURCHASE (ADR 011).
   describe('per_session rows (private-lesson purchases)', () => {
-    async function seedPurchase({ quantity, unitPrice, discountPercent, amount }) {
+    async function seedPurchase({ quantity, unitPrice, amount }) {
       const privateLessonsService = await Service.findOne({ code: 'private-lessons' });
       const { parent, student } = await seedParentAndStudent(`invoice-purchase-${quantity}@example.com`);
       const coach = await User.create({
@@ -237,7 +237,6 @@ describe('invoice.service — buildInvoiceData', () => {
         agreedHourlyRate: 65,
         sessionDurationMinutes: 30,
         quantity,
-        discountPercent,
         sessionsUsed: 1,
         status: 'active',
       });
@@ -250,7 +249,6 @@ describe('invoice.service — buildInvoiceData', () => {
         parentId: parent._id,
         quantity,
         unitPrice,
-        discountPercent,
         status: 'completed',
         amount,
         paidAt: new Date('2026-02-10T18:00:00.000Z'),
@@ -258,7 +256,7 @@ describe('invoice.service — buildInvoiceData', () => {
     }
 
     it('a single session: one line naming coach and length, the academy address, dated by the purchase', async () => {
-      const row = await seedPurchase({ quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 });
+      const row = await seedPurchase({ quantity: 1, unitPrice: 32.5, amount: 32.5 });
 
       const data = await buildInvoiceData(row);
 
@@ -269,21 +267,22 @@ describe('invoice.service — buildInvoiceData', () => {
       expect(data.periodLabel).toBe('Tuesday, Feb 10, 2026');
     });
 
-    it('a discounted pack: the subtotal line plus a negative discount line that sum to the charged total', async () => {
-      const row = await seedPurchase({ quantity: 10, unitPrice: 32.5, discountPercent: 10, amount: 292.5 });
+    it("a coach's pack: the subtotal line plus a negative savings line (derived, never stored) that sum to the charged total", async () => {
+      // docs/plans/coach-pack-pricing-plan.md — 10 x $32.50 = $325, the pack cost $300.
+      const row = await seedPurchase({ quantity: 10, unitPrice: 32.5, amount: 300 });
 
       const data = await buildInvoiceData(row);
 
       expect(data.lineItems).toEqual([
         { label: 'Private lessons with Dana Coach — 30 min × 10', amount: 325 },
-        { label: 'Pack discount (10%)', amount: -32.5 },
+        { label: 'Pack savings', amount: -25 },
       ]);
       expect(data.lineItems.reduce((sum, item) => sum + item.amount, 0)).toBe(data.total);
-      expect(data.total).toBe(292.5);
+      expect(data.total).toBe(300);
     });
 
     it('degrades to a coach-less label when the purchase no longer resolves, never throwing', async () => {
-      const row = await seedPurchase({ quantity: 1, unitPrice: 32.5, discountPercent: 0, amount: 32.5 });
+      const row = await seedPurchase({ quantity: 1, unitPrice: 32.5, amount: 32.5 });
       await PrivateClassEnrollment.deleteMany({});
 
       const data = await buildInvoiceData(row);

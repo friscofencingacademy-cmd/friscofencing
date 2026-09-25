@@ -27,7 +27,7 @@ const GroupClassSchedule = require('../models/groupClassSchedule.model');
 const GroupClass = require('../models/groupClass.model');
 const Location = require('../models/location.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
-const { computePackQuote } = require('../utils/privateClassPricing');
+const { purchaseBreakdown } = require('../utils/privateClassPricing');
 const { privateLessonPurchaseLabel } = require('../utils/privateLessonLabels');
 const { dateFull, dateOnlyFull } = require('../email/dates');
 const { LOGO_URL } = require('../email/tokens');
@@ -105,15 +105,16 @@ async function buildSubscriptionCycleData(row) {
 }
 
 // A private-lesson PURCHASE (ADR 011): the sessions bought at their unit
-// price, then the pack discount as its own negative line, so the lines sum
-// to what was charged. `total` is still row.amount (buildInvoiceData) —
+// price, then the pack savings as its own negative line, so the lines sum
+// to what was charged — both from purchaseBreakdown, the same lines the
+// confirmation email shows (coach-pack-pricing-plan D14 h). `total` is still row.amount (buildInvoiceData) —
 // never derived from these lines. Dated by the purchase, not a lesson (one
 // purchase covers many lessons). Private lessons have no Location of their
 // own (D9) — always the academy's own address.
 async function buildPerSessionData(row) {
   const enrollment = row.enrollmentId ? await PrivateClassEnrollment.findById(row.enrollmentId) : null;
   const coach = enrollment ? await User.findById(enrollment.coachId) : null;
-  const { subtotal, discountAmount } = computePackQuote(row.unitPrice, row.quantity, row.discountPercent);
+  const { subtotal, savings } = purchaseBreakdown(row);
 
   const lineItems = [
     {
@@ -126,8 +127,8 @@ async function buildPerSessionData(row) {
     },
   ];
 
-  if (row.discountPercent > 0) {
-    lineItems.push({ label: `Pack discount (${row.discountPercent}%)`, amount: -discountAmount });
+  if (savings > 0) {
+    lineItems.push({ label: 'Pack savings', amount: -savings });
   }
 
   return {
