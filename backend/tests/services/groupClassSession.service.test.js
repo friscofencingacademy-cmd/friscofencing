@@ -5,14 +5,21 @@ const Level = require('../../src/models/level.model');
 const Location = require('../../src/models/location.model');
 const User = require('../../src/models/user.model');
 const Holiday = require('../../src/models/holiday.model');
+const Subscription = require('../../src/models/subscription.model');
+const Visit = require('../../src/models/visit.model');
+const { seedServices } = require('../../scripts/lib/seedServices');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
-const { createSession } = require('../testUtils/sessions');
+const { createSession, makeSessionAttendable } = require('../testUtils/sessions');
 
 const {
   sessionInstantsFor,
   generateInitialSessions,
   listUpcomingByClass,
   listBySchedule,
+  hasSessionEnded,
+  listWalkInEligibleStudents,
+  getEligibleStudentsForSession,
+  markKioskAttendance,
 } = require('../../src/services/groupClassSession.service');
 
 // Fakes ONLY Date (via `now`) and explicitly leaves every timer function
@@ -392,5 +399,92 @@ describe('groupClassSession.service — listBySchedule holiday annotation (D6)',
     expect(byDate.get('2026-09-01T00:00:00.000Z').holidayName).toBe('Labor Day');
     expect(byDate.get('2026-08-25T00:00:00.000Z').isHoliday).toBe(false);
     expect(byDate.get('2026-08-25T00:00:00.000Z').holidayName).toBeNull();
+  });
+});
+
+// docs/plans/kiosk-signin-plan.md §3.3 — the "is this class over?" rule and
+// the walk-in rule's extraction.
+describe('groupClassSession.service — hasSessionEnded', () => {
+  it('is false before and exactly at endsAt, true one millisecond after', async () => {
+    const groupClass = await seedClass();
+    const schedule = await seedSchedule(groupClass._id, 2);
+    const session = await createSession(schedule, new Date('2026-09-29T00:00:00.000Z'));
+
+    expect(hasSessionEnded(session, new Date(session.endsAt.getTime() - 1))).toBe(false);
+    expect(hasSessionEnded(session, new Date(session.endsAt.getTime()))).toBe(false);
+    expect(hasSessionEnded(session, new Date(session.endsAt.getTime() + 1))).toBe(true);
+  });
+});
+
+describe('groupClassSession.service — markKioskAttendance', () => {
+  beforeEach(async () => {
+    await seedServices();
+  });
+
+  async function seedSubscription(studentId, scheduleId) {
+    const parent = await User.create({ role: 'parent', firstName: 'P', lastName: 'Rent', email: `parent-${studentId}@x.com` });
+    return Subscription.create({
+      studentId,
+      scheduleId,
+      parentId: parent._id,
+      status: 'active',
+      currentPeriodStart: new Date('2026-01-01T00:00:00.000Z'),
+      currentPeriodEnd: new Date('2026-02-01T00:00:00.000Z'),
+      nextBillingDate: new Date('2026-02-01T00:00:00.000Z'),
+      isPremium: true,
+    });
+  }
+
+  it('listWalkInEligibleStudents gives getEligibleStudentsForSession its exact list', async () => {
+    const groupClass = await seedClass();
+    const home = await seedSchedule(groupClass._id, 2);
+    const sibling = await seedSchedule(groupClass._id, 4);
+    const session = await createSession(home, new Date('2026-09-29T00:00:00.000Z'));
+    const onHome = await User.create({ role: 'student', firstName: 'On', lastName: 'Home' });
+    const onSibling = await User.create({ role: 'student', firstName: 'On', lastName: 'Sibling' });
+    await seedSubscription(onHome._id, home._id);
+    await seedSubscription(onSibling._id, sibling._id);
+    const admin = await User.create({ role: 'admin', firstName: 'A', lastName: 'Dmin', email: 'gcs-admin@x.com' });
+
+    const viaGate = await getEligibleStudentsForSession(String(session._id), admin);
+    const direct = await listWalkInEligibleStudents(session, home);
+
+    expect(direct.map((s) => String(s._id))).toEqual(viaGate.map((s) => String(s._id)));
+    expect(direct.map((s) => String(s._id))).toEqual([String(onSibling._id)]);
+  });
+
+  it('400s on a session whose day has not started, via the shared attendance guard, and writes nothing', async () => {
+    const groupClass = await seedClass();
+    const schedule = await seedSchedule(groupClass._id, 2);
+    const future = await createSession(schedule, new Date('2099-01-06T00:00:00.000Z'));
+    const student = await User.create({ role: 'student', firstName: 'Too', lastName: 'Early' });
+    await seedSubscription(student._id, schedule._id);
+
+    await expect(markKioskAttendance(student._id, future._id, student._id)).rejects.toMatchObject({ status: 400 });
+    expect(await Visit.countDocuments({ studentId: student._id })).toBe(0);
+  });
+
+  it('400s on a holiday, via the shared attendance guard', async () => {
+    const groupClass = await seedClass();
+    const schedule = await seedSchedule(groupClass._id, 2);
+    const session = await makeSessionAttendable(await createSession(schedule, new Date('2026-09-29T00:00:00.000Z')), schedule);
+    await Holiday.create({ name: 'Closure', startDate: session.date, endDate: session.date });
+    const student = await User.create({ role: 'student', firstName: 'Holi', lastName: 'Day' });
+    await seedSubscription(student._id, schedule._id);
+
+    await expect(markKioskAttendance(student._id, session._id, student._id)).rejects.toMatchObject({
+      status: 400,
+      message: 'Attendance cannot be marked on an academy holiday',
+    });
+  });
+
+  it('403s a student with no Visit, no subscription on this schedule and no walk-in eligibility', async () => {
+    const groupClass = await seedClass();
+    const schedule = await seedSchedule(groupClass._id, 2);
+    const session = await makeSessionAttendable(await createSession(schedule, new Date('2026-09-29T00:00:00.000Z')), schedule);
+    const stranger = await User.create({ role: 'student', firstName: 'No', lastName: 'Body' });
+
+    await expect(markKioskAttendance(stranger._id, session._id, stranger._id)).rejects.toMatchObject({ status: 403 });
+    expect(await Visit.countDocuments({ studentId: stranger._id })).toBe(0);
   });
 });

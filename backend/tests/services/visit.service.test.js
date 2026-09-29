@@ -141,6 +141,31 @@ describe('visit.service', () => {
       const visit = await Visit.findOne({ studentId, groupClassSessionId: sessionId });
       expect(visit.status).toBe('missed');
     });
+
+    // docs/plans/kiosk-signin-plan.md K5 — a kiosk sign-in has no marking user.
+    it("records a kiosk sign-in as markedVia 'kiosk' with markedBy null", async () => {
+      const studentId = id();
+      const sessionId = id();
+
+      await markAttendance(studentId, sessionId, id(), 'regular', 'attended', null, 'kiosk');
+
+      const visit = await Visit.findOne({ studentId, groupClassSessionId: sessionId });
+      expect(visit.markedVia).toBe('kiosk');
+      expect(visit.markedBy).toBeNull();
+    });
+
+    it("accepts 'kiosk' as a markedVia value and still rejects an unknown one at validation", async () => {
+      const base = {
+        studentId: id(),
+        serviceId: id(),
+        groupClassSessionId: id(),
+        groupClassScheduleId: id(),
+        classType: 'regular',
+      };
+
+      await expect(new Visit({ ...base, markedVia: 'kiosk' }).validate()).resolves.toBeUndefined();
+      await expect(new Visit({ ...base, markedVia: 'robot' }).validate()).rejects.toThrow(/markedVia/);
+    });
   });
 
   describe('markAsMakeupClass', () => {

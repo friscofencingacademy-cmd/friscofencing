@@ -11,7 +11,9 @@ const { badRequestError, forbiddenError, notFoundError, conflictError } = requir
 
 // Roles that get a passwordHash and can log in. Students never get one in
 // this MVP — mirrors the comment on user.model.js's passwordHash field.
-const LOGIN_CAPABLE_ROLES = ['parent', 'coach', 'admin', 'superadmin'];
+// 'kiosk' (the front-desk sign-in tablet, docs/plans/kiosk-signin-plan.md
+// K1) logs in like any staff account; it has no delete guard, like admin.
+const LOGIN_CAPABLE_ROLES = ['parent', 'coach', 'admin', 'superadmin', 'kiosk'];
 
 function normalizeEmail(email) {
   return String(email || '')
@@ -111,7 +113,7 @@ async function create(data, requesterRole) {
     return withAge(user);
   }
 
-  // Login-capable role: parent, coach, admin, or superadmin.
+  // Login-capable role: parent, coach, admin, superadmin, or kiosk.
   if (!data.email || !data.password) {
     throw badRequestError('email and password are required');
   }

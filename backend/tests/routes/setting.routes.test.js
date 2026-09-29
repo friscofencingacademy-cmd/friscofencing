@@ -56,6 +56,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 0,
         returningStudentGracePeriodMonths: 0,
+        kioskConfirmationRequired: true,
       });
     });
 
@@ -70,6 +71,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 25,
         returningStudentGracePeriodMonths: 6,
+        kioskConfirmationRequired: true,
       });
     });
 
@@ -99,6 +101,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 25,
         returningStudentGracePeriodMonths: 6,
+        kioskConfirmationRequired: true,
       });
       expect(await Setting.countDocuments()).toBe(1);
     });
@@ -114,6 +117,7 @@ describe('Setting routes', () => {
       expect(res.body.settings).toEqual({
         registrationFee: 40,
         returningStudentGracePeriodMonths: 6,
+        kioskConfirmationRequired: true,
       });
     });
 
@@ -128,7 +132,11 @@ describe('Setting routes', () => {
         .send({ registrationFee: 10, privateClassPackages: [{ quantity: 10, discountPercent: 10 }] });
 
       expect(res.status).toBe(200);
-      expect(res.body.settings).toEqual({ registrationFee: 10, returningStudentGracePeriodMonths: 0 });
+      expect(res.body.settings).toEqual({
+        registrationFee: 10,
+        returningStudentGracePeriodMonths: 0,
+        kioskConfirmationRequired: true,
+      });
       const stored = await Setting.findOne().lean();
       expect(stored).not.toHaveProperty('privateClassPackages');
     });
@@ -150,6 +158,43 @@ describe('Setting routes', () => {
       const res = await superAgent.patch('/api/v1/settings').send({ returningStudentGracePeriodMonths: -1 });
 
       expect(res.status).toBe(400);
+    });
+
+    // docs/plans/kiosk-signin-plan.md K2.
+    it('saves kioskConfirmationRequired: false without touching the fee fields', async () => {
+      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
+      await seedUser({ role: 'superadmin', email: 'setting-super7@example.com' });
+      const superAgent = await loginAgent('setting-super7@example.com');
+
+      const res = await superAgent.patch('/api/v1/settings').send({ kioskConfirmationRequired: false });
+
+      expect(res.status).toBe(200);
+      expect(res.body.settings).toEqual({
+        registrationFee: 25,
+        returningStudentGracePeriodMonths: 6,
+        kioskConfirmationRequired: false,
+      });
+    });
+
+    it('a fee-only update leaves kioskConfirmationRequired as it was', async () => {
+      await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6, kioskConfirmationRequired: false });
+      await seedUser({ role: 'superadmin', email: 'setting-super8@example.com' });
+      const superAgent = await loginAgent('setting-super8@example.com');
+
+      const res = await superAgent.patch('/api/v1/settings').send({ registrationFee: 30 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.settings.kioskConfirmationRequired).toBe(false);
+    });
+
+    it('returns 400 for a non-boolean kioskConfirmationRequired, without writing anything', async () => {
+      await seedUser({ role: 'superadmin', email: 'setting-super9@example.com' });
+      const superAgent = await loginAgent('setting-super9@example.com');
+
+      const res = await superAgent.patch('/api/v1/settings').send({ kioskConfirmationRequired: 'no' });
+
+      expect(res.status).toBe(400);
+      expect(await Setting.countDocuments()).toBe(0);
     });
 
     it('returns 403 for a non-superadmin', async () => {

@@ -19,12 +19,15 @@ async function getSettings() {
   const doc = await Setting.findOne();
 
   if (!doc) {
-    return { registrationFee: 0, returningStudentGracePeriodMonths: 0 };
+    return { registrationFee: 0, returningStudentGracePeriodMonths: 0, kioskConfirmationRequired: true };
   }
 
+  // A doc saved before kioskConfirmationRequired existed hydrates with the
+  // schema default (true), so no migration is needed.
   return {
     registrationFee: doc.registrationFee,
     returningStudentGracePeriodMonths: doc.returningStudentGracePeriodMonths,
+    kioskConfirmationRequired: doc.kioskConfirmationRequired,
   };
 }
 
@@ -50,6 +53,13 @@ async function updateSettings(patch) {
       throw badRequestError('returningStudentGracePeriodMonths must be a number >= 0');
     }
     setFields.returningStudentGracePeriodMonths = patch.returningStudentGracePeriodMonths;
+  }
+
+  if (patch.kioskConfirmationRequired !== undefined) {
+    if (typeof patch.kioskConfirmationRequired !== 'boolean') {
+      throw badRequestError('kioskConfirmationRequired must be true or false');
+    }
+    setFields.kioskConfirmationRequired = patch.kioskConfirmationRequired;
   }
 
   await Setting.findOneAndUpdate(
