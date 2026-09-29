@@ -20,7 +20,9 @@ describe('utils/roles', () => {
       expect(hasAdminRole({ role })).toBe(true);
     });
 
-    it.each(['coach', 'parent', 'student'])('is false for %s', (role) => {
+    // 'kiosk' is login-capable but must never count as admin
+    // (docs/plans/kiosk-signin-plan.md K2).
+    it.each(['coach', 'parent', 'student', 'kiosk'])('is false for %s', (role) => {
       expect(hasAdminRole({ role })).toBe(false);
     });
 

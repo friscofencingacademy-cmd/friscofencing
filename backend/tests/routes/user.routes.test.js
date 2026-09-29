@@ -97,6 +97,37 @@ describe('User routes', () => {
       expect(superadminRes.status).toBe(201);
     });
 
+    // docs/plans/kiosk-signin-plan.md K1 — the front-desk tablet's account.
+    it('lets an admin create a kiosk account that can then log in', async () => {
+      await seedUser({ email: 'kiosk-admin@example.com' });
+      const agent = await loginAgent('kiosk-admin@example.com');
+
+      const res = await agent.post('/api/v1/users').send({
+        role: 'kiosk',
+        firstName: 'Front',
+        lastName: 'Desk',
+        email: 'frontdesk@example.com',
+        password: 'password123',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.user.role).toBe('kiosk');
+
+      const login = await request(app).post('/api/v1/auth/login').send({ email: 'frontdesk@example.com', password: 'password123' });
+      expect(login.status).toBe(200);
+      expect(login.body.user.role).toBe('kiosk');
+    });
+
+    it('requires an email and password for a kiosk account (login-capable)', async () => {
+      await seedUser({ email: 'kiosk-admin2@example.com' });
+      const agent = await loginAgent('kiosk-admin2@example.com');
+
+      const res = await agent.post('/api/v1/users').send({ role: 'kiosk', firstName: 'Front', lastName: 'Desk' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('email and password are required');
+    });
+
     it('returns 403 when an admin tries to create a superadmin', async () => {
       await seedUser({ email: 'admin@example.com' });
       const agent = await loginAgent('admin@example.com');
@@ -304,6 +335,14 @@ describe('User routes', () => {
       expect((await agent.delete(`/api/v1/users/${parent._id}`)).status).toBe(200);
       expect((await agent.delete(`/api/v1/users/${coach._id}`)).status).toBe(200);
       expect((await agent.delete(`/api/v1/users/${otherAdmin._id}`)).status).toBe(200);
+    });
+
+    it('deletes a kiosk account with no guard (like an admin)', async () => {
+      await seedUser({ email: 'admin13k@example.com' });
+      const kiosk = await seedUser({ role: 'kiosk', email: 'frontdesk13@example.com' });
+      const agent = await loginAgent('admin13k@example.com');
+
+      expect((await agent.delete(`/api/v1/users/${kiosk._id}`)).status).toBe(200);
     });
 
     it('returns 400 when a user tries to delete their own account', async () => {

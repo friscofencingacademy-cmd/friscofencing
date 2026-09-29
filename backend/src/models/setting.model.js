@@ -42,6 +42,14 @@ const settingSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // Whether the front-desk sign-in tablet asks "Are you <name>?" before
+    // marking attendance (docs/plans/kiosk-signin-plan.md K2). true (the
+    // default) = confirm step shown; false = tapping a name signs in
+    // immediately. The tablet reads this via GET /kiosk/state.
+    kioskConfirmationRequired: {
+      type: Boolean,
+      default: true,
+    },
     // Private-lesson packs are NOT a setting: each coach's packs live on
     // their CoachContract.privateLessonPacks (docs/plans/coach-pack-pricing-
     // plan.md D10). The former academy-wide `privateClassPackages` field was

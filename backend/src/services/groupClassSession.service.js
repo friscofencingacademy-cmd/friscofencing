@@ -76,6 +76,15 @@ function isAttendanceOpen(dateSentinel, today) {
   return dateSentinel <= today;
 }
 
+// "Is this class over?" — instant-vs-instant on `endsAt`. Exactly at endsAt
+// is still in progress. First consumer: the kiosk sign-in cut-off
+// (docs/plans/kiosk-signin-plan.md K4). Deliberately the only session-state
+// helper added there: the existing "has it started" checks stay as their
+// inline `startsAt` comparisons (see that plan's §6).
+function hasSessionEnded(session, now) {
+  return now > session.endsAt;
+}
+
 // The one annotation object both attachRosterToSessions (list) and getById
 // (detail) return, so the two can never disagree. Display-only — the real
 // guarantee is assertSessionAcceptsAttendance below.
@@ -355,13 +364,22 @@ async function getEligibleStudentsForSession(sessionId, requestingUser) {
 
   await assertCoachOrAdmin(schedule, requestingUser);
 
+  return listWalkInEligibleStudents(session, schedule);
+}
+
+// The walk-in eligibility rule itself, with no caller gate — the one home for
+// "who may attend this session without being on its own roster". Used by
+// getEligibleStudentsForSession above (after its coach-or-admin check) and by
+// the kiosk sign-in (docs/plans/kiosk-signin-plan.md K4), whose caller is the
+// kiosk account, not a coach or admin.
+async function listWalkInEligibleStudents(session, schedule) {
   const classSchedules = await GroupClassSchedule.find({ classId: schedule.classId }, '_id');
   const classScheduleIds = classSchedules.map((classSchedule) => classSchedule._id);
 
   const excludedIds = new Set();
 
   const existingVisits = await Visit.find(
-    { groupClassSessionId: sessionId, status: { $ne: 'cancelled' } },
+    { groupClassSessionId: session._id, status: { $ne: 'cancelled' } },
     'studentId'
   );
   existingVisits.forEach((visit) => excludedIds.add(String(visit.studentId)));
@@ -478,6 +496,59 @@ async function removeStudentFromSession(sessionId, studentId, requestingUser) {
   return getById(sessionId);
 }
 
+// The kiosk's attendance write (docs/plans/kiosk-signin-plan.md K5) — the
+// same steps markAttendance/addStudentToSession take, minus the coach-or-admin
+// gate (the caller is the kiosk account, gated at the route). Guarded by the same holiday + day check. A
+// student who already has a Visit for this session (their own roster session,
+// or a trial) is marked on it with its classType kept; anyone else must pass
+// the walk-in rule and is marked exactly as addStudentToSession would mark
+// them, isMakeupClass included, so a coach can undo it the same way.
+// Idempotent: an already-attended Visit is left untouched. `markedBy` is the
+// kiosk account (or admin) that was logged in on the tablet.
+async function markKioskAttendance(studentId, sessionId, markedBy) {
+  const session = await GroupClassSession.findById(sessionId);
+
+  if (!session) {
+    throw notFoundError('Group class session not found');
+  }
+
+  const schedule = await GroupClassSchedule.findById(session.scheduleId);
+
+  if (!schedule) {
+    throw notFoundError('Group class schedule not found');
+  }
+
+  await assertSessionAcceptsAttendance(session);
+
+  const existingVisit = await visitService.findActiveVisit(studentId, sessionId);
+
+  if (existingVisit && existingVisit.status === 'attended') {
+    return { alreadySignedIn: true };
+  }
+
+  const onOwnSchedule = Boolean(
+    await Subscription.exists({ studentId, scheduleId: schedule._id, status: 'active' })
+  );
+  const isWalkIn = !existingVisit && !onOwnSchedule;
+
+  if (isWalkIn) {
+    const eligible = await listWalkInEligibleStudents(session, schedule);
+
+    if (!eligible.some((student) => String(student._id) === String(studentId))) {
+      throw forbiddenError('This student is not enrolled in a class today');
+    }
+  }
+
+  const classType = existingVisit ? existingVisit.classType : 'regular';
+  await visitService.markAttendance(studentId, sessionId, schedule._id, classType, 'attended', markedBy, 'kiosk');
+
+  if (isWalkIn) {
+    await visitService.markAsMakeupClass(studentId, sessionId);
+  }
+
+  return { alreadySignedIn: false };
+}
+
 module.exports = {
   sessionInstantsFor,
   generateInitialSessions,
@@ -488,4 +559,7 @@ module.exports = {
   getEligibleStudentsForSession,
   addStudentToSession,
   removeStudentFromSession,
+  hasSessionEnded,
+  listWalkInEligibleStudents,
+  markKioskAttendance,
 };

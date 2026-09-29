@@ -15,6 +15,7 @@ Index of every ADR in this directory, newest first isn't required — kept in nu
 | 009 | [UTC date-storage standard — two shapes, one gate module per side](./009-utc-date-storage-standard.md) | Implemented | 2026-08-30 |
 | 010 | [`Visit` is the universal attendance ledger](./010-universal-visit-ledger.md) | Implemented | 2026-09-24 |
 | 011 | [Private lessons are per-session bookings, paid at purchase](./011-private-per-session-booking.md) | Implemented | 2026-09-24 |
+| 012 | [Front-desk kiosk sign-in: a kiosk-only login, name search + confirm, no PIN](./012-kiosk-signin-kiosk-role.md) | Implemented (backend) | 2026-09-29 |
 
 ## Status definitions
 

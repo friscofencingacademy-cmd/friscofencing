@@ -5,14 +5,14 @@ Planned schema — filled in with real fields as each model is built. Collection
 ## `User` — implemented (`backend/src/models/user.model.js`)
 | Field | Type | Notes |
 |---|---|---|
-| `role` | String enum | `student`, `parent`, `coach`, `admin`, `superadmin` — required |
+| `role` | String enum | `student`, `parent`, `coach`, `admin`, `superadmin`, `kiosk` — required. `kiosk` is the front-desk sign-in tablet's account (`docs/plans/kiosk-signin-plan.md` K1): login-capable, **not** an admin role — it can use only `GET /kiosk/state` and `POST /kiosk/sign-in`. |
 | `firstName`, `lastName` | String | required |
 | `email` | String | lowercase/trim, **unique + sparse** (not schema-required — students may not have one; sparse avoids a null-collision on the unique index) |
-| `passwordHash` | String | not schema-required — only set for login-capable roles (parent/coach/admin/superadmin); stripped from all JSON output via a `toJSON` transform |
+| `passwordHash` | String | not schema-required — only set for login-capable roles (parent/coach/admin/superadmin/kiosk); stripped from all JSON output via a `toJSON` transform |
 | `parentId` | ObjectId ref `User` | for students, links to the parent's account; not schema-required, enforced in application logic |
 | `skillLevel` | String enum | `beginner`/`intermediate`/`advanced`, optional |
 
-Login is email+password for `parent`/`coach`/`admin`/`superadmin` only — students don't log in in this MVP (no student portal). No public signup endpoint yet; the only account-creation path is `backend/scripts/seed-superadmin.js` (idempotent, env-driven). Parent self-registration is deferred to the trial-booking phase.
+Login is email+password for `parent`/`coach`/`admin`/`superadmin`/`kiosk` only — students don't log in in this MVP (no student portal). No public signup endpoint yet; the only account-creation path is `backend/scripts/seed-superadmin.js` (idempotent, env-driven). Parent self-registration is deferred to the trial-booking phase.
 
 ## `Location`, `Level`, `GroupClass`, `GroupClassSchedule`, `GroupClassSession` — implemented
 | Collection | Key fields |
@@ -62,7 +62,7 @@ The single source of truth for "did this student attend this session," for group
 | `privateClassSessionId` | ObjectId ref `PrivateClassSession` | default null — set on a private-lesson visit |
 | `classType` | String enum | `regular`, `trial`, `private` — required. `private` exactly when `privateClassSessionId` is set. |
 | `status` | String enum | `scheduled`, `attended`, `missed`, `cancelled` — default `scheduled` |
-| `markedBy` / `markedVia` | ObjectId ref `User` / String enum `coach`, `admin` | default null |
+| `markedBy` / `markedVia` | ObjectId ref `User` / String enum `coach`, `admin`, `kiosk` | default null. `kiosk` = the student signed themselves in on the front-desk tablet (`docs/plans/kiosk-signin-plan.md` K5); `markedBy` is the account logged in on the tablet. |
 | `isMakeupClass` | Boolean | default false — group walk-ins only |
 
 A `pre('validate')` hook enforces exactly one session ref and a `classType` consistent with it. Uniqueness per (student, session) among non-cancelled rows is enforced by `visit.service.js`'s upserts, not an index, so a cancelled visit can be re-scheduled in place. Indexes: `{ studentId, groupClassSessionId }`, `{ groupClassSessionId, status }`, `{ studentId, groupClassScheduleId }`, `{ privateClassSessionId, status }`, `{ studentId, serviceId }`.
@@ -144,7 +144,7 @@ The charge-amount calculation lives in its own file, `backend/src/services/billi
 ## `Setting` — implemented (registration-fee plan)
 | Collection | Key fields |
 |---|---|
-| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). (The former `privateClassPackages` field was removed — private-lesson packs live on each `CoachContract.privateLessonPacks`, `docs/plans/coach-pack-pricing-plan.md` D10.) `registrationFee` (Number, default `0`) — the **academy-wide default**, overridden per level by `Price.registrationFee` when set (`docs/plans/per-level-registration-fee-plan.md`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below). |
+| `Setting` | Singleton (exactly one document, enforced by `setting.service.js` always querying/upserting via `findOne()`, not a unique-key index). (The former `privateClassPackages` field was removed — private-lesson packs live on each `CoachContract.privateLessonPacks`, `docs/plans/coach-pack-pricing-plan.md` D10.) `registrationFee` (Number, default `0`) — the **academy-wide default**, overridden per level by `Price.registrationFee` when set (`docs/plans/per-level-registration-fee-plan.md`); `returningStudentGracePeriodMonths` (Number, default `0`); `prorationEnabled` (Boolean, default `false`) — **deprecated**, field kept on the schema but no longer read/written by any code path (see below); `kioskConfirmationRequired` (Boolean, default `true`) — whether the front-desk sign-in tablet asks "Are you <name>?" before marking attendance (`docs/plans/kiosk-signin-plan.md` K2; a doc saved before the field existed reads as `true`, no migration). |
 
 Superadmin-only (`GET`/`PATCH /api/v1/settings`) — same trust bar as `/audit-runs`, since these values change the charge on every future registration immediately, with no confirmation step. No caching — read fresh on every call, consistent with `calculateChargeAmount`'s "never cached" principle.
 

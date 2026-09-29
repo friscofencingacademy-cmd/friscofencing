@@ -6,7 +6,10 @@ const { Schema } = mongoose;
 // only one a group Visit may never carry — enforced by the validator below.
 const VISIT_CLASS_TYPES = ['regular', 'trial', 'private'];
 const VISIT_STATUSES = ['scheduled', 'attended', 'missed', 'cancelled'];
-const VISIT_MARKED_VIA = ['coach', 'admin'];
+// 'kiosk' = the student signed themselves in on the front-desk tablet
+// (docs/plans/kiosk-signin-plan.md K5); markedBy is the account logged in on
+// the tablet.
+const VISIT_MARKED_VIA = ['coach', 'admin', 'kiosk'];
 
 // The academy's attendance ledger — ONE row per student per session, for
 // every service (docs/decisions/010-universal-visit-ledger.md). It is the

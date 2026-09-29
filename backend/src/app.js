@@ -29,6 +29,7 @@ const evaluationRoutes = require('./routes/evaluation.routes');
 const settingRoutes = require('./routes/setting.routes');
 const holidayRoutes = require('./routes/holiday.routes');
 const calendarRoutes = require('./routes/calendar.routes');
+const kioskRoutes = require('./routes/kiosk.routes');
 const errorHandler = require('./middlewares/errorHandler');
 
 configurePassport(passport);
@@ -87,6 +88,7 @@ app.use('/api/v1/evaluations', evaluationRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/holidays', holidayRoutes);
 app.use('/api/v1/calendar', calendarRoutes);
+app.use('/api/v1/kiosk', kioskRoutes);
 
 // Must be the LAST middleware: every controller's catch block hands its error
 // to next(error) and this is the only place one becomes an HTTP response

@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
-const ROLES = ['student', 'parent', 'coach', 'admin', 'superadmin'];
+// 'kiosk' is the front-desk sign-in tablet's account (docs/plans/kiosk-signin-
+// plan.md K1): login-capable, NOT an admin role — it can only reach the two
+// /kiosk endpoints, never an admin page or action.
+const ROLES = ['student', 'parent', 'coach', 'admin', 'superadmin', 'kiosk'];
 const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced'];
 
 const userSchema = new Schema(
