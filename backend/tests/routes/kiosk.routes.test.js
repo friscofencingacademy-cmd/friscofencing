@@ -157,29 +157,46 @@ describe('Kiosk routes', () => {
   });
 
   // K2 — the security boundary: a kiosk login reaches nothing admin-side.
-  it('refuses the kiosk login everywhere admin-side, and on coach attendance marking', async () => {
-    const { session, student } = await seedToday();
-    const tablet = await loginAgent('kiosk', 'frontdesk@x.com');
-    const subscription = await Subscription.findOne({ studentId: student._id });
+  // One case per area, so a failure names exactly which area leaked, and a new
+  // admin area is a one-line addition. Requests run one at a time: nothing here
+  // is about concurrency (docs/TESTING_STRATEGY.md, "Concurrent requests").
+  describe('the kiosk login is refused everywhere admin-side', () => {
+    let scene;
+    let tablet;
 
-    const attempts = [
-      ['GET /users', tablet.get('/api/v1/users')],
-      ['POST /users', tablet.post('/api/v1/users').send({ role: 'admin', firstName: 'X', lastName: 'Y' })],
-      ['GET /settings', tablet.get('/api/v1/settings')],
-      ['PATCH /settings', tablet.patch('/api/v1/settings').send({ kioskConfirmationRequired: false })],
-      ['POST /subscriptions/:id/charge', tablet.post(`/api/v1/subscriptions/${subscription._id}/charge`)],
-      ['POST /holidays', tablet.post('/api/v1/holidays').send({ name: 'X', startDate: '2026-12-25', endDate: '2026-12-25' })],
-      ['GET /audit-runs', tablet.get('/api/v1/audit-runs')],
+    beforeEach(async () => {
+      scene = await seedToday();
+      scene.subscription = await Subscription.findOne({ studentId: scene.student._id });
+      tablet = await loginAgent('kiosk', 'frontdesk@x.com');
+    });
+
+    const FORBIDDEN = [
+      ['GET /users', (agent) => agent.get('/api/v1/users')],
+      ['POST /users', (agent) => agent.post('/api/v1/users').send({ role: 'admin', firstName: 'X', lastName: 'Y' })],
+      ['GET /settings', (agent) => agent.get('/api/v1/settings')],
+      ['PATCH /settings', (agent) => agent.patch('/api/v1/settings').send({ kioskConfirmationRequired: false })],
+      [
+        'POST /subscriptions/:id/charge',
+        (agent, { subscription }) => agent.post(`/api/v1/subscriptions/${subscription._id}/charge`),
+      ],
+      [
+        'POST /holidays',
+        (agent) => agent.post('/api/v1/holidays').send({ name: 'X', startDate: '2026-12-25', endDate: '2026-12-25' }),
+      ],
+      ['GET /audit-runs', (agent) => agent.get('/api/v1/audit-runs')],
       [
         'PATCH /group-class-sessions/:id/attendance',
-        tablet
-          .patch(`/api/v1/group-class-sessions/${session._id}/attendance`)
-          .send({ students: [{ studentId: String(student._id), isPresent: true }] }),
+        (agent, { session, student }) =>
+          agent
+            .patch(`/api/v1/group-class-sessions/${session._id}/attendance`)
+            .send({ students: [{ studentId: String(student._id), isPresent: true }] }),
       ],
     ];
 
-    const results = await Promise.all(attempts.map(async ([label, req]) => [label, (await req).status]));
+    it.each(FORBIDDEN)('%s → 403', async (label, send) => {
+      const res = await send(tablet, scene);
 
-    expect(results).toEqual(attempts.map(([label]) => [label, 403]));
+      expect(res.status).toBe(403);
+    });
   });
 });
