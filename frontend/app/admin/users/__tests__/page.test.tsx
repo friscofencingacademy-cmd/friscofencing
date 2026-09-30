@@ -202,6 +202,37 @@ describe('UsersPage', () => {
       });
     });
 
+    // docs/plans/kiosk-signin-plan.md K1 — the front-desk tablet's account is
+    // login-capable, so it gets email + password like a coach.
+    it('offers a Kiosk (sign-in tablet) account and submits it with email and password', async () => {
+      renderPage('admin');
+      await screen.findByText('Pat Parent');
+
+      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
+      const roleSelect = screen.getByLabelText('Role') as HTMLSelectElement;
+      expect(Array.from(roleSelect.options).map((o) => o.label)).toContain('Kiosk (sign-in tablet)');
+
+      fireEvent.change(roleSelect, { target: { value: 'kiosk' } });
+      expect(screen.getByLabelText('Password')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Parent')).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Front' } });
+      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Desk' } });
+      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'frontdesk@example.com' } });
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      await waitFor(() => {
+        expect(createdPayload).toEqual({
+          role: 'kiosk',
+          firstName: 'Front',
+          lastName: 'Desk',
+          email: 'frontdesk@example.com',
+          password: 'password123',
+        });
+      });
+    });
+
     it('submits the exact create payload for a student, with parentId and no password', async () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');

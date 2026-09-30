@@ -12,7 +12,9 @@ import axios from 'axios';
 
 import api from '../../lib/api';
 
-export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin';
+// 'kiosk' is the front-desk sign-in tablet's account (docs/plans/kiosk-signin-
+// plan.md K1): it lands on /kiosk and can use nothing else.
+export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin' | 'kiosk';
 
 export interface AuthUser {
   _id: string;

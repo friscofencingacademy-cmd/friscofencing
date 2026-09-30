@@ -32,6 +32,18 @@ test.describe('admin shell', () => {
     await page.waitForURL((url) => url.pathname === '/', { timeout: 10_000 });
   });
 
+  // docs/plans/kiosk-signin-plan.md K2 — the front-desk tablet's login must
+  // never get into the admin shell. It is bounced to '/', whose own redirect
+  // sends a kiosk login on to /kiosk.
+  test('the kiosk login is kept out of the admin shell and ends up on /kiosk', async ({ page }) => {
+    await loginAs(page, 'kiosk');
+    await page.goto('/admin/dashboard');
+
+    await page.waitForURL((url) => url.pathname === '/kiosk', { timeout: 10_000 });
+    await expect(page.getByRole('navigation', { name: 'Admin sidebar' })).toHaveCount(0);
+    await expect(page.getByTestId('roster-search')).toBeVisible();
+  });
+
   // KNOWN, PRE-EXISTING FINDING (not introduced by this suite, not fixed
   // here): the first real run of this scan found the sidebar's brand-role
   // and section-label text (`admin/layout.module.css`'s --sidebar-muted,

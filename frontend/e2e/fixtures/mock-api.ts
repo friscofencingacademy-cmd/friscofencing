@@ -181,6 +181,12 @@ export const FIXTURE_CALENDAR_EVENTS = [
   },
 ];
 
+export const FIXTURE_KIOSK_STUDENTS = [
+  { studentId: 'student-ava', firstName: 'Ava', lastName: 'Student', levelName: 'Fencing Foundation' },
+  { studentId: 'student-bo', firstName: 'Bo', lastName: 'Avery', levelName: null },
+  { studentId: 'student-cal', firstName: 'Cal', lastName: 'Brown', levelName: 'Intermediate' },
+];
+
 const DEFAULT_RULES: MockRule[] = [
   // Session — logged out by default; loginAs() in fixtures/auth.ts
   // prepends an override that wins over this one.
@@ -385,6 +391,15 @@ const DEFAULT_RULES: MockRule[] = [
     method: 'PATCH',
     path: '/private-class-sessions/:id/attendance',
     handler: (route) => json(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } }),
+  },
+
+  // Kiosk sign-in (docs/plans/kiosk-signin-plan.md) — the page a `kiosk`
+  // login lands on, so login.spec.ts / admin-shell.spec.ts reach it too.
+  {
+    method: 'GET',
+    path: '/kiosk/state',
+    handler: (route) =>
+      json(route, 200, { students: FIXTURE_KIOSK_STUDENTS, confirmationRequired: true, serverTime: '2026-09-30T20:00:00.000Z' }),
   },
 ];
 

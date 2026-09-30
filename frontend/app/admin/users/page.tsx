@@ -28,13 +28,13 @@ const BASE_TABS: { value: TabRole; label: string }[] = [
 // Roles an admin (or superadmin) may create through this page. Superadmin is
 // added conditionally at render time — never here — see design decision
 // "Who can create whom" in docs/plans/admin-user-management-plan.md.
-const CREATABLE_ROLES: Role[] = ['student', 'parent', 'coach', 'admin'];
+const CREATABLE_ROLES: Role[] = ['student', 'parent', 'coach', 'admin', 'kiosk'];
 
 const SKILL_LEVELS: SkillLevel[] = ['beginner', 'intermediate', 'advanced'];
 
 // Mirrors backend/src/services/user.service.js's LOGIN_CAPABLE_ROLES — only
 // these roles get an email/password and can be password-reset.
-const LOGIN_CAPABLE_ROLES: Role[] = ['parent', 'coach', 'admin', 'superadmin'];
+const LOGIN_CAPABLE_ROLES: Role[] = ['parent', 'coach', 'admin', 'superadmin', 'kiosk'];
 
 interface UserForm {
   role: Role;
@@ -84,10 +84,23 @@ interface DeleteTarget {
 }
 
 function isKnownRole(value: string): value is Role {
-  return value === 'student' || value === 'parent' || value === 'coach' || value === 'admin' || value === 'superadmin';
+  return (
+    value === 'student' ||
+    value === 'parent' ||
+    value === 'coach' ||
+    value === 'admin' ||
+    value === 'superadmin' ||
+    value === 'kiosk'
+  );
 }
 
 function roleLabel(value: string): string {
+  // The front-desk sign-in tablet's account (docs/plans/kiosk-signin-plan.md
+  // K1) — named for what it is, since "Kiosk" alone means nothing to an admin.
+  if (value === 'kiosk') {
+    return 'Kiosk (sign-in tablet)';
+  }
+
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 

@@ -25,6 +25,7 @@ const ADMIN_USER = {
 const SETTINGS: Setting = {
   registrationFee: 25,
   returningStudentGracePeriodMonths: 6,
+  kioskConfirmationRequired: true,
 };
 
 let patchPayload: unknown = null;
@@ -73,10 +74,40 @@ describe('AdminSettingsPage', () => {
       expect(patchPayload).toEqual({
         registrationFee: 40,
         returningStudentGracePeriodMonths: 6,
+        kioskConfirmationRequired: true,
       });
     });
 
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+  });
+
+  // docs/plans/kiosk-signin-plan.md K6.
+  it('shows the kiosk confirmation setting and saves it switched off', async () => {
+    renderPage();
+
+    const toggle = await screen.findByLabelText('Ask students to confirm their name on the sign-in tablet');
+    expect(toggle).toBeChecked();
+
+    fireEvent.click(toggle);
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(patchPayload).toEqual({
+        registrationFee: 25,
+        returningStudentGracePeriodMonths: 6,
+        kioskConfirmationRequired: false,
+      });
+    });
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+  });
+
+  it('shows the kiosk confirmation setting unchecked when it is saved off', async () => {
+    server.use(http.get('*/settings', () => HttpResponse.json({ settings: { ...SETTINGS, kioskConfirmationRequired: false } })));
+
+    renderPage();
+
+    expect(await screen.findByLabelText('Ask students to confirm their name on the sign-in tablet')).not.toBeChecked();
   });
 
   it('shows a client-side error and never submits for a negative fee', async () => {

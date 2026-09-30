@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 
 import { mockApi, json, type MockRule } from './mock-api';
 
-export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin';
+export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin' | 'kiosk';
 
 export const ROLE_LANDING_PATH: Record<Role, string> = {
   admin: '/admin/dashboard',
@@ -10,6 +10,7 @@ export const ROLE_LANDING_PATH: Record<Role, string> = {
   coach: '/coach/schedules',
   parent: '/parent/dashboard',
   student: '/',
+  kiosk: '/kiosk',
 };
 
 function fakeUser(role: Role) {

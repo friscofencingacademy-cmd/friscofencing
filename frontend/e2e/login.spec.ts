@@ -8,7 +8,7 @@ import { ROLE_LANDING_PATH, type Role } from './fixtures/auth';
 // e2e-testing-plan.md's D3) — every other spec skips straight past this via
 // fixtures/auth.ts's loginAs(). Real form, real submit, real Next.js
 // client-side navigation; only the network is mocked.
-const ROLES: Role[] = ['student', 'parent', 'coach', 'admin', 'superadmin'];
+const ROLES: Role[] = ['student', 'parent', 'coach', 'admin', 'superadmin', 'kiosk'];
 
 for (const role of ROLES) {
   test(`logs in as ${role} and lands on ${ROLE_LANDING_PATH[role]}`, async ({ page }) => {
