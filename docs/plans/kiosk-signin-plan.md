@@ -1,9 +1,9 @@
 # Kiosk Sign-In — one front-desk tablet, a kiosk-only login, name-search attendance
 
-**Status:** PR 1 (backend) REWORKED to revision 2 and BUILT 2026-09-29 on `feature/kiosk-signin-backend`,
-pending owner local testing + review, not committed. PR 2 (frontend) not started. Revision 2
-replaces revision 1's CKQ-style device pairing with a dedicated low-privilege `kiosk` login (owner
-decision 2026-09-29, §11). As-built notes: §12. No data migration.
+**Status:** PR 1 (backend) MERGED to `develop` as #111 (2026-09-29). PR 2 (frontend) BUILT 2026-09-30 on
+`feature/kiosk-signin-frontend`, pending owner local testing + review, not committed. Revision 2
+replaced revision 1's CKQ-style device pairing with a dedicated low-privilege `kiosk` login (owner
+decision 2026-09-29, §11). As-built notes: §12 (PR 1), §13 (PR 2). No data migration.
 
 **Owner's ask (2026-09-29):** one tablet at the front desk. A student searches their name; if
 their subscription is active their name shows; they tap it; the system asks "Are you X?" (a
@@ -251,3 +251,13 @@ Lesson recorded: port a reference system's *goal*, then check whether its *mecha
 - **Full backend suite:** **82 suites / 1084 tests, all green** (`TZ=UTC npx jest`, Tue 2026-09-29 ~6:40 pm Central) — the Step-0 baseline 80 / 1045 plus 2 new suites and 39 new tests. One earlier full run that evening had **1 failure in `renewal.service.test.js`** (a file this PR does not touch); it passed 23/23 alone and the next full run was fully green. Its message wasn't captured. That run fell in the Tuesday-after-4-pm window `duplication-cleanup-status` memory flags for this exact suite (a real-clock Tuesday 16:00 class), so it is most likely that known, tracked flake — not a kiosk regression — but that is unproven; its fix belongs to duplication-cleanup PR D (a frozen clock), not here.
 - **Mutation-checked:** the four sign-in mutations (boundary `>=`, no end cut-off, no own-session preference, no walk-in stamp) each fail a test. Wrongly adding `'kiosk'` to `ADMIN_ROLES` fails the 4 admin-gated lock-down cases by name (users list/create, holidays, coach attendance) while the 4 superadmin-only ones correctly stay 403; opening `PATCH /settings` to any login fails exactly its case.
 - **CI fix (PR #111, first CI run):** the lock-down test first sent its 8 requests at once (`Promise.all`); on the CI runner one dropped (`read ECONNRESET`) — a test-design flaw, not a product one (every completed request was a 403). Rewritten as an `it.each` table, one sequential case per area (backend now **82 suites / 1091 tests, all green**), and the rule "concurrent requests only in a race test" added to `docs/TESTING_STRATEGY.md`'s Isolation rules. The other four `Promise.all`-over-requests tests in the suite were checked: each is a genuine race test, left as is.
+
+## 13. PR 2 as-built notes (frontend, 2026-09-30)
+
+- **Baseline** (clean `develop`): frontend Jest **65 suites / 530 tests**; E2E **36 passed + 2 known skips**.
+- **After PR 2:** Jest **67 suites / 554 tests**, all green; E2E **41 passed + 2 known skips** (4 new kiosk tests incl. `login.spec.ts`'s kiosk case, 1 new `admin-shell.spec.ts` case); `tsc --noEmit` clean; `next build` succeeds (the E2E run builds it).
+- **Built:** `kiosk` in both `Role` types, `ROLE_LANDING_PATH.kiosk = '/kiosk'`, `AppShell` entry; `/admin/users` offers **Kiosk (sign-in tablet)** (login-capable, no own tab); `lib/kiosk.ts` (timings + `MIN_SEARCH_LENGTH` — moved out of the page because an App Router page file may only export its component); `lib/services/kiosk.ts`; `app/kiosk/page.tsx` + token-only `kiosk.module.css`; the Settings checkbox; default `/kiosk/state` E2E mock.
+- **Defects found while testing and fixed in this PR:** (1) a fetch loop — `loadState` depended on the router object, so any render that produced a new router re-ran the load effect (70 requests in a test whose mock router wasn't stable; Next's own router happens to be stable, but the page no longer relies on that — the router is held in a ref); (2) "Are you Ava Anderson ?" — a JSX line break put a visible space before the "?"; (3) the 2-character rule was encoded twice (the filter and the display branch), so breaking one was masked by the other — now one `searching` definition.
+- **Mutation-checked:** min-length rule, ignoring the confirmation setting, no auto-dismiss, no poll, unhandled 401, and the fetch-loop regression each fail a test.
+- **E2E note:** Next.js renders its own `role="alert"` route announcer, so an alert assertion must be filtered by text (`getByRole('alert').filter({ hasText })`).
+- **Pre-existing, not fixed here:** `npx tsc --noEmit -p e2e/tsconfig.json` reports 5 `TS2740` errors (`@axe-core/playwright`'s `Page` type vs `@playwright/test`'s) in `admin-shell.spec.ts`, `calendar.spec.ts`, `public-site.spec.ts` — identical on `develop` without this PR. The app's own `tsc --noEmit` doesn't cover `e2e/`, so CI doesn't see them.

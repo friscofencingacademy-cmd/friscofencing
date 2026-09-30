@@ -131,6 +131,10 @@ One shared, controlled component, `CalendarView` (`app/components/calendar/`), u
 - **Clicks reuse existing flows** (`bookingHref` in `lib/calendarView.ts`): an open private slot opens the booking wizard with its date picked, a class opens book-trial, and anyone but a logged-in parent logs in first.
 - Loading and `LoadError` render in place of the calendar, never as a modal.
 
+### Kiosk (`app/kiosk/`, `docs/plans/kiosk-signin-plan.md`) — the one page with no shell
+
+The front-desk sign-in tablet. Chrome-less by design: no `AppShell`, no sidebar, no nav, no logout button (a student must not be able to sign the tablet out). One centered card on `--color-bg`, touch-first (rows ≥ 56 px, `--font-size-h5` text), token-only `kiosk.module.css`. It still follows every rule here: `Button`, `Alert` for a sign-in error, `LoadError` for a failed first load, headings at the global `h1`/`h2` size. Its timings and the 2-character search rule live in `lib/kiosk.ts` (an App Router page may only export its component). Names appear only after 2 characters are typed, so the screen never lists every enrolled child by default.
+
 ### Flow wizard (`docs/features/parent-portal.md`'s "Flow kit" section for full component contracts)
 
 The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMain` provides the shell — breadcrumb, title, optional numbered stepper, and a two-column layout (step content + a **sticky summary rail that owns the single advance/submit CTA for that step** — never render a second submit button inside the step content itself). The final step collapses to `singleColumn` and swaps the step content for `FlowConfirmation`. Step state is local (`useState`, never URL/query-driven except for an optional `?child=` deep-link preselect), so back-navigation is free — nothing needs to be persisted or refetched across steps.
@@ -157,6 +161,7 @@ The pattern for any multi-step form (currently: Book a Trial, Register). `FlowMa
 | `CalendarView` (+ `MonthGrid`, `AgendaList`, `EventChip`) | `app/components/calendar/` | The one calendar — see "Calendar" under Page patterns. Controlled: `{ state, onStateChange, today, data, isLoading, error, onRetry, eventHref, typeOptions? }`. Its own token-only `CalendarView.module.css` (it serves the public shell now and the portal/admin shells later, so it belongs to neither shell's stylesheet). |
 | `lib/calendarView.ts` | `lib/` | The calendar's date logic and display strings in one place — month grid, request range, navigation limits, URL state, grouping by day, event labels, `bookingHref`. Calendar-day strings only; no instant math. |
 | `lib/formatMoney.ts` / `lib/privateLessons.ts` | `lib/` | `formatMoney` is the one dollar formatter (formatting only — never fed client-side arithmetic). `privateLessons.ts` holds every private-lesson display string (lesson time, slot, range, booking status label, and the purchase/pack strings — `purchaseOptionLabel`, `purchaseOptionPrice`, `packListingLabel`, `packSavingsLabel`, `packPreviewLabel`). |
+| `lib/kiosk.ts` / `lib/services/kiosk.ts` | `lib/` | The kiosk page's timings + search rule (`SUCCESS_DISMISS_MS`, `POLL_INTERVAL_MS`, `MIN_SEARCH_LENGTH`), and its two calls: `fetchKioskState` (query — throws) and `kioskSignIn` (mutation — never throws). See "Kiosk" under Page patterns. |
 | `lib/types.ts` | `lib/` | Domain interfaces typed against real backend responses — the single source of truth for a `Location`/`Student`/`Subscription`/etc. shape on the frontend. |
 
 ## Anti-patterns

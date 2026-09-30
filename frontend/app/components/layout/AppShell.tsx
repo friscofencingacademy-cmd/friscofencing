@@ -42,6 +42,9 @@ const NAV_LINKS_BY_ROLE: Record<Role, NavLink[]> = {
   // docs/plans/ckq-ui-adoption-plan.md Phase 3.
   parent: [],
   student: [],
+  // The kiosk page is chrome-less and never renders AppShell
+  // (docs/plans/kiosk-signin-plan.md K7).
+  kiosk: [],
 };
 
 interface AppShellProps {

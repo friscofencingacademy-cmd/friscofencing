@@ -103,6 +103,8 @@ Shared with the coach role, still renders inside the legacy `AppShell`. Attendan
 
 **Add Student (walk-in, Phase 3)** — a premium student attending a sibling schedule of their level (not their "home" one) isn't pre-listed; the coach/admin picks them from `GET .../eligible-students` (every student with an active subscription anywhere at the same class, **not gated on `isPremium`** — matches CKQ's own `getStudentsByLevel` exactly, excluding anyone already on this session's own roster or already marked) and adds them via `POST .../students`. Creates the `Visit` as `attended` and tags it `isMakeupClass: true`, which is what lets **Remove** (`DELETE .../students/:studentId`) undo a mistaken pick — a genuine roster student (a real `Subscription` on this exact schedule) can never be removed this way, only a walk-in.
 
+**Kiosk sign-ins** (`docs/plans/kiosk-signin-plan.md` K5) show here as ordinary present students — the `Visit` carries `markedVia: 'kiosk'` and `markedBy` = the tablet's account. A student who signed in at the kiosk to a session other than their own is a walk-in (`isMakeupClass: true`), exactly as if the coach had added them, so **Remove** undoes it the same way. A coach can still untick a kiosk sign-in and save.
+
 **Evaluate (Phase 2)** — a `trial`-classType row already marked present gets an inline "Evaluate" action (level `<select>` + notes, `POST /evaluations`) — the trial-assessment record Frisco had no equivalent of before this plan. Coach-only restriction: a coach may only evaluate a trial attendee of a session they themselves teach; admin/superadmin are unrestricted. One evaluation per (student, session); sends a confirmation email to the parent with the coach's note + recommended level.
 
 ## Users (`/admin/users`)
@@ -113,8 +115,8 @@ Pattern A plus two new sub-patterns: role tabs above the table, and a third "cha
 
 - **Tabs**: `All`, `Parent`, `Coach`, `Admin`, `Student`, and `Superadmin` — the Superadmin tab only renders when the logged-in user's own role is `superadmin`. Selecting a tab re-fetches `GET /users?role=<tab>` (no `role` param for "All") and syncs the URL via `router.replace('/admin/users' | '/admin/users?role=<tab>')`.
 - **Columns**: Name, Role (`chipMuted` badge), Email (`—` for a student without one), Actions.
-- **Row actions**: Edit, Change Password (only for a login-capable role: parent/coach/admin/superadmin — a student never gets the Key icon since it has no password), Delete. All three are omitted (replaced with a muted `—`) on any row where `row.role === 'superadmin'` and the viewer is not a superadmin — frontend defense-in-depth matching the backend's 403.
-- **Create/Edit dialog**: the role `<select>` (options: student/parent/coach/admin, plus superadmin only for a superadmin viewer) is shown **only on create**; on edit, role renders as plain read-only text — role is immutable once created, and the update endpoint silently drops a `role` field even if sent directly to the API. Conditional fields: role `student` → Parent picker (`<select>` populated from `fetchUsers('parent')`, required), Skill Level (optional), Email (optional), no password field ever. Any other role on create → Email (required) + Password (required, client-side min-8 hint). On **edit**, only firstName/lastName (+ Email, but only when the target's role is login-capable) are shown/submitted — the Parent picker and Skill Level are create-only, since the backend's `update()` never accepts `parentId` changes (out of scope — see the plan doc) and a student's email can't be changed through this endpoint either (`updateUser` payload is always exactly `{firstName, lastName, email?}`).
+- **Row actions**: Edit, Change Password (only for a login-capable role: parent/coach/admin/superadmin/kiosk — a student never gets the Key icon since it has no password), Delete. All three are omitted (replaced with a muted `—`) on any row where `row.role === 'superadmin'` and the viewer is not a superadmin — frontend defense-in-depth matching the backend's 403.
+- **Create/Edit dialog**: the role `<select>` (options: student/parent/coach/admin/**Kiosk (sign-in tablet)**, plus superadmin only for a superadmin viewer) is shown **only on create**; on edit, role renders as plain read-only text — role is immutable once created, and the update endpoint silently drops a `role` field even if sent directly to the API. Conditional fields: role `student` → Parent picker (`<select>` populated from `fetchUsers('parent')`, required), Skill Level (optional), Email (optional), no password field ever. Any other role on create → Email (required) + Password (required, client-side min-8 hint). On **edit**, only firstName/lastName (+ Email, but only when the target's role is login-capable) are shown/submitted — the Parent picker and Skill Level are create-only, since the backend's `update()` never accepts `parentId` changes (out of scope — see the plan doc) and a student's email can't be changed through this endpoint either (`updateUser` payload is always exactly `{firstName, lastName, email?}`).
 - **Change Password dialog**: separate small dialog, one "New Password" field (client-side min-8 check), `PUT /users/:id/password` — distinct from the profile-edit endpoint. Closes on success; no list refetch needed since it doesn't change displayed columns.
 - **Delete dialog**: identical Pattern A shape. Backend guards (409, `user.service.js` `remove()`,
   corrected 2026-08-28 by orphaned-coach-reference-fix-plan D5/§8b — the private-class checks below
@@ -125,12 +127,18 @@ Pattern A plus two new sub-patterns: role tabs above the table, and a third "cha
   Subscription behind it for as long as one exists, so the Subscription check is a superset — see
   `docs/plans/registration-ledger-plan.md` D7); `coach` blocked if referenced by a
   `GroupClassSchedule`, `PrivateClassSchedule`, `CoachContract`, or `PrivateClassEnrollment`;
-  `admin`/`superadmin` have no entity guard. A user can never delete their own account (400), and a
+  `admin`/`superadmin`/`kiosk` have no entity guard. A user can never delete their own account (400), and a
   non-superadmin can never view, edit, password-reset, or delete a `superadmin` row (403), even via a
   direct API call — see `docs/plans/admin-user-management-plan.md` for the full backend-enforced rule
   set (deliberately stricter than the CKQ reference this was adapted from). Read paths that predate a
   guard can still meet a pre-existing orphan — see `docs/features/private-class.md`'s
   "Orphaned-reference handling" section for how those degrade instead of crashing.
+
+- **Kiosk (sign-in tablet) accounts** (`docs/plans/kiosk-signin-plan.md`, ADR 012): the login the front-desk tablet uses. Created like a coach (email + password). It is **not** an admin role: after login it lands on `/kiosk` and can use only `GET /kiosk/state` and `POST /kiosk/sign-in` — every admin page redirects it and every admin endpoint returns 403 (asserted per area in `kiosk.routes.test.js` and by `admin-shell.spec.ts`). It has no tab of its own; it appears under **All**. Its login lasts the standard 7 days, so staff re-enter the password on the tablet about weekly.
+
+## Kiosk sign-in page (`/kiosk`)
+
+Not an admin page — the chrome-less screen the front-desk tablet shows, for a `kiosk` login (admins may open it too). A student types at least 2 letters of their first or last name, taps it, confirms ("Are you Ava Student?" — skipped when the Settings switch is off), and sees "Ava Student signed in" with the class and time for 5 seconds (or until tapped) before the search returns. The server picks today's class: the student's own session first, else a same-class session as a walk-in, and never one that has already ended; a second tap says "already signed in" and writes nothing. Errors ("Ava has no class today", "Ava's class today has already ended") show inline. The list refreshes every 30 seconds and when the tablet wakes; an expired login goes to `/login?next=/kiosk`.
 
 ## Spotlights (`/admin/spotlights`)
 
@@ -175,6 +183,11 @@ above) and "Waive if returning within (months)". Save checks that each is a numb
 **not** here any more — each coach's packs are set on Coach Contracts above
 (`docs/plans/coach-pack-pricing-plan.md` D10). (The deprecated `prorationEnabled` field has no control on
 this page — proration is unconditional, ADR 007.)
+
+**Kiosk** — one checkbox, "Ask students to confirm their name on the sign-in tablet"
+(`Setting.kioskConfirmationRequired`, default on, saved by the same Save). Off = tapping a name on
+`/kiosk` signs the student in immediately; the tablet picks up the change on its next 30-second
+refresh (`docs/plans/kiosk-signin-plan.md` K6).
 
 ## Dashboard (`/admin/dashboard`)
 

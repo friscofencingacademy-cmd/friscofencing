@@ -4,7 +4,9 @@
 // shape only where the backend actually returns populated documents for
 // that specific endpoint (see the comment on each populated type).
 
-export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin';
+// 'kiosk' is the front-desk sign-in tablet's account (docs/plans/kiosk-signin-
+// plan.md K1): it lands on /kiosk and can use nothing else.
+export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin' | 'kiosk';
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
 
 export interface AuthUser {
@@ -466,6 +468,41 @@ export interface RegistrationPricePreview extends ProrationInfo {
 export interface Setting {
   registrationFee: number;
   returningStudentGracePeriodMonths: number;
+  // Whether the front-desk sign-in tablet asks "Are you <name>?" before
+  // marking attendance (docs/plans/kiosk-signin-plan.md K6).
+  kioskConfirmationRequired: boolean;
+}
+
+// ── Kiosk sign-in (docs/plans/kiosk-signin-plan.md, backend kiosk.service.js) ──
+
+// One searchable student. levelName is null for a student listed only
+// because they're booked into a session today (a trial or walk-in).
+export interface KioskDirectoryEntry {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  levelName: string | null;
+}
+
+// GET /kiosk/state
+export interface KioskState {
+  students: KioskDirectoryEntry[];
+  confirmationRequired: boolean;
+  serverTime: string;
+}
+
+// POST /kiosk/sign-in. startTime/endTime are the schedule's "HH:mm" (format
+// with lib/formatTime.ts).
+export interface KioskSignInResult {
+  student: { _id: string; firstName: string; lastName: string };
+  session: {
+    _id: string;
+    className: string | null;
+    startTime: string;
+    endTime: string;
+    coachName: string | null;
+  };
+  alreadySignedIn: boolean;
 }
 
 // Shared by RegistrationPricePreview and RegistrationCreateResponse —

@@ -16,12 +16,14 @@ import styles from '../../components/admin/admin.module.css';
 interface FormState {
   registrationFee: string;
   returningStudentGracePeriodMonths: string;
+  kioskConfirmationRequired: boolean;
 }
 
 function toForm(settings: Setting): FormState {
   return {
     registrationFee: String(settings.registrationFee),
     returningStudentGracePeriodMonths: String(settings.returningStudentGracePeriodMonths),
+    kioskConfirmationRequired: settings.kioskConfirmationRequired,
   };
 }
 
@@ -68,6 +70,7 @@ export default function AdminSettingsPage() {
     const result = await updateSettings({
       registrationFee,
       returningStudentGracePeriodMonths,
+      kioskConfirmationRequired: form.kioskConfirmationRequired,
     });
 
     setSaving(false);
@@ -100,7 +103,7 @@ export default function AdminSettingsPage() {
 
   return (
     <main>
-      <AdminPageHeader title="Settings" subtitle="Registration fee" />
+      <AdminPageHeader title="Settings" subtitle="Registration fee · Kiosk" />
 
       {error ? (
         <LoadError message={getErrorMessage(error)} onRetry={retry} />
@@ -147,6 +150,24 @@ export default function AdminSettingsPage() {
             <p className={styles.formHint}>
               A student who re-registers within this many months of a prior enrollment ending pays no
               registration fee. 0 means the fee always applies, even to a returning student.
+            </p>
+          </div>
+
+          {/* docs/plans/kiosk-signin-plan.md K6 — the front-desk sign-in tablet. */}
+          <div className={styles.formGroup}>
+            <label className={styles.label} htmlFor="kiosk-confirmation-required">
+              <input
+                id="kiosk-confirmation-required"
+                type="checkbox"
+                checked={form.kioskConfirmationRequired}
+                onChange={(e) => setField('kioskConfirmationRequired', e.target.checked)}
+                style={{ marginRight: 'var(--space-2)' }}
+              />
+              Ask students to confirm their name on the sign-in tablet
+            </label>
+            <p className={styles.formHint}>
+              Off = tapping a name signs the student in immediately. The tablet picks up the change within 30
+              seconds.
             </p>
           </div>
 

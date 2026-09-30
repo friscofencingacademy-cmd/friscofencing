@@ -24,4 +24,6 @@ export const ROLE_LANDING_PATH: Record<Role, string> = {
   coach: '/coach/schedules',
   parent: '/parent/dashboard',
   student: '/',
+  // The front-desk sign-in tablet (docs/plans/kiosk-signin-plan.md K7).
+  kiosk: '/kiosk',
 };
