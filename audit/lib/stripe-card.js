@@ -4,10 +4,18 @@
 // documented default `card` element — the frame title below is Stripe's own
 // stable selector for it.
 //
+// Since payment PR 3 (docs/decisions/013-payment-provider-port.md) the card
+// form is frontend/app/components/payment/stripe/StripeCardForm.tsx, rendered
+// through PaymentMethodCollector with the publishable key from
+// GET /payments/config. It still renders Stripe's CardElement with default
+// options, so the iframe title and field names below are unchanged; its
+// submit button is "Save Card" on /parent/payment-method (the scenarios save
+// there first) and "Add Card" inside the register wizard.
+//
 // Verified against a real staging run (2026-08-23) — the frame/field
 // selectors below are confirmed correct. One thing the original,
 // pre-verification version of this helper got wrong, found on that run:
-// frontend/app/parent/payment-method/page.tsx's <CardElement> uses Stripe's
+// the <CardElement> uses Stripe's
 // default options (no `hidePostalCode: true`), so the combined element
 // includes a ZIP/postal field too — omitting it produced a real, legible
 // "Your postal code is incomplete." validation error from Stripe itself,

@@ -1,0 +1,91 @@
+name: Live registration audit
+
+# The live registration audit (audit/, docs/plans/audit-and-health-refresh-plan.md
+# D9): real Chromium against the STAGING frontend, real backend, real database,
+# real Stripe TEST-mode charges. It is the one layer that catches contract
+# drift between the mocked suites and the real API, so it runs weekly instead
+# of only when someone remembers. Staging only (audit/lib/staging-guard.js
+# hard-fails otherwise). It never gates a pull request.
+#
+# Sequence: reset the audit accounts' activity (backend/scripts/audit-reset.js),
+# then run every scenario. The audit's own P0 preflight reports missing
+# fixtures, sessions or keys as one clear failure (exit 2).
+#
+# Secrets (repo Actions secrets, set by the owner with `gh secret set`):
+#   AUDIT_MONGO_URI            staging cluster URI (must contain "friscofencing-staging")
+#   AUDIT_STAGING_URL          https://friscofencing-git-develop-frisco-fencing.vercel.app
+#   AUDIT_TEST_PASSWORD        the audit accounts' password (backend/.env's value)
+#   AUDIT_SUPERADMIN_EMAIL     staging superadmin, for reporting to /admin/audits
+#   AUDIT_SUPERADMIN_PASSWORD
+#   STRIPE_SECRET_KEY          already set for CI — the reset detaches the audit
+#                              parents' test cards through the payment provider
+# Until AUDIT_MONGO_URI is set the job logs a notice and succeeds.
+
+on:
+  schedule:
+    # Mondays 14:00 UTC — three hours after extend-sessions.yml stocks the week.
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUDIT_MONGO_URI: ${{ secrets.AUDIT_MONGO_URI }}
+    steps:
+      - name: Check the audit is configured
+        id: configured
+        run: |
+          if [ -z "$AUDIT_MONGO_URI" ]; then
+            echo "::notice::AUDIT_MONGO_URI secret is not set — skipping the live audit."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.configured.outputs.ready == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.configured.outputs.ready == 'true'
+        with:
+          node-version: '20'
+      - name: Install backend
+        if: steps.configured.outputs.ready == 'true'
+        run: npm ci
+        working-directory: backend
+      - name: Reset the audit accounts' activity
+        if: steps.configured.outputs.ready == 'true'
+        run: npm run audit:reset
+        working-directory: backend
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      - name: Install the audit package and Chromium
+        if: steps.configured.outputs.ready == 'true'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+        working-directory: audit
+      - name: Run the audit
+        if: steps.configured.outputs.ready == 'true'
+        working-directory: audit
+        env:
+          AUDIT_STAGING_URL: ${{ secrets.AUDIT_STAGING_URL }}
+          AUDIT_TEST_PASSWORD: ${{ secrets.AUDIT_TEST_PASSWORD }}
+          AUDIT_SUPERADMIN_EMAIL: ${{ secrets.AUDIT_SUPERADMIN_EMAIL }}
+          AUDIT_SUPERADMIN_PASSWORD: ${{ secrets.AUDIT_SUPERADMIN_PASSWORD }}
+        run: |
+          set -o pipefail
+          npm run audit:registration 2>&1 | tee audit-output.txt
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.configured.outputs.ready == 'true'
+        with:
+          name: live-audit-output
+          path: audit/audit-output.txt
+          retention-days: 30

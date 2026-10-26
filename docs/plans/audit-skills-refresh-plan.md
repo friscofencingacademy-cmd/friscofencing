@@ -123,3 +123,12 @@ This plan cannot be verified by `npm test` — every change here either talks to
 3. **Order:** D1 (simplify reset) → D2 (fix S2 wording) → D3 (S5) → D4 (S6) → D5 (orchestrator + skill docs) → D6 (addendum). Each is independently meaningful; do not skip D1's verification step (§3.3's re-run-without-reseeding check) since it's the one piece of reasoning in this whole plan that hasn't been proven live yet.
 4. **This is owner-triggered tooling, not app code** — no `develop`-merge urgency, no automated test gate to satisfy. The real gate is a clean, owner-observed run against staging per §3.
 5. **Report back:** files touched, the real console output of the seed/reset/audit runs (not paraphrased), and explicitly whether D1's and D4's flagged assumptions (idempotency-key reasoning; the `chargeDeclineOnly` card number) held up on the real run or needed correction — matching this repo's own established audit-plan convention of recording what a live run actually found, not just what was designed.
+
+---
+
+## Addendum (2026-10-26)
+
+Scenario maintenance continues in `docs/plans/audit-and-health-refresh-plan.md` (PR 2): the
+account lists in `audit-reset.js` are now derived from `scripts/lib/seedAuditFixtures.js`'s
+`AUDIT_FAMILIES` instead of being kept in step by hand, and the reset only touches children of the
+audit parents.

@@ -167,7 +167,10 @@ partial chip and a relative "Last Run" time; clicking an expandable row reveals 
 detail table (id, name, ✅/❌/⏭️, note) plus the run's summary line and runner.
 
 Never writes anything — the only writer is the `audit/` Playwright script's own non-fatal
-reporting step (`POST /audit-runs`), never this page.
+reporting step (`POST /audit-runs`), never this page. That script runs by hand or from the weekly
+`.github/workflows/live-audit.yml`; both report through the same `POST`. A run whose P0 preflight
+failed shows a `P0 Preflight` row with every reason and each scenario as skipped
+(`docs/plans/audit-and-health-refresh-plan.md` D6).
 
 ## Settings (`/admin/settings`)
 

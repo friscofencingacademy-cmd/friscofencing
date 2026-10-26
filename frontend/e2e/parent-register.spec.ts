@@ -1,8 +1,8 @@
 // If you change this wizard's DOM/labels, also update:
 //   audit/scenarios/s2-registration.js + audit/lib/register-child.js (live-audit twin)
-// (docs/plans/e2e-testing-plan.md's D9 — three places independently encode
-// this wizard's DOM; a change here without the others is how this drifted
-// stale before.)
+// (docs/plans/e2e-testing-plan.md's D9.) lib/__tests__/guards/
+// auditSelectorGuard.test.ts fails CI when a label or text the live audit
+// relies on disappears from the app (docs/plans/audit-and-health-refresh-plan.md D8).
 
 import { test, expect } from './fixtures/test';
 

@@ -5,10 +5,11 @@ disable-model-invocation: true
 ---
 
 Resets the staging data `/audit-live-registration` creates, so it can be re-run cleanly. Targets
-**only** the 7 fixed audit student accounts seeded by `backend/scripts/audit-seed.js`
-(`audit-parent-1`'s child, `audit-sibling-parent`'s 2 children, `audit-decline-parent`'s child,
-`audit-bridge-parent`'s 2 children, `audit-retry-parent`'s child) — never anything else on
-staging, so it can never touch real manual-QA data. See `docs/plans/audit-system-plan.md` (D5)
+**only** the fixed audit students — the children of the audit parent accounts defined once in
+`backend/scripts/lib/seedAuditFixtures.js` (`AUDIT_FAMILIES`: `audit-parent-1`'s child,
+`audit-sibling-parent`'s 2 children, `audit-decline-parent`'s child, `audit-bridge-parent`'s 2
+children, `audit-retry-parent`'s child). A student is reset only if its parent is one of those
+accounts, so a real student who happens to share a name is never touched. See `docs/plans/audit-system-plan.md` (D5)
 for the original design and `docs/plans/audit-skills-refresh-plan.md` (D1) for why the student-
 delete step below was removed.
 
@@ -53,13 +54,14 @@ Per fixed audit parent (`audit-parent-1`, `audit-sibling-parent`, `audit-decline
 
 ## Notes
 
-- **Never runs automatically** — not invoked by `/audit-live-registration` itself, the same
-  separation CKQ's own `/sync-preprod` keeps from its live audits. Run this deliberately, before
-  every audit re-run.
+- **Not invoked by `/audit-live-registration` itself** — the same separation CKQ's own
+  `/sync-preprod` keeps from its live audits. Run this deliberately before every manual re-run.
+  The weekly `.github/workflows/live-audit.yml` runs it as its first step
+  (`docs/plans/audit-and-health-refresh-plan.md` D9).
 - **Idempotent-safe** — if the audit accounts don't exist yet (first run, or already clean), this
   reports "nothing to do" rather than erroring.
 - **The parent accounts, students, coach, classes, schedules, and prices are untouched and stay
   permanent** — only each student's activity (trial, registration, subscription, roster entries,
   visits) and the parents' payment methods are cleared (see above, and why). Running
-  `npm run audit:seed` afterward is optional (idempotent, safe either way) but no longer required
-  for the accounts to exist.
+  `npm run audit:seed` afterward is optional (idempotent and convergent, safe either way) but not
+  required for the accounts to exist.

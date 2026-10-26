@@ -325,3 +325,14 @@ behavior. That plan supersedes two pieces of this one going forward:
 
 Same pattern already used elsewhere in this repo when a shipped change supersedes a piece of an
 earlier plan (e.g. ADR 001 / `registration-ledger-plan.md` after the billing-anchor plan).
+
+---
+
+## Addendum (2026-10-26) — superseded in part
+
+`docs/plans/audit-and-health-refresh-plan.md` refreshed the live audit after it sat unrun for two
+months: a P0 preflight, a convergent seed (`scripts/lib/seedAuditFixtures.js`, also run by every
+staging refresh), S1 rewritten for the sequential book-trial page, a preview == charge amount
+check in S3/S5, and a CI guard tying the audit's selectors to the app. Its D9 reverses this plan's
+D7 for the live audit only: it now runs weekly from `.github/workflows/live-audit.yml` (still
+staging-only, still never a PR gate).

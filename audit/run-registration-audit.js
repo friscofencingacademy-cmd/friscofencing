@@ -4,6 +4,7 @@ const { chromium } = require('playwright');
 
 const { assertStaging } = require('./lib/staging-guard');
 const { login } = require('./lib/login');
+const { runPreflight } = require('./lib/preflight');
 const s1 = require('./scenarios/s1-trial-booking');
 const s2 = require('./scenarios/s2-registration');
 const s3 = require('./scenarios/s3-sibling-discount');
@@ -106,25 +107,47 @@ async function main() {
   const startedAt = new Date();
   const browser = await chromium.launch({ headless: process.env.AUDIT_HEADED !== 'true' });
 
-  // Run every scenario even if one fails — collect all results first, then
-  // report at the end (docs/plans/audit-system-plan.md's Phase 3 rule).
-  // Each scenario gets its own fresh browser context — no shared state,
-  // no login bleeding from one scenario's parent account into another's.
+  // P0 — every precondition, checked before any scenario mutates staging
+  // (docs/plans/audit-and-health-refresh-plan.md D6). On failure every
+  // scenario is reported as a skip, the run as a failure, and the process
+  // exits 2 so a caller can tell "preconditions missing" from "a flow broke".
+  const preflightContext = await browser.newContext();
+  let preflight;
+  try {
+    preflight = await runPreflight(preflightContext, config);
+  } catch (error) {
+    preflight = { ok: false, reasons: [`preflight crashed: ${error.message}`] };
+  } finally {
+    await preflightContext.close();
+  }
+
   const results = [];
-  for (const scenario of SCENARIOS) {
-    // eslint-disable-next-line no-await-in-loop -- sequential by design,
-    // scenarios share the one browser instance and must not run concurrently
-    // against the same seeded accounts.
-    const context = await browser.newContext();
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await scenario.run(context, config);
-      results.push(result);
-    } catch (error) {
-      results.push({ id: '?', name: scenario.name || 'unknown scenario', result: 'fail', note: error.message });
-    } finally {
-      // eslint-disable-next-line no-await-in-loop
-      await context.close();
+
+  if (!preflight.ok) {
+    results.push({ id: 'P0', name: 'Preflight', result: 'fail', note: preflight.reasons.join(' · ') });
+    SCENARIOS.forEach((scenario) => {
+      results.push({ id: scenario.id, name: scenario.name, result: 'skip', note: 'preflight failed' });
+    });
+  } else {
+    // Run every scenario even if one fails — collect all results first, then
+    // report at the end (docs/plans/audit-system-plan.md's Phase 3 rule).
+    // Each scenario gets its own fresh browser context — no shared state,
+    // no login bleeding from one scenario's parent account into another's.
+    for (const scenario of SCENARIOS) {
+      // eslint-disable-next-line no-await-in-loop -- sequential by design,
+      // scenarios share the one browser instance and must not run concurrently
+      // against the same seeded accounts.
+      const context = await browser.newContext();
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await scenario.run(context, config);
+        results.push(result);
+      } catch (error) {
+        results.push({ id: scenario.id, name: scenario.name, result: 'fail', note: error.message });
+      } finally {
+        // eslint-disable-next-line no-await-in-loop
+        await context.close();
+      }
     }
   }
 
@@ -135,7 +158,11 @@ async function main() {
 
   await browser.close();
 
-  process.exitCode = results.some((r) => r.result === 'fail') ? 1 : 0;
+  if (!preflight.ok) {
+    process.exitCode = 2;
+  } else {
+    process.exitCode = results.some((r) => r.result === 'fail') ? 1 : 0;
+  }
 }
 
 main();

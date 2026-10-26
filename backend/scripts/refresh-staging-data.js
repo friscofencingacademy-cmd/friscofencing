@@ -11,11 +11,14 @@
 // 6. Scrub any payment-provider fields (defense-in-depth — see scrubProviderFields.js)
 // 7. Set one known password (Test@123) on every login-capable user, for
 //    staging testing convenience — see setStagingTestPasswords.js
+// 8. Re-seed the live audit's fixtures (docs/plans/audit-and-health-refresh-
+//    plan.md D7) — see seedAuditFixtures.js
 //
 // This is the ONE command to re-run every time you want to reset staging
 // back to "just the real legacy data, nothing else" — including after
 // playing with test data, per the owner's stated workflow. Requires
-// MONGO_URI plus the same SUPERADMIN_* env vars seed-superadmin.js needs.
+// MONGO_URI, the same SUPERADMIN_* env vars seed-superadmin.js needs, and
+// AUDIT_TEST_PASSWORD (step 8).
 //
 // No --allow-production flag exists here, ever — see
 // wipe-staging-environment.js's comment for why. The go-live re-import
@@ -35,11 +38,12 @@ const mongoose = require('mongoose');
 const config = require('./legacy-import.config');
 const { refreshStagingData } = require('./lib/refreshStagingData');
 
-const REQUIRED_SUPERADMIN_ENV_VARS = [
+const REQUIRED_ENV_VARS = [
   'SUPERADMIN_EMAIL',
   'SUPERADMIN_PASSWORD',
   'SUPERADMIN_FIRST_NAME',
   'SUPERADMIN_LAST_NAME',
+  'AUDIT_TEST_PASSWORD',
 ];
 
 function parseArgs(argv) {
@@ -77,7 +81,7 @@ async function main() {
     process.exit(1);
   }
 
-  const missingEnvVars = REQUIRED_SUPERADMIN_ENV_VARS.filter((key) => !process.env[key]);
+  const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
   if (missingEnvVars.length > 0) {
     console.error(`Missing required env vars: ${missingEnvVars.join(', ')}. Set them in backend/.env.`);
     process.exit(1);
@@ -114,14 +118,15 @@ async function main() {
         firstName: process.env.SUPERADMIN_FIRST_NAME,
         lastName: process.env.SUPERADMIN_LAST_NAME,
       },
+      auditTestPassword: process.env.AUDIT_TEST_PASSWORD,
     });
 
-    console.log('Step 1/7 — Wipe:');
+    console.log('Step 1/8 — Wipe:');
     Object.entries(result.wipeResult).forEach(([name, count]) => {
       if (count > 0) console.log(`  ${name}: ${count} deleted`);
     });
 
-    console.log('Step 2/7 — periodMonth/Guard B index migration:');
+    console.log('Step 2/8 — periodMonth/Guard B index migration:');
     if (result.periodMonthMigration.aborted) {
       console.log(
         `  ABORTED — ${result.periodMonthMigration.collisions.length} collision(s) found. This should never happen ` +
@@ -132,13 +137,13 @@ async function main() {
       console.log(`  Index swapped: ${result.periodMonthMigration.indexSwapped}`);
     }
 
-    console.log('Step 3/7 — Service registry:');
+    console.log('Step 3/8 — Service registry:');
     result.serviceSeedResults.results.forEach((service) => {
       console.log(`  ${service.code}: ${service.action}`);
     });
 
     const { importSummary } = result;
-    console.log('Step 4/7 — Legacy import:');
+    console.log('Step 4/8 — Legacy import:');
     console.log(`  CSV rows read:                ${importSummary.totalRows}`);
     console.log(`  Test/junk records filtered:   ${importSummary.testRecordsFiltered}`);
     console.log(`  Families processed:           ${importSummary.familiesProcessed}`);
@@ -152,18 +157,23 @@ async function main() {
       importSummary.warnings.forEach((warning) => console.log(`    - ${warning}`));
     }
 
-    console.log('Step 5/7 — Superadmin:');
+    console.log('Step 5/8 — Superadmin:');
     console.log(`  ${result.superadminEmail} — ${result.superadminCreated ? 'created' : 'already existed'}`);
 
-    console.log('Step 6/7 — Payment-provider scrub:');
+    console.log('Step 6/8 — Payment-provider scrub:');
     console.log(`  provider customer ids cleared: ${result.providerScrubResult.providerCustomerIdsCleared}`);
     console.log(`  PaymentMethod docs deleted:    ${result.providerScrubResult.paymentMethodsDeleted}`);
     console.log(`  provider payment ids cleared:  ${result.providerScrubResult.providerPaymentIdsCleared}`);
 
-    console.log('Step 7/7 — Staging test passwords:');
+    console.log('Step 7/8 — Staging test passwords:');
     console.log(
       `  ${result.testPasswordResult.usersUpdated} login-capable user(s) set to "${result.testPasswordResult.password}"`
     );
+
+    console.log('Step 8/8 — Live-audit fixtures:');
+    const audit = result.auditFixtures;
+    console.log(`  accounts: ${audit.counts.users.created} created, ${audit.counts.users.updated} updated`);
+    console.log(`  audit schedule sessions created: ${audit.sessionsCreated}`);
 
     console.log('Refresh complete.');
     process.exitCode = 0;

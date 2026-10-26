@@ -2,6 +2,14 @@ const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 const { registerChild } = require('../lib/register-child');
 
+const ID = 'S5';
+const NAME = 'Sibling discount (bridge case)';
+
+// The register wizard's own notice for a child with an active subscription
+// (register/page.tsx) — a stale registration from an un-reset run, reported
+// as a skip, not a failure.
+const ALREADY_ENROLLED = /is already enrolled/i;
+
 // S5 — sibling discount, BRIDGE case (docs/plans/audit-skills-refresh-plan.md
 // D3; docs/decisions/006-sibling-discount-family-rule.md). PR 3 of the
 // billing-anchor-and-sibling-discount plan added a genuinely new path: a
@@ -42,20 +50,20 @@ async function run(context, config) {
         "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.",
     });
 
-    return { id: 'S5', name: 'Sibling discount (bridge case)', result: 'pass', note: '' };
+    return { id: ID, name: NAME, result: 'pass', note: '' };
   } catch (error) {
-    if (await page.getByText(/already registered/i).isVisible().catch(() => false)) {
+    if (await page.getByText(ALREADY_ENROLLED).isVisible().catch(() => false)) {
       return {
-        id: 'S5',
-        name: 'Sibling discount (bridge case)',
+        id: ID,
+        name: NAME,
         result: 'skip',
-        note: 'Already registered from a prior run — run `npm run audit:reset` in backend/ first.',
+        note: 'Already enrolled from a prior run — run `npm run audit:reset` in backend/ first.',
       };
     }
-    return { id: 'S5', name: 'Sibling discount (bridge case)', result: 'fail', note: error.message };
+    return { id: ID, name: NAME, result: 'fail', note: error.message };
   } finally {
     await page.close();
   }
 }
 
-module.exports = { run };
+module.exports = { id: ID, name: NAME, run };
