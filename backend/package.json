@@ -16,6 +16,7 @@
     "seed:testimonials": "node scripts/seed-testimonials.js",
     "renewals": "node scripts/run-renewals.js",
     "extend-sessions": "node scripts/extend-group-sessions.js",
+    "health": "node scripts/health-check.js",
     "realign-billing-anchors": "node scripts/realign-billing-anchors.js",
     "find-duplicate-active-subscriptions": "node scripts/find-duplicate-active-subscriptions.js",
     "drop-old-subscription-index": "node scripts/drop-old-subscription-index.js",

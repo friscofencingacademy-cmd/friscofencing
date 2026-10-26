@@ -103,6 +103,7 @@ Public site shipped (2026-08-21) — logged-out home/`/classes`/`/coaches`, `/*/
 | Testing strategy — layers, mocking rules, interaction/date rules, typed fixtures, naming conventions, error-handling contract | `docs/TESTING_STRATEGY.md` |
 | Test coverage — current suite counts (real, re-run per update), per-layer table, honest gaps, improvement plan | `docs/TEST_COVERAGE.md` |
 | `/audit-tests` — read-only test-suite quality audit (pyramid, 13 anti-pattern checks incl. route negative paths and dead negative assertions, `TEST_COVERAGE.md` drift) | `.claude/skills/audit-tests/SKILL.md` |
+| `/health` — read-only repo + environment health: git/CI/branch protection, last session-extension and live-audit runs, staging/production data checks (`npm run health -- --env staging\|production`) | `.claude/skills/health/SKILL.md` |
 | Email system — block-based design system architecture, tokens, template registry, CC table, the `APP_ENV` staging gate, preview-script usage | `docs/modules/email.md` |
 | Admin panel — per-page behavior spec (Pattern A CRUD, delete guards, Subscriptions/Coach Contracts/Private Classes pages, amended schedule-edit deferral note) | `docs/features/admin.md` |
 | Parent portal — shell/context contract, flow kit, child detail page, AddChildModal, private-lessons wizard, page inventory | `docs/features/parent-portal.md` |

@@ -38,14 +38,20 @@ FRONTEND="$WORKSPACE/frontend"
 
 Where the tests live:
 - **Backend**: `backend/tests/{config,email,guards,middlewares,models,payments,routes,scripts,services,utils}`
-  and `backend/tests/health.test.js`, all `*.test.js`. Shared helpers are in
-  `backend/tests/testUtils/`. Route tests run real supertest against an in-memory
-  MongoDB; payment tests hit Stripe TEST mode.
+  and `backend/tests/health.test.js`, all `*.test.js`. Script logic is tested in
+  `backend/tests/scripts/lib/` (the CLI entry points in `backend/scripts/*.js` hold no
+  logic of their own, by convention). Shared helpers are in `backend/tests/testUtils/`.
+  Route tests run real supertest against an in-memory MongoDB; payment tests hit
+  Stripe TEST mode.
 - **Frontend (Jest)**: `*.test.ts(x)` in the `__tests__/` folder next to the code,
   under `frontend/app/**` and `frontend/lib/**`, with MSW at the network boundary.
 - **E2E (Playwright)**: `frontend/e2e/*.spec.ts`. Mocks are in
   `frontend/e2e/fixtures/mock-api.ts`, the shared `test` fixture is
   `frontend/e2e/fixtures/test.ts`, and layout helpers are in `frontend/e2e/helpers/`.
+- **Live audit**: `audit/scenarios/*.js` + `audit/lib/*.js` — real Playwright against
+  staging, never run in CI and never by this skill. It has no Jest suite by design; its
+  selectors are tied to the app by `frontend/lib/__tests__/guards/auditSelectorGuard.test.ts`,
+  and its last real run is on `/admin/audits` (and in `/health`).
 
 ---
 
@@ -69,7 +75,13 @@ find "$BACKEND/tests" -name '*.test.js' | wc -l
 # Frontend
 find "$FRONTEND/app" "$FRONTEND/lib" -name '*.test.ts' -o -name '*.test.tsx' | grep -v node_modules | wc -l
 find "$FRONTEND/e2e" -name '*.spec.ts' | wc -l
+
+# Live audit (not a test layer CI runs — report the count and that it is guarded)
+find "$WORKSPACE/audit/scenarios" -name '*.js' | wc -l
 ```
+
+Report the live-audit scenario count on its own line: "N scenarios — no Jest by design,
+guarded by `auditSelectorGuard`, verified by the live run".
 
 ### Step 1.3 — Evaluate test pyramid health
 
@@ -313,9 +325,9 @@ Triage every candidate, because the script cannot tell these apart:
 - **Composed / intentional**: the app could build the text at runtime, and the test
   proves it does not. Note it as such and move on.
 
-Baseline (2026-10-26, after testing PR D): 75 test files, 117 literal negative assertions, 2
-candidates, both intentional: `app/parent/register/__tests__/page.test.tsx:549-550` (`$210.71`,
-`$134.50`). Each asserts that the page never shows a sum it computed itself, because
+Baseline (re-measured 2026-10-26, after audit-health PR 2): 81 test files, 117 literal negative
+assertions, 2 candidates, both intentional: `app/parent/register/__tests__/page.test.tsx:555-556`
+(`$210.71`, `$134.50`). Each asserts that the page never shows a sum it computed itself, because
 the backend is the only source of billing figures (CLAUDE.md hard rule 7).
 
 ---
@@ -346,7 +358,8 @@ List `backend/tests/routes/*.routes.test.js` and frontend `__tests__` folders th
 
 ### Step 3.3 — Snapshot staleness
 
-Find the date of the doc's latest re-measurement (the `Re-measured YYYY-MM-DD` line),
+Find the date of the doc's latest measurement — the line matching
+`^(Re-)?[Mm]easured (\d{4}-\d{2}-\d{2})` (today the doc writes `Measured YYYY-MM-DD …`),
 and today in Central (`TZ=America/Chicago date +%Y-%m-%d`). Report the gap in days.
 Flag it when more than a month of merged test work (`git log --since=<date> --oneline -- backend/tests frontend`)
 has landed since.
@@ -370,6 +383,7 @@ PHASE 1 — STRATEGY
 Test file counts:
   Backend  : N files  (utils X | models X | email X | services X | routes X | scripts X | payments X | other X)
   Frontend : N Jest files + N E2E specs
+  Live audit: N scenarios (no Jest by design; guarded by auditSelectorGuard)
 
 Pyramid health:
   Backend  : X% unit / Y% integration → [HEALTHY | INVERTED | GAP]

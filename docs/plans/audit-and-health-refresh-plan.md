@@ -423,3 +423,29 @@ sections above with the reason._
      selector is checkable; none needed rewriting.
   5. `TESTING_STRATEGY.md`'s live-audit rules were updated in this PR rather than PR 4, because
      this PR changes them.
+
+### PR 3 — built 2026-10-26 on `feature/health-skill`
+
+- **Files:** `backend/scripts/lib/healthCheck.js` (new), `backend/scripts/health-check.js` (new),
+  `backend/package.json` (`health`), `backend/tests/scripts/lib/healthCheck.test.js` (new),
+  `.claude/skills/health/SKILL.md` (new), `.claude/skills/audit-tests/SKILL.md` (T1–T3), docs
+  (`TESTING_STRATEGY.md` tooling list, `TEST_COVERAGE.md`, `CLAUDE.md` map row, this plan).
+- **Tests:** 15 cases. Backend 96 suites / 1,302 tests, 94.36 % statements. Frontend untouched.
+- **Verified for real:** `npm run health -- --env staging` run read-only against staging on
+  2026-10-26 reported exactly the measured state — ❌ 19 schedules with no upcoming session,
+  ❌ no audit fixtures, ⚠️ last audit 58 days old, everything else ✅. Exit 1.
+- **Divergences:**
+  1. The services check requires every canonical code to exist but only `group-classes` and
+     `private-lessons` to be active — a dormant service's `isActive` is owner state
+     (`seedServices.js` never touches it), so the health check must not judge it.
+  2. Retry exhaustion reuses `config/billing.js`'s `MAX_PAYMENT_RETRIES` instead of a new constant,
+     and is a warning: an active subscription can sit at the maximum until the next retry run
+     cancels it, and renewals are run by hand today.
+  3. The production run reads only `MONGO_URI` from `.env.production.local` (`dotenv.parse`, never
+     loaded into `process.env`) and refuses a staging URI.
+  4. The optional stale chip on `/admin/audits` was not built: `/health` and the staging health
+     check already flag a stale or failed audit, and a second staleness rule in the UI would be a
+     second home for the same threshold.
+  5. **Owner action:** the user-level `~/.claude/commands/health.md` is CKQ's status command. The
+     repo skill now appears as `health` in this repo; delete or rename the user-level command so
+     the two never collide (not a repo file, so not changed here).
