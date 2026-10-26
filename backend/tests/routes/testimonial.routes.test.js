@@ -6,6 +6,7 @@ process.env.JWT_EXPIRES_IN = '7d';
 // docs/TESTING_STRATEGY.md's named exceptions.
 jest.mock('@vercel/blob');
 
+const mongoose = require('mongoose');
 const request = require('supertest');
 const { put } = require('@vercel/blob');
 
@@ -217,5 +218,53 @@ describe('Testimonial routes', () => {
       expect(JSON.stringify(res.body)).not.toContain('isPublished');
       expect(JSON.stringify(res.body)).not.toContain('Unpublished Person');
     });
+  });
+});
+
+// Every protected route answers 401 without a session, every admin-only route
+// 403 for a non-admin (changing nothing), and an unknown id 404 — the negative
+// paths /audit-tests Check 11 asks of each route
+// (docs/plans/testing-strategy-refresh-plan.md PR C).
+describe('Testimonial routes — access control and unknown ids', () => {
+  const UNKNOWN_ID = new mongoose.Types.ObjectId().toString();
+
+  it.each([
+    ['get', '/api/v1/testimonials'],
+    ['get', `/api/v1/testimonials/${UNKNOWN_ID}`],
+    ['post', '/api/v1/testimonials'],
+    ['put', `/api/v1/testimonials/${UNKNOWN_ID}`],
+    ['delete', `/api/v1/testimonials/${UNKNOWN_ID}`],
+    ['post', '/api/v1/testimonials/upload-image'],
+  ])('%s %s returns 401 without a session', async (method, url) => {
+    const res = await request(app)[method](url).send({ quote: 'Great program.', authorName: 'Steve' });
+
+    expect(res.status).toBe(401);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when a non-admin tries to read, update, or delete one testimonial, and changes nothing', async () => {
+    const testimonial = await Testimonial.create({ quote: 'Great program.', authorName: 'Steve' });
+    await seedUser({ role: 'parent', email: 'test-parent@example.com' });
+    const agent = await loginAgent('test-parent@example.com');
+
+    const getRes = await agent.get(`/api/v1/testimonials/${testimonial._id}`);
+    const updateRes = await agent.put(`/api/v1/testimonials/${testimonial._id}`).send({ quote: 'Changed.' });
+    const deleteRes = await agent.delete(`/api/v1/testimonials/${testimonial._id}`);
+
+    expect(getRes.status).toBe(403);
+    expect(updateRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
+    const stored = await Testimonial.findById(testimonial._id);
+    expect(stored.quote).toBe('Great program.');
+  });
+
+  it.each(['get', 'put', 'delete'])('%s of an unknown testimonial id returns 404', async (method) => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent[method](`/api/v1/testimonials/${UNKNOWN_ID}`).send({ quote: 'Changed.' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe('Testimonial not found');
   });
 });

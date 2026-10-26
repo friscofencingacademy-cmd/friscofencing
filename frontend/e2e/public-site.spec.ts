@@ -148,6 +148,7 @@ test.describe('public site (logged out)', () => {
     await expect(page).toHaveScreenshot('home-page.png', { fullPage: true });
   });
 
+  // Skipped until a CI-container baseline exists — same reason as the home page baseline above.
   test.skip('/classes visual baseline', async ({ page }) => {
     await page.goto('/classes');
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
