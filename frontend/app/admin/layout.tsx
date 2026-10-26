@@ -178,6 +178,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         </div>
         <div className={styles.brandRole}>{user.role}</div>
 
+        {/* The icon-only rail (768–1023 px) and the closed phone drawer hide
+            the text labels with CSS, so every link and section toggle carries
+            its name in aria-label too — the same text, so it never differs
+            from what a sighted user reads. */}
         <ul className={styles.navList}>
           {TOP_LEVEL_ITEMS.map((item) => {
             const active = isNavActive(item.href, pathname);
@@ -188,6 +192,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                   className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
                   onClick={closeMobile}
                   aria-current={active ? 'page' : undefined}
+                  aria-label={item.label}
                 >
                   {item.icon}
                   <span className={styles.navLabel}>{item.label}</span>
@@ -199,6 +204,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           {NAV_SECTIONS.map((section) => {
             const isOpen = !!openSections[section.label];
             const hasActive = section.items.some((item) => isNavActive(item.href, pathname));
+            const sectionListId = `admin-nav-${section.label.toLowerCase()}`;
 
             return (
               <li key={section.label}>
@@ -206,11 +212,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                   type="button"
                   className={`${styles.sectionHeader} ${hasActive ? styles.sectionHeaderActive : ''}`}
                   onClick={() => toggleSection(section.label)}
+                  aria-label={section.label}
+                  aria-expanded={isOpen}
+                  aria-controls={sectionListId}
                 >
                   <span className={styles.sectionLabel}>{section.label}</span>
                 </button>
 
-                <ul className={`${styles.sectionItems} ${isOpen ? styles.sectionItemsOpen : ''}`}>
+                <ul id={sectionListId} className={`${styles.sectionItems} ${isOpen ? styles.sectionItemsOpen : ''}`}>
                   {section.items.map((item) => {
                     const active = isNavActive(item.href, pathname);
                     return (
@@ -220,6 +229,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                           className={`${styles.navItem} ${styles.navItemSub} ${active ? styles.navItemActive : ''}`}
                           onClick={closeMobile}
                           aria-current={active ? 'page' : undefined}
+                          aria-label={item.label}
                         >
                           {item.icon}
                           <span className={styles.navLabel}>{item.label}</span>

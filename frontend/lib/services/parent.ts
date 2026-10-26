@@ -16,6 +16,7 @@ import type {
   MyStudentsResponse,
   MySubscriptionsResponse,
   MyTrialClassesResponse,
+  PaymentHistoryResponse,
 } from '../apiResponses';
 
 // ── Students (children) ─────────────────────────────────────────────────
@@ -105,7 +106,7 @@ export async function cancelSubscription(id: string): Promise<MutationResult<und
 // a parent has actually been charged, across every billing shape.
 
 export async function fetchMyPaymentHistory(): Promise<PaymentHistoryRow[]> {
-  const res = await api.get<{ history: PaymentHistoryRow[] }>('/registrations/history');
+  const res = await api.get<PaymentHistoryResponse>('/registrations/history');
   return res.data.history;
 }
 

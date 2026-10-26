@@ -1,4 +1,5 @@
 import type {
+  AdminSubscriptionRow,
   AuthUser,
   CoachPrivateAvailabilityRule,
   CoachPrivateBookingRow,
@@ -10,6 +11,7 @@ import type {
   Holiday,
   Level,
   Location,
+  PaymentHistoryRow,
   PaymentMethodInfo,
   Price,
   PrivateAvailableDate,
@@ -19,6 +21,7 @@ import type {
   PublicLocation,
   PublicSpotlight,
   PublicTestimonial,
+  Spotlight,
   Student,
   Subscription,
   TrialClass,
@@ -60,6 +63,21 @@ export interface PublicLevelsResponse {
 /** GET /locations/public */
 export interface PublicLocationsResponse {
   locations: PublicLocation[];
+}
+
+/** GET /spotlights */
+export interface SpotlightsResponse {
+  spotlights: Spotlight[];
+}
+
+/** POST /spotlights, PUT /spotlights/:id */
+export interface SpotlightResponse {
+  spotlight: Spotlight;
+}
+
+/** POST /spotlights/upload-image, POST /testimonials/upload-image — the uploaded file's public Blob URL */
+export interface ImageUploadResponse {
+  imageUrl: string;
 }
 
 /** GET /spotlights/public */
@@ -145,6 +163,16 @@ export interface MyTrialClassesResponse {
 /** GET /registrations/mine */
 export interface MySubscriptionsResponse {
   subscriptions: Subscription[];
+}
+
+/** PATCH /subscriptions/:id/schedule */
+export interface AdminSubscriptionResponse {
+  subscription: AdminSubscriptionRow;
+}
+
+/** GET /registrations/history (a parent's own, or ?parentId= for an admin) */
+export interface PaymentHistoryResponse {
+  history: PaymentHistoryRow[];
 }
 
 /** GET /payment-methods/mine */

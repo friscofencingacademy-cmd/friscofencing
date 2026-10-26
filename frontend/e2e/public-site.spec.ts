@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures/test';
-import AxeBuilder from '@axe-core/playwright';
 
 import { CALENDAR_NOW, mockApi } from './fixtures/mock-api';
+import { expectNoBlockingA11yViolations } from './helpers/a11y';
 import { expectNoHorizontalOverflow } from './helpers/layout';
 
 // Logged-out marketing pages — zero real-browser coverage before this
@@ -174,18 +174,13 @@ test.describe('public site (logged out)', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Olympic Fencing.' })).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-
-    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 
   test('/classes has no serious/critical accessibility violations', async ({ page }) => {
     await page.goto('/classes');
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 });

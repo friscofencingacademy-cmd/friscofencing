@@ -262,6 +262,7 @@ All in `frontend/lib/__tests__/guards/`, each with a matcher self-test and a sca
 - **`e2eWaitOrderGuard.test.ts`** — no directly awaited `page.waitForResponse`/`waitForRequest`, no synthetic `visibilitychange`.
 - **`selfHostedFontsGuard.test.ts`** — no file loads fonts from Google; every font file `app/layout.tsx` points at exists (a `next/font/google` build-time fetch failed a develop build, 2026-09-30).
 - **`playwrightVersionGuard.test.ts`** — `@playwright/test`, `playwright-core` and the CI Playwright image tag are the same version.
+- **`portalTableWrapGuard.test.ts`** — every table styled with the portal's shared `.table` sits directly inside a `.tableWrap` (`overflow-x: auto`), so a wide table scrolls in its own box instead of the whole page on a phone.
 
 ---
 
@@ -288,7 +289,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 | Project | Device | Specs |
 |---|---|---|
 | `chromium` | Desktop Chrome | every spec |
-| `mobile-chrome` | Pixel 5 (393 px, touch) | `public-site`, `login`, `calendar`, `kiosk` — the pages parents and students mostly reach on a phone. A spec joins once it passes on a phone and any layout bug it finds is fixed in the product, never by relaxing the spec. |
+| `mobile-chrome` | Pixel 5 (393 px, touch) | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions` — the pages parents, students and staff mostly reach on a phone. A spec joins once it passes on a phone and any layout bug it finds is fixed in the product, never by relaxing the spec. |
 
 ### Specs
 
@@ -302,13 +303,18 @@ npx playwright test --list                    # the per-project count TEST_COVER
 | `holiday-blocking.spec.ts` | Admin holiday CRUD; both wizards' pickers never offer a blocked date; coach attendance's blocked state; the admin sessions list's holiday row | `docs/plans/holiday-blocking-plan.md` |
 | `calendar.spec.ts` | The public `/calendar`: a class and an open slot on the right days, filtering by coach (kept in the URL), a logged-out click landing on login with the wizard link in `next`, a parent's click opening the wizard with the date already picked, the List view by default on a phone, and zero-tolerance axe scans of both views | Clock pinned to `CALENDAR_NOW` (`fixtures/mock-api.ts`). Month-grid tests ask for `?view=month`, since a phone opens the List view by design. `docs/plans/calendar-view-plan.md` |
 | `kiosk.spec.ts` | The front-desk sign-in tablet as the `kiosk` login: type → confirm → signed-in card → back to the search after 5 s (`page.clock`), the exact sign-in body; confirmation switched off; a 409 message inline with the search still usable | `docs/plans/kiosk-signin-plan.md` |
-| `private-booking.spec.ts` | The public private-lesson listing into the booking wizard: a 10-session pack paid at the quoted total, a booking with an already-paid session, and a coach marking a private lesson attended — exact request payloads asserted | ADR 011 |
+| `private-booking.spec.ts` | The public private-lesson listing into the booking wizard: a 10-session pack paid at the quoted total, a booking with an already-paid session, a slot taken mid-checkout (the server's 409 shown, nothing booked, dates refetched, back to the date step), and a coach marking a private lesson attended — exact request payloads asserted | ADR 011. Also the register-private wizard's coverage — there is no separate spec |
+| `subscriptions.spec.ts` | Parent: cancel (no body, the row then cancels at period end). Admin: the status filter (asks the server, shows only its rows), Change Schedule (same-level options only, exact `{ newScheduleId }`), cancel and reactivate through their confirm dialogs, a superadmin Charge from the server's preview (exact `{ period: 'full' }`), and no Charge for a plain admin | Runs on the phone project too |
+| `billing.spec.ts` | `/parent/billing`: rows across billing shapes, the Manual chip and note, a failed row with no download, the exact invoice `href`, no sideways scroll | Runs on the phone project too |
+| `spotlights-admin.spec.ts` | Create with a real multipart image upload (a 1×1 PNG via `setInputFiles`) and the exact create body, publish (the exact PUT body), delete through the confirm dialog | |
 
 ### Mocking rules
 - **Fully mocked, never a real backend, database or payment provider** — safe to run with zero setup, zero secrets, zero staging risk.
 - **Unmocked requests fail loudly.** `installApiMocks` (installed by the shared `page` fixture in `e2e/fixtures/test.ts`) answers any `/api/v1/*` call no rule matches with HTTP **599**, and the test fails in teardown listing every such request. Endpoints a shell or context fires on every page get a typed default in `DEFAULT_RULES`; page-specific data goes in that spec's `mockApi(page, overrides)`. A test that deliberately exercises an unmocked path declares it with `test.use({ allowUnmocked: [pattern] })` (none do today).
 - **Every spec imports `test` from `./fixtures/test`** — never as a value from `@playwright/test` (a type-only import is fine). Exactly one `**/api/v1/**` handler exists, in `mock-api.ts`.
 - **Mocks are type-locked.** `json<T>(route, status, body)` requires a named response type and checks the body against it (`NoInfer<T>`): an envelope from `lib/apiResponses.ts` or a domain type from `lib/types.ts`. CI's `npm run typecheck` covers `e2e/`, so a backend shape change breaks a stale mock at compile time on the PR that causes it. Never `any`, `as any` or a loose `object` in `e2e/`.
+- **Accessibility scans go through one helper**, `expectNoBlockingA11yViolations(page)` in `e2e/helpers/a11y.ts`: only serious/critical violations fail, and the one known finding below is ratcheted there by node.
+- **The build is hermetic.** `playwright.config.ts` pins `NEXT_PUBLIC_API_URL` to empty, so a developer's `.env.local` cannot bake an absolute backend origin into the E2E bundle; local runs match CI and production (same-origin `/api/v1` proxy).
 - **`test.skip` policy:** no bare skips. A skip carries a comment of at least five words stating the reason (`noFocusedOrBareSkip`). A test that applies only at one width pins that width (below) instead of skipping by device.
 
 ### Interaction determinism
@@ -323,7 +329,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 
 ### Known, accepted accessibility findings
 
-- Admin dashboard (still ratcheted): the sidebar's brand-role/section-label text (`admin/layout.module.css`'s `--sidebar-muted`, effectively `#787f86` on `--sidebar-bg`) — 4.28:1, needs 4.5:1 (a near-miss). Fixing it means picking a new color (`docs/design-system.md` has its own pre-read requirement for touching styling), a real design decision out of scope here. The exact known finding is allowlisted; any other violation on that page still fails.
+- Admin sidebar, every admin page (still ratcheted, by node, in `e2e/helpers/a11y.ts`): the sidebar's brand-role/section-label text (`admin/layout.module.css`'s `--sidebar-muted`, effectively `#787f86` on `--sidebar-bg`) — 4.28:1, needs 4.5:1 (a near-miss). Fixing it means picking a new color (`docs/design-system.md` has its own pre-read requirement for touching styling), a real design decision out of scope here. The exact known finding is allowlisted; any other violation on that page still fails.
 - Home page (fully fixed, ratchet removed): `LevelGrid`'s price text was gold `#c8a000` on white (2.47:1); the WP-alignment rebrand replaced gold with crimson `#b51726` (~6.7:1). Fixing it unmasked Hero's photo placeholder (4.07:1), because the old ratchet allowlisted the whole `color-contrast` rule id rather than the node — also fixed. Lesson: ratchet a specific node, never a rule id.
 
 ### CI
@@ -333,7 +339,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 ---
 
 ## Cross-repo tooling
-- **`scripts/check-route-existence.mjs`** (CI, backend job) — every frontend `api.<method>()` call and every E2E `MockRule` must match a route the live Express app registers (exit 1 on a phantom route, exit 2 on any extraction failure). `--self-test` runs first.
+- **`scripts/check-route-existence.mjs`** (CI, backend job) — every frontend `api.<method>()` call and every E2E `MockRule` (the default registry and every spec's overrides; a non-literal path is an extraction failure) must match a route the live Express app registers (exit 1 on a phantom route, exit 2 on any extraction failure). `--self-test` runs first.
 - **`scripts/dead-negative-assertions.mjs --frontend frontend`** — candidate assertions that something absent stays absent, for text no code renders any more. Candidates need triage (`/audit-tests` Check 13 records the baseline).
 - **`/audit-tests`** (`.claude/skills/audit-tests/SKILL.md`) — read-only quality audit: pyramid health, 13 anti-pattern checks, `TEST_COVERAGE.md` drift. Run it before opening a testing PR.
 

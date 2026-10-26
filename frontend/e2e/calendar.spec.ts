@@ -1,8 +1,8 @@
 import { test, expect } from './fixtures/test';
-import AxeBuilder from '@axe-core/playwright';
 
 import { mockApi, CALENDAR_NOW, FIXTURE_CALENDAR_COACH_PRIVATE } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
+import { expectNoBlockingA11yViolations } from './helpers/a11y';
 
 // The public calendar in a real browser (docs/plans/calendar-view-plan.md
 // §2.5): filtering, the click through login into the existing booking wizard
@@ -78,16 +78,12 @@ test.describe('calendar (logged out)', () => {
     await page.goto(MONTH_VIEW);
     await expect(dayCell(page, 'Tuesday, October 6').getByText('Open slot')).toBeVisible();
 
-    const month = await new AxeBuilder({ page }).analyze();
-    const monthBlocking = month.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    expect(monthBlocking, JSON.stringify(monthBlocking, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
 
     await page.getByRole('radio', { name: 'List' }).click();
     await expect(page.getByRole('heading', { name: 'Tuesday, October 6' })).toBeVisible();
 
-    const list = await new AxeBuilder({ page }).analyze();
-    const listBlocking = list.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    expect(listBlocking, JSON.stringify(listBlocking, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 });
 

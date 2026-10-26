@@ -72,32 +72,34 @@ function CoachSchedulesPageContent() {
         <p>Loading...</p>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Class</th>
-                <th>Day</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Roster</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {schedules.map((schedule) => (
-                <tr key={schedule._id}>
-                  <td>{classNameFor(groupClasses, schedule.classId)}</td>
-                  <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
-                  <td>{formatTime(schedule.startTime)}</td>
-                  <td>{formatTime(schedule.endTime)}</td>
-                  <td>{schedule.students.length}</td>
-                  <td>
-                    <Link href={`/coach/schedules/${schedule._id}/sessions`}>View Sessions</Link>
-                  </td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Class</th>
+                  <th>Day</th>
+                  <th>Start</th>
+                  <th>End</th>
+                  <th>Roster</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {schedules.map((schedule) => (
+                  <tr key={schedule._id}>
+                    <td>{classNameFor(groupClasses, schedule.classId)}</td>
+                    <td>{DAY_LABELS[schedule.dayOfWeek]}</td>
+                    <td>{formatTime(schedule.startTime)}</td>
+                    <td>{formatTime(schedule.endTime)}</td>
+                    <td>{schedule.students.length}</td>
+                    <td>
+                      <Link href={`/coach/schedules/${schedule._id}/sessions`}>View Sessions</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
     </main>

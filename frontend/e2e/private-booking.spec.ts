@@ -1,8 +1,8 @@
 import { test, expect } from './fixtures/test';
 
-import type { MyPrivateBookingsResponse } from '../lib/apiResponses';
+import type { ApiErrorResponse, MyPrivateBookingsResponse, PrivateAvailableDatesResponse } from '../lib/apiResponses';
 import type { PrivateAttendanceResult, PrivateBookingResult, PrivatePurchaseQuote } from '../lib/types';
-import { json, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
+import { json, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_DATE, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
 // Private lessons, end to end in a real browser (docs/decisions/011-private-
@@ -86,6 +86,47 @@ test.describe('private lesson booking', () => {
 
     await expect(page.getByText("You're booked!")).toBeVisible();
     expect(creditPayload).toEqual({ studentId: 'student-1', scheduleId: 'private-rule-1', day: '2026-10-06' });
+  });
+
+  // The backend's atomic slot claim refuses a date another family just took
+  // (privateClassSession.service.js's SLOT_TAKEN_MESSAGE). Nothing is charged
+  // or booked: the wizard shows the server's message, refetches the dates and
+  // sends the parent back to pick another one.
+  test('a slot taken mid-checkout shows the server message, books nothing, and sends the parent back to pick another date', async ({ page }) => {
+    let dateFetches = 0;
+    const overrides: MockRule[] = [
+      {
+        method: 'GET',
+        path: '/private-class-schedules/:id/available-dates',
+        handler: (route) => {
+          dateFetches += 1;
+          return json<PrivateAvailableDatesResponse>(route, 200, { dates: [FIXTURE_PRIVATE_DATE] });
+        },
+      },
+      {
+        method: 'POST',
+        path: '/private-class-enrollments',
+        handler: (route) =>
+          json<ApiErrorResponse>(route, 409, { message: 'This time slot was just taken — please pick another' }),
+      },
+    ];
+    await loginAs(page, 'parent', overrides);
+
+    await page.goto('/parent/register-private?slot=private-rule-1&child=student-1&day=2026-10-06');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('radio', { name: /buy 10 sessions/i }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    const fetchesBeforePay = dateFetches;
+    await page.getByRole('button', { name: 'Pay $300.00 & book' }).click();
+
+    await expect(page.getByText('This time slot was just taken — please pick another')).toBeVisible();
+    await expect(page.getByText("You're booked!")).toHaveCount(0);
+    await expect.poll(() => dateFetches).toBeGreaterThan(fetchesBeforePay);
+
+    await page.getByRole('button', { name: /pick another date/i }).click();
+    await expect(page.getByRole('radio', { name: /tue, oct 6/i })).toBeVisible();
   });
 
   test('a coach marks a started private lesson attended', async ({ page }) => {

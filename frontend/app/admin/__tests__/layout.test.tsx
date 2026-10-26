@@ -153,6 +153,33 @@ describe('AdminLayout', () => {
     expect(within(programsSection).queryByRole('link', { name: 'Prices' })).not.toBeInTheDocument();
   });
 
+  // Below 1024 px the CSS hides every text label (icon rail, closed phone
+  // drawer), which left the section toggles and links with no accessible
+  // name (axe button-name/link-name, found by e2e/subscriptions.spec.ts on a
+  // phone). The name now comes from aria-label, so it holds at any width.
+  it('names every nav link and section toggle independently of the visible label, and exposes each section open state', async () => {
+    server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
+
+    renderAdminLayout();
+    await screen.findByText('Dashboard');
+
+    const sidebar = screen.getByRole('navigation', { name: 'Admin sidebar' });
+    expect(within(sidebar).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-label', 'Dashboard');
+    expect(within(sidebar).getByRole('link', { name: 'Classes' })).toHaveAttribute('aria-label', 'Classes');
+
+    const programs = within(sidebar).getByRole('button', { name: 'Programs' });
+    expect(programs).toHaveAttribute('aria-label', 'Programs');
+    expect(programs).toHaveAttribute('aria-controls', 'admin-nav-programs');
+    expect(document.getElementById('admin-nav-programs')).toContainElement(
+      within(sidebar).getByRole('link', { name: 'Classes' })
+    );
+
+    const billing = within(sidebar).getByRole('button', { name: 'Billing' });
+    expect(billing).toHaveAttribute('aria-expanded', 'false');
+    await user.click(billing);
+    expect(billing).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('opens and closes the mobile drawer', async () => {
     server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
 
