@@ -345,6 +345,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 - **`scripts/check-route-existence.mjs`** (CI, backend job) — every frontend `api.<method>()` call and every E2E `MockRule` (the default registry and every spec's overrides; a non-literal path is an extraction failure) must match a route the live Express app registers (exit 1 on a phantom route, exit 2 on any extraction failure). `--self-test` runs first.
 - **`scripts/dead-negative-assertions.mjs --frontend frontend`** — candidate assertions that something absent stays absent, for text no code renders any more. Candidates need triage (`/audit-tests` Check 13 records the baseline).
 - **`/audit-tests`** (`.claude/skills/audit-tests/SKILL.md`) — read-only quality audit: pyramid health, 13 anti-pattern checks, `TEST_COVERAGE.md` drift. Run it before opening a testing PR.
+- **`/health`** (`.claude/skills/health/SKILL.md`) — read-only repository and environment health: git state, CI on `develop`, branch protection (`ci-passed` required), the last `extend-sessions` and `live-audit` runs, and **`npm run health -- --env staging|production`** (`backend/scripts/lib/healthCheck.js`): upcoming sessions per schedule, the Service registry, leftover legacy payment fields, stuck `pending` ledger rows, retry exhaustion, one active subscription per student, orphaned references, and the live-audit fixtures and last run. Its test proves it calls no write method.
 
 ---
 
