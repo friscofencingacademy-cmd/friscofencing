@@ -1,6 +1,6 @@
 # Sibling Discount — Top Payer Decided by Plan (F15)
 
-**Status:** SPEC — pending owner review (Fable), then owner `write`. Not built.
+**Status:** BUILT 2026-10-26 — PR open to `develop`, not merged; owner tests Charge → prorated on staging first. See §6.
 **Executor:** Opus or Sonnet, in auto mode, ONE PR (`fix/sibling-discount-top-payer-by-plan` → `develop`).
 §1 is the binding contract. The owner tests the PR locally/on staging before it is merged.
 **Origin:** finding F15 in `docs/plans/audit-and-health-refresh-plan.md` §9 ("Staging go-live",
@@ -140,4 +140,33 @@ expected; it proves nothing else read the changed shape). Report counts in the a
 
 ## 6. AS-BUILT NOTES (executor appends)
 
-_Empty until built._
+Built 2026-10-26 on `fix/sibling-discount-top-payer-by-plan`, at `develop` `6009338`. §0 still matched
+the code exactly (all five renewal-mode callers at the listed lines), so nothing was adapted.
+
+- **Code.** `calculateChargeAmount` now validates `planFee` for both modes with one check, after the
+  mode and subscription checks, so the existing "renewal without a subscription" test still sees its
+  own error first. Renewal mode builds `familyMax` from `planFee` and compares `planFee` to it. The
+  tiebreak, 10% of `feeNow`, `round2` and the reasons are unchanged. All four `renewal.service.js`
+  callers pass `planFee: monthlyFee`, and `listMine` passes `planFee: currentFee`. The preview's
+  prorated option and `chargeProratedNow` still pass identical inputs.
+- **Tests.** U1–U4 added to `calculateChargeAmount.service.test.js`, and the 15 existing renewal calls
+  now pass `planFee` equal to `feeNow` with no expectation edited (U5). S1–S3 added to
+  `renewal.previewAndCharge.test.js` in their own describe, which pins the clock to 2026-10-29
+  10:00 Central and restores the file's own instant afterward. Both levels there have a class every
+  day, so the prorated slice is always chargeable; the S-tests use a $300 top plan and a $150 sibling
+  plan.
+- **Shown failing on `develop` first.** With the source changes stashed, U2, U4, S1 and S2 failed as
+  marked, plus U1 (the new contract). U3 and S3 passed on both, as expected. With the fix, both files
+  pass 47 of 47.
+- **Full suites.** Frontend 81 suites, 633 tests, all green. Backend 97 suites, 1,327 tests: the first
+  run had one failure, the Guard B unique-index test in `tests/models/registration.model.test.js`.
+  It passes alone three times out of three and touches nothing this PR changed. It never waits for
+  the unique index to finish building, so under full-suite load the duplicate insert can win the
+  race. Left as a pre-existing flake for a separate fix (CLAUDE.md hard rule 6). A second full run
+  passed 97 of 97 suites and 1,327 of 1,327 tests.
+- **D5 staging count (read-only, `friscofencing-staging`).** Zero `registrations` rows with
+  `breakdown.prorated: true` and `eventType: 'renewal'`, so zero with a sibling discount. No past
+  charge on staging was affected. Production was not queried.
+- **Docs.** ADR 006 addendum, the audit plan's F15 entry, CLAUDE.md and CLAUDE_HISTORY.md updated.
+  `docs/features/admin.md`'s Charge section does not describe the sibling rule, so it is unchanged.
+- **Grep check.** Every `mode: 'renewal'` call in `src`, `tests` and `scripts` passes `planFee`.

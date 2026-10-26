@@ -120,15 +120,23 @@ async function gatherSiblingFees(student) {
 // Single source of truth for the sibling discount (docs/decisions/006-
 // sibling-discount-family-rule.md — supersedes the old "dynamic lower-payer,
 // 2-child only" rule, ADR 001). Two modes, both required — every caller
-// states its intent explicitly, there is no default:
+// states its intent explicitly, there is no default. BOTH modes require
+// `planFee` — this child's monthly list price, which `feeNow` (the charge
+// being made right now) may be a prorated part of. Which child is on the
+// pricier plan is always decided by plans, never by this month's charge.
 //
 //   'renewal' — pure top-payer-excluded rule. Among the family's active
-//   children (this student + siblings), the one with the highest current
-//   fee pays full price; everyone else gets 10% off their own fee. Ties at
-//   the family maximum are broken by earliest-enrolled-pays-full (CKQ ADR
-//   backend-002), falling back to the smaller studentId on an exact
-//   createdAt tie. Requires `subscription` (this student's own, active
-//   subscription — its createdAt feeds the tiebreak).
+//   children (this student + siblings), the one on the highest-priced PLAN
+//   pays full; everyone else gets 10% off the charge being made (`feeNow`).
+//   Ranking by `planFee` rather than `feeNow` is what keeps a prorated
+//   charge (the superadmin Charge dialog's "prorated from today" option)
+//   from demoting the top payer below a cheaper sibling's full plan fee
+//   (F15, docs/plans/sibling-discount-top-payer-by-plan-plan.md — the same
+//   principle as CKQ's paymentCalculator: rank by plan, discount the charge).
+//   Ties at the family maximum are broken by earliest-enrolled-pays-full
+//   (CKQ ADR backend-002), falling back to the smaller studentId on an
+//   exact createdAt tie. Requires `subscription` (this student's own,
+//   active subscription — its createdAt feeds the tiebreak).
 //
 //   'registration' — the family discount always applies (ADR 006's bridge):
 //   10% of min(this registration's fee, the family's current top fee)
@@ -137,9 +145,9 @@ async function gatherSiblingFees(student) {
 //   deliberately NOT symmetric with 'renewal': it is what makes the family
 //   discount start the moment the family qualifies, instead of waiting for
 //   an existing sibling's next renewal (owner-decided, ADR 006).
-//   Requires `planFee` — this registration's monthly list price, which
-//   `feeNow` may be a prorated part of — so the reason can describe the
-//   plans rather than this month's charge (SIBLING_DISCOUNT_REASONS).
+//   `planFee` here is this registration's monthly list price, so the reason
+//   can describe the plans rather than this month's charge
+//   (SIBLING_DISCOUNT_REASONS).
 async function calculateChargeAmount(student, feeNow, options) {
   if (!options || (options.mode !== 'registration' && options.mode !== 'renewal')) {
     throw new Error("calculateChargeAmount: options.mode must be 'registration' or 'renewal'");
@@ -151,8 +159,8 @@ async function calculateChargeAmount(student, feeNow, options) {
     throw new Error("calculateChargeAmount: mode 'renewal' requires the student's own active subscription");
   }
 
-  if (mode === 'registration' && !(Number.isFinite(planFee) && planFee >= 0)) {
-    throw new Error("calculateChargeAmount: mode 'registration' requires planFee, the plan's monthly list price");
+  if (!(Number.isFinite(planFee) && planFee >= 0)) {
+    throw new Error(`calculateChargeAmount: mode '${mode}' requires planFee, the plan's monthly list price`);
   }
 
   const siblingEntries = await gatherSiblingFees(student);
@@ -203,16 +211,18 @@ async function calculateChargeAmount(student, feeNow, options) {
     };
   }
 
-  // mode === 'renewal' — is THIS student the family's top payer?
-  const familyMax = siblingEntries.reduce((max, entry) => Math.max(max, entry.fee), feeNow);
+  // mode === 'renewal' — is THIS student the family's top payer? Decided by
+  // PLAN (planFee vs each sibling's live plan fee), never by feeNow, which
+  // may be prorated (F15).
+  const familyMax = siblingEntries.reduce((max, entry) => Math.max(max, entry.fee), planFee);
   let isTopPayer;
 
-  if (feeNow < familyMax) {
-    // Someone else in the family has a strictly higher fee — not the top
-    // payer, no tiebreak needed.
+  if (planFee < familyMax) {
+    // Someone else in the family is on a strictly pricier plan — not the
+    // top payer, no tiebreak needed.
     isTopPayer = false;
   } else {
-    // feeNow === familyMax: this student is AT the family's highest fee,
+    // planFee === familyMax: this student is AT the family's highest plan,
     // possibly tied with one or more siblings there.
     const tiedAtMax = siblingEntries.filter((entry) => entry.fee === familyMax);
 

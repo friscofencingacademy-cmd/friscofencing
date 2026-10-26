@@ -528,10 +528,11 @@ Owner decision: get staging fully working now; production is not fully set up ye
   URI and was refused by `--expect-db` (#130) before any write. Fix: the matrix names each
   environment's `secret` and `database`, read as `secrets[matrix.secret]`, so an unset secret is
   empty and the job skips with a notice.
-- **F15 — open, owner decision pending (money).** Same root cause as F12, in renewal mode: the
+- **F15 — fixed 2026-10-26** (`docs/plans/sibling-discount-top-payer-by-plan-plan.md`; renewal mode now
+  requires `planFee` and ranks by plan). Same root cause as F12, in renewal mode: the
   superadmin Charge dialog's prorated option (`renewal.service.js` `previewRenewal`, ~line 360)
   passes `proration.proratedAmount` as `feeNow`, and renewal mode picks the top payer by comparing
   `feeNow` with the siblings' plan fees. A top payer ($100 plan) charged a prorated $25 against a
   sibling's $50 plan is treated as NOT the top payer and gets 10% off — ADR 006 says the highest
   plan pays full. Proposed fix: renewal mode also takes `planFee` and decides the top payer by plan;
-  the 10% stays on the charge actually made. Not built: it changes amounts and needs the owner's `write`.
+  the 10% stays on the charge actually made. Built as that plan's single PR.
