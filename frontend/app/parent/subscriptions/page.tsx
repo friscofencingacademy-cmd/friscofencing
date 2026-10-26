@@ -92,40 +92,42 @@ function PrivateLessonsSection() {
               </p>
 
               {sessions.length === 0 ? null : (
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Lesson</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.map((session) => (
-                      <tr key={session._id}>
-                        <td>{formatLessonTime(session.startDate)}</td>
-                        <td>
-                          <span className={`${styles.chip} ${styles.chipMuted}`}>{bookingStatusLabel(session)}</span>
-                        </td>
-                        <td>
-                          {session.canCancel ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => {
-                                setCancelError(null);
-                                setCancelTarget(session);
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          ) : null}
-                        </td>
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Lesson</th>
+                        <th>Status</th>
+                        <th>Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {sessions.map((session) => (
+                        <tr key={session._id}>
+                          <td>{formatLessonTime(session.startDate)}</td>
+                          <td>
+                            <span className={`${styles.chip} ${styles.chipMuted}`}>{bookingStatusLabel(session)}</span>
+                          </td>
+                          <td>
+                            {session.canCancel ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                  setCancelError(null);
+                                  setCancelTarget(session);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </Card>
           ))}
@@ -228,97 +230,99 @@ function SubscriptionsPageContent() {
         </Card>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Schedule</th>
-                <th>Status</th>
-                <th>Current Period End</th>
-                <th>Next Billing Date</th>
-                <th>Last Payment</th>
-                <th>Sibling Discount (Current)</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subscriptions.map((subscription) => (
-                <tr key={subscription._id}>
-                  <td>
-                    {subscription.studentId.firstName} {subscription.studentId.lastName}
-                  </td>
-                  <td>{formatSchedule(subscription.scheduleId)}</td>
-                  <td>{subscription.status}</td>
-                  <td>{formatDate(subscription.currentPeriodEnd)}</td>
-                  <td>{formatDate(subscription.nextBillingDate)}</td>
-                  <td>
-                    {/* Sourced from the Registration ledger (docs/plans/
-                        payment-airtight-plan.md D11) — the real total
-                        actually charged, fee included. Never
-                        Subscription.lastChargeAmount, which is deliberately
-                        fee-free and would understate a real payment that
-                        bundled a one-time registration fee. */}
-                    {subscription.lastPayment ? `$${subscription.lastPayment.amount.toFixed(2)}` : '—'}
-                    {subscription.lastPayment?.chargeMethod === 'manual' ? (
-                      <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
-                        Manual
-                      </span>
-                    ) : null}
-                    {subscription.lastSiblingDiscountApplied ? (
-                      <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
-                        10% sibling
-                      </span>
-                    ) : null}
-                    {subscription.firstChargeProrated ? (
-                      <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
-                        Prorated first month
-                      </span>
-                    ) : null}
-                  </td>
-                  <td>
-                    {/* Live, computed fresh on every load — never the stale
-                        lastChargeAmount/lastSiblingDiscountApplied snapshot
-                        above, which only reflects what happened at THIS
-                        subscription's own last charge and can go stale the
-                        moment a sibling's situation changes. */}
-                    {!subscription.currentCharge ? (
-                      <span style={{ color: 'var(--color-muted)' }}>—</span>
-                    ) : (
-                      <>
-                        {subscription.currentCharge.siblingDiscountApplied ? (
-                          <span className={`${styles.chip} ${styles.chipMuted}`}>
-                            10% sibling — ${subscription.currentCharge.amount.toFixed(2)}/mo
-                          </span>
-                        ) : (
-                          <span>Full price</span>
-                        )}
-                        {subscription.currentCharge.reason ? (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 2 }}>
-                            {subscription.currentCharge.reason}
-                          </div>
-                        ) : null}
-                      </>
-                    )}
-                  </td>
-                  <td>
-                    {subscription.status === 'cancelled' ? null : subscription.cancelAtPeriodEnd ? (
-                      <span>Cancels at end of current period</span>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleCancel(subscription._id)}
-                        disabled={cancellingId === subscription._id}
-                      >
-                        {cancellingId === subscription._id ? 'Cancelling...' : 'Cancel'}
-                      </Button>
-                    )}
-                  </td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Schedule</th>
+                  <th>Status</th>
+                  <th>Current Period End</th>
+                  <th>Next Billing Date</th>
+                  <th>Last Payment</th>
+                  <th>Sibling Discount (Current)</th>
+                  <th>Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {subscriptions.map((subscription) => (
+                  <tr key={subscription._id}>
+                    <td>
+                      {subscription.studentId.firstName} {subscription.studentId.lastName}
+                    </td>
+                    <td>{formatSchedule(subscription.scheduleId)}</td>
+                    <td>{subscription.status}</td>
+                    <td>{formatDate(subscription.currentPeriodEnd)}</td>
+                    <td>{formatDate(subscription.nextBillingDate)}</td>
+                    <td>
+                      {/* Sourced from the Registration ledger (docs/plans/
+                          payment-airtight-plan.md D11) — the real total
+                          actually charged, fee included. Never
+                          Subscription.lastChargeAmount, which is deliberately
+                          fee-free and would understate a real payment that
+                          bundled a one-time registration fee. */}
+                      {subscription.lastPayment ? `$${subscription.lastPayment.amount.toFixed(2)}` : '—'}
+                      {subscription.lastPayment?.chargeMethod === 'manual' ? (
+                        <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
+                          Manual
+                        </span>
+                      ) : null}
+                      {subscription.lastSiblingDiscountApplied ? (
+                        <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
+                          10% sibling
+                        </span>
+                      ) : null}
+                      {subscription.firstChargeProrated ? (
+                        <span className={`${styles.chip} ${styles.chipMuted}`} style={{ marginLeft: 6 }}>
+                          Prorated first month
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      {/* Live, computed fresh on every load — never the stale
+                          lastChargeAmount/lastSiblingDiscountApplied snapshot
+                          above, which only reflects what happened at THIS
+                          subscription's own last charge and can go stale the
+                          moment a sibling's situation changes. */}
+                      {!subscription.currentCharge ? (
+                        <span style={{ color: 'var(--color-muted)' }}>—</span>
+                      ) : (
+                        <>
+                          {subscription.currentCharge.siblingDiscountApplied ? (
+                            <span className={`${styles.chip} ${styles.chipMuted}`}>
+                              10% sibling — ${subscription.currentCharge.amount.toFixed(2)}/mo
+                            </span>
+                          ) : (
+                            <span>Full price</span>
+                          )}
+                          {subscription.currentCharge.reason ? (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 2 }}>
+                              {subscription.currentCharge.reason}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      {subscription.status === 'cancelled' ? null : subscription.cancelAtPeriodEnd ? (
+                        <span>Cancels at end of current period</span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleCancel(subscription._id)}
+                          disabled={cancellingId === subscription._id}
+                        >
+                          {cancellingId === subscription._id ? 'Cancelling...' : 'Cancel'}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

@@ -1,7 +1,7 @@
 import api from '../api';
 import type { PublicTestimonial, Testimonial } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
-import type { PublicTestimonialsResponse } from '../apiResponses';
+import type { ImageUploadResponse, PublicTestimonialsResponse } from '../apiResponses';
 
 // ── Public (no auth) ─────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ export async function uploadTestimonialImage(file: File): Promise<MutationResult
     const formData = new FormData();
     formData.append('image', file);
 
-    const res = await api.post<{ imageUrl: string }>('/testimonials/upload-image', formData);
+    const res = await api.post<ImageUploadResponse>('/testimonials/upload-image', formData);
     return { status: 'success', data: res.data.imageUrl };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to upload image.') };

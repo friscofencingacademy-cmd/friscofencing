@@ -37,7 +37,7 @@ export default defineConfig({
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 5'] },
-      testMatch: /(public-site|login|calendar|kiosk)\.spec\.ts$/,
+      testMatch: /(public-site|login|calendar|kiosk|billing|subscriptions)\.spec\.ts$/,
     },
   ],
   // Builds+starts the real Next.js app once per run and reuses it locally
@@ -49,6 +49,13 @@ export default defineConfig({
   // See docs/plans/e2e-testing-plan.md's D11 for why BACKEND_URL needs no
   // equivalent entry: every backend call is mocked before it ever reaches
   // next.config.js's rewrite.
+  //
+  // NEXT_PUBLIC_API_URL is pinned EMPTY so the build is hermetic: a developer's
+  // .env.local may still set it (the pre-proxy local setup), which would bake
+  // an absolute backend origin into the bundle and make a local run differ
+  // from CI and production, where the app always uses the same-origin
+  // `/api/v1` proxy (lib/api.ts). Next never overrides a variable already in
+  // the environment, so the empty value wins and `|| '/api/v1'` applies.
   webServer: {
     command: 'npm run build && npm run start',
     url: `http://127.0.0.1:${PORT}`,
@@ -57,6 +64,7 @@ export default defineConfig({
     env: {
       PORT: String(PORT),
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_TYooMQauvdEDq54NiTphI7jx',
+      NEXT_PUBLIC_API_URL: '',
     },
   },
 });

@@ -46,26 +46,28 @@ export default function ChildrenPage() {
         <p>Loading...</p>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>First Name</th>
-                <th>Last Name</th>
-                <th>Skill Level</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((student) => (
-                <tr key={student._id}>
-                  <td>
-                    <Link href={`/parent/child/${student._id}`}>{student.firstName}</Link>
-                  </td>
-                  <td>{student.lastName}</td>
-                  <td>{student.skillLevel}</td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>First Name</th>
+                  <th>Last Name</th>
+                  <th>Skill Level</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {students.map((student) => (
+                  <tr key={student._id}>
+                    <td>
+                      <Link href={`/parent/child/${student._id}`}>{student.firstName}</Link>
+                    </td>
+                    <td>{student.lastName}</td>
+                    <td>{student.skillLevel}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

@@ -11,7 +11,8 @@
  *     process (scripts/route-introspect.cjs) — never a regex over route files.
  *   - Frontend calls: every `api.<method>(...)` call site under frontend/app
  *     and frontend/lib (lib/api.ts's axios instance, baseURL /api/v1).
- *   - E2E mocks: every MockRule in frontend/e2e/fixtures/mock-api.ts — a default
+ *   - E2E mocks: every MockRule under frontend/e2e (the default registry in
+ *     fixtures/mock-api.ts and every spec's own overrides) — a
  *     mock for a route that does not exist is the same drift, one layer down.
  *
  * Exit codes:
@@ -195,15 +196,37 @@ function extractFrontendCalls(frontendDir) {
   return { calls, unparseable };
 }
 
+// Every MockRule under frontend/e2e — the default registry AND each spec's own
+// overrides, since a spec mocking a route the backend does not have is the
+// same drift. A template-literal path's `${...}` is a :param.
 function extractE2eMockRoutes(frontendDir) {
-  const file = path.join(frontendDir, 'e2e', 'fixtures', 'mock-api.ts');
-  if (!fs.existsSync(file)) fail(`E2E mock registry not found: ${file}`);
-  const src = fs.readFileSync(file, 'utf8');
-  const ruleRe = /method:\s*'(GET|POST|PUT|PATCH|DELETE)',\s*path:\s*'(\/[^']*)'/g;
-  const calls = [...src.matchAll(ruleRe)].map((m) =>
-    makeCall(m[1].toLowerCase(), m[2], `${rel(frontendDir, file)}:${lineOf(src, m.index)}`)
-  );
-  if (calls.length === 0) fail(`no MockRule entries parsed from ${file}`);
+  const e2eDir = path.join(frontendDir, 'e2e');
+  const registry = path.join(e2eDir, 'fixtures', 'mock-api.ts');
+  if (!fs.existsSync(registry)) fail(`E2E mock registry not found: ${registry}`);
+  // Find every rule first, then parse its path: a path that is not a plain
+  // '...' or `...` literal is an extraction failure, never silently skipped.
+  const ruleRe = /method:\s*'(GET|POST|PUT|PATCH|DELETE)',\s*path:\s*/g;
+  const calls = [];
+  const unparseable = [];
+  for (const file of walk(e2eDir).filter((f) => f.endsWith('.ts'))) {
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(ruleRe)) {
+      const loc = `${rel(frontendDir, file)}:${lineOf(src, m.index)}`;
+      const literal = /^(?:'(\/[^'\n]*)'|`(\/(?:[^`$\n]|\$\{[A-Za-z0-9_.]+\})*)`)/.exec(src.slice(m.index + m[0].length));
+      if (!literal) {
+        unparseable.push(`${m[1]} (path is not a literal) [${loc}]`);
+        continue;
+      }
+      const raw = (literal[1] ?? literal[2]).replace(/\$\{[^}]*\}/g, ':param');
+      calls.push(makeCall(m[1].toLowerCase(), raw, loc));
+    }
+  }
+  if (unparseable.length > 0) {
+    fail(`unparseable E2E MockRule path(s) — use a literal path:\n  ${unparseable.join('\n  ')}`);
+  }
+  if (!calls.some((call) => call.loc.startsWith(rel(frontendDir, registry)))) {
+    fail(`no MockRule entries parsed from ${registry}`);
+  }
   return calls;
 }
 

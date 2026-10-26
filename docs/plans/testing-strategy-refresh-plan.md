@@ -569,3 +569,45 @@ ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behi
   said "none started".
 - **E5, owner step (one time):** GitHub → Settings → Branches → add a rule for `develop` and one for
   `main` → "Require status checks to pass before merging" → select **`ci-passed`**.
+
+### PR F (2026-10-26, `feature/testing-e2e-phase2`)
+- **Specs:** `subscriptions.spec.ts` (parent and admin), `billing.spec.ts`, `spotlights-admin.spec.ts`.
+  Each mirrors its Jest page test with exact request bodies, a pinned clock where dates render, and
+  an axe scan. `subscriptions` and `billing` joined the `mobile-chrome` project.
+- **No `register-private.spec.ts` (a deliberate divergence).** `private-booking.spec.ts` already
+  drives that wizard through buying a pack (with the exact `packId` + `contractId` body) and booking
+  with a credit. A second spec would duplicate both flows. The one case it lacked, a slot taken
+  mid-checkout (the backend's exact `SLOT_TAKEN_MESSAGE` 409, nothing booked, dates refetched, back
+  to the date step), was added there.
+- **Three real product defects found and fixed:**
+  1. *Admin sidebar, below 1024 px:* the section toggles and nav links had **no accessible name**.
+     CSS hides their text labels in the icon rail and the closed phone drawer (axe
+     `button-name`/`link-name`, critical, found by the phone run). Every link and toggle now carries
+     `aria-label` with its visible text, and each section toggle exposes `aria-expanded` +
+     `aria-controls`. A new Jest test covers it. The parent portal hides labels with `font-size: 0`,
+     which keeps the name, so it was not affected.
+  2. *`/parent/subscriptions` was 740 px wide on a 393 px phone.* Portal tables had no scroll
+     container; only `PaymentHistoryTable` had one, as an inline style. `shared.module.css` gains
+     `.tableWrap` (`overflow-x: auto`, the admin stylesheet's name). Every portal table now sits in
+     one: the two subscriptions tables, the coach pages, children, attendance and payment history.
+     New `portalTableWrapGuard.test.ts` keeps it that way.
+  3. *Local E2E builds were not hermetic.* This machine's `frontend/.env.local` still sets the
+     pre-proxy `NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1`, which
+     `docs/plans/deployment-launch-plan.md` asked to replace with `BACKEND_URL`. That baked an
+     absolute backend origin into the E2E bundle, so the invoice link pointed straight at the
+     backend: a local-only difference from CI and production. `playwright.config.ts` now pins the
+     variable to empty for the E2E build. **Owner action:** update `.env.local` per the deployment
+     plan.
+- **One home for the accessibility assertion:** `e2e/helpers/a11y.ts`'s
+  `expectNoBlockingA11yViolations(page)`, which holds the one node-level ratchet. All scans
+  (`public-site`, `calendar`, `admin-shell`, and the new specs) use it, because every admin page now
+  scanned shows the same sidebar finding.
+- **Route-existence guard extended:** it now reads every `MockRule` under `e2e/`, including each
+  spec's overrides and template-literal paths, instead of `mock-api.ts` only (35 → 82 routes). A
+  non-literal path is an extraction failure (exit 2). Proven: a planted phantom exits 1, a planted
+  non-literal path exits 2.
+- **Envelopes named** (`lib/apiResponses.ts`): `PaymentHistoryResponse`,
+  `AdminSubscriptionResponse`, `SpotlightsResponse`, `SpotlightResponse` and `ImageUploadResponse`,
+  each used by its service. Spotlight and testimonial uploads share the last one.
+- **Result:** typecheck clean; Jest 76 suites / 609 tests with zero console output; Playwright 99
+  listed (61 chromium + 38 mobile-chrome), 95 passed and 4 known skips; route guard 0 phantoms.

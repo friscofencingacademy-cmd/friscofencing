@@ -1,10 +1,10 @@
 import { test, expect } from './fixtures/test';
-import AxeBuilder from '@axe-core/playwright';
 
 import type { LevelResponse, LevelsResponse } from '../lib/apiResponses';
 import type { Level } from '../lib/types';
 import { json, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
+import { expectNoBlockingA11yViolations } from './helpers/a11y';
 
 // AppShell/the admin sidebar has zero direct test coverage today
 // (docs/TEST_COVERAGE.md's own documented gap) — this is the cheapest
@@ -46,37 +46,14 @@ test.describe('admin shell', () => {
     await expect(page.getByTestId('roster-search')).toBeVisible();
   });
 
-  // KNOWN, PRE-EXISTING FINDING (not introduced by this suite, not fixed
-  // here): the first real run of this scan found the sidebar's brand-role
-  // and section-label text (`admin/layout.module.css`'s --sidebar-muted,
-  // effectively #787f86 on --sidebar-bg) fails WCAG AA contrast (4.28:1,
-  // needs 4.5:1) — a near-miss, still a real design-system decision outside
-  // this plan's scope. UNCHANGED by the WP-alignment rebrand (Phase 1,
-  // docs/plans/wordpress-ui-alignment-plan.md, 2026-08-29): --sidebar-bg
-  // moved from #1b1a17 to #0e1b2a, but the two colors are similarly dark
-  // (luminance ~0.0104 either way), so the ratio is still ~4.28:1 — verified,
-  // not assumed, before leaving this ratchet in place (see public-site.spec
-  // .ts's matching comment for the one violation that WAS fixed by the
-  // rebrand). Ratcheted, not ignored: only THOSE nodes are allowed — the
-  // sidebar's brand-role and section-label elements (CSS-module classes
-  // keep their local name as the prefix). A contrast failure on any other
-  // node, or any other rule, still fails (a rule-id-wide allowlist once
-  // hid a second finding on the home page — docs/TESTING_STRATEGY.md).
-  const KNOWN_CONTRAST_NODE = /class="layout_(brandRole|sectionLabel)__/;
-  type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][number];
-  const isKnownViolation = (violation: AxeViolation) =>
-    violation.id === 'color-contrast' && violation.nodes.every((node) => KNOWN_CONTRAST_NODE.test(node.html));
-
+  // The sidebar's one known contrast finding is ratcheted by node in
+  // helpers/a11y.ts — the one home for it (docs/TESTING_STRATEGY.md).
   test('dashboard has no NEW serious/critical accessibility violations', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/admin/dashboard');
     await expect(page.getByText('Dashboard').first()).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    const unexpected = blocking.filter((v) => !isKnownViolation(v));
-
-    expect(unexpected, JSON.stringify(unexpected, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 
   test('Levels: create, edit, and delete round-trip against mocked responses', async ({ page }) => {

@@ -3,13 +3,14 @@
 Every number here is real, captured by running the suites — not estimated. The policy behind them (floors, what each layer is for) lives in `docs/TESTING_STRATEGY.md`; this file holds the figures, and is re-measured on every PR that adds or moves tests.
 
 **Backend: 89 suites / 1,232 tests, all passing. Statements 94.08%.**
-**Frontend: 75 suites / 605 tests, all passing. Statements 90.13%. The full run prints no warning or error.**
-**E2E: 73 tests listed in 9 specs — 46 on `chromium`, 27 on `mobile-chrome`; 69 pass and 4 are the known visual-baseline skips (2 per project).**
+**Frontend: 76 suites / 609 tests, all passing. Statements 90.13%. The full run prints no warning or error.**
+**E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
 
-Measured 2026-10-26 after `docs/plans/testing-strategy-refresh-plan.md` PR D, with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
+Measured 2026-10-26 after `docs/plans/testing-strategy-refresh-plan.md` PR F (backend unchanged since PR D), with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
 
 ## Change log (newest first)
 
+- **2026-10-26 — testing PR F** (`feature/testing-e2e-phase2`): E2E Phase 2 — `subscriptions`, `billing` and `spotlights-admin` specs, plus a slot-taken case in `private-booking` (it already covered the register-private wizard, so no duplicate spec). They found and fixed three product defects: the admin sidebar's section toggles and links had no accessible name below 1024 px; `/parent/subscriptions` was 740 px wide on a 393 px phone (every portal table now scrolls in its own `.tableWrap`, kept by a new guard); and local E2E builds baked in a developer's `NEXT_PUBLIC_API_URL`. Every axe scan now goes through one helper, and the route-existence guard checks every spec's mock overrides (35 → 82 routes). E2E 73 → 99 listed; frontend 75 → 76 suites / 605 → 609 tests.
 - **2026-10-26 — testing PR E** (`feature/testing-docs-and-gate`): `TESTING_STRATEGY.md` restructured to CKQ's layout; this file re-measured into this shape; the `ci-passed` umbrella job; the admin dashboard's axe ratchet narrowed from the whole `color-contrast` rule to the two known sidebar nodes. Counts unchanged.
 - **2026-10-26 — testing PR D** (#121): `fireEvent` → `userEvent` in all 30 files, with no exceptions (two edit tests that only passed because `fireEvent.change` replaces a value were fixed). Strict MSW across all 50 MSW files (it found one handler-less request). The clock is pinned in the last 4 unpinned backend files (`testUtils/clock.js`). Two new guards. Frontend 73 → 75 suites / 596 → 605 tests.
 - **2026-10-26 — testing PR C** (#120): six static guards, `scripts/dead-negative-assertions.mjs`, the `/audit-tests` skill, and 401/403/404 negatives so every route test file meets Check 11 (`student`, `groupClass`, `groupClassSchedule`, `level`, `location`, `testimonial`). After it: backend 89 suites / 1,232 tests; frontend 73 / 596.
@@ -101,7 +102,7 @@ npm run typecheck                 # app + e2e
 | Hook | `lib/hooks/__tests__/*.test.ts(x)` | `useLoadState`, `useContractPreview`, debounce | None / MSW |
 | Service | `lib/services/__tests__/*.test.ts` (6 files) | The query-throws / mutation-never-throws contract for `calendar`, `catalog`, `coachContracts`, `kiosk`, `parent`, `privateClass` | MSW (strict) |
 | Context | `app/context/__tests__/*.test.tsx` | `ParentPortalContext`'s `Promise.allSettled` degradation | MSW (strict) |
-| Guards | `lib/__tests__/guards/*.test.ts` (8 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, self-hosted fonts, the Playwright version pin | No |
+| Guards | `lib/__tests__/guards/*.test.ts` (9 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin | No |
 
 ### Coverage gaps (honest, not hidden)
 
@@ -121,18 +122,18 @@ Real Chromium against a real, locally-built Next.js server, network fully mocked
 
 | Project | Tests listed | Specs |
 |---|---|---|
-| `chromium` (Desktop Chrome) | 46 | all 9 |
-| `mobile-chrome` (Pixel 5) | 27 | `public-site`, `login`, `calendar`, `kiosk` |
+| `chromium` (Desktop Chrome) | 61 | all 12 |
+| `mobile-chrome` (Pixel 5) | 38 | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions` |
 
 Skipped: the two visual-baseline tests in `public-site.spec.ts` on each project (a baseline has to be generated inside the CI container — see the in-file comment).
 
-**Not yet covered (testing plan PR F):** subscriptions management, the register-private wizard on its own, parent billing history, spotlight admin content.
+**Not yet covered by E2E:** testimonials admin, the coach schedule pages, parent children/child detail, the book-trial wizard end to end (holiday-blocking drives its date picker only). Each is covered by its Jest page test.
 
 ## Improvement plan (short)
 
 1. ~~Add a standalone `backend/tests/utils/billingDates.test.js` for `addOneMonth`/`todayAtMidnight`.~~ Done 2026-08-28 — `docs/plans/timezone-consistency-plan.md`, plus a new `scheduleOccurrence.test.js` sibling.
 2. ~~Retrofit the frontend suite from `fireEvent` to `userEvent.setup()`.~~ Done 2026-10-26 (`docs/plans/testing-strategy-refresh-plan.md` PR D): all 30 files converted with no exceptions, and `userEventGuard.test.ts` keeps it that way.
 3. A test for `app/coach/schedules/page.tsx` (the one 0% page).
-4. E2E Phase 2 — `docs/plans/testing-strategy-refresh-plan.md` PR F.
+4. ~~E2E Phase 2.~~ Done 2026-10-26 (`docs/plans/testing-strategy-refresh-plan.md` PR F).
 5. `Modal` (`docs/plans/shared-modal-component-plan.md`) handles initial-focus-on-open and focus-restore-on-close, but not full focus **trapping** — Tab/Shift+Tab can still escape the dialog to the page behind it. A real, separate a11y task (or a small dependency like `focus-trap-react`), not bundled into that plan.
 6. The admin sidebar's muted text (4.28:1, needs 4.5:1) — a colour decision for `docs/design-system.md`; the E2E ratchet allows only those nodes until then.
