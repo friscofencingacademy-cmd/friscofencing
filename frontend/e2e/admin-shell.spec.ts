@@ -57,9 +57,15 @@ test.describe('admin shell', () => {
   // (luminance ~0.0104 either way), so the ratio is still ~4.28:1 — verified,
   // not assumed, before leaving this ratchet in place (see public-site.spec
   // .ts's matching comment for the one violation that WAS fixed by the
-  // rebrand). Ratcheted, not ignored: this exact violation is allowed so
-  // the suite can ship green; any OTHER/NEW finding still fails.
-  const KNOWN_ADMIN_DASHBOARD_VIOLATIONS = new Set(['color-contrast']);
+  // rebrand). Ratcheted, not ignored: only THOSE nodes are allowed — the
+  // sidebar's brand-role and section-label elements (CSS-module classes
+  // keep their local name as the prefix). A contrast failure on any other
+  // node, or any other rule, still fails (a rule-id-wide allowlist once
+  // hid a second finding on the home page — docs/TESTING_STRATEGY.md).
+  const KNOWN_CONTRAST_NODE = /class="layout_(brandRole|sectionLabel)__/;
+  type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][number];
+  const isKnownViolation = (violation: AxeViolation) =>
+    violation.id === 'color-contrast' && violation.nodes.every((node) => KNOWN_CONTRAST_NODE.test(node.html));
 
   test('dashboard has no NEW serious/critical accessibility violations', async ({ page }) => {
     await loginAs(page, 'admin');
@@ -68,7 +74,7 @@ test.describe('admin shell', () => {
 
     const results = await new AxeBuilder({ page }).analyze();
     const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    const unexpected = blocking.filter((v) => !KNOWN_ADMIN_DASHBOARD_VIOLATIONS.has(v.id));
+    const unexpected = blocking.filter((v) => !isKnownViolation(v));
 
     expect(unexpected, JSON.stringify(unexpected, null, 2)).toEqual([]);
   });
