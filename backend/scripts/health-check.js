@@ -4,10 +4,11 @@
 // picks the database, never prints its URI, and sets the exit code.
 //
 // Usage (from backend/):
-//   npm run health -- --env staging      AUDIT_MONGO_URI from backend/.env (must be the staging
-//                                        cluster); also expects the live-audit fixtures and a
-//                                        recent audit run
-//   npm run health -- --env production   MONGO_URI from backend/.env.production.local
+//   npm run health -- --env staging      AUDIT_MONGO_URI from backend/.env (must name the
+//                                        friscofencing-staging database); also expects the
+//                                        live-audit fixtures and a recent audit run
+//   npm run health -- --env production   MONGO_URI from backend/.env.production.local (must name
+//                                        the friscofencing database)
 //   --provider=<name>                    the payment provider the environment runs
 //                                        (default: PAYMENT_PROVIDER, else "stripe")
 //
@@ -20,6 +21,7 @@ const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 
 const { collectHealth } = require('./lib/healthCheck');
+const { KNOWN_DATABASES, assertExplicitDatabase } = require('./lib/mongoTarget');
 
 const BACKEND_ROOT = path.join(__dirname, '..');
 const ICONS = { ok: '✅', warn: '⚠️ ', fail: '❌' };
@@ -37,27 +39,30 @@ function argValue(name) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+// Each environment must name its own database explicitly — a URI that names
+// none would silently report on "test" (scripts/lib/mongoTarget.js).
 function resolveTarget(env) {
-  if (env === 'staging') {
-    const uri = readEnvFile('.env').AUDIT_MONGO_URI || process.env.AUDIT_MONGO_URI;
-    if (!uri || !uri.includes('friscofencing-staging')) {
-      return { error: 'AUDIT_MONGO_URI (backend/.env) is missing or is not the staging cluster ("friscofencing-staging").' };
-    }
-    return { uri, expectAuditFixtures: true };
+  if (env !== 'staging' && env !== 'production') {
+    return { error: 'Pass --env staging or --env production.' };
   }
 
-  if (env === 'production') {
-    const uri = readEnvFile('.env.production.local').MONGO_URI;
-    if (!uri) {
-      return { error: 'MONGO_URI is missing from backend/.env.production.local.' };
-    }
-    if (uri.includes('friscofencing-staging')) {
-      return { error: 'backend/.env.production.local points at the staging cluster.' };
-    }
-    return { uri, expectAuditFixtures: false };
+  const uri =
+    env === 'staging'
+      ? readEnvFile('.env').AUDIT_MONGO_URI || process.env.AUDIT_MONGO_URI
+      : readEnvFile('.env.production.local').MONGO_URI;
+  const source = env === 'staging' ? 'AUDIT_MONGO_URI (backend/.env)' : 'MONGO_URI (backend/.env.production.local)';
+
+  if (!uri) {
+    return { error: `${source} is missing.` };
   }
 
-  return { error: 'Pass --env staging or --env production.' };
+  try {
+    assertExplicitDatabase(uri, { expected: KNOWN_DATABASES[env] });
+  } catch (error) {
+    return { error: `${source}: ${error.message}` };
+  }
+
+  return { uri, expectAuditFixtures: env === 'staging' };
 }
 
 async function main() {

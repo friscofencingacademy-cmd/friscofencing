@@ -477,3 +477,19 @@ sections above with the reason._
 - `~/.claude/commands/health.md` (CKQ's status command) renamed `ckq-health.md`, so `/health` is
   only this repo's skill. §8 item 8 met.
 
+### Secrets + explicit-database fix, 2026-10-26
+
+- Six GitHub Actions secrets set after validating each value without printing it:
+  `STAGING_MONGO_URI` and `AUDIT_MONGO_URI` (the `friscofencing-staging` database),
+  `AUDIT_STAGING_URL`, `AUDIT_TEST_PASSWORD` (identical in `backend/.env` and `audit/.env`),
+  `AUDIT_SUPERADMIN_EMAIL`/`_PASSWORD` (a real login on staging, role `superadmin`, and
+  `GET /audit-runs` returns 200 with it). Values were read through `dotenv.parse`, so `.env`
+  quoting never reaches a secret.
+- **Finding:** `backend/.env.production.local`'s `MONGO_URI` names no database, so MongoDB would use
+  `test`. `PRODUCTION_MONGO_URI` was therefore not set (pulling the Vercel value was not permitted
+  in the session) — owner step. Root-cause fix, not a workaround: `scripts/lib/mongoTarget.js`
+  (`assertExplicitDatabase`) now refuses such a URI in `extend-group-sessions.js` and
+  `health-check.js`; `extend-sessions.yml` passes `--expect-db` per job, so a secret naming the
+  wrong database, or none, fails before any write; `health-check.js` requires each environment's
+  exact database name.
+

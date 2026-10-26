@@ -7,9 +7,10 @@ name: Extend group sessions
 # go empty. The script only inserts missing dates (idempotent), so a manual
 # run, a re-run or an overlap with a hand run is always safe.
 #
-# Secrets (repo Actions secrets, set by the owner with `gh secret set`):
-#   STAGING_MONGO_URI     — the friscofencing-staging database
-#   PRODUCTION_MONGO_URI  — the friscofencing database
+# Secrets (repo Actions secrets, set by the owner with `gh secret set`). Each
+# URI must name its database in its path — the job refuses any other:
+#   STAGING_MONGO_URI     — …mongodb.net/friscofencing-staging
+#   PRODUCTION_MONGO_URI  — …mongodb.net/friscofencing
 # A job whose secret is not set logs a notice and succeeds, so this never goes
 # red before the owner opts an environment in.
 
@@ -45,12 +46,16 @@ jobs:
         working-directory: backend
         env:
           MONGO_URI: ${{ matrix.environment == 'production' && secrets.PRODUCTION_MONGO_URI || secrets.STAGING_MONGO_URI }}
+          # The database each job must hit — a secret naming any other
+          # database, or none (which MongoDB treats as "test"), fails the job
+          # before anything is written (scripts/lib/mongoTarget.js).
+          EXPECTED_DB: ${{ matrix.environment == 'production' && 'friscofencing' || 'friscofencing-staging' }}
         run: |
           if [ -z "$MONGO_URI" ]; then
             echo "::notice::${{ matrix.environment }} MONGO_URI secret is not set — skipping."
             exit 0
           fi
           echo "── Plan (dry run) ──"
-          npm run extend-sessions
+          npm run extend-sessions -- --expect-db="$EXPECTED_DB"
           echo "── Apply ──"
-          npm run extend-sessions -- --live
+          npm run extend-sessions -- --live --expect-db="$EXPECTED_DB"
