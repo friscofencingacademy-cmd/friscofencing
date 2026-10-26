@@ -30,6 +30,7 @@ const PaymentMethod = require('../../src/models/paymentMethod.model');
 const Setting = require('../../src/models/setting.model');
 const Holiday = require('../../src/models/holiday.model');
 const { computeProration } = require('../../src/services/billing/proration.service');
+const { SIBLING_DISCOUNT_REASONS } = require('../../src/services/billing/calculateChargeAmount.service');
 const { retryOne, renewOne, runRenewals, previewRenewal } = require('../../src/services/renewal.service');
 const { todayDateOnly } = require('../../src/utils/billingDates');
 const { hashPassword } = require('../../src/utils/password');
@@ -2040,6 +2041,79 @@ describe('Registration routes', () => {
         expect(secondRes.body.siblingDiscountApplied).toBe(previewRes.body.siblingDiscountApplied);
         expect(secondRes.body.siblingDiscountAmount).toBe(previewRes.body.siblingDiscountAmount);
         expect(secondRes.body.siblingDiscountReason).toBe(previewRes.body.siblingDiscountReason);
+      },
+      40000
+    );
+
+    // Found by the live audit's S5 on 2026-10-26 (ADR 006 addendum of that
+    // date): late in the month, the PRICIER plan's prorated first charge can
+    // fall below the sibling's plan. The money is 10% of that prorated
+    // charge (unchanged); the reason must still say the parent is on the
+    // pricier plan — both preview and the real charge.
+    it(
+      'late-month BRIDGE: the prorated pricier plan below the sibling plan gets the prorated-bridge reason in preview and charge alike',
+      async () => {
+        const parent = await seedUser({ role: 'parent', email: 'reg-late-bridge@example.com' });
+        const firstChild = await User.create({
+          role: 'student',
+          firstName: 'First',
+          lastName: 'LateBridge',
+          parentId: parent._id,
+        });
+        const secondChild = await User.create({
+          role: 'student',
+          firstName: 'Second',
+          lastName: 'LateBridge',
+          parentId: parent._id,
+        });
+
+        const parentAgent = await loginAgent('reg-late-bridge@example.com');
+        await savePaymentMethodFor(parentAgent);
+
+        const cheaperScheduleId = await seedScheduleWithFee(MONTHLY_FEE, {
+          levelName: 'LateBridgeCheap',
+          levelOrder: 24,
+        });
+        const pricierScheduleId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
+          levelName: 'LateBridgePricier',
+          levelOrder: 25,
+        });
+        const pricierLevel = await Level.findOne({ name: 'LateBridgePricier' });
+
+        const firstRes = await parentAgent.post('/api/v1/registrations').send({
+          studentId: firstChild._id.toString(),
+          scheduleId: cheaperScheduleId,
+        });
+        expect(firstRes.status).toBe(201);
+
+        // Monday Oct 26 — one Thursday class left in October.
+        jest.setSystemTime(new Date('2026-10-26T15:00:00.000Z'));
+        // A fresh login: the Oct 1 session token has expired by Oct 26.
+        const lateAgent = await loginAgent('reg-late-bridge@example.com');
+        const expected = await expectedProrationFor(pricierLevel._id, MONTHLY_FEE * 2);
+        // Precondition: the scenario this test exists for.
+        expect(expected.proratedAmount).toBeLessThan(MONTHLY_FEE);
+
+        const previewRes = await lateAgent.get('/api/v1/registrations/preview').query({
+          studentId: secondChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+
+        expect(previewRes.status).toBe(200);
+        expect(previewRes.body.siblingDiscountApplied).toBe(true);
+        expect(previewRes.body.discountBase).toBe(expected.proratedAmount);
+        expect(previewRes.body.siblingDiscountAmount).toBe(Math.round(expected.proratedAmount * 10) / 100);
+        expect(previewRes.body.siblingDiscountReason).toBe(SIBLING_DISCOUNT_REASONS.BRIDGE_PRORATED);
+
+        const secondRes = await lateAgent.post('/api/v1/registrations').send({
+          studentId: secondChild._id.toString(),
+          scheduleId: pricierScheduleId,
+        });
+
+        expect(secondRes.status).toBe(201);
+        expect(secondRes.body.chargeAmount).toBe(previewRes.body.chargeAmount);
+        expect(secondRes.body.siblingDiscountAmount).toBe(previewRes.body.siblingDiscountAmount);
+        expect(secondRes.body.siblingDiscountReason).toBe(SIBLING_DISCOUNT_REASONS.BRIDGE_PRORATED);
       },
       40000
     );

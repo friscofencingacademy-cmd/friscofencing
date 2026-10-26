@@ -150,7 +150,11 @@ succeeds without doing anything — `/health` reports it as "not configured".
 
 Weekly cadence (Mondays, UTC): `extend-sessions.yml` 11:00 keeps every schedule 8 weeks ahead;
 `live-audit.yml` 14:00 resets and runs the live registration audit on staging. Both can be run by
-hand from the Actions tab. Background: `docs/plans/audit-and-health-refresh-plan.md`.
+hand from the Actions tab. **GitHub runs scheduled and manually dispatched workflows only from the
+default branch, which is `develop` since 2026-10-26** (it was `main`, which had no workflows, so
+neither job could run). Keep `develop` the default; Vercel's production branch is set separately.
+Production is deferred (owner, 2026-10-26): until `PRODUCTION_MONGO_URI` is set, the production
+job logs a notice and skips. Background: `docs/plans/audit-and-health-refresh-plan.md`.
 
 ---
 

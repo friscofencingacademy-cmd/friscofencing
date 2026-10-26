@@ -28,8 +28,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Each environment names its own secret and database. Never pick the
+      # secret with `cond && a || b`: when `a` is an unset (empty) secret the
+      # expression falls through to `b`, and the production job ran against
+      # the STAGING secret on 2026-10-26 (stopped only by --expect-db).
       matrix:
-        environment: [staging, production]
+        include:
+          - environment: staging
+            secret: STAGING_MONGO_URI
+            database: friscofencing-staging
+          - environment: production
+            secret: PRODUCTION_MONGO_URI
+            database: friscofencing
     concurrency:
       group: extend-sessions-${{ matrix.environment }}
       cancel-in-progress: false
@@ -45,14 +55,14 @@ jobs:
       - name: Extend sessions (${{ matrix.environment }})
         working-directory: backend
         env:
-          MONGO_URI: ${{ matrix.environment == 'production' && secrets.PRODUCTION_MONGO_URI || secrets.STAGING_MONGO_URI }}
+          MONGO_URI: ${{ secrets[matrix.secret] }}
           # The database each job must hit — a secret naming any other
           # database, or none (which MongoDB treats as "test"), fails the job
           # before anything is written (scripts/lib/mongoTarget.js).
-          EXPECTED_DB: ${{ matrix.environment == 'production' && 'friscofencing' || 'friscofencing-staging' }}
+          EXPECTED_DB: ${{ matrix.database }}
         run: |
           if [ -z "$MONGO_URI" ]; then
-            echo "::notice::${{ matrix.environment }} MONGO_URI secret is not set — skipping."
+            echo "::notice::${{ matrix.secret }} secret is not set — skipping ${{ matrix.environment }}."
             exit 0
           fi
           echo "── Plan (dry run) ──"
