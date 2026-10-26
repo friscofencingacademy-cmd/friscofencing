@@ -21,9 +21,9 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
-// Wildcard host pattern so these handlers match regardless of the axios
-// baseURL configured via NEXT_PUBLIC_API_URL in this environment — mocking
-// at the real network boundary per docs/TESTING_STRATEGY.md, not
+// Wildcard host pattern so these handlers match the relative `/api/v1`
+// baseURL whatever origin jsdom resolves it against — mocking at the real
+// network boundary per docs/TESTING_STRATEGY.md, not
 // jest.mock('../../../lib/api').
 const server = setupServer(
   http.get('*/auth/me', () => new HttpResponse(null, { status: 401 }))

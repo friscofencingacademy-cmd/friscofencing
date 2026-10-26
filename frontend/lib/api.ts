@@ -1,13 +1,14 @@
 import axios from 'axios';
 
-// Default path goes through the Next.js rewrite proxy configured in
-// next.config.js, so requests stay same-origin and the backend's httpOnly
-// `accessToken` cookie is always first-party. NEXT_PUBLIC_API_URL remains
-// an escape hatch for pointing directly at a backend (e.g. no rewrite proxy
-// available in that environment). withCredentials is still required so the
-// cookie round-trips whichever path is in effect.
+// Every call goes through the Next.js rewrite proxy configured in
+// next.config.js (BACKEND_URL, server-side only), so requests stay
+// same-origin and the backend's httpOnly `accessToken` cookie is always
+// first-party. There is deliberately no override: the browser never calls
+// the backend origin directly (CLAUDE.md), and frontendEnvGuard keeps
+// build-time public variables out of the bundle. withCredentials keeps the
+// cookie round-tripping.
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || '/api/v1',
+  baseURL: '/api/v1',
   withCredentials: true,
 });
 

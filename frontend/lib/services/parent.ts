@@ -113,9 +113,8 @@ export async function fetchMyPaymentHistory(): Promise<PaymentHistoryRow[]> {
 // A real file download, not a JSON call — same-origin (the Next.js rewrite
 // proxy `api`'s own baseURL already goes through), so the browser attaches
 // the httpOnly auth cookie automatically for a plain <a href> navigation;
-// no need to fetch-as-blob. Mirrors `api`'s own baseURL resolution exactly
-// so this works identically whether NEXT_PUBLIC_API_URL is unset (the
-// relative rewrite-proxy path) or set to an absolute backend origin.
+// no need to fetch-as-blob. Built from `api`'s own baseURL so the two can
+// never point at different places.
 export function invoiceDownloadUrl(registrationId: string): string {
   return `${api.defaults.baseURL}/registrations/${registrationId}/invoice`;
 }

@@ -261,6 +261,7 @@ All in `frontend/lib/__tests__/guards/`, each with a matcher self-test and a sca
 - **`e2eMockLayerGuard.test.ts`** — every spec imports `test` from `fixtures/test`, never as a value from `@playwright/test`.
 - **`e2eWaitOrderGuard.test.ts`** — no directly awaited `page.waitForResponse`/`waitForRequest`, no synthetic `visibilitychange`.
 - **`paymentSdkBoundaryGuard.test.ts`** — in production code, only `app/components/payment/` loads or calls a payment provider's browser SDK (`@stripe/*`, and Square's CDN script or `window.Square` from payment PR 5); pages render `<PaymentMethodCollector>`. Tests may stub an SDK (`docs/decisions/013-payment-provider-port.md`).
+- **`frontendEnvGuard.test.ts`** — production code (`app/`, `lib/`, `next.config.js`) reads no `NEXT_PUBLIC_*` variable, so no config is baked into the bundle and the browser never calls the backend origin directly; every variable it does read is documented in `.env.local.example`, and every variable there is read — the example cannot drift.
 - **`selfHostedFontsGuard.test.ts`** — no file loads fonts from Google; every font file `app/layout.tsx` points at exists (a `next/font/google` build-time fetch failed a develop build, 2026-09-30).
 - **`playwrightVersionGuard.test.ts`** — `@playwright/test`, `playwright-core` and the CI Playwright image tag are the same version.
 - **`portalTableWrapGuard.test.ts`** — every table styled with the portal's shared `.table` sits directly inside a `.tableWrap` (`overflow-x: auto`), so a wide table scrolls in its own box instead of the whole page on a phone.
@@ -315,7 +316,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 - **Every spec imports `test` from `./fixtures/test`** — never as a value from `@playwright/test` (a type-only import is fine). Exactly one `**/api/v1/**` handler exists, in `mock-api.ts`.
 - **Mocks are type-locked.** `json<T>(route, status, body)` requires a named response type and checks the body against it (`NoInfer<T>`): an envelope from `lib/apiResponses.ts` or a domain type from `lib/types.ts`. CI's `npm run typecheck` covers `e2e/`, so a backend shape change breaks a stale mock at compile time on the PR that causes it. Never `any`, `as any` or a loose `object` in `e2e/`.
 - **Accessibility scans go through one helper**, `expectNoBlockingA11yViolations(page)` in `e2e/helpers/a11y.ts`: only serious/critical violations fail, and the one known finding below is ratcheted there by node.
-- **The build is hermetic.** `playwright.config.ts` pins `NEXT_PUBLIC_API_URL` to empty, so a developer's `.env.local` cannot bake an absolute backend origin into the E2E bundle; local runs match CI and production (same-origin `/api/v1` proxy).
+- **The build is hermetic.** The app reads no `NEXT_PUBLIC_*` variable (`frontendEnvGuard`), so nothing in a developer's `.env.local` can change the E2E bundle; local runs match CI and production (same-origin `/api/v1` proxy).
 - **`test.skip` policy:** no bare skips. A skip carries a comment of at least five words stating the reason (`noFocusedOrBareSkip`). A test that applies only at one width pins that width (below) instead of skipping by device.
 
 ### Interaction determinism

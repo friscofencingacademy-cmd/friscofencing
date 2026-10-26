@@ -3,13 +3,14 @@
 Every number here is real, captured by running the suites — not estimated. The policy behind them (floors, what each layer is for) lives in `docs/TESTING_STRATEGY.md`; this file holds the figures, and is re-measured on every PR that adds or moves tests.
 
 **Backend: 89 suites / 1,232 tests, all passing. Statements 94.08%.**
-**Frontend: 76 suites / 609 tests, all passing. Statements 90.13%. The full run prints no warning or error.**
+**Frontend: 80 suites / 624 tests, all passing. Statements 90.30%. The full run prints no warning or error.**
 **E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
 
-Measured 2026-10-26 after `docs/plans/testing-strategy-refresh-plan.md` PR F (backend unchanged since PR D), with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
+Measured 2026-10-26 after the frontend env cleanup (frontend and E2E; backend unchanged since PR D), with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
 
 ## Change log (newest first)
 
+- **2026-10-26 — frontend env cleanup** (`chore/frontend-env-cleanup`): the `NEXT_PUBLIC_API_URL` override is gone from `lib/api.ts` (the browser only ever uses the same-origin `/api/v1` proxy), so Playwright no longer pins it; `.env.local.example` drops the dead Stripe key. New `frontendEnvGuard` (no `NEXT_PUBLIC_*` in production code; `.env.local.example` and the variables the code reads match both ways). Frontend 79 → 80 suites / 619 → 624 tests (the 79 / 619 baseline includes payment PR 3, #118); E2E unchanged, 95 pass + 4 skips.
 - **2026-10-26 — testing PR F** (`feature/testing-e2e-phase2`): E2E Phase 2 — `subscriptions`, `billing` and `spotlights-admin` specs, plus a slot-taken case in `private-booking` (it already covered the register-private wizard, so no duplicate spec). They found and fixed three product defects: the admin sidebar's section toggles and links had no accessible name below 1024 px; `/parent/subscriptions` was 740 px wide on a 393 px phone (every portal table now scrolls in its own `.tableWrap`, kept by a new guard); and local E2E builds baked in a developer's `NEXT_PUBLIC_API_URL`. Every axe scan now goes through one helper, and the route-existence guard checks every spec's mock overrides (35 → 82 routes). E2E 73 → 99 listed; frontend 75 → 76 suites / 605 → 609 tests.
 - **2026-10-26 — testing PR E** (`feature/testing-docs-and-gate`): `TESTING_STRATEGY.md` restructured to CKQ's layout; this file re-measured into this shape; the `ci-passed` umbrella job; the admin dashboard's axe ratchet narrowed from the whole `color-contrast` rule to the two known sidebar nodes. Counts unchanged.
 - **2026-10-26 — testing PR D** (#121): `fireEvent` → `userEvent` in all 30 files, with no exceptions (two edit tests that only passed because `fireEvent.change` replaces a value were fixed). Strict MSW across all 50 MSW files (it found one handler-less request). The clock is pinned in the last 4 unpinned backend files (`testUtils/clock.js`). Two new guards. Frontend 73 → 75 suites / 596 → 605 tests.
@@ -102,7 +103,7 @@ npm run typecheck                 # app + e2e
 | Hook | `lib/hooks/__tests__/*.test.ts(x)` | `useLoadState`, `useContractPreview`, debounce | None / MSW |
 | Service | `lib/services/__tests__/*.test.ts` (6 files) | The query-throws / mutation-never-throws contract for `calendar`, `catalog`, `coachContracts`, `kiosk`, `parent`, `privateClass` | MSW (strict) |
 | Context | `app/context/__tests__/*.test.tsx` | `ParentPortalContext`'s `Promise.allSettled` degradation | MSW (strict) |
-| Guards | `lib/__tests__/guards/*.test.ts` (9 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin | No |
+| Guards | `lib/__tests__/guards/*.test.ts` (11 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin, the payment SDK boundary, no `NEXT_PUBLIC_*` env | No |
 
 ### Coverage gaps (honest, not hidden)
 
