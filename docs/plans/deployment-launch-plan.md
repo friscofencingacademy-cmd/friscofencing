@@ -133,14 +133,16 @@ pushes create Preview deployments automatically — that is our staging.
 
 ### 4e. GitHub Actions secrets (scheduled jobs)
 Set with `gh secret set <NAME>` (repo → Settings → Secrets and variables → Actions). Never paste
-a value into a file or a chat. A scheduled job whose secret is missing logs a notice and
+a value into a file or a chat. Set 2026-10-26, each value validated first (database name, staging
+URL, matching audit passwords, a real superadmin login on staging): every row below except
+`PRODUCTION_MONGO_URI`. A scheduled job whose secret is missing logs a notice and
 succeeds without doing anything — `/health` reports it as "not configured".
 
 | Secret | Value | Used by |
 |---|---|---|
 | `STRIPE_SECRET_KEY` | Stripe TEST key (already set) | `ci.yml` backend tests; `live-audit.yml` reset (detaches the audit cards) |
-| `STAGING_MONGO_URI` | Atlas URI ending in `/friscofencing-staging` | `extend-sessions.yml` (staging job) |
-| `PRODUCTION_MONGO_URI` | Atlas URI ending in `/friscofencing` | `extend-sessions.yml` (production job) |
+| `STAGING_MONGO_URI` | Atlas URI ending in `/friscofencing-staging` (set 2026-10-26) | `extend-sessions.yml` (staging job) |
+| `PRODUCTION_MONGO_URI` | Atlas URI ending in `/friscofencing` — the database MUST be in the path; a URI with none makes MongoDB use `test`, and the job refuses it (`--expect-db`). **Not set yet (2026-10-26):** the local `backend/.env.production.local` URI names no database, so it was not uploaded — copy the value from the Vercel backend project's Production `MONGO_URI` (or add `/friscofencing` to the local one) | `extend-sessions.yml` (production job) |
 | `AUDIT_MONGO_URI` | the staging URI again (must contain `friscofencing-staging`) | `live-audit.yml` reset |
 | `AUDIT_STAGING_URL` | `https://friscofencing-git-develop-frisco-fencing.vercel.app` | `live-audit.yml` |
 | `AUDIT_TEST_PASSWORD` | `backend/.env`'s `AUDIT_TEST_PASSWORD` | `live-audit.yml` |
