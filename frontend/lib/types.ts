@@ -284,7 +284,10 @@ export interface Registration {
   breakdown: RegistrationBreakdown;
   periodStart: string;
   periodEnd: string;
-  stripePaymentIntentId: string | null;
+  // Which payment provider the charge went through, and its payment id —
+  // both null on a row that never reached a provider (manual, legacy).
+  provider: 'stripe' | 'square' | null;
+  providerPaymentId: string | null;
   failureMessage: string | null;
   attempt: number;
   paidAt: string | null;

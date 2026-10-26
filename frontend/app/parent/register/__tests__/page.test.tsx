@@ -456,7 +456,7 @@ describe('RegisterPage wizard', () => {
       await user.click(screen.getByRole('button', { name: /add card/i }));
 
       await waitFor(() => {
-        expect(postPaymentMethodPayload).toEqual({ stripePaymentMethodId: STRIPE_PAYMENT_METHOD.id });
+        expect(postPaymentMethodPayload).toEqual({ paymentMethodToken: STRIPE_PAYMENT_METHOD.id });
       });
 
       // The card just added is now shown as "on file" — same underlying

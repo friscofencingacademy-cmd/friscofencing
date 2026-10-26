@@ -197,8 +197,8 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ status: 'completed', quantity: 1, unitPrice: 32.5, amount: 32.5 });
         expect(rows[0].toObject()).not.toHaveProperty('discountPercent');
-        expect(typeof rows[0].stripePaymentIntentId).toBe('string');
-        expect(rows[0].stripePaymentIntentId.length).toBeGreaterThan(0);
+        expect(typeof rows[0].providerPaymentId).toBe('string');
+        expect(rows[0].providerPaymentId.length).toBeGreaterThan(0);
         expect(String(rows[0].sessionId)).toBe(String(session._id));
         expect(String(rows[0].enrollmentId)).toBe(String(enrollment._id));
 

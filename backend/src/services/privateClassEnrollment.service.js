@@ -160,7 +160,7 @@ async function purchaseAndBook({ studentId, scheduleId, day, packId, contractId 
   const privateLessonsService = await getServiceByCode('private-lessons', { requireActive: true });
   assertBillingShape(privateLessonsService, 'per_session');
 
-  const stripeCustomerId = await ensureCustomer(parent);
+  const providerCustomerId = await ensureCustomer(parent);
 
   const enrollment = await PrivateClassEnrollment.create({
     studentId: student._id,
@@ -207,7 +207,7 @@ async function purchaseAndBook({ studentId, scheduleId, day, packId, contractId 
     attempt: 1,
   });
 
-  const charge = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
+  const charge = await chargeLedgerRow({ row, paymentMethod, providerCustomerId });
 
   if (charge.outcome !== 'succeeded') {
     await PerSessionRegistration.updateOne(
@@ -216,7 +216,8 @@ async function purchaseAndBook({ studentId, scheduleId, day, packId, contractId 
         $set: {
           status: 'failed',
           failureMessage: charge.failureMessage,
-          stripePaymentIntentId: charge.paymentIntentId,
+          provider: charge.provider,
+          providerPaymentId: charge.paymentId,
         },
       }
     );
@@ -231,7 +232,7 @@ async function purchaseAndBook({ studentId, scheduleId, day, packId, contractId 
 
   const completedRow = await PerSessionRegistration.findByIdAndUpdate(
     row._id,
-    { $set: { status: 'completed', stripePaymentIntentId: charge.paymentIntentId, paidAt: new Date() } },
+    { $set: { status: 'completed', provider: charge.provider, providerPaymentId: charge.paymentId, paidAt: new Date() } },
     { new: true }
   );
   const activeEnrollment = await PrivateClassEnrollment.findByIdAndUpdate(

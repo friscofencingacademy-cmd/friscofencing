@@ -140,7 +140,7 @@ async function enrollStudentOnRosterAndSessions(schedule, studentId) {
 // function (attach + provider-customer side effects are the real ones).
 async function savePaymentMethodForParent(parent) {
   return paymentMethodService.savePaymentMethod(
-    { stripePaymentMethodId: await mintCardToken('success') },
+    { paymentMethodToken: await mintCardToken('success') },
     parent
   );
 }
@@ -226,10 +226,10 @@ describe('renewOne', () => {
       expect(ledgerRow.breakdown.registrationFeeCharged).toBe(0);
       expect(ledgerRow.periodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
       expect(ledgerRow.periodEnd.toISOString()).toBe(expectedNewPeriodEnd.toISOString());
-      expect(ledgerRow.stripePaymentIntentId).toBeTruthy();
+      expect(ledgerRow.providerPaymentId).toBeTruthy();
       expect(ledgerRow.paidAt).not.toBeNull();
 
-      const payment = await retrievePayment(ledgerRow.stripePaymentIntentId);
+      const payment = await retrievePayment(ledgerRow.providerPaymentId);
       expect(payment.reference).toBe(String(ledgerRow._id));
 
       // Confirms the mail wiring actually fires on the 'charged' branch with
@@ -481,7 +481,7 @@ describe('renewOne', () => {
       await savePaymentMethodForParent(parent);
       await PaymentMethod.findOneAndUpdate(
         { parentId: parent._id },
-        { stripePaymentMethodId: declineAtChargeCardId() }
+        { providerPaymentMethodId: declineAtChargeCardId() }
       );
 
       const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
@@ -630,7 +630,7 @@ describe('renewOne', () => {
         breakdown: { monthlyFee: MONTHLY_FEE, registrationFeeCharged: 0 },
         periodStart: currentPeriodEnd,
         periodEnd: nextPeriodEnd,
-        stripePaymentIntentId: 'pi_prior_run_already_charged',
+        providerPaymentId: 'pi_prior_run_already_charged',
         paidAt: new Date(),
       });
 
@@ -708,10 +708,10 @@ describe('renewOne', () => {
       const priorCharge = await chargeLedgerRow({
         row: pendingRow,
         paymentMethod,
-        stripeCustomerId: await customerIdOf(parent._id),
+        providerCustomerId: await customerIdOf(parent._id),
       });
       expect(priorCharge.outcome).toBe('succeeded');
-      const succeededPI = { id: priorCharge.paymentIntentId };
+      const succeededPI = { id: priorCharge.paymentId };
 
       const result = await renewOne(subscription._id);
 
@@ -725,7 +725,7 @@ describe('renewOne', () => {
 
       const updatedRow = await SubscriptionCycleRegistration.findById(pendingRow._id);
       expect(updatedRow.status).toBe('completed');
-      expect(updatedRow.stripePaymentIntentId).toBe(succeededPI.id);
+      expect(updatedRow.providerPaymentId).toBe(succeededPI.id);
 
       const after = await Subscription.findById(subscription._id);
       expect(after.currentPeriodStart.toISOString()).toBe(currentPeriodEnd.toISOString());
@@ -787,9 +787,9 @@ describe('renewOne', () => {
 
       const updatedRow = await SubscriptionCycleRegistration.findById(pendingRow._id);
       expect(updatedRow.status).toBe('completed');
-      expect(updatedRow.stripePaymentIntentId).toBeTruthy();
+      expect(updatedRow.providerPaymentId).toBeTruthy();
 
-      const payment = await retrievePayment(updatedRow.stripePaymentIntentId);
+      const payment = await retrievePayment(updatedRow.providerPaymentId);
       expect(payment.reference).toBe(String(pendingRow._id));
 
       const after = await Subscription.findById(subscription._id);
@@ -928,7 +928,7 @@ describe('renewOne', () => {
         expect(updatedSub.lastSiblingDiscountApplied).toBe(true);
 
         // The real provider charge reflects the discounted amount.
-        const payment = await retrievePayment(ledgerRow.stripePaymentIntentId);
+        const payment = await retrievePayment(ledgerRow.providerPaymentId);
         expect(payment.amount).toBeCloseTo(MONTHLY_FEE * 0.9, 2);
 
         // The receipt email uses the ACTUAL amount from the ledger row's
@@ -1086,7 +1086,7 @@ describe('renewOne', () => {
         expect(result.chargeAmount).toBe(MONTHLY_FEE);
 
         const payment = await retrievePayment(
-          (await SubscriptionCycleRegistration.findById(failedRow._id)).stripePaymentIntentId
+          (await SubscriptionCycleRegistration.findById(failedRow._id)).providerPaymentId
         );
         expect(payment.amount).toBe(MONTHLY_FEE);
       },
@@ -1311,7 +1311,7 @@ describe('retryOne', () => {
       const updatedRow = await SubscriptionCycleRegistration.findById(failedRow._id);
       expect(updatedRow.status).toBe('completed');
       expect(updatedRow.attempt).toBe(2);
-      expect(updatedRow.stripePaymentIntentId).toBeTruthy();
+      expect(updatedRow.providerPaymentId).toBeTruthy();
 
       // Still exactly one row — retry flips the SAME row, never creates a
       // second one.
@@ -1340,7 +1340,7 @@ describe('retryOne', () => {
       await savePaymentMethodForParent(parent);
       await PaymentMethod.findOneAndUpdate(
         { parentId: parent._id },
-        { stripePaymentMethodId: declineAtChargeCardId() }
+        { providerPaymentMethodId: declineAtChargeCardId() }
       );
 
       const Service = require('../../src/models/service.model');

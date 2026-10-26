@@ -199,7 +199,7 @@ async function chargeAndEmail({
   student,
   parent,
   paymentMethod,
-  stripeCustomerId,
+  providerCustomerId,
   monthlyFee,
   siblingDiscountApplied,
   siblingDiscountAmount,
@@ -209,7 +209,7 @@ async function chargeAndEmail({
     row,
     subscription,
     paymentMethod,
-    stripeCustomerId,
+    providerCustomerId,
     siblingDiscountApplied,
     attemptNumber,
   });
@@ -234,7 +234,7 @@ async function chargeAndEmail({
 //     retry state reset) — NO new charge.
 //   - none found, or only a terminal-failed one -> re-drive the charge
 //     under the SAME idempotency key via chargeAndEmail.
-async function recoverStalePending({ row, subscription, student, parent, paymentMethod, stripeCustomerId, monthlyFee }) {
+async function recoverStalePending({ row, subscription, student, parent, paymentMethod, providerCustomerId, monthlyFee }) {
   const found = await getPaymentProvider().findPayment({ reference: String(row._id) });
   const succeededPI = found && found.status === 'succeeded' ? found : null;
 
@@ -242,7 +242,8 @@ async function recoverStalePending({ row, subscription, student, parent, payment
     const result = await finalizeSuccessfulCharge({
       row,
       subscription,
-      paymentIntentId: succeededPI.id,
+      provider: getPaymentProvider().name,
+      paymentId: succeededPI.id,
       siblingDiscountApplied: row.breakdown.siblingDiscountApplied,
     });
 
@@ -257,7 +258,7 @@ async function recoverStalePending({ row, subscription, student, parent, payment
     student,
     parent,
     paymentMethod,
-    stripeCustomerId,
+    providerCustomerId,
     monthlyFee,
     siblingDiscountApplied: row.breakdown.siblingDiscountApplied,
     siblingDiscountAmount: row.breakdown.siblingDiscountAmount,
@@ -516,7 +517,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
       return { subscriptionId, outcome: 'failed_no_payment_method' };
     }
 
-    const stripeCustomerId = await ensureCustomer(parent);
+    const providerCustomerId = await ensureCustomer(parent);
     const monthlyFee = await resolveMonthlyFee(subscription);
 
     return recoverStalePending({
@@ -525,7 +526,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
       student,
       parent,
       paymentMethod,
-      stripeCustomerId,
+      providerCustomerId,
       monthlyFee,
     });
   }
@@ -553,7 +554,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
     return { subscriptionId, outcome: 'failed_no_payment_method' };
   }
 
-  const stripeCustomerId = await ensureCustomer(parent);
+  const providerCustomerId = await ensureCustomer(parent);
 
   const newPeriodStart = subscription.currentPeriodEnd;
   const newPeriodEnd = addOneMonth(newPeriodStart);
@@ -598,7 +599,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
     student,
     parent,
     paymentMethod,
-    stripeCustomerId,
+    providerCustomerId,
     monthlyFee,
     siblingDiscountApplied,
     siblingDiscountAmount,
@@ -660,7 +661,7 @@ async function chargeProratedNow(subscriptionId, adminUser) {
     return { subscriptionId, outcome: 'failed_no_payment_method' };
   }
 
-  const stripeCustomerId = await ensureCustomer(parent);
+  const providerCustomerId = await ensureCustomer(parent);
 
   let registration;
 
@@ -700,7 +701,7 @@ async function chargeProratedNow(subscriptionId, adminUser) {
     student,
     parent,
     paymentMethod,
-    stripeCustomerId,
+    providerCustomerId,
     monthlyFee,
     siblingDiscountApplied,
     siblingDiscountAmount,
@@ -827,7 +828,9 @@ async function recordManualPayment(subscriptionId, { amount, note, period }, adm
   const result = await finalizeSuccessfulCharge({
     row: registration,
     subscription,
-    paymentIntentId: null,
+    // A manual recording never reaches a payment provider.
+    provider: null,
+    paymentId: null,
     chargeAmount: amount,
     siblingDiscountApplied: false,
   });
@@ -981,7 +984,7 @@ async function retryOne(subscriptionId) {
     return { subscriptionId, outcome: 'failed_no_payment_method' };
   }
 
-  const stripeCustomerId = await ensureCustomer(parent);
+  const providerCustomerId = await ensureCustomer(parent);
 
   return chargeAndEmail({
     row: failedRow,
@@ -989,7 +992,7 @@ async function retryOne(subscriptionId) {
     student,
     parent,
     paymentMethod,
-    stripeCustomerId,
+    providerCustomerId,
     monthlyFee: failedRow.breakdown.monthlyFee,
     siblingDiscountApplied: failedRow.breakdown.siblingDiscountApplied,
     siblingDiscountAmount: failedRow.breakdown.siblingDiscountAmount,

@@ -123,7 +123,9 @@ async function migrateRegistrationsToLedger({ dryRun = true } = {}) {
         },
         periodStart,
         periodEnd,
-        stripePaymentIntentId: null,
+        // Reconstructed from a snapshot, never charged here — no provider.
+        provider: null,
+        providerPaymentId: null,
         paidAt: doc.createdAt,
         backfilled: true,
       };

@@ -111,23 +111,20 @@ async function seedSubscriptionAndRow({ amount = MONTHLY_FEE, breakdownOverrides
   return { subscription, row, parent, student };
 }
 
-// Resolves the provider customer FIRST and stamps it onto the in-memory
-// `parent` object before attaching a card — ensureCustomer() is
-// idempotent only via a live DB read; a `parent` object that never gets
-// refreshed after a DB-only write would otherwise cause a SECOND call to
-// mint a different customer than the one the card actually got attached
-// to. Returns { paymentMethod, stripeCustomerId } so callers never need a
-// separate ensureCustomer() call of their own.
+// Resolves the provider customer, then saves a card for it. `parent` is
+// deliberately left stale (never refreshed after ensureCustomer's own write):
+// ensureCustomer reads the stored state, so the save resolves the SAME
+// customer. Returns { paymentMethod, providerCustomerId } so callers never
+// need a separate ensureCustomer() call of their own.
 async function savePaymentMethodForParent(parent) {
-  const stripeCustomerId = await ensureCustomer(parent);
-  parent.stripeCustomerId = stripeCustomerId;
+  const providerCustomerId = await ensureCustomer(parent);
 
   const paymentMethod = await paymentMethodService.savePaymentMethod(
-    { stripePaymentMethodId: await mintCardToken('success') },
+    { paymentMethodToken: await mintCardToken('success') },
     parent
   );
 
-  return { paymentMethod, stripeCustomerId };
+  return { paymentMethod, providerCustomerId };
 }
 
 describe('chargeFinalization.service', () => {
@@ -136,14 +133,14 @@ describe('chargeFinalization.service', () => {
       'returns outcome:"succeeded" for a real test-mode charge, keyed on the row id',
       async () => {
         const { row, parent } = await seedSubscriptionAndRow();
-        const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
+        const { paymentMethod, providerCustomerId } = await savePaymentMethodForParent(parent);
 
-        const result = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
+        const result = await chargeLedgerRow({ row, paymentMethod, providerCustomerId });
 
         expect(result.outcome).toBe('succeeded');
-        expect(typeof result.paymentIntentId).toBe('string');
+        expect(typeof result.paymentId).toBe('string');
 
-        const payment = await retrievePayment(result.paymentIntentId);
+        const payment = await retrievePayment(result.paymentId);
         expect(payment.status).toBe('succeeded');
         expect(payment.amount).toBe(MONTHLY_FEE);
         expect(payment.reference).toBe(String(row._id));
@@ -155,10 +152,10 @@ describe('chargeFinalization.service', () => {
       'returns outcome:"failed" with the provider decline message for a real test-mode decline, without throwing',
       async () => {
         const { row, parent } = await seedSubscriptionAndRow();
-        const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
-        paymentMethod.stripePaymentMethodId = declineAtChargeCardId();
+        const { paymentMethod, providerCustomerId } = await savePaymentMethodForParent(parent);
+        paymentMethod.providerPaymentMethodId = declineAtChargeCardId();
 
-        const result = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
+        const result = await chargeLedgerRow({ row, paymentMethod, providerCustomerId });
 
         expect(result.outcome).toBe('failed');
         expect(typeof result.failureMessage).toBe('string');
@@ -168,12 +165,12 @@ describe('chargeFinalization.service', () => {
 
     it('is safe to call twice for the same row — the second call replays the first via the shared idempotency key, never double-charging', async () => {
       const { row, parent } = await seedSubscriptionAndRow();
-      const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
+      const { paymentMethod, providerCustomerId } = await savePaymentMethodForParent(parent);
 
-      const first = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
-      const second = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
+      const first = await chargeLedgerRow({ row, paymentMethod, providerCustomerId });
+      const second = await chargeLedgerRow({ row, paymentMethod, providerCustomerId });
 
-      expect(first.paymentIntentId).toBe(second.paymentIntentId);
+      expect(first.paymentId).toBe(second.paymentId);
     }, 20000);
   });
 
@@ -184,7 +181,8 @@ describe('chargeFinalization.service', () => {
       const result = await finalizeSuccessfulCharge({
         row,
         subscription,
-        paymentIntentId: 'pi_test_123',
+        provider: 'stripe',
+        paymentId: 'pi_test_123',
         siblingDiscountApplied: true,
       });
 
@@ -197,7 +195,7 @@ describe('chargeFinalization.service', () => {
 
       const updatedRow = await SubscriptionCycleRegistration.findById(row._id);
       expect(updatedRow.status).toBe('completed');
-      expect(updatedRow.stripePaymentIntentId).toBe('pi_test_123');
+      expect(updatedRow.providerPaymentId).toBe('pi_test_123');
       expect(updatedRow.paidAt).toBeInstanceOf(Date);
 
       const updatedSub = await Subscription.findById(subscription._id);
@@ -217,7 +215,8 @@ describe('chargeFinalization.service', () => {
         row,
         subscription,
         failureMessage: 'Your card was declined.',
-        paymentIntentId: null,
+        provider: 'stripe',
+        paymentId: null,
         attemptNumber: 1,
       });
 
@@ -242,13 +241,13 @@ describe('chargeFinalization.service', () => {
   describe('chargeAndFinalize', () => {
     it('orchestrates a successful charge end-to-end', async () => {
       const { subscription, row, parent } = await seedSubscriptionAndRow();
-      const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
+      const { paymentMethod, providerCustomerId } = await savePaymentMethodForParent(parent);
 
       const result = await chargeAndFinalize({
         row,
         subscription,
         paymentMethod,
-        stripeCustomerId,
+        providerCustomerId,
         siblingDiscountApplied: false,
       });
 
@@ -260,14 +259,14 @@ describe('chargeFinalization.service', () => {
 
     it('orchestrates a failed charge end-to-end, without throwing', async () => {
       const { subscription, row, parent } = await seedSubscriptionAndRow();
-      const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
-      paymentMethod.stripePaymentMethodId = declineAtChargeCardId();
+      const { paymentMethod, providerCustomerId } = await savePaymentMethodForParent(parent);
+      paymentMethod.providerPaymentMethodId = declineAtChargeCardId();
 
       const result = await chargeAndFinalize({
         row,
         subscription,
         paymentMethod,
-        stripeCustomerId,
+        providerCustomerId,
         siblingDiscountApplied: false,
       });
 

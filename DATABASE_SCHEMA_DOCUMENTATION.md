@@ -71,11 +71,12 @@ A `pre('validate')` hook enforces exactly one session ref and a `classType` cons
 | Field | Type | Notes |
 |---|---|---|
 | `parentId` | ObjectId ref `User` | required, **unique** — one saved card per parent for MVP |
-| `stripePaymentMethodId` | String | required |
+| `provider` | String enum (`PROVIDER_NAMES`: `stripe` | `square`) | required — the payment provider this card is saved with ([ADR 013](./docs/decisions/013-payment-provider-port.md)) |
+| `providerPaymentMethodId` | String | required — that provider's own saved-card id (was `stripePaymentMethodId` before `scripts/migrate-provider-fields.js`) |
 | `cardBrand`, `cardLast4` | String | required, display-safe (never the full card number, which we never touch) |
 | `cardExpMonth`, `cardExpYear` | Number | required |
 
-`User.stripeCustomerId` (String, unique + sparse — same null-collision-safe pattern as `email`) is created lazily on first card save. Replacing a saved card detaches the old Stripe PaymentMethod first — nothing orphaned is left attached to the Stripe customer.
+`User.providerCustomerId` (String, unique + sparse — same null-collision-safe pattern as `email`) and `User.paymentProvider` (String enum) are set together, lazily, on first card save with the active provider (`paymentCustomer.service.js`'s `ensureCustomer`). Replacing a saved card on the same provider detaches the old card first — nothing orphaned is left attached to the provider customer. **Exactly one provider is active** (`PAYMENT_PROVIDER`): a customer or card stored for a provider that is not active is treated as absent — `getMine` returns null ("no card on file") and a new customer is created on the active provider — and is never deleted, so switching back makes it usable again (`docs/plans/payment-provider-port-plan.md` D7).
 
 ## `Service` — implemented (`docs/plans/service-registry-unified-ledger-plan.md`)
 | Field | Type | Notes |
@@ -105,7 +106,8 @@ ONE collection for every charge in the business — see ADR `docs/decisions/004-
 | `studentId`, `parentId` | ObjectId ref `User` | required |
 | `status` | String enum | `pending`/`completed`/`failed` — required |
 | `amount` | Number | required — dollars, what was actually charged (or attempted) |
-| `stripePaymentIntentId` | String | default null |
+| `provider` | String enum (`PROVIDER_NAMES` or null) | default null — the payment provider this row's charge attempt went through; set on every attempt (a decline included), null only on a row that never reached a provider (manual recording, legacy import, backfill) |
+| `providerPaymentId` | String | default null — that provider's payment id (was `stripePaymentIntentId`); null when a decline produced no payment object |
 | `failureMessage` | String | default null |
 | `attempt` | Number | default 1 — bumped on retry; the SAME row is updated in place, never duplicated |
 | `paidAt` | Date | default null |
@@ -114,7 +116,7 @@ ONE collection for every charge in the business — see ADR `docs/decisions/004-
 | `manualNote` | String | default null — required, non-empty (schema-validated) when `chargeMethod` is `'manual'`; the admin's own note on how the payment was collected outside Stripe |
 | `recordedBy` | ObjectId ref `User` | default null — the superadmin who triggered this charge; set on a manual recording AND an admin-triggered card charge (audit only), null for the unscheduled cron's own calls |
 
-**Mutation contract**, every row regardless of shape: immutable after insert except the `pending -> completed|failed` transition and retry's own updates to `attempt`/`stripePaymentIntentId`/`failureMessage`/`paidAt`/`status`.
+**Mutation contract**, every row regardless of shape: immutable after insert except the `pending -> completed|failed` transition and retry's own updates to `attempt`/`provider`/`providerPaymentId`/`failureMessage`/`paidAt`/`status`.
 
 **PDF invoice** (`docs/plans/manual-charge-and-pdf-invoice-plan.md` PR 2) — no new field or
 collection. `GET /registrations/:id/invoice` (parent-own or admin/superadmin) regenerates a PDF
@@ -170,9 +172,10 @@ unprorated fee rather than dividing by zero, still anchored to the calendar-mont
 ## `WebhookEvent` — implemented (Phase 11, scoped)
 | Field | Type | Notes |
 |---|---|---|
-| `stripeEventId` | String | required, **unique** — the dedup key; Stripe redelivers events, this makes redelivery a safe no-op |
-| `type` | String | required |
-| `paymentIntentId`, `status` | String | not required — only meaningful for `payment_intent.*` events |
+| `provider` | String enum (`PROVIDER_NAMES`) | required |
+| `providerEventId` | String | required — the provider's own event id (was `stripeEventId`). **Unique together with `provider`** (`provider_1_providerEventId_1`): providers redeliver events, this makes redelivery a safe no-op; an id is only unique within one provider |
+| `type` | String | required — the provider's raw event type (e.g. `payment_intent.succeeded`), for audit |
+| `providerPaymentId`, `status` | String | not required — the event's payment id (was `paymentIntentId`) and its raw provider status |
 
 `POST /api/v1/webhooks/:provider` (the Stripe URL `/api/v1/webhooks/stripe` is unchanged) answers only for the ACTIVE payment provider — any other `:provider` is a 404 — and has the provider's adapter verify the signature (`src/payments/`, [ADR 013](./docs/decisions/013-payment-provider-port.md)); it is registered with its own `express.raw()` middleware BEFORE the global `express.json()` — the raw body is required for signature verification and would otherwise be destroyed. Only records payment succeeded/failed events (`type` keeps the provider's raw event type, e.g. `payment_intent.succeeded`, for audit); other event types are acknowledged but not stored. Deliberately scoped down from full reconciliation — every charge in this project is synchronous (`off_session`/`confirm: true`, no 3DS), so this is a safety net for a narrow crash-recovery window, not something the core flow depends on.
 

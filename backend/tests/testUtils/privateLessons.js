@@ -110,7 +110,7 @@ async function seedParentWithStudent(suffix) {
 
 // Saves a real test-mode card through the real endpoint.
 async function saveCard(parentAgent) {
-  const res = await parentAgent.post('/api/v1/payment-methods').send({ stripePaymentMethodId: await mintCardToken('success') });
+  const res = await parentAgent.post('/api/v1/payment-methods').send({ paymentMethodToken: await mintCardToken('success') });
 
   if (res.status !== 201) {
     throw new Error(`card save failed: ${res.status}`);
@@ -120,7 +120,7 @@ async function saveCard(parentAgent) {
 // Overwrites the parent's stored card with the provider's saved-card id that
 // declines when charged (the technique registration.routes.test.js uses).
 async function makeCardDecline(parentId) {
-  await PaymentMethod.updateOne({ parentId }, { stripePaymentMethodId: declineAtChargeCardId() });
+  await PaymentMethod.updateOne({ parentId }, { providerPaymentMethodId: declineAtChargeCardId() });
 }
 
 // An already-paid purchase, written straight to the schema — for suites that

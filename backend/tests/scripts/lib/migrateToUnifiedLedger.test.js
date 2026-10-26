@@ -137,7 +137,8 @@ describe('scripts/lib/migrateToUnifiedLedger', () => {
     expect(copiedCharge.enrollmentId.toString()).toBe(legacyCharge.enrollmentId.toString());
     expect(copiedCharge.amount).toBe(50);
     expect(copiedCharge.status).toBe('completed');
-    expect(copiedCharge.stripePaymentIntentId).toBe('pi_test_456');
+    expect(copiedCharge.provider).toBe('stripe');
+    expect(copiedCharge.providerPaymentId).toBe('pi_test_456');
     expect(copiedCharge.attempt).toBe(2);
     expect(copiedCharge.paidAt.toISOString()).toBe(legacyCharge.paidAt.toISOString());
     expect(copiedCharge.createdAt.toISOString()).toBe(legacyCharge.createdAt.toISOString());
@@ -161,7 +162,8 @@ describe('scripts/lib/migrateToUnifiedLedger', () => {
     const copied = await Registration.findOne({ billingShape: 'per_session' });
     expect(copied.status).toBe('failed');
     expect(copied.failureMessage).toBe('Card declined');
-    expect(copied.stripePaymentIntentId).toBeNull();
+    expect(copied.provider).toBeNull();
+    expect(copied.providerPaymentId).toBeNull();
   });
 
   it('is idempotent: a second live run copies nothing new and reports everything already present/stamped', async () => {

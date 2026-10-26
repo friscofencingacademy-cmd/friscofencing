@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const User = require('../../../src/models/user.model');
 const PaymentMethod = require('../../../src/models/paymentMethod.model');
 const { SubscriptionCycleRegistration } = require('../../../src/models/registration.model');
-const { scrubStripeFields } = require('../../../scripts/lib/scrubStripeFields');
+const { scrubProviderFields } = require('../../../scripts/lib/scrubProviderFields');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtils/db');
 
 let mongod;
@@ -37,14 +37,15 @@ function baseRegistrationRow(overrides = {}) {
   };
 }
 
-describe('scrubStripeFields', () => {
-  it('clears stripeCustomerId off every User that has one, leaving users without one untouched', async () => {
+describe('scrubProviderFields', () => {
+  it('clears providerCustomerId off every User that has one, leaving users without one untouched', async () => {
     const withCustomer = await User.create({
       role: 'parent',
       firstName: 'Pat',
       lastName: 'Rivera',
       email: 'pat@example.com',
-      stripeCustomerId: 'cus_real123',
+      paymentProvider: 'stripe',
+      providerCustomerId: 'cus_real123',
     });
     const withoutCustomer = await User.create({
       role: 'parent',
@@ -53,57 +54,60 @@ describe('scrubStripeFields', () => {
       email: 'sam@example.com',
     });
 
-    const result = await scrubStripeFields();
+    const result = await scrubProviderFields();
 
-    expect(result.stripeCustomerIdsCleared).toBe(1);
+    expect(result.providerCustomerIdsCleared).toBe(1);
 
     const updated = await User.findById(withCustomer._id);
-    expect(updated.stripeCustomerId).toBeUndefined();
+    expect(updated.providerCustomerId).toBeUndefined();
+    expect(updated.paymentProvider).toBeUndefined();
 
     const unchanged = await User.findById(withoutCustomer._id);
-    expect(unchanged.stripeCustomerId).toBeUndefined();
+    expect(unchanged.providerCustomerId).toBeUndefined();
   });
 
   it('deletes every PaymentMethod document', async () => {
     await PaymentMethod.create({
       parentId: new mongoose.Types.ObjectId(),
-      stripePaymentMethodId: 'pm_real123',
+      provider: 'stripe',
+      providerPaymentMethodId: 'pm_real123',
       cardBrand: 'visa',
       cardLast4: '4242',
       cardExpMonth: 12,
       cardExpYear: 2030,
     });
 
-    const result = await scrubStripeFields();
+    const result = await scrubProviderFields();
 
     expect(result.paymentMethodsDeleted).toBe(1);
     expect(await PaymentMethod.countDocuments({})).toBe(0);
   });
 
-  it('clears stripePaymentIntentId off every Registration row that has one', async () => {
+  it('clears providerPaymentId off every Registration row that has one', async () => {
     const row = await SubscriptionCycleRegistration.create(
-      baseRegistrationRow({ stripePaymentIntentId: 'pi_real123' })
+      baseRegistrationRow({ provider: 'stripe', providerPaymentId: 'pi_real123' })
     );
     const rowWithout = await SubscriptionCycleRegistration.create(baseRegistrationRow());
 
-    const result = await scrubStripeFields();
+    const result = await scrubProviderFields();
 
-    expect(result.stripePaymentIntentIdsCleared).toBe(1);
+    expect(result.providerPaymentIdsCleared).toBe(1);
 
     const updated = await SubscriptionCycleRegistration.findById(row._id);
-    expect(updated.stripePaymentIntentId).toBeNull();
+    expect(updated.providerPaymentId).toBeNull();
+    expect(updated.provider).toBeNull();
 
     const unchanged = await SubscriptionCycleRegistration.findById(rowWithout._id);
-    expect(unchanged.stripePaymentIntentId).toBeNull();
+    expect(unchanged.providerPaymentId).toBeNull();
   });
 
   it('is a clean no-op (all-zero counts) when there is nothing to scrub', async () => {
-    const result = await scrubStripeFields();
+    const result = await scrubProviderFields();
 
     expect(result).toEqual({
-      stripeCustomerIdsCleared: 0,
+      providerCustomerIdsCleared: 0,
       paymentMethodsDeleted: 0,
-      stripePaymentIntentIdsCleared: 0,
+      providerPaymentIdsCleared: 0,
     });
   });
 });

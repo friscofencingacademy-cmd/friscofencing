@@ -1,7 +1,13 @@
 // The port's one piece of runtime behaviour: assertProviderContract. The
 // typedefs in contract.js are documentation only.
-const { assertProviderContract, REQUIRED_MEMBERS } = require('../../src/payments/contract');
+const { assertProviderContract, REQUIRED_MEMBERS, PROVIDER_NAMES } = require('../../src/payments/contract');
 const { makeFakePaymentProvider } = require('../testUtils/fakePaymentProvider');
+
+describe('PROVIDER_NAMES', () => {
+  it('is the one list of provider names the models accept', () => {
+    expect(PROVIDER_NAMES).toEqual(['stripe', 'square']);
+  });
+});
 
 describe('assertProviderContract', () => {
   it('lists exactly the members the codebase calls (plan D2)', () => {

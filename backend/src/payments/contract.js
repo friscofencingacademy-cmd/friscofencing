@@ -84,6 +84,11 @@
  *   Throws httpError(400, `Webhook signature verification failed: <reason>`) on a bad or missing signature.
  */
 
+// Every provider an adapter exists or is planned for — the ONE list the
+// models' `provider` enums read (a model must never require ./index.js, which
+// would load provider SDKs). A provider's `name` is always one of these.
+const PROVIDER_NAMES = ['stripe', 'square'];
+
 const REQUIRED_MEMBERS = [
   'name',
   'capabilities',
@@ -108,4 +113,4 @@ function assertProviderContract(adapter) {
   }
 }
 
-module.exports = { assertProviderContract, REQUIRED_MEMBERS };
+module.exports = { assertProviderContract, REQUIRED_MEMBERS, PROVIDER_NAMES };

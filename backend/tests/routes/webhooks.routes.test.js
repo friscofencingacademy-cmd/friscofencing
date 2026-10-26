@@ -64,10 +64,10 @@ describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
 
     expect(res.status).toBe(200);
 
-    const stored = await WebhookEvent.findOne({ stripeEventId: event.id });
+    const stored = await WebhookEvent.findOne({ provider: 'stripe', providerEventId: event.id });
     expect(stored).not.toBeNull();
     expect(stored.type).toBe('payment_intent.succeeded');
-    expect(stored.paymentIntentId).toBe('pi_test_123');
+    expect(stored.providerPaymentId).toBe('pi_test_123');
     expect(stored.status).toBe('succeeded');
   });
 
@@ -80,7 +80,7 @@ describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
     const secondRes = await signedRequest(event);
     expect(secondRes.status).toBe(200);
 
-    const count = await WebhookEvent.countDocuments({ stripeEventId: event.id });
+    const count = await WebhookEvent.countDocuments({ provider: 'stripe', providerEventId: event.id });
     expect(count).toBe(1);
   });
 
@@ -100,10 +100,10 @@ describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
 
     expect(res.status).toBe(200);
 
-    const stored = await WebhookEvent.findOne({ stripeEventId: event.id });
+    const stored = await WebhookEvent.findOne({ provider: 'stripe', providerEventId: event.id });
     expect(stored).not.toBeNull();
     expect(stored.type).toBe('payment_intent.payment_failed');
-    expect(stored.paymentIntentId).toBe('pi_test_failed_123');
+    expect(stored.providerPaymentId).toBe('pi_test_failed_123');
     expect(stored.status).toBe('requires_payment_method');
   });
 
@@ -123,7 +123,7 @@ describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
 
     expect(res.status).toBe(200);
 
-    const count = await WebhookEvent.countDocuments({ stripeEventId: event.id });
+    const count = await WebhookEvent.countDocuments({ provider: 'stripe', providerEventId: event.id });
     expect(count).toBe(0);
   });
 
@@ -138,7 +138,7 @@ describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
 
     expect(res.status).toBe(400);
 
-    const count = await WebhookEvent.countDocuments({ stripeEventId: event.id });
+    const count = await WebhookEvent.countDocuments({ provider: 'stripe', providerEventId: event.id });
     expect(count).toBe(0);
   });
 
@@ -157,7 +157,7 @@ describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
 
     expect(res.status).toBe(400);
 
-    const count = await WebhookEvent.countDocuments({ stripeEventId: event.id });
+    const count = await WebhookEvent.countDocuments({ provider: 'stripe', providerEventId: event.id });
     expect(count).toBe(0);
   });
 

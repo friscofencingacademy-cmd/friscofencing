@@ -1,4 +1,4 @@
-const { assertProviderContract } = require('./contract');
+const { assertProviderContract, PROVIDER_NAMES } = require('./contract');
 const stripeProvider = require('./stripe/stripe.provider');
 
 // Payment provider selection (docs/decisions/013-payment-provider-port.md).
@@ -24,6 +24,14 @@ function getPaymentProvider() {
   }
 
   assertProviderContract(provider);
+
+  // The selected adapter's name is what every ledger row, card and customer
+  // records as its provider, so it must be the name it was selected by and
+  // one the models' enums accept.
+  if (provider.name !== providerName || !PROVIDER_NAMES.includes(provider.name)) {
+    throw new Error(`[payments] adapter selected as "${providerName}" is named "${provider.name}"`);
+  }
+
   cachedProvider = provider;
   return provider;
 }

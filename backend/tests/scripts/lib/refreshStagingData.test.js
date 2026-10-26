@@ -95,12 +95,12 @@ describe('scripts/lib/refreshStagingData', () => {
   });
 
   it(
-    'wires the Stripe scrub step into the sequence and leaves no Stripe field behind — pre-existing data is ' +
+    'wires the provider scrub step into the sequence and leaves no provider field behind — pre-existing data is ' +
       'already gone by step 1 (the wipe), so this proves the post-condition invariant + result shape, not the ' +
-      "scrub step's own logic in isolation (that's scrubStripeFields.test.js's job, seeding data WITHOUT a wipe " +
+      "scrub step's own logic in isolation (that's scrubProviderFields.test.js's job, seeding data WITHOUT a wipe " +
       'first). docs/plans/payment-airtight-plan.md, owner request 2026-08-31.',
     async () => {
-      // Any pre-existing Stripe data (simulating what a future production-
+      // Any pre-existing payment-provider data (simulating what a future production-
       // to-staging clone could carry in) is wiped by step 1 regardless of
       // whether the scrub step exists at all — that's expected, not a gap
       // in this test: the scrub step exists as a standing guarantee for
@@ -111,18 +111,19 @@ describe('scripts/lib/refreshStagingData', () => {
         firstName: 'Old',
         lastName: 'Family',
         email: 'old-family@example.com',
-        stripeCustomerId: 'cus_leftover123',
+        paymentProvider: 'stripe',
+        providerCustomerId: 'cus_leftover123',
       });
 
       const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
 
-      expect(result.stripeScrubResult).toEqual({
-        stripeCustomerIdsCleared: 0,
+      expect(result.providerScrubResult).toEqual({
+        providerCustomerIdsCleared: 0,
         paymentMethodsDeleted: 0,
-        stripePaymentIntentIdsCleared: 0,
+        providerPaymentIdsCleared: 0,
       });
       expect(await PaymentMethod.countDocuments({})).toBe(0);
-      expect(await User.countDocuments({ stripeCustomerId: { $exists: true } })).toBe(0);
+      expect(await User.countDocuments({ providerCustomerId: { $exists: true } })).toBe(0);
     }
   );
 

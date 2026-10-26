@@ -183,7 +183,10 @@ describe('scripts/lib/migrateRegistrationsToLedger', () => {
     // Everything else is untouched — charge-time truth, never overwritten.
     expect(stamped.eventType).toBe('renewal');
     expect(stamped.amount).toBe(150);
-    expect(stamped.stripePaymentIntentId).toBe('pi_already_real');
+    // The doc's own (pre-port) payment-id field is left exactly as it was —
+    // scripts/migrate-provider-fields.js is what renames it, later.
+    const raw = await Registration.collection.findOne({ _id: insertedId });
+    expect(raw.stripePaymentIntentId).toBe('pi_already_real');
     expect(stamped.backfilled).toBeFalsy();
   });
 

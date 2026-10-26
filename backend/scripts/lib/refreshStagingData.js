@@ -11,7 +11,7 @@ const { migratePeriodMonth } = require('./migratePeriodMonth');
 const { seedServices } = require('./seedServices');
 const { runLegacyImport } = require('./runLegacyImport');
 const { seedSuperadmin } = require('./seedSuperadmin');
-const { scrubStripeFields } = require('./scrubStripeFields');
+const { scrubProviderFields } = require('./scrubProviderFields');
 const { setStagingTestPasswords } = require('./setStagingTestPasswords');
 
 async function refreshStagingData({ csvText, config, superadmin }) {
@@ -36,12 +36,12 @@ async function refreshStagingData({ csvText, config, superadmin }) {
   const importSummary = await runLegacyImport({ csvText, config });
   const { superadmin: superadminUser, created: superadminCreated } = await seedSuperadmin(superadmin);
 
-  // Explicit Stripe scrub (owner request, 2026-08-31) — the wipe + CSV-only
-  // import already guarantee this today (see scrubStripeFields.js's own
+  // Explicit payment-provider scrub (owner request, 2026-08-31) — the wipe + CSV-only
+  // import already guarantee this today (see scrubProviderFields.js's own
   // comment for why), but this makes the guarantee a standing, self-
   // documenting step rather than an accident of the current data source
   // that a future change could quietly weaken.
-  const stripeScrubResult = await scrubStripeFields();
+  const providerScrubResult = await scrubProviderFields();
 
   // One known password for every login-capable user (owner request,
   // 2026-08-31) — staging testing convenience ONLY; a migrated parent
@@ -56,7 +56,7 @@ async function refreshStagingData({ csvText, config, superadmin }) {
     importSummary,
     superadminEmail: superadminUser.email,
     superadminCreated,
-    stripeScrubResult,
+    providerScrubResult,
     testPasswordResult,
   };
 }

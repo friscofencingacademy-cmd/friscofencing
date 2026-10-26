@@ -183,7 +183,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw badRequestError('Add a payment method before registering');
   }
 
-  const stripeCustomerId = await ensureCustomer(requestingUser);
+  const providerCustomerId = await ensureCustomer(requestingUser);
 
   // anchorDate is the parent's chosen start date when one was given,
   // otherwise today's Central calendar date — a date-only value (same
@@ -298,7 +298,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     row: registration,
     subscription,
     paymentMethod,
-    stripeCustomerId,
+    providerCustomerId,
     // The recurring monthly-only amount, NOT totalChargeAmount — the
     // ledger row's own `amount` includes the one-time registration fee for
     // an 'initial' row (registration.model.js's breakdown doc), but
@@ -312,7 +312,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   // chargeAndFinalize() updated both documents in the DB via their own
   // findByIdAndUpdate calls — it does NOT mutate these in-memory Mongoose
   // objects. Re-fetch so the response (and every field read below) reflects
-  // the real, current state (status/stripePaymentIntentId/paidAt on the
+  // the real, current state (status/provider/providerPaymentId/paidAt on the
   // ledger row; retryCount/nextRetryAt/lastChargeAmount on the
   // subscription) rather than what they looked like before charging.
   const [updatedRegistration, updatedSubscription] = await Promise.all([
