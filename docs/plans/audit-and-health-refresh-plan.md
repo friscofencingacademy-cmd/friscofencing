@@ -3,8 +3,8 @@
 **Status:** BUILT — all four PRs merged to `develop` on 2026-10-26 (#125, #126, #127, and the docs
 close-out). §9 holds the as-built notes. **Owner steps still open (§7):** the `extend-sessions`
 catch-up on staging and production, the GitHub secrets (`deployment-launch-plan.md` §4e), the first
-live run (§7.4), `ci-passed` required on `develop` + `main` (§6), and retiring the user-level CKQ
-`health.md` (D10). Spec'd 2026-10-26 from a measured audit of the repo, GitHub, and a read-only
+live run (§7.4). Done 2026-10-26: `ci-passed` is the one required check on `develop` and `main`
+(strict, admins not enforced), and the user-level CKQ `health.md` is renamed `ckq-health.md`. Spec'd 2026-10-26 from a measured audit of the repo, GitHub, and a read-only
 query against the staging database.
 **Executor:** another model (Opus or Sonnet), in auto mode, one PR at a time, in order. §1 is the
 binding contract. The owner tests each PR locally/on staging before it is merged.
@@ -468,4 +468,12 @@ sections above with the reason._
   which is unprotected, and on `main`, which requires the three jobs individually), the secrets,
   the production catch-up run, and the first live audit. Definition of done (§8) items 1–4, 6 and
   8 depend on them; items 5 and 7 are met.
+
+### Owner-gate follow-up, 2026-10-26
+
+- Branch protection set through the GitHub API: `develop` (previously unprotected) and `main`
+  (previously the three jobs individually) now require exactly `ci-passed`, strict (up to date
+  with the base), admins not enforced, force-push and deletion off. §8 item 6 met.
+- `~/.claude/commands/health.md` (CKQ's status command) renamed `ckq-health.md`, so `/health` is
+  only this repo's skill. §8 item 8 met.
 
