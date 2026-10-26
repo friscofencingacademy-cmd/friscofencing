@@ -3,7 +3,7 @@
 // gets this for free: wipeDatabase() deletes every PaymentMethod document,
 // and the legacy import creates brand-new User docs that never set
 // stripeCustomerId (that field is only ever written by
-// stripeCustomer.service.js when a parent actually saves a real card).
+// paymentCustomer.service.js when a parent actually saves a real card).
 // Production has no real Stripe data yet, so nothing leaks today — but that
 // guarantee is currently an ACCIDENT of "the only import source is a CSV
 // file, never a live copy of production Mongo." The moment any future

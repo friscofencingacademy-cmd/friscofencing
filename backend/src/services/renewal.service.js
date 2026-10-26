@@ -5,9 +5,9 @@ const GroupClass = require('../models/groupClass.model');
 const Price = require('../models/price.model');
 const { SubscriptionCycleRegistration, periodMonthOf } = require('../models/registration.model');
 const { monthLabel: formatMonthLabel } = require('../email/dates');
-const stripe = require('../config/stripe');
+const { getPaymentProvider } = require('../payments');
 const paymentMethodService = require('./paymentMethod.service');
-const { ensureStripeCustomer } = require('./stripeCustomer.service');
+const { ensureCustomer } = require('./paymentCustomer.service');
 const { calculateChargeAmount } = require('./billing/calculateChargeAmount.service');
 const { computeProration } = require('./billing/proration.service');
 const {
@@ -228,18 +228,15 @@ async function chargeAndEmail({
 }
 
 // Stale-pending recovery — a `pending` row means a previous run died
-// between insert and charge-resolution. Search Stripe for a PaymentIntent
-// carrying this row's id in its metadata BEFORE ever charging again:
-//   - a succeeded PI found -> adopt it (row completed, period rolled,
+// between insert and charge-resolution. Ask the payment provider for a
+// succeeded payment carrying this row's id BEFORE ever charging again:
+//   - a succeeded payment found -> adopt it (row completed, period rolled,
 //     retry state reset) — NO new charge.
 //   - none found, or only a terminal-failed one -> re-drive the charge
 //     under the SAME idempotency key via chargeAndEmail.
 async function recoverStalePending({ row, subscription, student, parent, paymentMethod, stripeCustomerId, monthlyFee }) {
-  const searchResult = await stripe.paymentIntents.search({
-    query: `metadata['registrationId']:'${row._id}'`,
-  });
-
-  const succeededPI = searchResult.data.find((pi) => pi.status === 'succeeded');
+  const found = await getPaymentProvider().findPayment({ reference: String(row._id) });
+  const succeededPI = found && found.status === 'succeeded' ? found : null;
 
   if (succeededPI) {
     const result = await finalizeSuccessfulCharge({
@@ -519,7 +516,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
       return { subscriptionId, outcome: 'failed_no_payment_method' };
     }
 
-    const stripeCustomerId = await ensureStripeCustomer(parent);
+    const stripeCustomerId = await ensureCustomer(parent);
     const monthlyFee = await resolveMonthlyFee(subscription);
 
     return recoverStalePending({
@@ -556,7 +553,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
     return { subscriptionId, outcome: 'failed_no_payment_method' };
   }
 
-  const stripeCustomerId = await ensureStripeCustomer(parent);
+  const stripeCustomerId = await ensureCustomer(parent);
 
   const newPeriodStart = subscription.currentPeriodEnd;
   const newPeriodEnd = addOneMonth(newPeriodStart);
@@ -663,7 +660,7 @@ async function chargeProratedNow(subscriptionId, adminUser) {
     return { subscriptionId, outcome: 'failed_no_payment_method' };
   }
 
-  const stripeCustomerId = await ensureStripeCustomer(parent);
+  const stripeCustomerId = await ensureCustomer(parent);
 
   let registration;
 
@@ -984,7 +981,7 @@ async function retryOne(subscriptionId) {
     return { subscriptionId, outcome: 'failed_no_payment_method' };
   }
 
-  const stripeCustomerId = await ensureStripeCustomer(parent);
+  const stripeCustomerId = await ensureCustomer(parent);
 
   return chargeAndEmail({
     row: failedRow,

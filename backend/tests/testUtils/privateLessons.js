@@ -8,6 +8,7 @@ const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.
 const PrivateClassSession = require('../../src/models/privateClassSession.model');
 const { hashPassword } = require('../../src/utils/password');
 const { combineDayAndTimeInTZ } = require('../../src/utils/dateShapes');
+const { mintCardToken, declineAtChargeCardId } = require('./payments');
 
 // Shared fixtures for the private-lesson booking suites (docs/decisions/011-
 // private-per-session-booking.md). Every fixture goes through the real API or
@@ -32,7 +33,7 @@ const DEFAULT_RULES = {
 };
 
 // Fakes ONLY Date, leaving every timer real — the Mongo driver, supertest,
-// and the Stripe SDK all need real timers.
+// and the payment provider's SDK all need real timers.
 function freezeDate(now = FROZEN_NOW) {
   jest.useFakeTimers({
     now,
@@ -107,25 +108,24 @@ async function seedParentWithStudent(suffix) {
   return { parent, student, parentAgent };
 }
 
-// Saves a real Stripe TEST-mode card through the real endpoint.
-async function saveCard(parentAgent, stripe) {
-  const paymentMethod = await stripe.paymentMethods.create({ type: 'card', card: { token: 'tok_visa' } });
-  const res = await parentAgent.post('/api/v1/payment-methods').send({ stripePaymentMethodId: paymentMethod.id });
+// Saves a real test-mode card through the real endpoint.
+async function saveCard(parentAgent) {
+  const res = await parentAgent.post('/api/v1/payment-methods').send({ stripePaymentMethodId: await mintCardToken('success') });
 
   if (res.status !== 201) {
     throw new Error(`card save failed: ${res.status}`);
   }
 }
 
-// Stripe's documented shared test id for a guaranteed decline at charge
-// time (the technique registration.routes.test.js uses).
+// Overwrites the parent's stored card with the provider's saved-card id that
+// declines when charged (the technique registration.routes.test.js uses).
 async function makeCardDecline(parentId) {
-  await PaymentMethod.updateOne({ parentId }, { stripePaymentMethodId: 'pm_card_chargeDeclined' });
+  await PaymentMethod.updateOne({ parentId }, { stripePaymentMethodId: declineAtChargeCardId() });
 }
 
 // An already-paid purchase, written straight to the schema — for suites that
 // exercise booking with a credit, attendance, or cancellation without going
-// through Stripe.
+// through the payment provider.
 async function seedActiveEnrollment({ parent, student, coach, contract, quantity = 10, sessionsUsed = 0, sessionDurationMinutes = 30, createdAt }) {
   const enrollment = await PrivateClassEnrollment.create({
     studentId: student._id,

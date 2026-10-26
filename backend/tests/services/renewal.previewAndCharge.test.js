@@ -1,6 +1,7 @@
-// STRIPE_SECRET_KEY must be loaded from the real .env BEFORE any module that
-// requires src/config/stripe.js (paymentMethod.service.js, renewal.service.js)
-// — same pattern as renewal.service.test.js.
+// The payment provider's credentials must be loaded from the real .env BEFORE
+// any module that loads the provider SDK (paymentMethod.service.js,
+// renewal.service.js) — this test hits the active provider's real TEST mode,
+// through tests/testUtils/payments.js only, same pattern as renewal.service.test.js.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 // Mocked so this suite never touches nodemailer/Ethereal.
@@ -15,7 +16,7 @@ const Price = require('../../src/models/price.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
-const stripe = require('../../src/config/stripe');
+const { mintCardToken } = require('../testUtils/payments');
 const paymentMethodService = require('../../src/services/paymentMethod.service');
 const {
   previewRenewal,
@@ -81,11 +82,11 @@ async function seedLevelWithPriceAndSchedule(monthlyFee, { name = 'Level', order
 }
 
 // A level with a class day on EVERY weekday — used only by tests that need
-// a REAL, successful "prorated from today" Stripe charge regardless of
+// a REAL, successful "prorated from today" charge regardless of
 // which real calendar day the suite happens to run on. A single-weekday
 // level (seedLevelWithPriceAndSchedule above) can legitimately prorate to
 // $0 when "today" falls after that weekday's last occurrence in the
-// current month — real, correct behavior, but below Stripe's minimum
+// current month — real, correct behavior, but below the provider's minimum
 // chargeable amount, which would fail these tests on some days and not
 // others (the same pre-existing "today"-anchored flakiness class already
 // documented elsewhere in this suite). Every day being a class day makes
@@ -146,13 +147,8 @@ async function seedParentAndStudent(email) {
 }
 
 async function savePaymentMethodForParent(parent) {
-  const paymentMethod = await stripe.paymentMethods.create({
-    type: 'card',
-    card: { token: 'tok_visa' },
-  });
-
   return paymentMethodService.savePaymentMethod(
-    { stripePaymentMethodId: paymentMethod.id },
+    { stripePaymentMethodId: await mintCardToken('success') },
     parent
   );
 }

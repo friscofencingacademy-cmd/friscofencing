@@ -997,3 +997,16 @@ created; a production webhook subscription registered in the Square Developer Co
 4. Renewal day: a family who has not re-entered a card gets today's `failed_no_payment_method` path (no charge, the existing dunning email). Nothing new.
 5. Rollback = set `PAYMENT_PROVIDER=stripe` and redeploy; Stripe-saved cards are visible again (D7 — a doc on the inactive provider is hidden, never deleted).
 Honest edges (ADR 013): refunds/disputes for Stripe-era charges stay in the Stripe dashboard; saved cards never move; Square idempotency-key retention is undocumented, so D4(1) is the recovery that is relied on.
+
+---
+
+## 12. As-built notes
+
+### PR 1 (2026-10-26, `feature/payment-port-backend`)
+- **Built as specified**: `src/payments/{contract,index,stripe/stripe.provider}.js`; every one of the 8 direct SDK call sites and both `StripeCardError` sniffs migrated; `stripeCustomer.service.js` → `paymentCustomer.service.js` (`ensureCustomer`), `stripeWebhook.*` → `webhooks.*` (`POST /api/v1/webhooks/:provider`, 404 for an inactive provider, Stripe URL unchanged). Stored strings, statuses and emails unchanged; `registration.routes.test.js` changed no assertion except the `listCustomerPayments` rename.
+- **The shared contract suite and the boundary guard landed in PR 1, not PR 4** — they belong with the port; PR 4 adds the Square fixtures and the Square entries to the guard. `REQUIRED_MEMBERS` is exported from `contract.js` so the fake provider and the contract test read the one list.
+- **Test helper API** (`tests/testUtils/payments.js`, replaces `testUtils/stripe.js`): `mintCardToken(kind)`, `successCardDetails()`, `declineAtChargeCardId()`, `customerIdOf()`, `retrievePayment()`, `listCustomerPayments()`, `listCustomerCards()`, `expectLedgerChargeSucceeded()`, `signWebhook()`. Assertions that only held on Stripe (`last4 '4242'`, a `cus_`/`pi_` prefix, stored card id equal to the browser token) were rewritten to provider-neutral ones that are also stronger (the stored card is the only one attached to the parent's own customer). `expectLedgerChargeSucceeded` additionally asserts the payment's reference is the row's own id.
+- **Stale-pending "prior run's charge" is now made by the real `chargeLedgerRow`**, not a hand-built Stripe call — the exact key, reference and metadata a dying run would have used.
+- **Measured: Stripe's search is eventually consistent** — the contract suite's reference lookup found a brand-new charge only after 24 s. The contract case polls with a bounded wait (75 s); this is the measured reason D4's id-first recovery matters.
+- **Webhook 5xx now goes through the central error middleware** (`next(error)`), so a database failure answers the house's generic `Something went wrong` (real error logged) instead of relaying `error.message` — the webhook was the last controller sending internal error text. The 400 signature-failure body is unchanged, pinned word for word by a new test.
+- Counts: backend 87 suites / 1,144 tests (was 82 / 1,091), statements 92.98%; guard proven to fail on each planted violation (SDK require, direct adapter require, error sniff).

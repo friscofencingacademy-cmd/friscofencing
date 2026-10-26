@@ -68,7 +68,7 @@ const userSchema = new Schema(
     dateOfBirth: {
       type: Date,
     },
-    // Set the first time a parent saves a card (stripeCustomer.service.js).
+    // Set the first time a parent saves a card (paymentCustomer.service.js).
     // Not schema-required: most users (students, coaches, admins who never
     // pay) never get one. sparse: true for the same reason as email above —
     // without it, every user missing this field would collide on `null`.

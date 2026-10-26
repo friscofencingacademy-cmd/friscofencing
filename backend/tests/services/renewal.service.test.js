@@ -1,12 +1,12 @@
-// STRIPE_SECRET_KEY must be loaded from the real .env BEFORE any module that
-// requires src/config/stripe.js (paymentMethod.service.js, renewal.service.js)
-// — this test hits Stripe's real TEST-mode API for real, same pattern as
-// registration.routes.test.js.
+// The payment provider's credentials must be loaded from the real .env BEFORE
+// any module that loads the provider SDK (paymentMethod.service.js,
+// renewal.service.js) — this test hits the active provider's real TEST mode,
+// through tests/testUtils/payments.js only, same pattern as registration.routes.test.js.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 // Mocked so this suite never touches nodemailer/Ethereal — receipt email is
 // Phase 10's own concern (see mail.service.test.js), unrelated to what this
-// suite exists to cover (real Stripe TEST-mode renewal charges).
+// suite exists to cover (real test-mode renewal charges).
 jest.mock('../../src/services/mail.service');
 
 const User = require('../../src/models/user.model');
@@ -20,18 +20,21 @@ const Price = require('../../src/models/price.model');
 const Subscription = require('../../src/models/subscription.model');
 const PaymentMethod = require('../../src/models/paymentMethod.model');
 const { SubscriptionCycleRegistration } = require('../../src/models/registration.model');
-const stripe = require('../../src/config/stripe');
 const paymentMethodService = require('../../src/services/paymentMethod.service');
+const { chargeLedgerRow } = require('../../src/services/billing/chargeFinalization.service');
 const { generateInitialSessions } = require('../../src/services/groupClassSession.service');
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { renewOne, runRenewals, retryOne, runRetries } = require('../../src/services/renewal.service');
 const { addOneMonth, addOneDay, todayAtMidnight } = require('../../src/utils/billingDates');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const {
+  mintCardToken,
+  declineAtChargeCardId,
+  customerIdOf,
+  retrievePayment,
   expectLedgerChargeSucceeded,
-  listCustomerPaymentIntents,
-  stripeCustomerIdOf,
-} = require('../testUtils/stripe');
+  listCustomerPayments,
+} = require('../testUtils/payments');
 const mailService = require('../../src/services/mail.service');
 const { seedServices } = require('../../scripts/lib/seedServices');
 
@@ -126,18 +129,11 @@ async function enrollStudentOnRosterAndSessions(schedule, studentId) {
   return GroupClassSession.find({ scheduleId: schedule._id }).sort({ date: 1 });
 }
 
-// Saves a real Stripe TEST-mode card on file for `parent`, via the actual
-// service function (attach + Stripe Customer side effects are the real
-// ones), using the documented `tok_visa` token — same pattern as
-// registration.routes.test.js's mintTestPaymentMethodId.
+// Saves a real test-mode card on file for `parent`, via the actual service
+// function (attach + provider-customer side effects are the real ones).
 async function savePaymentMethodForParent(parent) {
-  const paymentMethod = await stripe.paymentMethods.create({
-    type: 'card',
-    card: { token: 'tok_visa' },
-  });
-
   return paymentMethodService.savePaymentMethod(
-    { stripePaymentMethodId: paymentMethod.id },
+    { stripePaymentMethodId: await mintCardToken('success') },
     parent
   );
 }
@@ -212,7 +208,7 @@ describe('renewOne', () => {
       expect(updated.nextRetryAt).toBeNull();
 
       // The ledger row itself — docs/plans/registration-ledger-plan.md D4:
-      // completed, locked amount, correct period, real Stripe PI id, keyed
+      // completed, locked amount, correct period, real provider payment id, keyed
       // on the row's own id (not the old renewal-{subId}-{periodEnd}
       // string).
       const ledgerRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
@@ -226,8 +222,8 @@ describe('renewOne', () => {
       expect(ledgerRow.stripePaymentIntentId).toBeTruthy();
       expect(ledgerRow.paidAt).not.toBeNull();
 
-      const paymentIntent = await stripe.paymentIntents.retrieve(ledgerRow.stripePaymentIntentId);
-      expect(paymentIntent.metadata.registrationId).toBe(String(ledgerRow._id));
+      const payment = await retrievePayment(ledgerRow.stripePaymentIntentId);
+      expect(payment.reference).toBe(String(ledgerRow._id));
 
       // Confirms the mail wiring actually fires on the 'charged' branch with
       // the right participants — proving it fires, not just that mocking it
@@ -408,7 +404,7 @@ describe('renewOne', () => {
       // before renewOne ever looks at this id. A real payment method DOES
       // exist for this parent, so if renewOne incorrectly skipped its own
       // fresh re-fetch and trusted a stale/no status check, it would
-      // actually succeed in charging real Stripe test money and advancing
+      // actually succeed in charging real test-mode money and advancing
       // the period fields below — which the assertions catch.
       subscription.status = 'cancelled';
       await subscription.save();
@@ -462,7 +458,7 @@ describe('renewOne', () => {
   );
 
   it(
-    'returns failed_payment and leaves period fields completely untouched on a real Stripe TEST-mode card decline',
+    'returns failed_payment and leaves period fields completely untouched on a real test-mode card decline',
     async () => {
       const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
         name: 'Decline',
@@ -470,19 +466,15 @@ describe('renewOne', () => {
       });
       const { parent, student } = await seedParentAndStudent('renew-decline@example.com');
 
-      // A real PaymentMethod doc IS saved for this parent (via tok_visa, so
-      // the attach step succeeds) — but its stripePaymentMethodId is then
-      // overwritten to Stripe's documented shared test id for a guaranteed
-      // decline (`pm_card_chargeDeclined`). Verified directly against the
-      // real Stripe TEST-mode API before writing this test: this id cannot
-      // be attach()ed to a customer at all (Stripe rejects that with a
-      // card_declined error immediately), but it CAN be passed directly as
-      // `payment_method` on a PaymentIntent — which is exactly what
-      // renewOne does — where it reliably throws a StripeCardError.
+      // A real PaymentMethod doc IS saved for this parent (a 'success' card,
+      // so the save step succeeds) — but its stored card id is then
+      // overwritten with the provider's saved-card id that declines WHEN
+      // CHARGED (tests/testUtils/payments.js declineAtChargeCardId()), which
+      // renewOne charges directly — a reliable charge-time decline.
       await savePaymentMethodForParent(parent);
       await PaymentMethod.findOneAndUpdate(
         { parentId: parent._id },
-        { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+        { stripePaymentMethodId: declineAtChargeCardId() }
       );
 
       const currentPeriodStart = new Date('2020-01-01T00:00:00.000Z');
@@ -591,7 +583,7 @@ describe('renewOne', () => {
   // period (e.g. a prior run died after charging but before the period
   // rolled) must self-heal the subscription without a second charge.
   it(
-    'skips and un-sticks the subscription when a completed ledger row already exists for this period, with no new Stripe charge',
+    'skips and un-sticks the subscription when a completed ledger row already exists for this period, with no new provider charge',
     async () => {
       const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
         name: 'AlreadyCharged',
@@ -647,7 +639,7 @@ describe('renewOne', () => {
 
       // No PaymentIntent was created: the prior row's id is a placeholder, so
       // this parent's own customer must never have been charged at all.
-      expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+      expect(await listCustomerPayments(parent._id)).toHaveLength(0);
 
       // Still exactly one ledger row for this subscription.
       const rows = await SubscriptionCycleRegistration.find({ subscriptionId: subscription._id });
@@ -656,11 +648,11 @@ describe('renewOne', () => {
     30000
   );
 
-  // D5 — stale-pending recovery, case (a): a pending row whose PaymentIntent
-  // actually succeeded (the process died between the Stripe response and
-  // updating the row) must be adopted, not re-charged.
+  // D5 — stale-pending recovery, case (a): a pending row whose payment
+  // actually succeeded (the process died between the provider's response
+  // and updating the row) must be adopted, not re-charged.
   it(
-    'stale-pending recovery: adopts a succeeded PaymentIntent found via metadata search, with NO second charge',
+    'stale-pending recovery: adopts the succeeded payment a prior run made for this row, with NO second charge',
     async () => {
       const { schedule } = await seedLevelWithPriceAndSchedule(MONTHLY_FEE, {
         name: 'StaleAdopt',
@@ -686,10 +678,8 @@ describe('renewOne', () => {
       });
 
       // Insert the pending row FIRST (as renewOne itself would, D4 step 4),
-      // then charge it directly via Stripe carrying the SAME metadata
-      // renewOne's own chargeLedgerRow would use — simulating "the process
-      // died right after Stripe confirmed success, before the row/
-      // Subscription were updated."
+      // then charge it below — simulating "the process died right after the
+      // provider confirmed success, before the row/Subscription were updated."
       const pendingRow = await SubscriptionCycleRegistration.create({
         serviceId: groupClassesService._id,
         subscriptionId: subscription._id,
@@ -704,20 +694,17 @@ describe('renewOne', () => {
         periodEnd: nextPeriodEnd,
       });
 
+      // The prior run's charge, made by the real production charge path — the
+      // same idempotency key, reference and metadata a run that died here
+      // would have used.
       const paymentMethod = await PaymentMethod.findOne({ parentId: parent._id });
-      const succeededPI = await stripe.paymentIntents.create(
-        {
-          amount: Math.round(MONTHLY_FEE * 100),
-          currency: 'usd',
-          customer: await stripeCustomerIdOf(parent._id),
-          payment_method: paymentMethod.stripePaymentMethodId,
-          off_session: true,
-          confirm: true,
-          metadata: { registrationId: String(pendingRow._id) },
-        },
-        { idempotencyKey: `payment_${pendingRow._id}` }
-      );
-      expect(succeededPI.status).toBe('succeeded');
+      const priorCharge = await chargeLedgerRow({
+        row: pendingRow,
+        paymentMethod,
+        stripeCustomerId: await customerIdOf(parent._id),
+      });
+      expect(priorCharge.outcome).toBe('succeeded');
+      const succeededPI = { id: priorCharge.paymentIntentId };
 
       const result = await renewOne(subscription._id);
 
@@ -726,8 +713,8 @@ describe('renewOne', () => {
 
       // No second charge — the adopted PaymentIntent is the only one this
       // parent's customer has ever had.
-      const intents = await listCustomerPaymentIntents(parent._id);
-      expect(intents.map((intent) => intent.id)).toEqual([succeededPI.id]);
+      const payments = await listCustomerPayments(parent._id);
+      expect(payments.map((payment) => payment.id)).toEqual([succeededPI.id]);
 
       const updatedRow = await SubscriptionCycleRegistration.findById(pendingRow._id);
       expect(updatedRow.status).toBe('completed');
@@ -769,8 +756,8 @@ describe('renewOne', () => {
         nextBillingDate: currentPeriodEnd,
       });
 
-      // A pending row that never actually reached Stripe (the process died
-      // right after the insert, before the charge call) — no PaymentIntent
+      // A pending row that never actually reached the provider (the process
+      // died right after the insert, before the charge call) — no payment
       // anywhere carries its id.
       const pendingRow = await SubscriptionCycleRegistration.create({
         serviceId: groupClassesService._id,
@@ -795,8 +782,8 @@ describe('renewOne', () => {
       expect(updatedRow.status).toBe('completed');
       expect(updatedRow.stripePaymentIntentId).toBeTruthy();
 
-      const paymentIntent = await stripe.paymentIntents.retrieve(updatedRow.stripePaymentIntentId);
-      expect(paymentIntent.metadata.registrationId).toBe(String(pendingRow._id));
+      const payment = await retrievePayment(updatedRow.stripePaymentIntentId);
+      expect(payment.reference).toBe(String(pendingRow._id));
 
       const after = await Subscription.findById(subscription._id);
       expect(after.currentPeriodEnd.toISOString()).toBe(nextPeriodEnd.toISOString());
@@ -933,9 +920,9 @@ describe('renewOne', () => {
         expect(updatedSub.lastChargeAmount).toBe(MONTHLY_FEE * 0.9);
         expect(updatedSub.lastSiblingDiscountApplied).toBe(true);
 
-        // The real Stripe charge reflects the discounted amount.
-        const paymentIntent = await stripe.paymentIntents.retrieve(ledgerRow.stripePaymentIntentId);
-        expect(paymentIntent.amount).toBe(Math.round(MONTHLY_FEE * 0.9 * 100));
+        // The real provider charge reflects the discounted amount.
+        const payment = await retrievePayment(ledgerRow.stripePaymentIntentId);
+        expect(payment.amount).toBeCloseTo(MONTHLY_FEE * 0.9, 2);
 
         // The receipt email uses the ACTUAL amount from the ledger row's
         // breakdown, not a recomputed monthlyFee * 0.1 (the old F4 bug) —
@@ -1091,10 +1078,10 @@ describe('renewOne', () => {
         // payer against the new pricier sibling and discount it.
         expect(result.chargeAmount).toBe(MONTHLY_FEE);
 
-        const paymentIntent = await stripe.paymentIntents.retrieve(
+        const payment = await retrievePayment(
           (await SubscriptionCycleRegistration.findById(failedRow._id)).stripePaymentIntentId
         );
-        expect(paymentIntent.amount).toBe(Math.round(MONTHLY_FEE * 100));
+        expect(payment.amount).toBe(MONTHLY_FEE);
       },
       30000
     );
@@ -1278,7 +1265,7 @@ describe('retryOne', () => {
 
       const retriedRow = await SubscriptionCycleRegistration.findOne({ subscriptionId: subscription._id });
       await expectLedgerChargeSucceeded(retriedRow, MONTHLY_FEE); // NOT MONTHLY_FEE + 50
-      expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(1);
+      expect(await listCustomerPayments(parent._id)).toHaveLength(1);
     },
     30000
   );
@@ -1346,7 +1333,7 @@ describe('retryOne', () => {
       await savePaymentMethodForParent(parent);
       await PaymentMethod.findOneAndUpdate(
         { parentId: parent._id },
-        { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+        { stripePaymentMethodId: declineAtChargeCardId() }
       );
 
       const Service = require('../../src/models/service.model');
@@ -1499,7 +1486,7 @@ describe('retryOne', () => {
       // directly, bypassing subscription.service.js entirely, before
       // retryOne ever looks at this id. A real payment method DOES exist,
       // so if retryOne skipped its own fresh re-fetch, this would actually
-      // charge real Stripe test money.
+      // charge real test-mode money.
       await Subscription.findByIdAndUpdate(subscription._id, { status: 'cancelled' });
 
       const result = await retryOne(subscription._id);
@@ -1508,7 +1495,7 @@ describe('retryOne', () => {
 
       // The seeded failed row carries no real charge, so a cancelled
       // subscription's parent must still have never been charged at all.
-      expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+      expect(await listCustomerPayments(parent._id)).toHaveLength(0);
     },
     30000
   );

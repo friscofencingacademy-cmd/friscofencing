@@ -1,14 +1,16 @@
-// Dummy signing secret — signature verification is pure local HMAC
-// crypto (sign with this value, verify with the same value), so this test
-// suite never makes a real network call to Stripe, unlike the PaymentIntent
-// charge tests in earlier phases (registration.routes.test.js,
-// paymentMethod.routes.test.js) which hit Stripe's real TEST-mode API.
+// Dummy signing secret — signature verification is pure local HMAC crypto
+// (sign with this value, verify with the same value), so this suite never
+// makes a network call to the payment provider, unlike the charge suites
+// (registration.routes.test.js, paymentMethod.routes.test.js) which hit its
+// real TEST mode. Events below are Stripe-shaped because Stripe is the active
+// provider in this run; the webhook route is provider-neutral
+// (docs/plans/payment-provider-port-plan.md D5).
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_dummy_secret';
 
 const request = require('supertest');
 
 const app = require('../../src/app');
-const stripe = require('../../src/config/stripe');
+const { signWebhook } = require('../testUtils/payments');
 const WebhookEvent = require('../../src/models/webhookEvent.model');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 
@@ -42,25 +44,19 @@ function buildEvent(overrides = {}) {
   };
 }
 
-// Signs `event` (JSON.stringify'd) with generateTestHeaderString, the
-// documented Stripe SDK testing utility for constructing a validly-signed
-// `stripe-signature` header offline against a shared secret — no network
-// call involved.
+// Signs `event` (JSON.stringify'd) the way the active provider would,
+// offline against the shared test secret — no network call involved.
 function signedRequest(event) {
   const payload = JSON.stringify(event);
-  const signature = stripe.webhooks.generateTestHeaderString({
-    payload,
-    secret: process.env.STRIPE_WEBHOOK_SECRET,
-  });
 
   return request(app)
     .post(WEBHOOK_PATH)
     .set('Content-Type', 'application/json')
-    .set('stripe-signature', signature)
+    .set(signWebhook(payload))
     .send(payload);
 }
 
-describe('POST /api/v1/webhooks/stripe', () => {
+describe('POST /api/v1/webhooks/:provider (Stripe active)', () => {
   it('records a payment_intent.succeeded event and responds 200', async () => {
     const event = buildEvent();
 
@@ -149,22 +145,46 @@ describe('POST /api/v1/webhooks/stripe', () => {
   it('responds 400 and creates nothing when the payload has been tampered with after signing', async () => {
     const event = buildEvent({ id: 'evt_test_tampered_123' });
     const payload = JSON.stringify(event);
-    const signature = stripe.webhooks.generateTestHeaderString({
-      payload,
-      secret: process.env.STRIPE_WEBHOOK_SECRET,
-    });
+    const signatureHeaders = signWebhook(payload);
 
     const tamperedPayload = JSON.stringify({ ...event, type: 'payment_intent.payment_failed' });
 
     const res = await request(app)
       .post(WEBHOOK_PATH)
       .set('Content-Type', 'application/json')
-      .set('stripe-signature', signature)
+      .set(signatureHeaders)
       .send(tamperedPayload);
 
     expect(res.status).toBe(400);
 
     const count = await WebhookEvent.countDocuments({ stripeEventId: event.id });
     expect(count).toBe(0);
+  });
+
+  it('responds 404 and creates nothing for a provider that is not the active one', async () => {
+    const event = buildEvent({ id: 'evt_test_wrong_provider_123' });
+    const payload = JSON.stringify(event);
+
+    const res = await request(app)
+      .post('/api/v1/webhooks/square')
+      .set('Content-Type', 'application/json')
+      .set(signWebhook(payload))
+      .send(payload);
+
+    expect(res.status).toBe(404);
+    expect(await WebhookEvent.countDocuments({})).toBe(0);
+  });
+
+  it('keeps the signature-failure message on a 400, word for word', async () => {
+    const payload = JSON.stringify(buildEvent({ id: 'evt_test_bad_sig_message' }));
+
+    const res = await request(app)
+      .post(WEBHOOK_PATH)
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', 't=1,v1=not-a-real-signature')
+      .send(payload);
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/^Webhook signature verification failed: /);
   });
 });

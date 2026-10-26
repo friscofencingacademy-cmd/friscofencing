@@ -17,7 +17,7 @@ const trialClassRoutes = require('./routes/trialClass.routes');
 const paymentMethodRoutes = require('./routes/paymentMethod.routes');
 const registrationRoutes = require('./routes/registration.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
-const stripeWebhookRoutes = require('./routes/stripeWebhook.routes');
+const webhookRoutes = require('./routes/webhooks.routes');
 const coachContractRoutes = require('./routes/coachContract.routes');
 const privateClassScheduleRoutes = require('./routes/privateClassSchedule.routes');
 const privateClassEnrollmentRoutes = require('./routes/privateClassEnrollment.routes');
@@ -37,18 +37,15 @@ configurePassport(passport);
 const app = express();
 
 // Mounted BEFORE the global express.json() below, with its own
-// express.raw() middleware, so this route sees the exact raw request bytes.
-// Stripe's `stripe.webhooks.constructEvent` signature check requires the
-// unparsed body — if express.json() ran first, it would already have
-// consumed/parsed the body into an object and signature verification would
-// always fail. Express matches routes in registration order, so registering
-// this specific route ahead of the global JSON parser makes it "win" for
-// this path only; every other route below still gets JSON parsing as usual.
-app.use(
-  '/api/v1/webhooks/stripe',
-  express.raw({ type: 'application/json' }),
-  stripeWebhookRoutes
-);
+// express.raw() middleware, so the payment-provider webhook sees the exact
+// raw request bytes. Every provider's signature check needs the unparsed
+// body — if express.json() ran first, it would already have parsed the body
+// into an object and signature verification would always fail. Express
+// matches routes in registration order, so registering this path ahead of
+// the global JSON parser makes it "win" here only; every other route below
+// still gets JSON parsing as usual. (Vercel's own body pre-parsing is off via
+// NODEJS_HELPERS=0 for the same reason — docs/plans/deployment-launch-plan.md.)
+app.use('/api/v1/webhooks', express.raw({ type: 'application/json' }), webhookRoutes);
 
 app.use(express.json());
 app.use(cookieParser());

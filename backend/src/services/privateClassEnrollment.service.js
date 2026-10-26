@@ -5,7 +5,7 @@ const PrivateClassSession = require('../models/privateClassSession.model');
 const { PerSessionRegistration } = require('../models/registration.model');
 const coachContractService = require('./coachContract.service');
 const paymentMethodService = require('./paymentMethod.service');
-const { ensureStripeCustomer } = require('./stripeCustomer.service');
+const { ensureCustomer } = require('./paymentCustomer.service');
 const { getServiceByCode, assertBillingShape } = require('./serviceCatalog.service');
 const { chargeLedgerRow } = require('./billing/chargeFinalization.service');
 const privateClassSessionService = require('./privateClassSession.service');
@@ -160,7 +160,7 @@ async function purchaseAndBook({ studentId, scheduleId, day, packId, contractId 
   const privateLessonsService = await getServiceByCode('private-lessons', { requireActive: true });
   assertBillingShape(privateLessonsService, 'per_session');
 
-  const stripeCustomerId = await ensureStripeCustomer(parent);
+  const stripeCustomerId = await ensureCustomer(parent);
 
   const enrollment = await PrivateClassEnrollment.create({
     studentId: student._id,

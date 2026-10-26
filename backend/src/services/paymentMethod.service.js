@@ -1,57 +1,31 @@
-const stripe = require('../config/stripe');
 const PaymentMethod = require('../models/paymentMethod.model');
-const { ensureStripeCustomer } = require('./stripeCustomer.service');
-const { httpError } = require('../utils/errors');
+const { ensureCustomer } = require('./paymentCustomer.service');
+const { getPaymentProvider } = require('../payments');
 
-// 402 has no named shared factory — a declined card is specific to this
-// module — but it is still built by the one constructor.
-function paymentFailedError(message) {
-  return httpError(402, message);
-}
-
-// Saves (or replaces) the requesting parent's single card on file. One
-// saved card per parent for MVP — if they already have one, the old Stripe
-// PaymentMethod is detached before the doc is updated in place, so we never
-// leave an orphaned attached card sitting on the Stripe customer.
+// Saves (or replaces) the requesting parent's single card on file. One saved
+// card per parent for MVP — if they already have one, the old provider card
+// is detached before the doc is updated in place, so we never leave an
+// orphaned card attached to the provider customer. A card declined at save
+// time surfaces as the port's own 402 (docs/plans/payment-provider-port-plan.md
+// D3): some cards decline at attach itself, not only when charged.
 async function savePaymentMethod({ stripePaymentMethodId }, requestingUser) {
-  const stripeCustomerId = await ensureStripeCustomer(requestingUser);
-
-  let attached;
-
-  try {
-    attached = await stripe.paymentMethods.attach(stripePaymentMethodId, {
-      customer: stripeCustomerId,
-    });
-  } catch (error) {
-    // Found via the live audit (docs/plans/audit-system-plan.md's 2026-08-23
-    // addendum): some Stripe test cards (e.g. the documented decline card,
-    // 4000000000000002) decline at attach() itself, not only at charge time.
-    // A hard decline is a synchronous throw from the Stripe SDK, not a
-    // resolved object — same distinction registration.service.js's create()
-    // and renewal.service.js's renewOne() already make for their own charge
-    // calls. Without this catch, a declined card here surfaced as a raw 500
-    // instead of the 402 every other payment-failure case in this codebase
-    // uses.
-    if (error.type === 'StripeCardError') {
-      throw paymentFailedError(error.message);
-    }
-
-    throw error;
-  }
+  const provider = getPaymentProvider();
+  const customerId = await ensureCustomer(requestingUser);
+  const attached = await provider.attachPaymentMethod({ customerId, token: stripePaymentMethodId });
 
   const cardDetails = {
     stripePaymentMethodId: attached.id,
-    cardBrand: attached.card.brand,
-    cardLast4: attached.card.last4,
-    cardExpMonth: attached.card.exp_month,
-    cardExpYear: attached.card.exp_year,
+    cardBrand: attached.brand,
+    cardLast4: attached.last4,
+    cardExpMonth: attached.expMonth,
+    cardExpYear: attached.expYear,
   };
 
   const existing = await PaymentMethod.findOne({ parentId: requestingUser._id });
 
   if (existing) {
     if (existing.stripePaymentMethodId !== attached.id) {
-      await stripe.paymentMethods.detach(existing.stripePaymentMethodId);
+      await provider.detachPaymentMethod({ paymentMethodId: existing.stripePaymentMethodId });
     }
 
     existing.set(cardDetails);

@@ -1,6 +1,6 @@
 const Subscription = require('../../models/subscription.model');
 const { SubscriptionCycleRegistration } = require('../../models/registration.model');
-const stripe = require('../../config/stripe');
+const { getPaymentProvider } = require('../../payments');
 const { addOneDay, todayAtMidnight } = require('../../utils/billingDates');
 
 // Shared by renewal.service.js (renewOne/retryOne/recoverStalePending) AND
@@ -49,58 +49,38 @@ async function advanceSubscriptionPeriod(
   );
 }
 
-// Charges `row`'s LOCKED amount via Stripe, keyed on the row's own id
-// (`payment_${row._id}`, or `payment_${row._id}_retry${attemptNumber}` for
-// a retry attempt) so this is safe to call twice for the same row.
-// Classifies the outcome and returns it — does NOT touch the Registration
-// row, the Subscription, or send any email.
+// Charges `row`'s LOCKED amount through the active payment provider, keyed
+// on the row's own id (`payment_${row._id}`, or
+// `payment_${row._id}_retry${attemptNumber}` for a retry attempt) so this is
+// safe to call twice for the same row. Classifies the outcome and returns it
+// — does NOT touch the Registration row, the Subscription, or send any email.
+// A card decline is a resolved `status: 'failed'` from the port, never a
+// throw (docs/plans/payment-provider-port-plan.md D3); anything else the
+// provider throws propagates unchanged.
 async function chargeLedgerRow({ row, paymentMethod, stripeCustomerId, attemptNumber = 1 }) {
   const idempotencyKey =
     attemptNumber > 1 ? `payment_${row._id}_retry${attemptNumber}` : `payment_${row._id}`;
-  // In the params object, not the request-options object below — metadata
-  // is a real field on the PaymentIntent itself (what stale-pending
-  // recovery searches on), not a request-level option like idempotencyKey.
+  // Stored with the payment itself — stale-pending recovery looks a payment
+  // up by this registrationId on a provider that can search (plan D4).
   const metadata =
     attemptNumber > 1
       ? { registrationId: String(row._id), retry: String(attemptNumber) }
       : { registrationId: String(row._id) };
 
-  let paymentIntent;
+  const result = await getPaymentProvider().charge({
+    amount: row.amount,
+    customerId: stripeCustomerId,
+    paymentMethodId: paymentMethod.stripePaymentMethodId,
+    idempotencyKey,
+    reference: String(row._id),
+    metadata,
+  });
 
-  try {
-    paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: Math.round(row.amount * 100),
-        currency: 'usd',
-        customer: stripeCustomerId,
-        payment_method: paymentMethod.stripePaymentMethodId,
-        off_session: true,
-        confirm: true,
-        metadata,
-      },
-      { idempotencyKey }
-    );
-  } catch (error) {
-    if (error.type === 'StripeCardError') {
-      return {
-        outcome: 'failed',
-        failureMessage: error.message,
-        paymentIntentId: error.payment_intent ? error.payment_intent.id : null,
-      };
-    }
-
-    throw error;
+  if (result.status !== 'succeeded') {
+    return { outcome: 'failed', failureMessage: result.failureMessage, paymentIntentId: result.id };
   }
 
-  if (paymentIntent.status !== 'succeeded') {
-    return {
-      outcome: 'failed',
-      failureMessage: `PaymentIntent status: ${paymentIntent.status}`,
-      paymentIntentId: paymentIntent.id,
-    };
-  }
-
-  return { outcome: 'succeeded', paymentIntentId: paymentIntent.id };
+  return { outcome: 'succeeded', paymentIntentId: result.id };
 }
 
 // `chargeAmount` defaults to the ledger row's own `amount` — correct for a
