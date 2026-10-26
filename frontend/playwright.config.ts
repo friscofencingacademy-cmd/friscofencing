@@ -47,14 +47,9 @@ export default defineConfig({
   // runtime (mocked in fixtures/mock-api.ts — docs/decisions/013). See
   // docs/plans/e2e-testing-plan.md's D11 for why BACKEND_URL needs no entry
   // either: every backend call is mocked before it ever reaches
-  // next.config.js's rewrite.
-  //
-  // NEXT_PUBLIC_API_URL is pinned EMPTY so the build is hermetic: a developer's
-  // .env.local may still set it (the pre-proxy local setup), which would bake
-  // an absolute backend origin into the bundle and make a local run differ
-  // from CI and production, where the app always uses the same-origin
-  // `/api/v1` proxy (lib/api.ts). Next never overrides a variable already in
-  // the environment, so the empty value wins and `|| '/api/v1'` applies.
+  // next.config.js's rewrite. The build is hermetic without pinning anything:
+  // the app reads no NEXT_PUBLIC_* variable (frontendEnvGuard), so nothing in
+  // a developer's .env.local can change the bundle.
   webServer: {
     command: 'npm run build && npm run start',
     url: `http://127.0.0.1:${PORT}`,
@@ -62,7 +57,6 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       PORT: String(PORT),
-      NEXT_PUBLIC_API_URL: '',
     },
   },
 });

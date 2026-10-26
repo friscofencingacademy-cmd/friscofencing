@@ -59,12 +59,11 @@ Branch `feature/vercel-deploy-readiness` → PR to `develop`. Contents:
 3. `auth.controller.js` — `secure: NODE_ENV === 'production'` cookie flag (was hardcoded `false`)
 4. `backend/.env.example` + `frontend/.env.local.example` — documented env vars (`.gitignore` fixed to allow them)
 5. `frontend/next.config.js` — the `/api/v1` proxy rewrite
-6. `frontend/lib/api.ts` — baseURL `'/api/v1'` (relative; `NEXT_PUBLIC_API_URL` kept as override)
+6. `frontend/lib/api.ts` — baseURL `'/api/v1'` (relative; the `NEXT_PUBLIC_API_URL` override kept here was removed 2026-10-26 — the browser never calls the backend directly, and `frontendEnvGuard` keeps any `NEXT_PUBLIC_*` variable out)
 7. Email-send await audit (serverless must not freeze before SMTP completes)
 8. Tests for all of the above
 
-**After this merges, local dev changes once [YOU]:** in `frontend/.env.local`, replace
-`NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1` with `BACKEND_URL=http://localhost:4000`.
+**Local dev:** `frontend/.env.local` holds only `BACKEND_URL=http://localhost:4000` (copy `frontend/.env.local.example`). Done 2026-10-26.
 
 ---
 
@@ -119,7 +118,7 @@ Do NOT set `NODE_ENV` (Vercel manages it) or `PORT` (serverless). `SUPERADMIN_*`
 | `BACKEND_URL` | backend prod URL (e.g. `https://friscofencing-backend.vercel.app`) | Production |
 | `BACKEND_URL` | backend develop alias (see 4c) | Preview |
 
-No payment-provider key lives on the frontend: the card form reads the active provider's public config from the backend at runtime (`docs/decisions/013-payment-provider-port.md`). `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` was removed in payment PR 3 — delete it from the frontend project once that PR is deployed.
+No payment-provider key lives on the frontend: the card form reads the active provider's public config from the backend at runtime (`docs/decisions/013-payment-provider-port.md`). `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` was removed in payment PR 3 (#118). It was deleted from the frontend project's Preview (develop) env on 2026-10-26; its **Production** copy stays until develop is promoted, because `main` still builds the old `lib/stripe.ts` that reads it — delete it right after that promotion deploys. The frontend reads no `NEXT_PUBLIC_*` variable at all (`frontendEnvGuard`): `BACKEND_URL` is its only env var.
 
 ### 4c. Stable develop URLs
 Vercel gives every branch a stable alias:
