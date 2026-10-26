@@ -131,6 +131,25 @@ values above (then redeploy once so they take effect).
 Both projects: Settings → Git → Production Branch = `main` (Vercel default). `develop`
 pushes create Preview deployments automatically — that is our staging.
 
+### 4e. GitHub Actions secrets (scheduled jobs)
+Set with `gh secret set <NAME>` (repo → Settings → Secrets and variables → Actions). Never paste
+a value into a file or a chat. A scheduled job whose secret is missing logs a notice and
+succeeds without doing anything — `/health` reports it as "not configured".
+
+| Secret | Value | Used by |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | Stripe TEST key (already set) | `ci.yml` backend tests; `live-audit.yml` reset (detaches the audit cards) |
+| `STAGING_MONGO_URI` | Atlas URI ending in `/friscofencing-staging` | `extend-sessions.yml` (staging job) |
+| `PRODUCTION_MONGO_URI` | Atlas URI ending in `/friscofencing` | `extend-sessions.yml` (production job) |
+| `AUDIT_MONGO_URI` | the staging URI again (must contain `friscofencing-staging`) | `live-audit.yml` reset |
+| `AUDIT_STAGING_URL` | `https://friscofencing-git-develop-frisco-fencing.vercel.app` | `live-audit.yml` |
+| `AUDIT_TEST_PASSWORD` | `backend/.env`'s `AUDIT_TEST_PASSWORD` | `live-audit.yml` |
+| `AUDIT_SUPERADMIN_EMAIL` / `AUDIT_SUPERADMIN_PASSWORD` | the staging superadmin login | `live-audit.yml` reporting to `/admin/audits` |
+
+Weekly cadence (Mondays, UTC): `extend-sessions.yml` 11:00 keeps every schedule 8 weeks ahead;
+`live-audit.yml` 14:00 resets and runs the live registration audit on staging. Both can be run by
+hand from the Actions tab. Background: `docs/plans/audit-and-health-refresh-plan.md`.
+
 ---
 
 ## Step 5 — Verify live [CLAUDE + YOU]

@@ -4,6 +4,7 @@ Every number here is real, captured by running the suites — not estimated. The
 
 **Backend: 96 suites / 1,302 tests, all passing. Statements 94.36%.**
 **Frontend: 81 suites / 633 tests, all passing. Statements 90.30%. The full run prints no warning or error.**
+**Live audit (staging, not CI): 6 scenarios + the P0 preflight. Last real run 2026-08-28, 6/6 pass — before the 2026-10-26 refresh; the next run is the owner step in `docs/plans/audit-and-health-refresh-plan.md` §7.4, then weekly.**
 **E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
 
 Measured 2026-10-26: backend after audit-health PR 3 (health check), frontend after PR 2 (live-audit refresh), E2E after the frontend env cleanup, with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
