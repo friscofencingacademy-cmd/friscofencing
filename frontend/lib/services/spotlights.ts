@@ -1,11 +1,12 @@
 import api from '../api';
 import type { PublicSpotlight, Spotlight, SpotlightType } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+import type { PublicSpotlightsResponse } from '../apiResponses';
 
 // ── Public (no auth) ─────────────────────────────────────────────────────
 
 export async function fetchPublicSpotlights(type: SpotlightType): Promise<PublicSpotlight[]> {
-  const res = await api.get<{ spotlights: PublicSpotlight[] }>('/spotlights/public', {
+  const res = await api.get<PublicSpotlightsResponse>('/spotlights/public', {
     params: { type },
   });
   return res.data.spotlights;

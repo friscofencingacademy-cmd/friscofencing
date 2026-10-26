@@ -412,3 +412,37 @@ ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behi
 - **Before PR A**, a separate fix shipped as PR #113: fonts are self-hosted (`next/font/local` over
   `@fontsource-variable/*`) because `next/font/google`'s build-time fetch failed the develop E2E
   build on 2026-09-30; `selfHostedFontsGuard.test.ts` prevents a regression.
+### PR B (2026-10-26, `feature/testing-e2e-hardening`)
+- **Loud-fail is live.** An unmocked `/api/v1/*` request is answered `599` and fails the test in
+  teardown (`frontend/e2e/fixtures/test.ts` → `assertNoUnmockedRequests`). No spec uses
+  `allowUnmocked`. Proven by a planted unmocked call, which went red with the request listed.
+- **Mocks are type-locked to what the app reads (T5, extended).** `json<T = never>(route, status,
+  body: NoInfer<T>)` will not compile without a named response type, and the body must match it.
+  The envelopes (`{ levels: … }`, `{ user: … }`, …) were inline types in each service, so there was
+  nothing to name. They now live once in the new `frontend/lib/apiResponses.ts`, used by both the
+  services (and `AuthContext`) and the mocks. A body type stays in `lib/types.ts` when it is
+  already a domain type. Typing the fixtures found drift that had been passing silently:
+  - The public endpoints were mocked with admin shapes. `/levels/public` and `/locations/public`
+    now use `FIXTURE_PUBLIC_LEVELS: PublicLevel[]` and `FIXTURE_PUBLIC_LOCATION: PublicLocation`.
+  - Fields that were missing: the schedule's `students`, the location's `timezone`, the payment
+    method's `_id`/`cardExpMonth`/`cardExpYear`, and the price preview's `monthlyFee`.
+  - The register spec's 201 left out `registration`/`subscription`. It now sends the failed-ledger
+    row plus the reserved subscription in dunning, as ADR 008 returns them on a decline.
+  - The attendance PATCH mock sent `{ success: true }`, which the app never reads. It now sends
+    `IgnoredBodyResponse` (`{}`).
+- **Mobile project (T6).** `mobile-chrome` (Pixel 5) runs `public-site`, `login`, `calendar` and
+  `kiosk`. Phones open `/calendar` in the List view on purpose (design-system "Calendar", C10), so
+  the month-grid tests request `?view=month`. A new test pins 390 px and asserts the List default.
+  At ≤ 600 px, `/classes` filters with a `<select>` instead of the pill row. The pill test pins
+  1280 px, and a new test drives the `<select>` at 390 px. Every width-dependent test pins its
+  width, so it runs on both projects, and nothing is skipped by device.
+- **360 px overflow check** (`e2e/helpers/layout.ts`, zero tolerance). It covers `/`, `/classes`,
+  `/coaches` (beyond T6's list) and `/calendar`. Instead of `networkidle` (discouraged by
+  Playwright), it waits for a visible heading, and the clock is pinned so the month grid always
+  shows the same month. No product layout bug was found. Proven by a planted wide element, which
+  went red.
+- **Result:** e2e and app `tsc` are clean; Jest 69 suites / 560 tests; Playwright 69 passed and
+  4 skipped (the two un-baselined visual tests on each project).
+- **Follow-up when payment PR 2 (#117) merges:** `FIXTURE_REGISTRATION` uses
+  `stripePaymentIntentId` because develop still has that field. The rename will turn it into a
+  type error in `tsc -p e2e`, which is exactly what this PR's typing is for.

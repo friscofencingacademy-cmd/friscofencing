@@ -11,7 +11,7 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 | Functions | — (informational) | 95.38% | 88.61% |
 | Lines | — (informational) | 93.08% | 91.47% |
 
-**Re-measured 2026-10-26** (`docs/plans/testing-strategy-refresh-plan.md` PR A) with `npm run test:coverage` in each repo: backend 82 suites / 1,091 tests, frontend 69 suites / 560 tests, all passing. **These numbers count every source file** (`collectCoverageFrom` in each `jest.config.js`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`), including files no test loads — the earlier figures below counted only files a test happened to load, so the two are not directly comparable. CI now runs each suite once with coverage and fails below 80% statements (`coverageThreshold`); the summary is in each job's GitHub summary.
+**Re-measured 2026-10-26** (`docs/plans/testing-strategy-refresh-plan.md` PR A) with `npm run test:coverage` in each repo: backend 82 suites / 1,091 tests, frontend 69 suites / 560 tests, all passing. **These numbers count every source file** (`collectCoverageFrom` in each `jest.config.js`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`), including files no test loads — the earlier figures below counted only files a test happened to load, so the two are not directly comparable. CI now runs each suite once with coverage and fails below 80% statements (`coverageThreshold`); the summary is in each job's GitHub summary. E2E after PR B (same day): 69 passed + 4 known skips across the `chromium` and `mobile-chrome` projects, up from 41 + 2 on desktop only.
 
 **Branch / line coverage by directory** (2026-10-26):
 

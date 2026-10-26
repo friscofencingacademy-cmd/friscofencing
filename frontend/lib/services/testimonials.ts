@@ -1,11 +1,12 @@
 import api from '../api';
 import type { PublicTestimonial, Testimonial } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+import type { PublicTestimonialsResponse } from '../apiResponses';
 
 // ── Public (no auth) ─────────────────────────────────────────────────────
 
 export async function fetchPublicTestimonials(): Promise<PublicTestimonial[]> {
-  const res = await api.get<{ testimonials: PublicTestimonial[] }>('/testimonials/public');
+  const res = await api.get<PublicTestimonialsResponse>('/testimonials/public');
   return res.data.testimonials;
 }
 

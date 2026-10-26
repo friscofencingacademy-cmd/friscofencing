@@ -12,6 +12,7 @@ import type {
   PublishPrivateAvailabilityInput,
 } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+import type { MyPrivatePurchasesResponse, PrivateAvailableDatesResponse } from '../apiResponses';
 
 // Private lessons (docs/decisions/011-private-per-session-booking.md). One
 // client function per endpoint: queries throw (pair with useLoadState),
@@ -28,7 +29,7 @@ export async function fetchPublicPrivateLessons(): Promise<PublicPrivateLessons>
 }
 
 export async function fetchPrivateAvailableDates(scheduleId: string): Promise<PrivateAvailableDate[]> {
-  const res = await api.get<{ dates: PrivateAvailableDate[] }>(
+  const res = await api.get<PrivateAvailableDatesResponse>(
     `/private-class-schedules/${scheduleId}/available-dates`
   );
   return res.data.dates;
@@ -44,7 +45,7 @@ export async function fetchPrivatePurchaseQuote(studentId: string, scheduleId: s
 }
 
 export async function fetchMyPrivatePurchases(): Promise<PrivatePurchaseEntry[]> {
-  const res = await api.get<{ enrollments: PrivatePurchaseEntry[] }>('/private-class-enrollments/mine');
+  const res = await api.get<MyPrivatePurchasesResponse>('/private-class-enrollments/mine');
   return res.data.enrollments;
 }
 

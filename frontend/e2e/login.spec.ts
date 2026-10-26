@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
+import type { ApiErrorResponse, AuthUserResponse } from '../lib/apiResponses';
 import { mockApi, json, type MockRule } from './fixtures/mock-api';
 import { ROLE_LANDING_PATH, type Role } from './fixtures/auth';
 
@@ -21,11 +22,11 @@ for (const role of ROLES) {
     };
 
     const overrides: MockRule[] = [
-      { method: 'POST', path: '/auth/login', handler: (route) => json(route, 200, { user }) },
+      { method: 'POST', path: '/auth/login', handler: (route) => json<AuthUserResponse>(route, 200, { user }) },
       // Once logged in, subsequent page loads' restoreSession() calls
       // should also see this user — matters for the admin/coach/parent
       // landing pages, which each re-check auth on mount.
-      { method: 'GET', path: '/auth/me', handler: (route) => json(route, 200, { user }) },
+      { method: 'GET', path: '/auth/me', handler: (route) => json<AuthUserResponse>(route, 200, { user }) },
     ];
     await mockApi(page, overrides);
 
@@ -44,7 +45,7 @@ test('shows a clean error on a declined login, never a raw error', async ({ page
     {
       method: 'POST',
       path: '/auth/login',
-      handler: (route) => json(route, 401, { message: 'Invalid email or password.' }),
+      handler: (route) => json<ApiErrorResponse>(route, 401, { message: 'Invalid email or password.' }),
     },
   ];
   await mockApi(page, overrides);
