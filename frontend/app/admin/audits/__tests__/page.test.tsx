@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import AuditsPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const SUPERADMIN_USER = {
   _id: 'super-1',
@@ -43,7 +51,7 @@ const server = setupServer(
   http.get('*/audit-runs', () => HttpResponse.json({ data: { runs: [RUN], total: 1 } }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -75,7 +83,7 @@ describe('AuditsPage', () => {
     renderPage();
 
     const row = await screen.findByText('Live Registration');
-    fireEvent.click(row);
+    await user.click(row);
 
     expect(await screen.findByText('Trial booking')).toBeInTheDocument();
     expect(screen.getByText('Decline path')).toBeInTheDocument();
@@ -101,7 +109,7 @@ describe('AuditsPage', () => {
 
     server.use(http.get('*/audit-runs', () => HttpResponse.json({ data: { runs: [RUN], total: 1 } })));
 
-    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await user.click(screen.getByRole('button', { name: /retry/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/✓ Pass/)).toBeInTheDocument();

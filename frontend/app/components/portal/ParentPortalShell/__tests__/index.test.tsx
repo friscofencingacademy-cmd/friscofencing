@@ -1,10 +1,18 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../../test-utils/msw';
 
 import ParentPortalShell from '../index';
 import { AuthProvider } from '../../../../context/AuthContext';
 import { ParentPortalProvider } from '../../../../context/ParentPortalContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 jest.mock('next/navigation', () => ({
   usePathname: () => '/parent/dashboard',
@@ -42,7 +50,7 @@ const server = setupServer(
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] })),
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -82,7 +90,7 @@ describe('ParentPortalShell', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.click(screen.getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByRole('dialog', { name: /add child/i })).toBeInTheDocument();
   });
@@ -112,7 +120,7 @@ describe('ParentPortalShell', () => {
     renderShell();
     await screen.findByText('Enrolled Kid');
 
-    fireEvent.click(screen.getByRole('button', { name: /log out/i }));
+    await user.click(screen.getByRole('button', { name: /log out/i }));
 
     await waitFor(() => expect(logoutCalled).toBe(true));
   });

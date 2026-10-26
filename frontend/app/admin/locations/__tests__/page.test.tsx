@@ -1,9 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import LocationsPage from '../page';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 // phone/email always present (docs/plans/frontend-polish-plan.md PR 5.3) —
 // empty string here, matching the real backend default for a location that
@@ -44,7 +51,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -66,10 +73,10 @@ describe('LocationsPage', () => {
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
-    fireEvent.click(screen.getByRole('button', { name: /add location/i }));
+    await user.click(screen.getByRole('button', { name: /add location/i }));
 
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New Salle' } });
-    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '789 Oak Ave' } });
+    await user.type(screen.getByLabelText('Name'), 'New Salle');
+    await user.type(screen.getByLabelText('Address'), '789 Oak Ave');
 
     server.use(
       http.get('*/locations', () =>
@@ -79,7 +86,7 @@ describe('LocationsPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createdPayload).toEqual({
@@ -95,7 +102,6 @@ describe('LocationsPage', () => {
   });
 
   it('creates a new location with phone and email, carried verbatim in the POST payload', async () => {
-    const user = userEvent.setup();
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
@@ -120,7 +126,6 @@ describe('LocationsPage', () => {
   });
 
   it('creates a location with phone/email left blank — they are optional, not required', async () => {
-    const user = userEvent.setup();
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
@@ -146,12 +151,13 @@ describe('LocationsPage', () => {
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
-    fireEvent.click(screen.getByRole('button', { name: /edit frisco hq/i }));
+    await user.click(screen.getByRole('button', { name: /edit frisco hq/i }));
 
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
     expect(nameInput.value).toBe('Frisco HQ');
 
-    fireEvent.change(nameInput, { target: { value: 'Frisco HQ Updated' } });
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Frisco HQ Updated');
 
     server.use(
       http.get('*/locations', () =>
@@ -161,7 +167,7 @@ describe('LocationsPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => {
       expect(updatedId).toBe('loc-1');
@@ -178,7 +184,6 @@ describe('LocationsPage', () => {
   });
 
   it('edits a location to add phone and email, prefilling from the existing (empty) values and sending the update verbatim', async () => {
-    const user = userEvent.setup();
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
@@ -209,10 +214,10 @@ describe('LocationsPage', () => {
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete frisco hq/i }));
+    await user.click(screen.getByRole('button', { name: /delete frisco hq/i }));
     expect(screen.getByText(/delete "frisco hq"\? this cannot be undone\./i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(deletedId).toBe('loc-1'));
     await waitFor(() => expect(screen.queryByText('Frisco HQ')).not.toBeInTheDocument());
@@ -228,14 +233,14 @@ describe('LocationsPage', () => {
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete frisco hq/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /delete frisco hq/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     expect(await screen.findByText('Cannot Delete')).toBeInTheDocument();
     expect(screen.getByText('Cannot delete: 1 class(es) reference this location.')).toBeInTheDocument();
 
     // The row must still be present — nothing was actually deleted.
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    await user.click(screen.getByRole('button', { name: /close/i }));
     expect(screen.getByText('Frisco HQ')).toBeInTheDocument();
   });
 
@@ -247,10 +252,10 @@ describe('LocationsPage', () => {
     render(<LocationsPage />);
     await screen.findByText('Frisco HQ');
 
-    fireEvent.click(screen.getByRole('button', { name: /add location/i }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New Salle' } });
-    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '789 Oak Ave' } });
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /add location/i }));
+    await user.type(screen.getByLabelText('Name'), 'New Salle');
+    await user.type(screen.getByLabelText('Address'), '789 Oak Ave');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(await screen.findByText('Failed to create location.')).toBeInTheDocument();
     // Dialog stays open — the Create button is still visible.

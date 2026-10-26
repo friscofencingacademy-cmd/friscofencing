@@ -489,3 +489,46 @@ ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behi
   admin/superadmin/coach/student/kiosk on `/mine`, which is parent-only). It also covers 400 for an
   admin who omits `parentId` or gives an unknown one. Each negative test checks that no child was
   created.
+
+### PR D (2026-10-26, `feature/testing-retrofit`)
+- **D1: `fireEvent` → `userEvent` in all 30 files, with no exceptions.** It was done with a codemod
+  (clicks → `user.click`; changes → `user.type`, `user.selectOptions` for selects, and
+  `user.clear` + `user.type` for a pre-filled field), then each file was run on its own.
+  - `userEvent` found two tests that only passed because `fireEvent.change` replaces a value.
+    `user.type` appends, as a person typing does, so the classes edit test sent capacity `1012` and
+    the users edit test sent a doubled first name. Both now clear the field first.
+  - Native date and time inputs accept `user.type` in this jsdom. The holidays test's comment saying
+    they don't was stale and is removed.
+  - The kiosk test fakes timers part-way through. `advanceTimers: jest.advanceTimersByTime` (the
+    spec's form) warned on every action while real timers were in, so the file uses
+    `userEvent.setup({ delay: null })`, which waits on no timer at all.
+  - The spec's file list named `PaymentMethodCardForm.test.tsx`, because payment PR 3 (#118) has not
+    merged. That file was converted.
+  - New `frontend/lib/__tests__/guards/userEventGuard.test.ts`: `fireEvent` only with a
+    `// fireEvent kept: <reason>` comment.
+- **Strict MSW (an addition, the Jest counterpart of PR B's loud-fail).** The conversion run printed
+  an MSW "unhandled request" warning. Tracing it showed that all 50 MSW test files started their
+  server with a bare `server.listen()`, so a request no handler matched errored quietly and the test
+  still passed. Now:
+  - `frontend/test-utils/msw.ts` records unhandled requests (`onUnhandledRequest`), and
+    `jest.setup.js` fails the test that made one.
+  - All 50 files use `server.listen({ onUnhandledRequest })`, enforced by `mswStrictGuard.test.ts`.
+  - It found one test: `register-private`'s "slot no longer offered" fetched that slot's dates with
+    no handler. It now mirrors the real backend's 404 "Private class schedule not found". The page's
+    parallel fetch is intended.
+  - The suite's last console noise, an `act()` warning from `app/register`'s synchronous first test
+    (the `/auth/me` check landing after the test ended), is fixed. The test now waits for an
+    `AuthSettled` probe. The full Jest run prints no warning or error.
+- **D2: clock pinned in all four exempt backend files** with the new
+  `backend/tests/testUtils/clock.js` `freezeAt(iso)`. That is the shared helper
+  `docs/plans/duplication-cleanup-plan.md` D1 names; its nine older `doNotFake` copies stay for that
+  plan.
+  - The kiosk files use Monday 2026-10-19 at noon Central (the seeded schedules' weekday, before
+    their 16:00 classes). The renewal files use mid-month 2026-10-15 at 10:00 Central.
+  - Each file also passed at a second instant (2026-11-02 Monday and 2027-03-11), so the result does
+    not depend on the instant chosen.
+  - The guard's exemption list now holds only the guard itself, and `freezeAt(` counts as a pin.
+- **D3:** the dead-negative-assertion baseline is unchanged: 2 intentional candidates (line numbers
+  moved to 549–550). The skill is updated.
+- `docs/TESTING_STRATEGY.md`'s interaction rule and MSW lifecycle line now describe the converted
+  suite. `docs/TEST_COVERAGE.md`'s improvement item 2 is marked done.

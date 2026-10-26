@@ -1,8 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import LevelsPage from '../page';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const EXISTING_LEVEL = { _id: 'level-1', name: 'Beginner', order: 1 };
 
@@ -26,7 +34,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -47,9 +55,9 @@ describe('LevelsPage', () => {
     render(<LevelsPage />);
     await screen.findByText('Beginner');
 
-    fireEvent.click(screen.getByRole('button', { name: /add level/i }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Advanced' } });
-    fireEvent.change(screen.getByLabelText('Order'), { target: { value: '2' } });
+    await user.click(screen.getByRole('button', { name: /add level/i }));
+    await user.type(screen.getByLabelText('Name'), 'Advanced');
+    await user.type(screen.getByLabelText('Order'), '2');
 
     server.use(
       http.get('*/levels', () =>
@@ -57,7 +65,7 @@ describe('LevelsPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createdPayload).toEqual({ name: 'Advanced', order: 2 });
@@ -70,14 +78,15 @@ describe('LevelsPage', () => {
     render(<LevelsPage />);
     await screen.findByText('Beginner');
 
-    fireEvent.click(screen.getByRole('button', { name: /edit beginner/i }));
+    await user.click(screen.getByRole('button', { name: /edit beginner/i }));
 
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
     expect(nameInput.value).toBe('Beginner');
     const orderInput = screen.getByLabelText('Order') as HTMLInputElement;
     expect(orderInput.value).toBe('1');
 
-    fireEvent.change(nameInput, { target: { value: 'Beginner Updated' } });
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Beginner Updated');
 
     server.use(
       http.get('*/levels', () =>
@@ -85,7 +94,7 @@ describe('LevelsPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => {
       expect(updatedPayload).toEqual({ name: 'Beginner Updated', order: 1 });
@@ -98,8 +107,8 @@ describe('LevelsPage', () => {
     render(<LevelsPage />);
     await screen.findByText('Beginner');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete beginner/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /delete beginner/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(deletedId).toBe('level-1'));
     await waitFor(() => expect(screen.queryByText('Beginner')).not.toBeInTheDocument());
@@ -115,8 +124,8 @@ describe('LevelsPage', () => {
     render(<LevelsPage />);
     await screen.findByText('Beginner');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete beginner/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /delete beginner/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     expect(await screen.findByText('Cannot Delete')).toBeInTheDocument();
     expect(screen.getByText('Cannot delete: a price is configured for this level.')).toBeInTheDocument();
@@ -128,10 +137,10 @@ describe('LevelsPage', () => {
     render(<LevelsPage />);
     await screen.findByText('Beginner');
 
-    fireEvent.click(screen.getByRole('button', { name: /add level/i }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Advanced' } });
-    fireEvent.change(screen.getByLabelText('Order'), { target: { value: '2' } });
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /add level/i }));
+    await user.type(screen.getByLabelText('Name'), 'Advanced');
+    await user.type(screen.getByLabelText('Order'), '2');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(await screen.findByText('Failed to create level.')).toBeInTheDocument();
   });

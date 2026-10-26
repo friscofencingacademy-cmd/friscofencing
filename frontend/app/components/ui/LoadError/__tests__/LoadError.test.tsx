@@ -1,6 +1,13 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import LoadError from '../LoadError';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 describe('LoadError', () => {
   it('renders the default message and no retry button when onRetry is omitted', () => {
@@ -16,11 +23,11 @@ describe('LoadError', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Custom failure message');
   });
 
-  it('calls onRetry when the "Try again" button is clicked', () => {
+  it('calls onRetry when the "Try again" button is clicked', async () => {
     const onRetry = jest.fn();
     render(<LoadError message="Failed" onRetry={onRetry} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    await user.click(screen.getByRole('button', { name: /try again/i }));
 
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

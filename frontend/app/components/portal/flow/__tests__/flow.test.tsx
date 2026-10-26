@@ -1,10 +1,17 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import FlowMain, { FlowStepper } from '../FlowMain';
 import OrderSummary from '../OrderSummary';
 import ChildPickerCards from '../ChildPickerCards';
 import FlowConfirmation from '../FlowConfirmation';
 import PillRow from '../PillRow';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 describe('FlowStepper', () => {
   it('marks steps before `current` as done and the current step as active', () => {
@@ -53,7 +60,7 @@ describe('FlowMain', () => {
 });
 
 describe('OrderSummary', () => {
-  it('renders lines and calls onCta when the CTA is clicked', () => {
+  it('renders lines and calls onCta when the CTA is clicked', async () => {
     const onCta = jest.fn();
 
     render(
@@ -67,7 +74,7 @@ describe('OrderSummary', () => {
     expect(screen.getByText('Child')).toBeInTheDocument();
     expect(screen.getByText('Kid One')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(onCta).toHaveBeenCalledTimes(1);
   });
 
@@ -125,7 +132,7 @@ describe('ChildPickerCards', () => {
     { _id: 's2', firstName: 'Kid', lastName: 'Two' },
   ];
 
-  it('renders one radio card per student and calls onSelect', () => {
+  it('renders one radio card per student and calls onSelect', async () => {
     const onSelect = jest.fn();
 
     render(<ChildPickerCards students={STUDENTS} selectedId="" onSelect={onSelect} />);
@@ -133,7 +140,7 @@ describe('ChildPickerCards', () => {
     expect(screen.getByText('Kid One')).toBeInTheDocument();
     expect(screen.getByText('Kid Two')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('radio', { name: /kid one/i }));
+    await user.click(screen.getByRole('radio', { name: /kid one/i }));
     expect(onSelect).toHaveBeenCalledWith('s1');
   });
 
@@ -194,7 +201,7 @@ describe('PillRow', () => {
     { id: 'sess-2', label: 'Fri, Sep 5', sub: '6:00 PM–7:00 PM' },
   ];
 
-  it('renders one pill per item with its label and sub, and calls onSelect', () => {
+  it('renders one pill per item with its label and sub, and calls onSelect', async () => {
     const onSelect = jest.fn();
 
     render(
@@ -212,7 +219,7 @@ describe('PillRow', () => {
     expect(screen.getByText('Wed, Sep 3')).toBeInTheDocument();
     expect(screen.getByText('4:00 PM–5:00 PM')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('radio', { name: /wed, sep 3/i }));
+    await user.click(screen.getByRole('radio', { name: /wed, sep 3/i }));
     expect(onSelect).toHaveBeenCalledWith('sess-1');
   });
 

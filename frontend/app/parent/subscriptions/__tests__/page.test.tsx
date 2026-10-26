@@ -1,10 +1,18 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import SubscriptionsPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
 import type { PrivatePurchaseEntry } from '../../../../lib/types';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const pushMock = jest.fn();
 
@@ -120,7 +128,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
@@ -192,7 +200,7 @@ describe('SubscriptionsPage', () => {
       )
     );
 
-    fireEvent.click(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i }));
+    await user.click(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i }));
 
     await waitFor(() => {
       expect(cancelledSubscriptionId).toBe(ACTIVE_SUBSCRIPTION._id);
@@ -246,7 +254,7 @@ describe('SubscriptionsPage', () => {
       )
     );
 
-    fireEvent.click(cancelButton);
+    await user.click(cancelButton);
 
     await waitFor(() => {
       expect(screen.getByText(/cancels at end of current period/i)).toBeInTheDocument();
@@ -268,7 +276,7 @@ describe('SubscriptionsPage', () => {
 
     renderSubscriptionsPage();
 
-    fireEvent.click(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i }));
+    await user.click(within(await findGroupTable()).getByRole('button', { name: /^cancel$/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Failed to cancel subscription');
@@ -419,10 +427,10 @@ describe('SubscriptionsPage', () => {
       const next = screen.getByText('Tue, Oct 20, 2026, 4:30 PM').closest('tr') as HTMLElement;
       expect(within(past).queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 
-      fireEvent.click(within(next).getByRole('button', { name: 'Cancel' }));
+      await user.click(within(next).getByRole('button', { name: 'Cancel' }));
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByText(/the session goes back to your balance/i)).toBeInTheDocument();
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel Lesson' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel Lesson' }));
 
       await waitFor(() => expect(cancelledBookingId).toBe('booking-next'));
     });
@@ -439,8 +447,8 @@ describe('SubscriptionsPage', () => {
       renderSubscriptionsPage();
 
       const next = (await screen.findByText('Tue, Oct 20, 2026, 4:30 PM')).closest('tr') as HTMLElement;
-      fireEvent.click(within(next).getByRole('button', { name: 'Cancel' }));
-      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel Lesson' }));
+      await user.click(within(next).getByRole('button', { name: 'Cancel' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel Lesson' }));
 
       expect(await screen.findByText(/up to 24 hours before they start/i)).toBeInTheDocument();
     });

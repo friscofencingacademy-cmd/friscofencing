@@ -1,8 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import { ParentPortalProvider, useParentPortal } from '../ParentPortalContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const STUDENT = { _id: 'student-1', firstName: 'Kid', lastName: 'One' };
 
@@ -28,7 +36,7 @@ const server = setupServer(
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -121,7 +129,7 @@ describe('ParentPortalContext', () => {
       http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT, { _id: 's2', firstName: 'Two', lastName: 'Kid' }] }))
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /reload/i }));
+    await user.click(screen.getByRole('button', { name: /reload/i }));
 
     await waitFor(() => expect(screen.getByText('students: 2')).toBeInTheDocument());
   });

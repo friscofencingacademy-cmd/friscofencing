@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../test-utils/msw';
 
 import HomePage from '../page';
 import { AuthProvider } from '../context/AuthContext';
@@ -38,7 +39,7 @@ const server = setupServer(
   testimonialsHandler()
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   replaceMock.mockClear();

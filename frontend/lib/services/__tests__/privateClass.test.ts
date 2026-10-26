@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import {
   bookPrivateLessonWithCredit,
@@ -33,7 +34,7 @@ const server = setupServer(
   http.delete('*/private-class-schedules/:id', () => HttpResponse.json({ outcome: 'retired' }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   quoteParams = {};

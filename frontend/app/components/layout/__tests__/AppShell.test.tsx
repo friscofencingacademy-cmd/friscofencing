@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import AppShell from '../AppShell';
 import { AuthProvider } from '../../../context/AuthContext';
@@ -9,7 +10,7 @@ const server = setupServer(
   http.get('*/auth/me', () => new HttpResponse(null, { status: 401 }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

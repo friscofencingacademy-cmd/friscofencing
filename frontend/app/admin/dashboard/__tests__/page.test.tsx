@@ -1,8 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import AdminDashboardPage from '../page';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const server = setupServer(
   http.get('*/group-classes', () => HttpResponse.json({ groupClasses: [{}, {}] })),
@@ -11,7 +19,7 @@ const server = setupServer(
   http.get('*/levels', () => HttpResponse.json({ levels: [{}] }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -46,7 +54,7 @@ describe('AdminDashboardPage', () => {
       http.get('*/levels', () => HttpResponse.json({ levels: [{}] }))
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    await user.click(screen.getByRole('button', { name: /try again/i }));
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });

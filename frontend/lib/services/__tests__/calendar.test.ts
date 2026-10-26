@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import { fetchAdminCalendar, fetchMyCalendar, fetchPublicCalendar } from '../calendar';
 import type { CalendarQuery, CalendarResponse } from '../../types';
@@ -25,7 +26,7 @@ const server = setupServer(
   http.get('*/calendar', ({ request }) => capture(request))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   received = {};

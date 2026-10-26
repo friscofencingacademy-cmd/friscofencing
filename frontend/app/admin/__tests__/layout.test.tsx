@@ -1,10 +1,17 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import AdminLayout from '../layout';
 import { AuthProvider } from '../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const pushMock = jest.fn();
 let mockPathname = '/admin/dashboard';
@@ -32,7 +39,7 @@ const PARENT_USER = {
 
 const server = setupServer();
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
@@ -113,7 +120,6 @@ describe('AdminLayout', () => {
   });
 
   it('promotes Users to a standalone top-level item, and reorganizes Billing/Programs', async () => {
-    const user = userEvent.setup();
     server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
 
     renderAdminLayout();
@@ -154,10 +160,10 @@ describe('AdminLayout', () => {
     await screen.findByText('Dashboard');
 
     const openButton = screen.getByRole('button', { name: /open navigation/i });
-    fireEvent.click(openButton);
+    await user.click(openButton);
 
     const closeButton = screen.getByRole('button', { name: /close navigation/i });
-    fireEvent.click(closeButton);
+    await user.click(closeButton);
 
     // No crash / still renders the sidebar content after closing.
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
@@ -172,7 +178,7 @@ describe('AdminLayout', () => {
     renderAdminLayout();
     await screen.findByText('Dashboard');
 
-    fireEvent.click(screen.getByRole('button', { name: /log out/i }));
+    await user.click(screen.getByRole('button', { name: /log out/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/'));
   });

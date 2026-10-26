@@ -1,8 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../../test-utils/msw';
 
 import AddChildModal from '../index';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 let postPayload: unknown = null;
 
@@ -25,7 +33,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   postPayload = null;
@@ -39,12 +47,12 @@ describe('AddChildModal', () => {
 
     render(<AddChildModal onClose={onClose} onSuccess={onSuccess} />);
 
-    fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
-    fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Kid' } });
-    fireEvent.change(screen.getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
-    fireEvent.change(screen.getByLabelText('Skill Level'), { target: { value: 'intermediate' } });
+    await user.type(screen.getByLabelText('First Name'), 'New');
+    await user.type(screen.getByLabelText('Last Name'), 'Kid');
+    await user.type(screen.getByLabelText('Date of Birth'), '2018-01-01');
+    await user.selectOptions(screen.getByLabelText('Skill Level'), 'intermediate');
 
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.click(screen.getByRole('button', { name: /add child/i }));
 
     await waitFor(() => {
       expect(postPayload).toEqual({
@@ -59,13 +67,13 @@ describe('AddChildModal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('calls onClose (not onSuccess) when Cancel is clicked, without submitting', () => {
+  it('calls onClose (not onSuccess) when Cancel is clicked, without submitting', async () => {
     const onSuccess = jest.fn();
     const onClose = jest.fn();
 
     render(<AddChildModal onClose={onClose} onSuccess={onSuccess} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSuccess).not.toHaveBeenCalled();
@@ -75,7 +83,7 @@ describe('AddChildModal', () => {
   it('shows a client-side validation error and does not submit when names are blank', async () => {
     render(<AddChildModal onClose={jest.fn()} onSuccess={jest.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.click(screen.getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByText('First name and last name are required.')).toBeInTheDocument();
     expect(postPayload).toBeNull();
@@ -85,9 +93,9 @@ describe('AddChildModal', () => {
   it('shows a client-side validation error and does not submit when date of birth is blank', async () => {
     render(<AddChildModal onClose={jest.fn()} onSuccess={jest.fn()} />);
 
-    fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
-    fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Kid' } });
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.type(screen.getByLabelText('First Name'), 'New');
+    await user.type(screen.getByLabelText('Last Name'), 'Kid');
+    await user.click(screen.getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByText("Child's date of birth is required.")).toBeInTheDocument();
     expect(postPayload).toBeNull();
@@ -99,10 +107,10 @@ describe('AddChildModal', () => {
     const onSuccess = jest.fn();
     render(<AddChildModal onClose={jest.fn()} onSuccess={onSuccess} />);
 
-    fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
-    fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Kid' } });
-    fireEvent.change(screen.getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.type(screen.getByLabelText('First Name'), 'New');
+    await user.type(screen.getByLabelText('Last Name'), 'Kid');
+    await user.type(screen.getByLabelText('Date of Birth'), '2018-01-01');
+    await user.click(screen.getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByText('Failed to add child.')).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
