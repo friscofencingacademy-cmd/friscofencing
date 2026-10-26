@@ -528,7 +528,7 @@ Owner decision: get staging fully working now; production is not fully set up ye
   URI and was refused by `--expect-db` (#130) before any write. Fix: the matrix names each
   environment's `secret` and `database`, read as `secrets[matrix.secret]`, so an unset secret is
   empty and the job skips with a notice.
-- **F15 — fixed 2026-10-26** (`docs/plans/sibling-discount-top-payer-by-plan-plan.md`; renewal mode now
+- **F15 — fixed 2026-10-26 in #133** (`docs/plans/sibling-discount-top-payer-by-plan-plan.md`; renewal mode now
   requires `planFee` and ranks by plan). Same root cause as F12, in renewal mode: the
   superadmin Charge dialog's prorated option (`renewal.service.js` `previewRenewal`, ~line 360)
   passes `proration.proratedAmount` as `feeNow`, and renewal mode picks the top payer by comparing
