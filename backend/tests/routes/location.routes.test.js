@@ -1,6 +1,7 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
+const mongoose = require('mongoose');
 const request = require('supertest');
 
 const app = require('../../src/app');
@@ -281,5 +282,49 @@ describe('Location routes', () => {
       expect(res.body.locations[0].phone).toBe('');
       expect(res.body.locations[0].email).toBe('');
     });
+  });
+});
+
+// Every protected route answers 401 without a session, every admin-only route
+// 403 for a non-admin (changing nothing), and an unknown id 404 — the negative
+// paths /audit-tests Check 11 asks of each route
+// (docs/plans/testing-strategy-refresh-plan.md PR C).
+describe('Location routes — access control and unknown ids', () => {
+  const UNKNOWN_ID = new mongoose.Types.ObjectId().toString();
+
+  it.each([
+    ['get', '/api/v1/locations'],
+    ['get', `/api/v1/locations/${UNKNOWN_ID}`],
+    ['post', '/api/v1/locations'],
+    ['put', `/api/v1/locations/${UNKNOWN_ID}`],
+    ['delete', `/api/v1/locations/${UNKNOWN_ID}`],
+  ])('%s %s returns 401 without a session', async (method, url) => {
+    const res = await request(app)[method](url).send({ name: 'Frisco HQ', address: '123 Main St' });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when a non-admin tries to update or delete a location, and changes nothing', async () => {
+    const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+    await seedUser({ role: 'parent', email: 'test-parent@example.com' });
+    const agent = await loginAgent('test-parent@example.com');
+
+    const updateRes = await agent.put(`/api/v1/locations/${location._id}`).send({ name: 'Renamed' });
+    const deleteRes = await agent.delete(`/api/v1/locations/${location._id}`);
+
+    expect(updateRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
+    const stored = await Location.findById(location._id);
+    expect(stored.name).toBe('Frisco HQ');
+  });
+
+  it.each(['get', 'put', 'delete'])('%s of an unknown location id returns 404', async (method) => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent[method](`/api/v1/locations/${UNKNOWN_ID}`).send({ name: 'Renamed' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe('Location not found');
   });
 });

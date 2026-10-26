@@ -446,3 +446,46 @@ ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behi
 - **Follow-up when payment PR 2 (#117) merges:** `FIXTURE_REGISTRATION` uses
   `stripePaymentIntentId` because develop still has that field. The rename will turn it into a
   type error in `tsc -p e2e`, which is exactly what this PR's typing is for.
+
+### PR C (2026-10-26, `feature/testing-static-guards`)
+- **Six static guards**: `backend/tests/guards/{noFocusedOrBareSkip,realClockDateHelperGuard}.test.js`
+  and `frontend/lib/__tests__/guards/{noFocusedOrBareSkip,e2eCatchAllGuard,e2eMockLayerGuard,e2eWaitOrderGuard}.test.ts`.
+  Each has a matcher self-test and a "scanned enough files" floor, and each went red on a planted
+  violation before being trusted.
+- **Where the guards are stricter than the spec, and why.** Each change closes a hole the spec
+  left open:
+  - *Skip/focus*: the guards also catch Jest's `fit`/`fdescribe`/`xit`/`xdescribe`/`xtest` aliases
+    and Playwright's `test.fixme`, which are the same bug in other forms. A skip's reason can be the
+    whole `//` comment block above it, not only the nearest line, because a reason often wraps onto
+    a short last line. `public-site.spec.ts`'s second visual-baseline skip did not meet the rule.
+    Its reason had only ever been written above the first skip, so it now has its own comment.
+  - *Real clock*: a bare `jest.useFakeTimers()` starts at the real time, so it does not count as a
+    pin. Only a literal `now`, `setSystemTime` or testUtils' `freezeDate` does, matching CKQ's
+    pattern and PR D's D2 form. Every call is flagged whatever its argument, because a timezone
+    argument still reads the real clock. Comment lines are ignored. `utils/billingDates.test.js`
+    already pins, so it needs no exemption. The four files that do not pin (`routes/kiosk.routes`,
+    `services/kiosk.service`, `services/renewal.previewAndCharge`, `services/renewal.service`) are
+    exempt with "PR D pins the clock". A "still needed" test fails once a file pins, which forces
+    PR D to remove its entry.
+  - *Mock layer*: one rule with no allowlist. Every spec imports `test` from `fixtures/test` and
+    never as a value from `@playwright/test`. Unlike CKQ, the raw import is not allowed even with
+    manual mock calls.
+- **`scripts/dead-negative-assertions.mjs`** baseline: 73 test files, 117 literal negative
+  assertions, 2 candidates (`$210.71`/`$134.50` in `app/parent/register/__tests__/page.test.tsx`).
+  Both are intentional: they assert the page never shows a sum it computed itself (hard rule 7).
+  The baseline is recorded in the skill.
+- **`/audit-tests` skill** (`.claude/skills/audit-tests/SKILL.md`): CKQ's 13 checks, rebased on
+  this repo's layout. It derives every gap list live instead of carrying a hard-coded one.
+  - **Check 11 is stricter than CKQ's**: a route test file fails when its 4xx/5xx assertions are
+    fewer than its routes, not only when it has none.
+  - Run against the tree, that found five files under the bar besides `student.routes` (C9):
+    `groupClass` 3 < 5, `groupClassSchedule` 3 < 7, `level` 5 < 6, `location` 5 < 6, `testimonial`
+    6 < 7. Each file now has an "access control and unknown ids" block: 401 without a session on
+    every protected route, 403 for a non-admin on every admin route with the stored data checked
+    unchanged, and 404 for an unknown id. Every route file now meets the bar.
+  - The new testimonial 403 test also covers delete, which an existing test's title claimed but
+    never asserted.
+- **C9 `student.routes`**: covers 401 (no session) and 403 (coach/student/kiosk on create;
+  admin/superadmin/coach/student/kiosk on `/mine`, which is parent-only). It also covers 400 for an
+  admin who omits `parentId` or gives an unknown one. Each negative test checks that no child was
+  created.
