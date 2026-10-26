@@ -382,3 +382,44 @@ sections above with the reason._
      shape. At most 8 inserts per schedule — no performance cost.
   3. The workflow is one job with a `staging`/`production` matrix (same behaviour as two jobs,
      one definition).
+
+### PR 2 — built 2026-10-26 on `feature/live-audit-refresh`
+
+- **Files:** `audit/lib/preflight.js` (new), `audit/run-registration-audit.js`, `audit/lib/register-child.js`,
+  `audit/lib/stripe-card.js` (comments), `audit/scenarios/s1…s6`, `audit/README.md`, `audit/.gitignore`;
+  `backend/scripts/lib/seedAuditFixtures.js` (new), `backend/scripts/audit-seed.js`,
+  `backend/scripts/audit-reset.js`, `backend/scripts/lib/refreshStagingData.js`,
+  `backend/scripts/refresh-staging-data.js`; `frontend/lib/__tests__/guards/auditSelectorGuard.test.ts`
+  (new); `.github/workflows/live-audit.yml` (new); both live-audit skills; docs
+  (`TESTING_STRATEGY.md`, `TEST_COVERAGE.md`, `features/admin.md`, `CLAUDE.md`, addenda in the two
+  older audit plans); a comment in `frontend/e2e/parent-register.spec.ts`.
+- **Tests:** `seedAuditFixtures.test.js` (8), `refreshStagingData.test.js` +2 (clock now pinned),
+  `auditSelectorGuard.test.ts` (9). Backend 95 suites / 1,287 tests (94.25 %); frontend 81 / 633
+  (90.30 %); typecheck, build and the route-existence guard clean. The guard was proven to fail by
+  renaming one S1 label locally and restoring it.
+- **New findings while building (each fixed here, not worked around):**
+  1. **F9 — trial booking needs a family phone and the child's date of birth**
+     (`trialClass.service.js`); the old seed set neither, so S1 would have failed even after F3's
+     rewrite. The seed now converges both.
+  2. **F10 — S3/S5's preview check was dead.** They waited for "10% sibling discount applied",
+     which the register wizard no longer renders (only the admin page does), so every run with a
+     sibling would fail. The check now waits for the preview to load ("Due at enrollment"), reads
+     the summary's discount note, and compares the previewed discount AMOUNT with the charged one —
+     a stronger property than the old visibility-only check.
+  3. **F11 — the stale-registration `skip` was dead.** S2/S3/S5/S6 looked for "already registered",
+     which nothing renders; the wizard now blocks an enrolled child with "is already enrolled".
+     All four now detect that notice.
+- **Divergences:**
+  1. The seed is **convergent**, not create-only: audit-owned records are brought to their declared
+     state on every run (password, phone, date of birth, price fees). Stronger than §4.1's
+     "registrationFee 0 on create", and it is what makes a re-seed a repair.
+  2. `audit-reset.js` derives its account lists from `AUDIT_FAMILIES` and only resets children of
+     the audit parents (previously name-only), so the two scripts cannot drift and a real student
+     with a matching name is never touched.
+  3. The refresh refuses to start (before wiping) without `AUDIT_TEST_PASSWORD`, and seeds the
+     audit fixtures after the shared staging-password step so the audit accounts keep their own
+     password.
+  4. The guard fails on a regex too complex to check (rather than listing it), so every audit
+     selector is checkable; none needed rewriting.
+  5. `TESTING_STRATEGY.md`'s live-audit rules were updated in this PR rather than PR 4, because
+     this PR changes them.

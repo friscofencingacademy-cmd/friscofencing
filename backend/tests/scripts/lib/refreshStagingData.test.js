@@ -12,6 +12,10 @@ const { comparePassword } = require('../../../src/utils/password');
 const { STAGING_TEST_PASSWORD } = require('../../../scripts/lib/setStagingTestPasswords');
 
 const { refreshStagingData } = require('../../../scripts/lib/refreshStagingData');
+const { AUDIT_FAMILIES } = require('../../../scripts/lib/seedAuditFixtures');
+const { freezeAt } = require('../../testUtils/clock');
+const GroupClassSession = require('../../../src/models/groupClassSession.model');
+const GroupClassSchedule = require('../../../src/models/groupClassSchedule.model');
 
 let mongod;
 
@@ -23,9 +27,18 @@ afterAll(async () => {
   await disconnectTestDB(mongod);
 });
 
+// The refresh now ends by seeding the audit fixtures, which generates
+// sessions from "today" — pinned so every run sees the same calendar.
+beforeEach(() => {
+  freezeAt('2026-10-28T15:00:00.000Z');
+});
+
 afterEach(async () => {
+  jest.useRealTimers();
   await clearTestDB();
 });
+
+const AUDIT_PASSWORD = 'audit-pw-123';
 
 const TEST_CONFIG = {
   LOCATION: { name: 'Test Academy', address: '1 Test Way' },
@@ -50,7 +63,7 @@ describe('scripts/lib/refreshStagingData', () => {
     await GroupClass.create({ name: 'Beginner 1 - Test', levelId: staleLevel._id, locationId: staleLevel._id, capacity: 10 });
     await User.create({ role: 'coach', firstName: 'Old', lastName: 'TestCoach', email: 'coach1@friscofencing.test' });
 
-    const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
+    const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS, auditTestPassword: AUDIT_PASSWORD });
 
     // Stale data is gone.
     expect(await Level.countDocuments({ name: 'Beginner' })).toBe(0);
@@ -115,7 +128,7 @@ describe('scripts/lib/refreshStagingData', () => {
         providerCustomerId: 'cus_leftover123',
       });
 
-      const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
+      const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS, auditTestPassword: AUDIT_PASSWORD });
 
       expect(result.providerScrubResult).toEqual({
         providerCustomerIdsCleared: 0,
@@ -151,7 +164,7 @@ describe('scripts/lib/refreshStagingData', () => {
       'PIN,First Name,Last Name,Family Name,Phone Number,Age,Birthdate,Programs,Email Address(es),Guardian(s)\n' +
       '9002,Sana,Sarath,,,,,"Private Classes - Coach Chris, Advanced",,';
 
-    const result = await refreshStagingData({ csvText: csvWithPrivateRow, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
+    const result = await refreshStagingData({ csvText: csvWithPrivateRow, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS, auditTestPassword: AUDIT_PASSWORD });
 
     expect(await PrivateClassSchedule.countDocuments({})).toBe(0);
     expect(result.importSummary.privateClassStudentsFlagged).toBe(1);
@@ -162,11 +175,46 @@ describe('scripts/lib/refreshStagingData', () => {
   });
 
   it('is safe to run twice in a row: the second run wipes the first run\'s own data and rebuilds it identically', async () => {
-    await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
-    const second = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS });
+    await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS, auditTestPassword: AUDIT_PASSWORD });
+    const second = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS, auditTestPassword: AUDIT_PASSWORD });
 
     expect(second.importSummary.studentsCreated).toBe(1); // recreated fresh after the wipe, not "already existing"
-    expect(await User.countDocuments({ role: 'student' })).toBe(1);
+    expect(await User.countDocuments({ role: 'student', firstName: 'Real' })).toBe(1);
+    expect(await User.countDocuments({ role: 'student', firstName: 'Audit' })).toBe(7);
     expect(await User.countDocuments({ role: 'superadmin' })).toBe(1);
+  });
+
+  // docs/plans/audit-and-health-refresh-plan.md D7 — the wipe used to remove
+  // the live audit's fixtures and nothing put them back (found 2026-10-26).
+  it('ends with the live-audit fixtures present, on the audit password, with sessions to book', async () => {
+    const result = await refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS, auditTestPassword: AUDIT_PASSWORD });
+
+    const parentEmails = AUDIT_FAMILIES.map((family) => family.email);
+    const parents = await User.find({ email: { $in: parentEmails } });
+    expect(parents).toHaveLength(AUDIT_FAMILIES.length);
+    // Seeded AFTER the shared staging password step, so the audit accounts
+    // log in with AUDIT_TEST_PASSWORD, not Test@123.
+    expect(await comparePassword(AUDIT_PASSWORD, parents[0].passwordHash)).toBe(true);
+    expect(await comparePassword(STAGING_TEST_PASSWORD, parents[0].passwordHash)).toBe(false);
+
+    // A fresh schedule is stocked by its own creation, so the extension has
+    // nothing left to add; either way each audit schedule has 8 upcoming.
+    expect(result.auditFixtures.sessionsCreated).toBe(0);
+    const auditClasses = await GroupClass.find({ name: { $in: ['Audit Class A', 'Audit Class B'] } });
+    expect(auditClasses).toHaveLength(2);
+    const auditSchedules = await GroupClassSchedule.find({ classId: { $in: auditClasses.map((c) => c._id) } });
+    for (const schedule of auditSchedules) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await GroupClassSession.countDocuments({ scheduleId: schedule._id, startsAt: { $gt: new Date() } })).toBe(8);
+    }
+  });
+
+  it('refuses to start without the audit password, before wiping anything', async () => {
+    await Level.create({ name: 'Keep Me', order: 1 });
+
+    await expect(refreshStagingData({ csvText: CSV, config: TEST_CONFIG, superadmin: SUPERADMIN_FIELDS })).rejects.toThrow(
+      'auditTestPassword (AUDIT_TEST_PASSWORD) is required'
+    );
+    expect(await Level.countDocuments({ name: 'Keep Me' })).toBe(1);
   });
 });

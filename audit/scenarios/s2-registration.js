@@ -2,12 +2,20 @@ const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 const { selectStartDate } = require('../lib/select-start-date');
 
+const ID = 'S2';
+const NAME = 'Add card + register';
+
+// The register wizard's own notice for a child with an active subscription
+// (register/page.tsx) — a stale registration from an un-reset run, reported
+// as a skip, not a failure.
+const ALREADY_ENROLLED = /is already enrolled/i;
+
 // If you change this wizard's DOM/labels, also update:
 //   frontend/e2e/parent-register.spec.ts (E2E twin, mocked-network)
 //   audit/lib/register-child.js (this file's own sibling-discount twin)
-// (docs/plans/e2e-testing-plan.md's D9 — three places independently encode
-// this wizard's DOM; a change here without the others is how this drifted
-// stale before.)
+// (docs/plans/e2e-testing-plan.md's D9.) frontend/lib/__tests__/guards/
+// auditSelectorGuard.test.ts fails CI when a label or text this audit relies
+// on disappears from the app (docs/plans/audit-and-health-refresh-plan.md D8).
 //
 // S2 — add a payment method (real Stripe CardElement, success card), then
 // complete a group-class registration. Frisco always uses a pre-saved card
@@ -51,8 +59,8 @@ async function run(context, config) {
     const chargeText = await page.getByText(/your card was charged/i).textContent();
 
     return {
-      id: 'S2',
-      name: 'Add card + register',
+      id: ID,
+      name: NAME,
       result: 'pass',
       note: chargeText ? chargeText.trim() : '',
     };
@@ -60,18 +68,18 @@ async function run(context, config) {
     // Already-registered (409, from a prior un-reset run) is a known,
     // reportable skip condition, not a hard failure — the reset script
     // (npm run audit:reset in backend/) clears this between runs.
-    if (await page.getByText(/already registered/i).isVisible().catch(() => false)) {
+    if (await page.getByText(ALREADY_ENROLLED).isVisible().catch(() => false)) {
       return {
-        id: 'S2',
-        name: 'Add card + register',
+        id: ID,
+        name: NAME,
         result: 'skip',
-        note: 'Already registered from a prior run — run `npm run audit:reset` in backend/ first.',
+        note: 'Already enrolled from a prior run — run `npm run audit:reset` in backend/ first.',
       };
     }
-    return { id: 'S2', name: 'Add card + register', result: 'fail', note: error.message };
+    return { id: ID, name: NAME, result: 'fail', note: error.message };
   } finally {
     await page.close();
   }
 }
 
-module.exports = { run };
+module.exports = { id: ID, name: NAME, run };

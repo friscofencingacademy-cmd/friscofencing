@@ -1,22 +1,23 @@
 const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 
-// S4 — decline path.
+const ID = 'S4';
+const NAME = 'Decline path (clean failure)';
+
+// S4 — decline path: a card that declines at SAVE time.
 //
-// Corrected on the first real run against staging, not assumed: the
-// original design (and this file's original comment) claimed Stripe's
-// decline card saves successfully and only fails at charge time, reasoning
-// from paymentMethod.service.js having no SetupIntent/confirm step. That
-// reasoning was wrong — confirmed live, Stripe's documented decline card
-// (4000000000000002) actually declines at stripe.paymentMethods.attach()
-// itself. POST /payment-methods returns 500 with message "Your card was
-// declined." (a real, if architecturally sloppy, finding on its own: a
-// card decline is an expected user-facing outcome, and 500 is normally
-// reserved for "our server broke" — registration.service.js's own decline
-// path correctly uses 402 for the same kind of failure. Not fixed here —
-// this is the audit surfacing it, not silently patching app behavior).
-// Expects a clean, legible message (never a raw Stripe/JS error or a raw
-// 500 page) and no false "card on file" success.
+// Found on the first real run (2026-08-23): Stripe's documented decline card
+// (4000000000000002) declines at stripe.paymentMethods.attach() itself, not
+// only when charged. Since payment PR 1 (docs/decisions/013-payment-provider-
+// port.md) the Stripe adapter maps that to a 402 carrying Stripe's own
+// message (stripe.provider.js attachPaymentMethod), and StripeCardForm shows
+// it verbatim. The scenario expects that clean message, never a raw
+// Stripe/JS error and never the central error handler's generic 5xx text —
+// that text here would mean the 402 mapping regressed and the decline became
+// a 500 (errorHandler.js GENERIC_SERVER_ERROR_MESSAGE). Also no false
+// "card on file" success.
+const GENERIC_SERVER_ERROR = /something went wrong/i;
+
 async function run(context, config) {
   const page = await context.newPage();
 
@@ -28,10 +29,10 @@ async function run(context, config) {
 
     if (alreadyOnFile) {
       return {
-        id: 'S4',
-        name: 'Decline path (clean failure)',
+        id: ID,
+        name: NAME,
         result: 'skip',
-        note: 'A payment method is already on file for this account — run `npm run audit:reset` (then `audit:seed`) first for a clean decline test.',
+        note: 'A payment method is already on file for this account — run `npm run audit:reset` in backend/ first for a clean decline test.',
       };
     }
 
@@ -53,16 +54,19 @@ async function run(context, config) {
     if (sawSaved) {
       throw new Error('False success: a card appears saved despite using a Stripe decline test card');
     }
+    if (GENERIC_SERVER_ERROR.test(alertText)) {
+      throw new Error(`Generic server-error text shown ("${alertText.trim()}") — the 402 card-decline mapping regressed`);
+    }
     if (looksRaw || !alertText.trim()) {
       throw new Error(`Decline message not clean/legible: "${alertText}"`);
     }
 
-    return { id: 'S4', name: 'Decline path (clean failure)', result: 'pass', note: alertText.trim() };
+    return { id: ID, name: NAME, result: 'pass', note: alertText.trim() };
   } catch (error) {
-    return { id: 'S4', name: 'Decline path (clean failure)', result: 'fail', note: error.message };
+    return { id: ID, name: NAME, result: 'fail', note: error.message };
   } finally {
     await page.close();
   }
 }
 
-module.exports = { run };
+module.exports = { id: ID, name: NAME, run };

@@ -265,6 +265,7 @@ All in `frontend/lib/__tests__/guards/`, each with a matcher self-test and a sca
 - **`selfHostedFontsGuard.test.ts`** — no file loads fonts from Google; every font file `app/layout.tsx` points at exists (a `next/font/google` build-time fetch failed a develop build, 2026-09-30).
 - **`playwrightVersionGuard.test.ts`** — `@playwright/test`, `playwright-core` and the CI Playwright image tag are the same version.
 - **`portalTableWrapGuard.test.ts`** — every table styled with the portal's shared `.table` sits directly inside a `.tableWrap` (`overflow-x: auto`), so a wide table scrolls in its own box instead of the whole page on a phone.
+- **`auditSelectorGuard.test.ts`** — every label and text the live audit (`audit/lib`, `audit/scenarios`) selects by still exists in the app or backend source: `getByLabel`/`getByText`/`getByPlaceholder` arguments, `getByRole` names, `selectOption` labels and `expectedReason` strings, with identifiers resolved to the file's own `const UPPER_CASE`. A regex too complex to read as text fails the guard rather than passing unchecked; "Audit …" fixture names are exempt. The audit itself cannot run on a PR (it needs staging), so this is the PR-time link between it and the app (`docs/plans/audit-and-health-refresh-plan.md` D8).
 
 ---
 
@@ -384,11 +385,15 @@ Live audits complement the Jest/MSW and E2E layers by running real browser flows
 
 | Script | Flow | Accounts |
 |---|---|---|
-| `audit/run-registration-audit.js` (`/audit-live-registration`) | Trial booking → add-card + group registration → sibling discount, own-fee case (live preview vs. real charge) → card-save decline path → sibling discount, bridge case → registration-charge decline enters retry | Fixed, seeded via `backend/scripts/audit-seed.js`: `audit-parent-1`, `audit-sibling-parent` (2 children), `audit-decline-parent`, `audit-bridge-parent` (2 children), `audit-retry-parent` |
+| `audit/run-registration-audit.js` (`/audit-live-registration`) | P0 preflight → trial booking → add-card + group registration → sibling discount, own-fee case (previewed discount amount == charged amount) → card-save decline path (402, clean message) → sibling discount, bridge case → registration-charge decline enters retry | Fixed, defined once in `backend/scripts/lib/seedAuditFixtures.js` and seeded by `npm run audit:seed` (and by every staging refresh): `audit-parent-1`, `audit-sibling-parent` (2 children), `audit-decline-parent`, `audit-bridge-parent` (2 children), `audit-retry-parent` |
+
+### Prerequisites — checked by the P0 preflight before any scenario runs
+
+The audit fixtures (`npm run audit:seed` — convergent: it repairs drifted accounts, the family phone and child date of birth trial booking requires, the audit prices, and stocks both audit schedules with their next 8 sessions), upcoming group sessions (`npm run extend-sessions`, weekly via `extend-sessions.yml`), the Service registry (`npm run seed:services`), and the payment public key (`GET /payments/config`). When any is missing, P0 lists every reason, every scenario is reported as `skip`, and the run exits 2 — one clear diagnosis instead of six timeouts.
 
 ### Rules
 
 - **Staging only** — `https://friscofencing-git-develop-frisco-fencing.vercel.app`. Never production. Hard-enforced (`audit/lib/staging-guard.js` exits non-zero), not just documented.
-- **Not CI-gated, no cron** — run manually, same "audits are on-demand events" philosophy CKQ's own skills document. `docs/plans/audit-system-plan.md`'s D7 explains the tradeoff.
-- **Mutates staging** — every scenario creates a real document or completes/declines a real Stripe TEST-mode charge. `backend/scripts/audit-reset.js` (`/reset-audit-data`) resets it, and is never invoked automatically by the audit script itself.
+- **Weekly, never a PR gate** — `.github/workflows/live-audit.yml` runs reset → audit every Monday and on demand (owner decision 2026-10-26, reversing `docs/plans/audit-system-plan.md` D7's on-demand-only rule after the audit sat unrun for two months while the app changed under it). It still never gates a pull request: it needs staging, and a PR is checked against the audit by `auditSelectorGuard` instead.
+- **Mutates staging** — every scenario creates a real document or completes/declines a real Stripe TEST-mode charge. `backend/scripts/audit-reset.js` (`/reset-audit-data`) resets it; the audit script itself never resets, the weekly workflow runs the reset first.
 - **Reports non-fatally** to `/admin/audits` (superadmin-only) — a reporting failure never changes the audit's own pass/fail verdict or gets retried.

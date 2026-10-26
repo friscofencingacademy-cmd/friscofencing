@@ -2,6 +2,14 @@ const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 const { selectStartDate } = require('../lib/select-start-date');
 
+const ID = 'S6';
+const NAME = 'Charge decline enters retry (not an error)';
+
+// The register wizard's own notice for a child with an active subscription
+// (register/page.tsx) — a stale registration from an un-reset run, reported
+// as a skip, not a failure.
+const ALREADY_ENROLLED = /is already enrolled/i;
+
 // S6 — a declined REGISTRATION CHARGE enters retry, not an error
 // (docs/plans/audit-skills-refresh-plan.md D4; docs/decisions/
 // 008-registration-create-pending-first.md). Distinct from S4, which
@@ -30,8 +38,8 @@ async function run(context, config) {
     // it's this specific card.
     if (alreadyOnFile) {
       return {
-        id: 'S6',
-        name: 'Charge decline enters retry (not an error)',
+        id: ID,
+        name: NAME,
         result: 'skip',
         note: 'A payment method is already on file for this account — run `npm run audit:reset` first for a clean run.',
       };
@@ -92,20 +100,20 @@ async function run(context, config) {
       throw new Error(`Expected RetryChild's Subscription.retryCount >= 1, got ${retrySub.retryCount}`);
     }
 
-    return { id: 'S6', name: 'Charge decline enters retry (not an error)', result: 'pass', note: '' };
+    return { id: ID, name: NAME, result: 'pass', note: '' };
   } catch (error) {
-    if (await page.getByText(/already registered/i).isVisible().catch(() => false)) {
+    if (await page.getByText(ALREADY_ENROLLED).isVisible().catch(() => false)) {
       return {
-        id: 'S6',
-        name: 'Charge decline enters retry (not an error)',
+        id: ID,
+        name: NAME,
         result: 'skip',
-        note: 'Already registered from a prior run — run `npm run audit:reset` in backend/ first.',
+        note: 'Already enrolled from a prior run — run `npm run audit:reset` in backend/ first.',
       };
     }
-    return { id: 'S6', name: 'Charge decline enters retry (not an error)', result: 'fail', note: error.message };
+    return { id: ID, name: NAME, result: 'fail', note: error.message };
   } finally {
     await page.close();
   }
 }
 
-module.exports = { run };
+module.exports = { id: ID, name: NAME, run };

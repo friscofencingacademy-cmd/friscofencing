@@ -2,14 +2,15 @@
 
 Every number here is real, captured by running the suites — not estimated. The policy behind them (floors, what each layer is for) lives in `docs/TESTING_STRATEGY.md`; this file holds the figures, and is re-measured on every PR that adds or moves tests.
 
-**Backend: 94 suites / 1,277 tests, all passing. Statements 94.16%.**
-**Frontend: 80 suites / 624 tests, all passing. Statements 90.30%. The full run prints no warning or error.**
+**Backend: 95 suites / 1,287 tests, all passing. Statements 94.25%.**
+**Frontend: 81 suites / 633 tests, all passing. Statements 90.30%. The full run prints no warning or error.**
 **E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
 
-Measured 2026-10-26: backend after audit-health PR 1 (session extension), frontend and E2E after the frontend env cleanup, with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
+Measured 2026-10-26: backend and frontend after audit-health PR 2 (live-audit refresh), E2E after the frontend env cleanup, with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
 
 ## Change log (newest first)
 
+- **2026-10-26 — audit-health PR 2** (`feature/live-audit-refresh`): new `tests/scripts/lib/seedAuditFixtures.test.js` (8 cases: full seed with literal session dates, idempotent re-run, convergence of drifted phone/date of birth/fee/password, restocking a schedule that ran dry, a same-named non-audit student never adopted, refusal without the Service registry or a password, nothing outside the audit records touched); `refreshStagingData.test.js` +2 (the refresh ends with the audit fixtures on the audit password; it refuses to start without that password, before wiping) and its clock is now pinned. New frontend guard `auditSelectorGuard.test.ts` (9 cases; proven to fail on a renamed audit label). Backend 94 → 95 suites / 1,277 → 1,287 tests; frontend 80 → 81 suites / 624 → 633 tests.
 - **2026-10-26 — audit-health PR 1** (`feature/group-session-extension`, `docs/plans/audit-and-health-refresh-plan.md`): the weekly group-session extension. New `tests/scripts/lib/extendGroupSessions.test.js` (11 cases: dry run, live run with DST-correct instants, top-up without touching existing or past sessions, idempotent re-run, a concurrent duplicate counted as present, a non-duplicate error propagated, roster Visits only for not-yet-started sessions, existing Visits untouched, schedule filter, holiday dates still created) and 3 `plannedSessionsFor` cases in the session service suite. Backend 93 → 94 suites / 1,263 → 1,277 tests (the 93 / 1,263 baseline includes payment PRs 1–3; this file's previous headline predated them).
 - **2026-10-26 — frontend env cleanup** (`chore/frontend-env-cleanup`): the `NEXT_PUBLIC_API_URL` override is gone from `lib/api.ts` (the browser only ever uses the same-origin `/api/v1` proxy), so Playwright no longer pins it; `.env.local.example` drops the dead Stripe key. New `frontendEnvGuard` (no `NEXT_PUBLIC_*` in production code; `.env.local.example` and the variables the code reads match both ways). Frontend 79 → 80 suites / 619 → 624 tests (the 79 / 619 baseline includes payment PR 3, #118); E2E unchanged, 95 pass + 4 skips.
 - **2026-10-26 — testing PR F** (`feature/testing-e2e-phase2`): E2E Phase 2 — `subscriptions`, `billing` and `spotlights-admin` specs, plus a slot-taken case in `private-booking` (it already covered the register-private wizard, so no duplicate spec). They found and fixed three product defects: the admin sidebar's section toggles and links had no accessible name below 1024 px; `/parent/subscriptions` was 740 px wide on a 393 px phone (every portal table now scrolls in its own `.tableWrap`, kept by a new guard); and local E2E builds baked in a developer's `NEXT_PUBLIC_API_URL`. Every axe scan now goes through one helper, and the route-existence guard checks every spec's mock overrides (35 → 82 routes). E2E 73 → 99 listed; frontend 75 → 76 suites / 605 → 609 tests.
@@ -77,7 +78,7 @@ cd backend && npm test            # TZ=UTC is set by the script itself
 | Service | `tests/services/*.test.js` (16 files, plus `billing/`) | Renewal + retry/dunning with the cancel-then-charge race on each path, subscriptions, holidays, Visit, the private slot claim, kiosk, invoices, mail (staging gate) | Yes (memory) |
 | Route-integration | `tests/routes/*.routes.test.js` (26 files) | Full HTTP round-trip per entity, with every route's 401/403/404 negatives (`/audit-tests` Check 11) — registrations (pricing preview, ledger rows, Guard A under a real concurrent race), private-lesson purchases and bookings (real Stripe), coach contracts and packs, availability, holidays, kiosk (incl. the lock-down from every admin endpoint), webhooks | Yes (memory), + real Stripe TEST mode for the payment routes |
 | Payments | `tests/payments/*.test.js` | The port's contract and selection, the Stripe adapter through the shared contract suite (`providerContract.shared.js`), the boundary guard | Real Stripe TEST mode |
-| Script | `tests/scripts/lib/*.test.js` (24 files) | Every migration/backfill helper and the weekly session extension: dry-run writes nothing, the live run, idempotent re-runs, collision aborts | Yes (memory) |
+| Script | `tests/scripts/lib/*.test.js` (25 files) | Every migration/backfill helper, the weekly session extension and the live-audit seed: dry-run writes nothing, the live run, idempotent re-runs, collision aborts | Yes (memory) |
 | Guards | `tests/guards/*.test.js` | No focused/reasonless-skipped test; no unpinned real-clock date helper | No |
 | Smoke | `tests/health.test.js` | `/health` | No |
 
@@ -104,7 +105,7 @@ npm run typecheck                 # app + e2e
 | Hook | `lib/hooks/__tests__/*.test.ts(x)` | `useLoadState`, `useContractPreview`, debounce | None / MSW |
 | Service | `lib/services/__tests__/*.test.ts` (6 files) | The query-throws / mutation-never-throws contract for `calendar`, `catalog`, `coachContracts`, `kiosk`, `parent`, `privateClass` | MSW (strict) |
 | Context | `app/context/__tests__/*.test.tsx` | `ParentPortalContext`'s `Promise.allSettled` degradation | MSW (strict) |
-| Guards | `lib/__tests__/guards/*.test.ts` (11 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin, the payment SDK boundary, no `NEXT_PUBLIC_*` env | No |
+| Guards | `lib/__tests__/guards/*.test.ts` (12 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin, the payment SDK boundary, no `NEXT_PUBLIC_*` env, the live audit's selectors still exist in the app | No |
 
 ### Coverage gaps (honest, not hidden)
 

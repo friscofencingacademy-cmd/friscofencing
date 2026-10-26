@@ -40,27 +40,16 @@ const Visit = require('../src/models/visit.model');
 const PaymentMethod = require('../src/models/paymentMethod.model');
 const { getPaymentProvider } = require('../src/payments');
 
-const AUDIT_STUDENT_LAST_NAMES = [
-  'ChildOne',
-  'FirstSibling',
-  'SecondSibling',
-  'DeclineChild',
-  'BridgeFirst',
-  'BridgeSecond',
-  'RetryChild',
-];
-// Found necessary on the first real run, not assumed up front: S4's decline
-// scenario needs a guaranteed-unsaved card every run, and S2/S3 saving a
-// fresh one each run (rather than reusing a stale one) is itself a fine,
-// cheap thing to re-exercise. Clearing PaymentMethod for the fixed audit
-// PARENTS (not just students) closes that gap.
-const AUDIT_PARENT_EMAILS = [
-  'audit-parent-1@example.com',
-  'audit-sibling-parent@example.com',
-  'audit-decline-parent@example.com',
-  'audit-bridge-parent@example.com',
-  'audit-retry-parent@example.com',
-];
+const { AUDIT_FAMILIES } = require('./lib/seedAuditFixtures');
+
+// The fixed audit accounts come from the seed's own definition — one home, so
+// the reset can never miss an account the seed creates (docs/plans/audit-and-
+// health-refresh-plan.md PR 2). PaymentMethod is cleared for the PARENTS too:
+// S4/S6 need a guaranteed-unsaved card every run, and S2/S3/S5 re-saving a
+// fresh card each run is a cheap thing to re-exercise (found on the first
+// real run).
+const AUDIT_STUDENT_LAST_NAMES = AUDIT_FAMILIES.flatMap((family) => family.children);
+const AUDIT_PARENT_EMAILS = AUDIT_FAMILIES.map((family) => family.email);
 
 function assertStagingUri(uri) {
   if (!uri || !uri.includes('friscofencing-staging')) {
@@ -87,11 +76,15 @@ async function main() {
   }
 
   try {
-    // Only ever the 4 fixed audit students by their known firstName/lastName
+    // Only ever the fixed audit students by their known firstName/lastName
     // pair — never a broader query. If audit-seed.js hasn't run yet, this is
     // legitimately an empty list, not an error.
+    // Scoped to the audit parents' own children, so a real student who
+    // happens to share a name can never be reset.
+    const parents = await User.find({ role: 'parent', email: { $in: AUDIT_PARENT_EMAILS } });
     const students = await User.find({
       role: 'student',
+      parentId: { $in: parents.map((parent) => parent._id) },
       firstName: 'Audit',
       lastName: { $in: AUDIT_STUDENT_LAST_NAMES },
     });
@@ -112,16 +105,15 @@ async function main() {
       { $pull: { students: { $in: studentIds } } }
     );
     // GroupClassSession no longer carries a roster — attendance lives in
-    // Visit (docs/plans/premium-registration-and-attendance-plan.md §1).
-    // The students are being hard-deleted below, so their Visit docs are
-    // deleted outright too, not just cancelled.
+    // Visit (docs/plans/premium-registration-and-attendance-plan.md §1). The
+    // students persist, but every Visit they have is an audit artifact, so
+    // their Visit docs are deleted outright, not just cancelled.
     const visitResult = await Visit.deleteMany({ studentId: { $in: studentIds } });
 
-    const parents = await User.find({ role: 'parent', email: { $in: AUDIT_PARENT_EMAILS } });
     let paymentMethodsCleared = 0;
     for (const parent of parents) {
       // eslint-disable-next-line no-await-in-loop -- sequential by design,
-      // 3 fixed parents, no benefit to parallelizing.
+      // a handful of fixed parents, no benefit to parallelizing.
       const paymentMethod = await PaymentMethod.findOne({ parentId: parent._id });
       if (!paymentMethod) continue;
 

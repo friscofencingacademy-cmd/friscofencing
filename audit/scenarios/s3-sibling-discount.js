@@ -2,6 +2,14 @@ const { login } = require('../lib/login');
 const { fillCardElement, STRIPE_TEST_CARDS } = require('../lib/stripe-card');
 const { registerChild } = require('../lib/register-child');
 
+const ID = 'S3';
+const NAME = 'Sibling discount (preview == charge)';
+
+// The register wizard's own notice for a child with an active subscription
+// (register/page.tsx) — a stale registration from an un-reset run, reported
+// as a skip, not a failure.
+const ALREADY_ENROLLED = /is already enrolled/i;
+
 // S3 — sibling discount, OWN-FEE case. Registers audit-sibling-parent's
 // FIRST child into the PRICIER level (no discount expected — no sibling
 // with an active subscription exists yet), then the SECOND child into the
@@ -39,20 +47,20 @@ async function run(context, config) {
       expectedReason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
     });
 
-    return { id: 'S3', name: 'Sibling discount (preview == charge)', result: 'pass', note: '' };
+    return { id: ID, name: NAME, result: 'pass', note: '' };
   } catch (error) {
-    if (await page.getByText(/already registered/i).isVisible().catch(() => false)) {
+    if (await page.getByText(ALREADY_ENROLLED).isVisible().catch(() => false)) {
       return {
-        id: 'S3',
-        name: 'Sibling discount (preview == charge)',
+        id: ID,
+        name: NAME,
         result: 'skip',
-        note: 'Already registered from a prior run — run `npm run audit:reset` in backend/ first.',
+        note: 'Already enrolled from a prior run — run `npm run audit:reset` in backend/ first.',
       };
     }
-    return { id: 'S3', name: 'Sibling discount (preview == charge)', result: 'fail', note: error.message };
+    return { id: ID, name: NAME, result: 'fail', note: error.message };
   } finally {
     await page.close();
   }
 }
 
-module.exports = { run };
+module.exports = { id: ID, name: NAME, run };
