@@ -50,7 +50,7 @@ New tests should drive user interaction with `userEvent.setup()`, not `fireEvent
 
 - **Never sample the real clock against a "today"-computing subject.** If a component/service computes anything relative to `new Date()` (e.g. book-trial's same-day session filter), freeze time with `jest.useFakeTimers({ now: fixedInstant })` (or `jest.useFakeTimers().setSystemTime(...)`) rather than asserting against whatever the wall clock happens to read when CI runs.
 - **Fixture instants use midday UTC** (`T12:00:00Z`), not midnight — a midnight UTC instant renders as "yesterday" in every timezone west of UTC, which is exactly the class of flake this rule exists to prevent.
-- **Run suites under `TZ=UTC`** to reproduce the CI runner: `TZ=UTC npm test` in both `backend/` and `frontend/`. A test that only fails in one timezone is a real bug, not a fluke.
+- **Suites always run under `TZ=UTC`**, matching the CI runner and production: `npm test` sets it itself (`cross-env TZ=UTC jest --ci`) in both `backend/` and `frontend/`, so a local run on any machine reproduces CI. A test that only fails in one timezone is a real bug, not a fluke — to hunt for one, run `npx cross-env TZ=America/Chicago npx jest <file>` explicitly.
 - **Never let a suite's result depend on the time of day it runs.** A schedule created through the real route (or `generateInitialSessions`) generates its first session from the real clock — on that schedule's own weekday, `sessions[0]` is *today's* occurrence, and once its start time has passed it is "started" (no new Visit, not bookable). So either freeze the clock BEFORE seeding (`jest.useFakeTimers({ now, doNotFake: [...] })` — e.g. a Tuesday morning for a Wednesday class) or pick a session that is always weeks ahead (`sessions[sessions.length - 1]`), never `sessions[0]`, when the test needs an upcoming session.
 - No time-bomb dates: use fixed historical/near-term instants, never "now + N days" logic that silently breaks on a future run (e.g. `ACTIVE_SUBSCRIPTION.currentPeriodEnd` fixtures use a literal `'2026-02-01T00:00:00.000Z'`, not `addDays(new Date(), 30)`).
 - Every subscription-**charging** test — both `renewOne` (renewal) and `retryOne` (retry/dunning, `docs/plans/registration-ledger-plan.md` D6) — must explicitly cover the cancel-then-charge race: a subscription cancelled between snapshot and charge-time must never be charged. This is the exact bug class the in-house billing model (`docs/decisions/001-in-house-subscription-billing.md`) exists to prevent — it needs a regression test on EACH charging path, not just a design doc, and not just the first path that happened to exist when this rule was written.
@@ -240,9 +240,11 @@ clear the statements target as of the last real measurement below.
 
 The current numbers live in ONE place, `docs/TEST_COVERAGE.md` (re-measured on every PR that adds or moves tests) — this file states the policy, not the figures, so the two can never disagree.
 
-Re-measure with `TZ=UTC npm test -- --coverage` in each repo (confirmed working, zero new tooling
-needed — pass `--` before the flag so it isn't swallowed as a test-path-pattern argument). Not
-gated on every PR, but a real regression should be flagged, same as CKQ's own policy.
+Re-measure with `npm run test:coverage` in each repo. **Gated in CI since 2026-10-26**
+(`docs/plans/testing-strategy-refresh-plan.md` PR A): both test jobs run their suite once with
+coverage and fail below **80% statements** (`coverageThreshold` in each `jest.config.js`).
+`collectCoverageFrom` counts every source file — a file no test loads shows as 0%, never as
+absent. A PR that lowers coverage below the floor adds tests; it never lowers the threshold.
 
 ### vs. CKQ
 

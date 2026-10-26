@@ -22,6 +22,16 @@ name: CI
 # block a merge requires enabling "required status checks" under
 # Settings -> Branches for develop/main — a GitHub repo-settings action
 # only the owner can take (see the plan's D6/§3 for the one-time steps).
+#
+# GATES (docs/plans/testing-strategy-refresh-plan.md PR A):
+#   - backend-tests / frontend-tests run each suite ONCE, with coverage, and
+#     fail below the 80% statements floor (coverageThreshold in each
+#     jest.config.js). The coverage summary goes to the job summary.
+#   - frontend-tests type-checks the whole app AND e2e/ first — neither Jest
+#     nor next build type-checks test files or the E2E mocks.
+#   - backend-tests runs scripts/check-route-existence.mjs: every frontend
+#     api.<method>() call and every E2E mock route must match a real backend
+#     route (live Express introspection; exit 2 on any extraction failure).
 
 on:
   pull_request:
@@ -40,11 +50,18 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
         working-directory: backend
-      - run: npm test
+      - name: Tests with coverage (80% statements floor)
+        run: |
+          npm run test:coverage | tee coverage-output.txt
+          { echo '## Backend coverage'; echo '```'; grep -A5 'Coverage summary' coverage-output.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         working-directory: backend
         env:
           TZ: UTC
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      - name: Route-existence guard
+        run: |
+          node scripts/check-route-existence.mjs --self-test
+          node scripts/check-route-existence.mjs --frontend frontend --backend backend
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -57,7 +74,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
-      - run: npm test
+      - name: Type check (app + e2e)
+        run: npm run typecheck
+        working-directory: frontend
+      - name: Tests with coverage (80% statements floor)
+        run: |
+          npm run test:coverage | tee coverage-output.txt
+          { echo '## Frontend coverage'; echo '```'; grep -A5 'Coverage summary' coverage-output.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         working-directory: frontend
         env:
           TZ: UTC
@@ -71,8 +94,10 @@ jobs:
     # (frontend/e2e/*.spec.ts-snapshots/) actually reproducible: Chromium's
     # font rendering differs enough between Windows/macOS/Linux that a
     # baseline generated anywhere else would fail here for the wrong
-    # reason. Bump this tag in lockstep whenever the pinned npm version
-    # changes.
+    # reason. Bump this tag in lockstep with BOTH @playwright/test and
+    # playwright-core in frontend/package.json —
+    # frontend/lib/__tests__/guards/playwrightVersionGuard.test.ts fails the
+    # frontend job if the three ever differ.
     container:
       image: mcr.microsoft.com/playwright:v1.47.2-jammy
     steps:

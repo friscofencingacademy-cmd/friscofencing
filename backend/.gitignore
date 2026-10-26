@@ -8,3 +8,4 @@ coverage/
 # never committed.
 email-preview/
 .env*.local
+coverage-output.txt
