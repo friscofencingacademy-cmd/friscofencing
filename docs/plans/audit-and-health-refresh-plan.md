@@ -1,7 +1,11 @@
 # Audit & Health Refresh Plan — live audit revival, session extension, `/health`, audit guards
 
-**Status:** READY-TO-EXECUTE. Spec'd 2026-10-26 from a measured audit of the repo, GitHub, and a
-read-only query against the staging database. Nothing in this plan has been built.
+**Status:** BUILT — all four PRs merged to `develop` on 2026-10-26 (#125, #126, #127, and the docs
+close-out). §9 holds the as-built notes. **Owner steps still open (§7):** the `extend-sessions`
+catch-up on staging and production, the GitHub secrets (`deployment-launch-plan.md` §4e), the first
+live run (§7.4), `ci-passed` required on `develop` + `main` (§6), and retiring the user-level CKQ
+`health.md` (D10). Spec'd 2026-10-26 from a measured audit of the repo, GitHub, and a read-only
+query against the staging database.
 **Executor:** another model (Opus or Sonnet), in auto mode, one PR at a time, in order. §1 is the
 binding contract. The owner tests each PR locally/on staging before it is merged.
 **Supersedes:** the scenario-maintenance parts of `docs/plans/audit-skills-refresh-plan.md` (its
@@ -449,3 +453,19 @@ sections above with the reason._
   5. **Owner action:** the user-level `~/.claude/commands/health.md` is CKQ's status command. The
      repo skill now appears as `health` in this repo; delete or rename the user-level command so
      the two never collide (not a repo file, so not changed here).
+
+### PR 4 — docs close-out, 2026-10-26 on `docs/audit-health-close-out`
+
+- Docs-only (no tests, per CLAUDE.md rule 4). Most §6 rows landed in the PR that changed the
+  behaviour they describe (`TESTING_STRATEGY.md` in PR 2 and PR 3, `features/admin.md` and the two
+  older audit plans' addenda in PR 2, the `CLAUDE.md` pre-read rows in PR 2 and PR 3), so this PR
+  only closes what was left: `deployment-launch-plan.md` §4e (every GitHub Actions secret and the
+  weekly cadence), the `CLAUDE.md` map row's status and the testing-refresh row's stale "Playwright
+  43 listed", the `TEST_COVERAGE.md` live-audit headline, `CLAUDE_HISTORY.md`, and this status line.
+- No new ADR: D1–D11 are operational. D9 reverses `audit-system-plan.md` D7, and that plan's
+  addendum says so.
+- **Not done by the build, by design — owner only:** branch protection (`ci-passed` on `develop`,
+  which is unprotected, and on `main`, which requires the three jobs individually), the secrets,
+  the production catch-up run, and the first live audit. Definition of done (§8) items 1–4, 6 and
+  8 depend on them; items 5 and 7 are met.
+
