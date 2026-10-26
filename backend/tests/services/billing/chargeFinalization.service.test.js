@@ -1,4 +1,5 @@
-// Real Stripe TEST-mode API (never mocked) — same convention as
+// Real payment-provider TEST mode (never mocked), reached only through
+// tests/testUtils/payments.js — same convention as
 // renewal.service.test.js/registration.routes.test.js.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../../.env') });
 
@@ -10,9 +11,9 @@ const GroupClassSchedule = require('../../../src/models/groupClassSchedule.model
 const Price = require('../../../src/models/price.model');
 const Subscription = require('../../../src/models/subscription.model');
 const { SubscriptionCycleRegistration } = require('../../../src/models/registration.model');
-const stripe = require('../../../src/config/stripe');
 const paymentMethodService = require('../../../src/services/paymentMethod.service');
-const { ensureStripeCustomer } = require('../../../src/services/stripeCustomer.service');
+const { ensureCustomer } = require('../../../src/services/paymentCustomer.service');
+const { mintCardToken, declineAtChargeCardId, retrievePayment } = require('../../testUtils/payments');
 const {
   chargeLedgerRow,
   finalizeSuccessfulCharge,
@@ -110,24 +111,19 @@ async function seedSubscriptionAndRow({ amount = MONTHLY_FEE, breakdownOverrides
   return { subscription, row, parent, student };
 }
 
-// Resolves the Stripe customer FIRST and stamps it onto the in-memory
-// `parent` object before attaching a card — ensureStripeCustomer() is
+// Resolves the provider customer FIRST and stamps it onto the in-memory
+// `parent` object before attaching a card — ensureCustomer() is
 // idempotent only via a live DB read; a `parent` object that never gets
 // refreshed after a DB-only write would otherwise cause a SECOND call to
 // mint a different customer than the one the card actually got attached
 // to. Returns { paymentMethod, stripeCustomerId } so callers never need a
-// separate ensureStripeCustomer() call of their own.
+// separate ensureCustomer() call of their own.
 async function savePaymentMethodForParent(parent) {
-  const stripeCustomerId = await ensureStripeCustomer(parent);
+  const stripeCustomerId = await ensureCustomer(parent);
   parent.stripeCustomerId = stripeCustomerId;
 
-  const rawPaymentMethod = await stripe.paymentMethods.create({
-    type: 'card',
-    card: { token: 'tok_visa' },
-  });
-
   const paymentMethod = await paymentMethodService.savePaymentMethod(
-    { stripePaymentMethodId: rawPaymentMethod.id },
+    { stripePaymentMethodId: await mintCardToken('success') },
     parent
   );
 
@@ -137,7 +133,7 @@ async function savePaymentMethodForParent(parent) {
 describe('chargeFinalization.service', () => {
   describe('chargeLedgerRow', () => {
     it(
-      'returns outcome:"succeeded" for a real Stripe TEST-mode charge, keyed on the row id',
+      'returns outcome:"succeeded" for a real test-mode charge, keyed on the row id',
       async () => {
         const { row, parent } = await seedSubscriptionAndRow();
         const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
@@ -147,19 +143,20 @@ describe('chargeFinalization.service', () => {
         expect(result.outcome).toBe('succeeded');
         expect(typeof result.paymentIntentId).toBe('string');
 
-        const intent = await stripe.paymentIntents.retrieve(result.paymentIntentId);
-        expect(intent.status).toBe('succeeded');
-        expect(intent.amount).toBe(Math.round(MONTHLY_FEE * 100));
+        const payment = await retrievePayment(result.paymentIntentId);
+        expect(payment.status).toBe('succeeded');
+        expect(payment.amount).toBe(MONTHLY_FEE);
+        expect(payment.reference).toBe(String(row._id));
       },
       20000
     );
 
     it(
-      'returns outcome:"failed" with the Stripe decline message for a real TEST-mode decline, without throwing',
+      'returns outcome:"failed" with the provider decline message for a real test-mode decline, without throwing',
       async () => {
         const { row, parent } = await seedSubscriptionAndRow();
         const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
-        paymentMethod.stripePaymentMethodId = 'pm_card_chargeDeclined';
+        paymentMethod.stripePaymentMethodId = declineAtChargeCardId();
 
         const result = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId });
 
@@ -264,7 +261,7 @@ describe('chargeFinalization.service', () => {
     it('orchestrates a failed charge end-to-end, without throwing', async () => {
       const { subscription, row, parent } = await seedSubscriptionAndRow();
       const { paymentMethod, stripeCustomerId } = await savePaymentMethodForParent(parent);
-      paymentMethod.stripePaymentMethodId = 'pm_card_chargeDeclined';
+      paymentMethod.stripePaymentMethodId = declineAtChargeCardId();
 
       const result = await chargeAndFinalize({
         row,

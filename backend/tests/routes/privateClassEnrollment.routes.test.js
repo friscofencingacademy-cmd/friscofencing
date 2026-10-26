@@ -6,8 +6,9 @@ process.env.JWT_EXPIRES_IN = '7d';
 // rendered content is mail.service.test.js's job.
 jest.mock('../../src/services/mail.service');
 
-// STRIPE_SECRET_KEY must be loaded from the real .env BEFORE app.js is
-// required — purchases hit Stripe's real TEST-mode API.
+// The payment provider's credentials must be loaded from the real .env
+// BEFORE app.js is required — purchases hit the active provider's real TEST
+// mode, through tests/testUtils/payments.js only.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 const request = require('supertest');
@@ -19,10 +20,9 @@ const Visit = require('../../src/models/visit.model');
 const PrivateClassEnrollment = require('../../src/models/privateClassEnrollment.model');
 const PrivateClassSession = require('../../src/models/privateClassSession.model');
 const { PerSessionRegistration } = require('../../src/models/registration.model');
-const stripe = require('../../src/config/stripe');
 const mailService = require('../../src/services/mail.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
-const { listCustomerPaymentIntents, expectLedgerChargeSucceeded } = require('../testUtils/stripe');
+const { listCustomerPayments, expectLedgerChargeSucceeded } = require('../testUtils/payments');
 const { seedServices } = require('../../scripts/lib/seedServices');
 const {
   freezeDate,
@@ -73,7 +73,7 @@ async function seedPurchaseScene(suffix, { card = true } = {}) {
   const parentScene = await seedParentWithStudent(suffix);
 
   if (card) {
-    await saveCard(parentScene.parentAgent, stripe);
+    await saveCard(parentScene.parentAgent);
   }
 
   const packIdOf = (minutes) =>
@@ -197,7 +197,8 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ status: 'completed', quantity: 1, unitPrice: 32.5, amount: 32.5 });
         expect(rows[0].toObject()).not.toHaveProperty('discountPercent');
-        expect(rows[0].stripePaymentIntentId).toMatch(/^pi_/);
+        expect(typeof rows[0].stripePaymentIntentId).toBe('string');
+        expect(rows[0].stripePaymentIntentId.length).toBeGreaterThan(0);
         expect(String(rows[0].sessionId)).toBe(String(session._id));
         expect(String(rows[0].enrollmentId)).toBe(String(enrollment._id));
 
@@ -252,7 +253,7 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(res.body.message).toBe('This pack is no longer offered — please review the prices');
         expect(await PrivateClassEnrollment.countDocuments({})).toBe(0);
         expect(await PerSessionRegistration.countDocuments({})).toBe(0);
-        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+        expect(await listCustomerPayments(parent._id)).toHaveLength(0);
       },
       STRIPE_TIMEOUT
     );
@@ -273,7 +274,7 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(res.body.message).toBe('This pack is no longer offered — please review the prices');
         expect(await PerSessionRegistration.countDocuments({})).toBe(0);
         expect(await PrivateClassSession.countDocuments({})).toBe(0);
-        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+        expect(await listCustomerPayments(parent._id)).toHaveLength(0);
       },
       STRIPE_TIMEOUT
     );
@@ -299,7 +300,7 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(res.status).toBe(409);
         expect(res.body.message).toBe('Prices have changed — please review them');
         expect(await PerSessionRegistration.countDocuments({})).toBe(0);
-        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+        expect(await listCustomerPayments(parent._id)).toHaveLength(0);
       },
       STRIPE_TIMEOUT
     );
@@ -323,7 +324,7 @@ describe('Private class enrollment (purchase) routes', () => {
         expect(res.body.message).toBe('Prices have changed — please review them');
         expect(await PerSessionRegistration.countDocuments({})).toBe(0);
         expect(await PrivateClassSession.countDocuments({})).toBe(0);
-        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(0);
+        expect(await listCustomerPayments(parent._id)).toHaveLength(0);
       },
       STRIPE_TIMEOUT
     );
@@ -379,7 +380,7 @@ describe('Private class enrollment (purchase) routes', () => {
       async () => {
         const first = await seedPurchaseScene('race-a');
         const second = await seedParentWithStudent('race-b');
-        await saveCard(second.parentAgent, stripe);
+        await saveCard(second.parentAgent);
 
         const results = await Promise.all([
           purchase(first.parentAgent, { student: first.student, slot: first.slot }),

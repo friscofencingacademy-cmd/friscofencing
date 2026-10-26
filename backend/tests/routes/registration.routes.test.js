@@ -3,14 +3,13 @@ process.env.JWT_EXPIRES_IN = '7d';
 
 // Mocked so this suite never touches nodemailer/Ethereal — confirmation
 // email is Phase 10's own concern (see mail.service.test.js), unrelated to
-// what these routes tests exist to cover (real Stripe TEST-mode charges).
+// what these routes tests exist to cover (real test-mode charges).
 jest.mock('../../src/services/mail.service');
 
-// STRIPE_SECRET_KEY must be loaded from the real .env BEFORE app.js (and
-// therefore src/config/stripe.js) is required below — this test hits
-// Stripe's real TEST-mode API over the network rather than mocking the
-// Stripe SDK (see paymentMethod.routes.test.js spec: Stripe explicitly
-// designs test mode for exactly this kind of real integration testing).
+// The payment provider's credentials must be loaded from the real .env BEFORE
+// app.js is required below — this suite hits the active provider's real TEST
+// mode over the network rather than mocking its SDK (docs/TESTING_STRATEGY.md
+// Mocking rules), through tests/testUtils/payments.js only.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 const request = require('supertest');
@@ -33,10 +32,14 @@ const Holiday = require('../../src/models/holiday.model');
 const { computeProration } = require('../../src/services/billing/proration.service');
 const { retryOne, renewOne, runRenewals, previewRenewal } = require('../../src/services/renewal.service');
 const { todayDateOnly } = require('../../src/utils/billingDates');
-const stripe = require('../../src/config/stripe');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
-const { expectLedgerChargeSucceeded, listCustomerPaymentIntents } = require('../testUtils/stripe');
+const {
+  mintCardToken,
+  declineAtChargeCardId,
+  expectLedgerChargeSucceeded,
+  listCustomerPayments,
+} = require('../testUtils/payments');
 const mailService = require('../../src/services/mail.service');
 const { seedServices } = require('../../scripts/lib/seedServices');
 const Service = require('../../src/models/service.model');
@@ -83,23 +86,11 @@ async function loginAgent(email) {
   return agent;
 }
 
-// Mints a fresh, real Stripe TEST-mode PaymentMethod via Stripe's documented
-// `tok_visa` test token. A PaymentMethod can only ever be attached once, so
-// every test that needs one calls this fresh rather than sharing an id.
-async function mintTestPaymentMethodId() {
-  const paymentMethod = await stripe.paymentMethods.create({
-    type: 'card',
-    card: { token: 'tok_visa' },
-  });
-
-  return paymentMethod.id;
-}
-
-// Saves a real Stripe test card on file for `parentAgent`, via the actual
+// Saves a real test-mode card on file for `parentAgent`, via the actual
 // POST /payment-methods route (Phase 7a) rather than reaching into the model
-// directly, so the Stripe Customer + attach side effects are the real ones.
+// directly, so the provider-customer + attach side effects are the real ones.
 async function savePaymentMethodFor(parentAgent) {
-  const stripePaymentMethodId = await mintTestPaymentMethodId();
+  const stripePaymentMethodId = await mintCardToken('success');
 
   const res = await parentAgent
     .post('/api/v1/payment-methods')
@@ -207,7 +198,7 @@ async function seedScheduleWithFee(monthlyFee, { levelName = 'Level', levelOrder
 }
 
 // A level with a class day on EVERY weekday — used only by a test that
-// needs a real, successful Stripe charge from a registration whose EXACT
+// needs a real, successful provider charge from a registration whose EXACT
 // dollar amount doesn't matter (unlike the proration-focused tests above,
 // which anchor deliberately to prove a specific day-count). A single-
 // weekday level can legitimately prorate to $0 depending on which real
@@ -215,7 +206,7 @@ async function seedScheduleWithFee(monthlyFee, { levelName = 'Level', levelOrder
 // FROZEN_NOW resolves to on a given host (a documented pre-existing
 // quirk — computeProration is correct under TZ=UTC, prod/CI's actual
 // runtime, but a non-UTC dev machine can read a UTC-midnight sentinel as
-// the PREVIOUS calendar day) — below Stripe's minimum chargeable amount,
+// the PREVIOUS calendar day) — below the provider's minimum chargeable amount,
 // which would make an unrelated test flaky depending on the host it runs
 // on. Every day being a class day makes remainingClassDays >= 1
 // unconditionally, so the charge is always well above the minimum.
@@ -263,7 +254,7 @@ async function seedScheduleEveryDayWithFee(monthlyFee, { levelName = 'Level', le
   return { scheduleId, levelId: level._id };
 }
 
-// Every real-Stripe registration test in this suite runs with `now` frozen
+// Every real-provider registration test in this suite runs with `now` frozen
 // to the 1st of a month (docs/decisions/007-calendar-month-billing.md).
 // Under always-on proration (the Setting.prorationEnabled toggle is
 // retired — docs/plans/billing-anchor-and-sibling-discount-plan.md D1),
@@ -507,7 +498,7 @@ describe('Registration routes', () => {
     );
 
     it(
-      'accepts the registration (201, paymentStatus: pending) on a real Stripe TEST-mode card decline, enters retry/dunning, and grants no roster access — docs/decisions/008-registration-create-pending-first.md',
+      'accepts the registration (201, paymentStatus: pending) on a real test-mode card decline, enters retry/dunning, and grants no roster access — docs/decisions/008-registration-create-pending-first.md',
       async () => {
         const { scheduleId } = await seedSchedule();
         const { student } = await seedParentAndStudent('reg-decline@example.com');
@@ -516,13 +507,12 @@ describe('Registration routes', () => {
         await savePaymentMethodFor(parentAgent);
 
         // Same technique as renewal.service.test.js's decline case: overwrite
-        // the just-saved real PaymentMethod's id with Stripe's documented
-        // shared test id for a guaranteed decline (`pm_card_chargeDeclined`),
-        // which throws a StripeCardError when charged.
+        // the just-saved real card's id with the provider's saved-card id that
+        // declines when charged (tests/testUtils/payments.js).
         const parent = await User.findOne({ email: 'reg-decline@example.com' });
         await PaymentMethod.updateOne(
           { parentId: parent._id },
-          { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+          { stripePaymentMethodId: declineAtChargeCardId() }
         );
 
         const res = await parentAgent.post('/api/v1/registrations').send({
@@ -594,7 +584,7 @@ describe('Registration routes', () => {
         const parent = await User.findOne({ email: 'reg-decline-exhaust@example.com' });
         await PaymentMethod.updateOne(
           { parentId: parent._id },
-          { stripePaymentMethodId: 'pm_card_chargeDeclined' }
+          { stripePaymentMethodId: declineAtChargeCardId() }
         );
 
         const res = await parentAgent.post('/api/v1/registrations').send({
@@ -730,13 +720,13 @@ describe('Registration routes', () => {
         // existingSubscription pre-checks run against the same
         // pre-registration DB state — there is no way to guarantee this
         // ordering, but Node's async I/O interleaving at the real Mongo/
-        // Stripe network calls means both pre-checks reliably see "no
+        // provider network calls means both pre-checks reliably see "no
         // existing subscription" before either request's Subscription.create
         // resolves. What actually decides the outcome deterministically is
         // Guard A's unique index at the second create() call: exactly one of
         // the two inserts can succeed, however the pre-checks landed. Since
         // the Subscription is now RESERVED before either request ever
-        // touches Stripe (docs/decisions/008-registration-create-pending-
+        // touches the payment provider (docs/decisions/008-registration-create-pending-
         // first.md), the loser's card is never charged at all — see the
         // dedicated cross-schedule race test below for the direct assertion
         // of that (the actual bug this ADR closes).
@@ -763,7 +753,7 @@ describe('Registration routes', () => {
     );
 
     it(
-      "closes the CROSS-schedule double-charge race (docs/decisions/008-registration-create-pending-first.md — the actual bug found while building the one-active-subscription guard): two simultaneous requests for the SAME student on TWO DIFFERENT schedules produce exactly one Subscription, one ledger row, and ONE real Stripe charge — the loser's card is never touched",
+      "closes the CROSS-schedule double-charge race (docs/decisions/008-registration-create-pending-first.md — the actual bug found while building the one-active-subscription guard): two simultaneous requests for the SAME student on TWO DIFFERENT schedules produce exactly one Subscription, one ledger row, and ONE real provider charge — the loser's card is never touched",
       async () => {
         const { scheduleId: scheduleA } = await seedSchedule();
         const scheduleBId = await seedScheduleWithFee(MONTHLY_FEE * 2, {
@@ -776,11 +766,11 @@ describe('Registration routes', () => {
         await savePaymentMethodFor(parentAgent);
 
         // Under the OLD charge-first create(), this race would let BOTH
-        // requests charge Stripe for real (different schedules -> different
+        // requests charge the provider for real (different schedules -> different
         // idempotency keys), with only one able to win the Subscription
         // write — leaving the loser's real charge with nothing to attach
         // to. Reserving the Subscription BEFORE charging closes this: the
-        // loser's request never reaches Stripe at all.
+        // loser's request never reaches the payment provider at all.
         const [firstRes, secondRes] = await Promise.all([
           parentAgent.post('/api/v1/registrations').send({
             studentId: student._id.toString(),
@@ -799,12 +789,12 @@ describe('Registration routes', () => {
         expect(await Registration.countDocuments({ studentId: student._id })).toBe(1);
 
         // The direct assertion this test exists for: exactly ONE real
-        // Stripe PaymentIntent was ever created for this parent's charge —
-        // not two. (This is a real, shared Stripe TEST-mode account, but
+        // provider payment was ever created for this parent's charge —
+        // not two. (This is a real, shared provider test account, but
         // this parent/customer is unique to this test, so its own
         // PaymentIntent count is a meaningful, isolated signal.)
         const parent = await User.findOne({ email: 'reg-parent-cross-race@example.com' });
-        expect(await listCustomerPaymentIntents(parent._id)).toHaveLength(1);
+        expect(await listCustomerPayments(parent._id)).toHaveLength(1);
       },
       30000
     );
@@ -919,7 +909,7 @@ describe('Registration routes', () => {
     // the family's already-lower fee) is covered by the dedicated bridge
     // test right after this one.
     it(
-      "applies the 10% sibling discount to the second child's real Stripe charge when their class is priced lower than the first child's (own-fee case)",
+      "applies the 10% sibling discount to the second child's real provider charge when their class is priced lower than the first child's (own-fee case)",
       async () => {
         const parent = await seedUser({ role: 'parent', email: 'reg-sibling-parent@example.com' });
         const firstChild = await User.create({
@@ -978,9 +968,9 @@ describe('Registration routes', () => {
         expect(secondSubscription.lastSiblingDiscountApplied).toBe(true);
         expect(secondSubscription.lastChargeAmount).toBe(MONTHLY_FEE * 0.9);
 
-        // Verify the actual Stripe PaymentIntent was charged for the
+        // Verify the actual provider payment was charged for the
         // discounted amount, not the full price — the real assertion this
-        // test exists for: the real-Stripe-test-mode charge reflects the
+        // test exists for: the real test-mode charge reflects the
         // discount, not just our own response body's math.
         const secondChildRow = await Registration.findOne({ studentId: secondChild._id });
         await expectLedgerChargeSucceeded(secondChildRow, MONTHLY_FEE * 0.9);
@@ -1043,7 +1033,7 @@ describe('Registration routes', () => {
           "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan."
         );
 
-        // The real Stripe charge reflects the bridge-discounted amount, and
+        // The real provider charge reflects the bridge-discounted amount, and
         // the ledger row carries the same fields — the audit "mark" the
         // owner asked for.
         const ledgerRow = await Registration.findOne({ studentId: secondChild._id });
@@ -1057,7 +1047,7 @@ describe('Registration routes', () => {
 
   describe('one-time registration fee', () => {
     it(
-      'bundles the configured registration fee into the same real Stripe charge as the monthly fee, and persists it on the Subscription',
+      'bundles the configured registration fee into the same real provider charge as the monthly fee, and persists it on the Subscription',
       async () => {
         await Setting.create({ registrationFee: 25, returningStudentGracePeriodMonths: 6 });
 
@@ -1085,10 +1075,10 @@ describe('Registration routes', () => {
         // compare against; the fee never recurs).
         expect(subscription.lastChargeAmount).toBe(MONTHLY_FEE);
 
-        // The real, single Stripe PaymentIntent reflects monthly + fee together.
+        // The real, single provider payment reflects monthly + fee together.
         const ledgerRow = await Registration.findOne({ studentId: student._id });
         await expectLedgerChargeSucceeded(ledgerRow, MONTHLY_FEE + 25);
-        expect(await listCustomerPaymentIntents(student.parentId)).toHaveLength(1);
+        expect(await listCustomerPayments(student.parentId)).toHaveLength(1);
       },
       20000
     );
@@ -1221,7 +1211,7 @@ describe('Registration routes', () => {
     );
 
     it(
-      'prorates the real Stripe charge and anchors the period to the calendar-month boundary for a mid-month registration',
+      'prorates the real provider charge and anchors the period to the calendar-month boundary for a mid-month registration',
       async () => {
         // The suite's default FROZEN_NOW is deliberately the 1st (so the
         // OTHER tests' flat-fee assertions stay simple) — this specific
@@ -1288,7 +1278,7 @@ describe('Registration routes', () => {
         expect(ledgerRow.periodEnd.getMonth()).toBe(expected.periodEnd.getMonth());
         expect(ledgerRow.periodEnd.getDate()).toBe(expected.periodEnd.getDate());
 
-        // The real Stripe PaymentIntent reflects the prorated amount, not
+        // The real provider payment reflects the prorated amount, not
         // the full monthly fee.
         await expectLedgerChargeSucceeded(ledgerRow, expected.proratedAmount);
       },
@@ -1299,7 +1289,7 @@ describe('Registration routes', () => {
     // fixes: an immediate registration (no explicit startDate) placed
     // during the UTC/Central gap window used to anchor its proration to
     // the WRONG calendar day (raw new Date(), UTC-anchored in this test
-    // runner). Fakes ONLY `now` (real timers stay real for the Stripe HTTP
+    // runner). Fakes ONLY `now` (real timers stay real for the provider HTTP
     // round trip and the Mongo driver), same pattern as
     // privateClassSchedule.routes.test.js's own DST/gap-window test.
     it(
@@ -1804,9 +1794,9 @@ describe('Registration routes', () => {
       expect(new Date(periodEnd).getTime()).toBeGreaterThan(Date.now());
 
       // The critical "this is truly read-only" regression guard: no
-      // Registration/Subscription got created. A global stripe.paymentIntents
-      // .list() assertion isn't reliable here — this is a real, SHARED
-      // Stripe TEST-mode account (other tests in this file, and other test
+      // Registration/Subscription got created. A global payment-listing
+      // assertion isn't reliable here — this is a real, SHARED
+      // provider test account (other tests in this file, and other test
       // files hitting the same account, may run before/around this one), so
       // "the list is empty" isn't a meaningful claim. What IS meaningful:
       // this test deliberately never calls savePaymentMethodFor(), so if
@@ -2331,7 +2321,7 @@ describe('Registration routes', () => {
 
         // A second, unrelated parent's own registration must never appear —
         // its own distinct level (levels are globally uniquely named/
-        // ordered), also every-weekday for the same real-Stripe-charge
+        // ordered), also every-weekday for the same real-provider-charge
         // reliability reason.
         const { scheduleId: otherScheduleId } = await seedScheduleEveryDayWithFee(MONTHLY_FEE, {
           levelName: 'HistoryOtherParent',

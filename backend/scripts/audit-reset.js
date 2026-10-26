@@ -38,7 +38,7 @@ const Subscription = require('../src/models/subscription.model');
 const GroupClassSchedule = require('../src/models/groupClassSchedule.model');
 const Visit = require('../src/models/visit.model');
 const PaymentMethod = require('../src/models/paymentMethod.model');
-const stripe = require('../src/config/stripe');
+const { getPaymentProvider } = require('../src/payments');
 
 const AUDIT_STUDENT_LAST_NAMES = [
   'ChildOne',
@@ -127,11 +127,11 @@ async function main() {
 
       try {
         // eslint-disable-next-line no-await-in-loop
-        await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
+        await getPaymentProvider().detachPaymentMethod({ paymentMethodId: paymentMethod.stripePaymentMethodId });
       } catch (error) {
         // Already detached / never attached — not fatal, the doc deletion
         // below is what actually matters for a clean re-run.
-        console.warn(`  (Stripe detach for ${parent.email} skipped: ${error.message})`);
+        console.warn(`  (Provider card detach for ${parent.email} skipped: ${error.message})`);
       }
 
       // eslint-disable-next-line no-await-in-loop

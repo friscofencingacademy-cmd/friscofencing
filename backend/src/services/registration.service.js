@@ -11,7 +11,7 @@ const Subscription = require('../models/subscription.model');
 const PrivateClassSession = require('../models/privateClassSession.model');
 const PrivateClassEnrollment = require('../models/privateClassEnrollment.model');
 const paymentMethodService = require('./paymentMethod.service');
-const { ensureStripeCustomer } = require('./stripeCustomer.service');
+const { ensureCustomer } = require('./paymentCustomer.service');
 const { calculateChargeAmount, resolveCurrentFee } = require('./billing/calculateChargeAmount.service');
 const { resolveRegistrationFee } = require('./billing/registrationFee.service');
 const { resolveFirstChargePeriod } = require('./billing/proration.service');
@@ -183,7 +183,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
     throw badRequestError('Add a payment method before registering');
   }
 
-  const stripeCustomerId = await ensureStripeCustomer(requestingUser);
+  const stripeCustomerId = await ensureCustomer(requestingUser);
 
   // anchorDate is the parent's chosen start date when one was given,
   // otherwise today's Central calendar date — a date-only value (same
