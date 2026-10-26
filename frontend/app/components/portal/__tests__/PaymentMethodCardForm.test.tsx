@@ -1,9 +1,17 @@
 import type { ReactNode } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import PaymentMethodCardForm from '../PaymentMethodCardForm';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 // Same Stripe-mocking approach as payment-method/__tests__/page.test.tsx —
 // CardElement renders into a cross-origin iframe jsdom can't simulate, so
@@ -40,7 +48,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createPaymentMethodMock.mockReset();
@@ -60,7 +68,7 @@ describe('PaymentMethodCardForm', () => {
     );
 
     expect(screen.getByTestId('card-element')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /save card/i }));
+    await user.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
       expect(postPayload).toEqual({ stripePaymentMethodId: STRIPE_PAYMENT_METHOD.id });
@@ -97,7 +105,7 @@ describe('PaymentMethodCardForm', () => {
       </Wrapper>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /save card/i }));
+    await user.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Your card number is invalid.');
@@ -122,7 +130,7 @@ describe('PaymentMethodCardForm', () => {
       </Wrapper>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /save card/i }));
+    await user.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Failed to save payment method');

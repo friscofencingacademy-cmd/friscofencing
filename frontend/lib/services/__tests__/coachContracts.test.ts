@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import {
   createCoachContract,
@@ -68,7 +69,7 @@ const server = setupServer(
   http.post('*/coach-contracts/:id/deactivate', () => HttpResponse.json({ contract: { ...CONTRACT, isActive: false } }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   lastBody = null;

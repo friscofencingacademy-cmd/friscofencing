@@ -1,6 +1,13 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import Button from '../Button';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 describe('Button', () => {
   it('renders children', () => {
@@ -9,16 +16,16 @@ describe('Button', () => {
     expect(screen.getByText('Click me')).toBeInTheDocument();
   });
 
-  it('fires onClick when clicked', () => {
+  it('fires onClick when clicked', async () => {
     const onClick = jest.fn();
 
     render(<Button onClick={onClick}>Click me</Button>);
-    fireEvent.click(screen.getByText('Click me'));
+    await user.click(screen.getByText('Click me'));
 
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('does not fire onClick when disabled', () => {
+  it('does not fire onClick when disabled', async () => {
     const onClick = jest.fn();
 
     render(
@@ -26,7 +33,7 @@ describe('Button', () => {
         Click me
       </Button>
     );
-    fireEvent.click(screen.getByText('Click me'));
+    await user.click(screen.getByText('Click me'));
 
     expect(onClick).not.toHaveBeenCalled();
   });

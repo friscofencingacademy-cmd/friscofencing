@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import UsersPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const replaceMock = jest.fn();
 let mockSearchParams = new URLSearchParams();
@@ -69,7 +77,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -109,7 +117,7 @@ describe('UsersPage', () => {
     renderPage('admin');
     await screen.findByText('Pat Parent');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Coach' }));
+    await user.click(screen.getByRole('button', { name: 'Coach' }));
 
     await waitFor(() => expect(queriedRoles).toContain('coach'));
     expect(await screen.findByText('Cody Coach')).toBeInTheDocument();
@@ -144,7 +152,7 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
+      await user.click(screen.getByRole('button', { name: /add user/i }));
 
       const roleSelect = screen.getByLabelText('Role') as HTMLSelectElement;
       const optionLabels = Array.from(roleSelect.options).map((o) => o.label);
@@ -158,7 +166,7 @@ describe('UsersPage', () => {
       renderPage('superadmin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
+      await user.click(screen.getByRole('button', { name: /add user/i }));
 
       const roleSelect = screen.getByLabelText('Role') as HTMLSelectElement;
       const optionLabels = Array.from(roleSelect.options).map((o) => o.label);
@@ -169,8 +177,8 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
-      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'student' } });
+      await user.click(screen.getByRole('button', { name: /add user/i }));
+      await user.selectOptions(screen.getByLabelText('Role'), 'student');
 
       expect(screen.getByLabelText('Parent')).toBeInTheDocument();
       expect(screen.getByLabelText('Skill Level')).toBeInTheDocument();
@@ -182,14 +190,14 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
-      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'coach' } });
-      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
-      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Coach' } });
-      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'newcoach@example.com' } });
-      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
+      await user.click(screen.getByRole('button', { name: /add user/i }));
+      await user.selectOptions(screen.getByLabelText('Role'), 'coach');
+      await user.type(screen.getByLabelText('First Name'), 'New');
+      await user.type(screen.getByLabelText('Last Name'), 'Coach');
+      await user.type(screen.getByLabelText('Email'), 'newcoach@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
 
-      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
 
       await waitFor(() => {
         expect(createdPayload).toEqual({
@@ -208,19 +216,19 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
+      await user.click(screen.getByRole('button', { name: /add user/i }));
       const roleSelect = screen.getByLabelText('Role') as HTMLSelectElement;
       expect(Array.from(roleSelect.options).map((o) => o.label)).toContain('Kiosk (sign-in tablet)');
 
-      fireEvent.change(roleSelect, { target: { value: 'kiosk' } });
+      await user.selectOptions(roleSelect, 'kiosk');
       expect(screen.getByLabelText('Password')).toBeInTheDocument();
       expect(screen.queryByLabelText('Parent')).not.toBeInTheDocument();
 
-      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Front' } });
-      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Desk' } });
-      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'frontdesk@example.com' } });
-      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
-      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.type(screen.getByLabelText('First Name'), 'Front');
+      await user.type(screen.getByLabelText('Last Name'), 'Desk');
+      await user.type(screen.getByLabelText('Email'), 'frontdesk@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
 
       await waitFor(() => {
         expect(createdPayload).toEqual({
@@ -237,13 +245,13 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
-      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'student' } });
-      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Kid' } });
-      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'One' } });
-      fireEvent.change(screen.getByLabelText('Parent'), { target: { value: 'parent-1' } });
+      await user.click(screen.getByRole('button', { name: /add user/i }));
+      await user.selectOptions(screen.getByLabelText('Role'), 'student');
+      await user.type(screen.getByLabelText('First Name'), 'Kid');
+      await user.type(screen.getByLabelText('Last Name'), 'One');
+      await user.selectOptions(screen.getByLabelText('Parent'), 'parent-1');
 
-      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
 
       await waitFor(() => {
         expect(createdPayload).toEqual({
@@ -262,18 +270,19 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
-      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'student' } });
+      await user.click(screen.getByRole('button', { name: /add user/i }));
+      await user.selectOptions(screen.getByLabelText('Role'), 'student');
 
       const dobInput = screen.getByLabelText('Date of Birth (optional)');
       expect(dobInput).not.toBeRequired();
 
-      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Kid' } });
-      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'WithBirthday' } });
-      fireEvent.change(screen.getByLabelText('Parent'), { target: { value: 'parent-1' } });
-      fireEvent.change(dobInput, { target: { value: '2018-01-01' } });
+      await user.type(screen.getByLabelText('First Name'), 'Kid');
+      await user.type(screen.getByLabelText('Last Name'), 'WithBirthday');
+      await user.selectOptions(screen.getByLabelText('Parent'), 'parent-1');
+      await user.clear(dobInput);
+      await user.type(dobInput, '2018-01-01');
 
-      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
 
       await waitFor(() => {
         expect(createdPayload).toMatchObject({ dateOfBirth: '2018-01-01' });
@@ -284,19 +293,20 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /add user/i }));
-      fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'coach' } });
+      await user.click(screen.getByRole('button', { name: /add user/i }));
+      await user.selectOptions(screen.getByLabelText('Role'), 'coach');
 
       const phoneInput = screen.getByLabelText('Phone (optional)');
       expect(phoneInput).not.toBeRequired();
 
-      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'New' } });
-      fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: 'Coach' } });
-      fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'newcoach2@example.com' } });
-      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
-      fireEvent.change(phoneInput, { target: { value: '555-123-4567' } });
+      await user.type(screen.getByLabelText('First Name'), 'New');
+      await user.type(screen.getByLabelText('Last Name'), 'Coach');
+      await user.type(screen.getByLabelText('Email'), 'newcoach2@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.clear(phoneInput);
+      await user.type(phoneInput, '555-123-4567');
 
-      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
 
       await waitFor(() => {
         expect(createdPayload).toMatchObject({ phone: '555-123-4567' });
@@ -309,14 +319,15 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Cody Coach');
 
-      fireEvent.click(screen.getByRole('button', { name: /edit cody coach/i }));
+      await user.click(screen.getByRole('button', { name: /edit cody coach/i }));
 
       const dialog = screen.getByRole('dialog', { name: /edit user/i });
       expect(within(dialog).queryAllByRole('combobox')).toHaveLength(0);
       expect(within(dialog).getByText('Coach')).toBeInTheDocument();
 
-      fireEvent.change(screen.getByLabelText('First Name'), { target: { value: 'Codster' } });
-      fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+      await user.clear(screen.getByLabelText('First Name'));
+      await user.type(screen.getByLabelText('First Name'), 'Codster');
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
 
       await waitFor(() => {
         expect(updatedId).toBe('coach-1');
@@ -336,12 +347,13 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Cody Coach');
 
-      fireEvent.click(screen.getByRole('button', { name: /edit cody coach/i }));
+      await user.click(screen.getByRole('button', { name: /edit cody coach/i }));
 
       const phoneInput = screen.getByLabelText('Phone (optional)');
       expect(phoneInput).not.toBeRequired();
-      fireEvent.change(phoneInput, { target: { value: '555-987-6543' } });
-      fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+      await user.clear(phoneInput);
+      await user.type(phoneInput, '555-987-6543');
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
 
       await waitFor(() => {
         expect(updatedPayload).toMatchObject({ phone: '555-987-6543' });
@@ -352,12 +364,13 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Sam Student');
 
-      fireEvent.click(screen.getByRole('button', { name: /edit sam student/i }));
+      await user.click(screen.getByRole('button', { name: /edit sam student/i }));
 
       const dobInput = screen.getByLabelText('Date of Birth (optional)');
       expect(dobInput).not.toBeRequired();
-      fireEvent.change(dobInput, { target: { value: '2018-01-01' } });
-      fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+      await user.clear(dobInput);
+      await user.type(dobInput, '2018-01-01');
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
 
       await waitFor(() => {
         expect(updatedPayload).toMatchObject({ dateOfBirth: '2018-01-01' });
@@ -370,12 +383,12 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /change password for pat parent/i }));
+      await user.click(screen.getByRole('button', { name: /change password for pat parent/i }));
 
       expect(screen.getByRole('dialog', { name: /change password/i })).toBeInTheDocument();
 
-      fireEvent.change(screen.getByLabelText('New Password'), { target: { value: 'brandnewpassword' } });
-      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await user.type(screen.getByLabelText('New Password'), 'brandnewpassword');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
 
       await waitFor(() => {
         expect(passwordId).toBe('parent-1');
@@ -391,8 +404,8 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /delete pat parent/i }));
-      fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+      await user.click(screen.getByRole('button', { name: /delete pat parent/i }));
+      await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
       await waitFor(() => expect(deletedId).toBe('parent-1'));
       await waitFor(() => expect(screen.queryByText('Pat Parent')).not.toBeInTheDocument());
@@ -408,13 +421,13 @@ describe('UsersPage', () => {
       renderPage('admin');
       await screen.findByText('Pat Parent');
 
-      fireEvent.click(screen.getByRole('button', { name: /delete pat parent/i }));
-      fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+      await user.click(screen.getByRole('button', { name: /delete pat parent/i }));
+      await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
       expect(await screen.findByText('Cannot Delete')).toBeInTheDocument();
       expect(screen.getByText('Cannot delete: 1 child account(s) reference this parent.')).toBeInTheDocument();
 
-      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /close/i }));
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /close/i }));
       expect(screen.getByText('Pat Parent')).toBeInTheDocument();
     });
   });

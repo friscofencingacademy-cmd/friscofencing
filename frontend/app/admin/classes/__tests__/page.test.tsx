@@ -1,8 +1,16 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import ClassesPage from '../page';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const LEVEL = { _id: 'level-1', name: 'Beginner' };
 const LOCATION = { _id: 'loc-1', name: 'Frisco HQ' };
@@ -35,7 +43,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -59,11 +67,11 @@ describe('ClassesPage', () => {
     render(<ClassesPage />);
     await screen.findByText('Beginner Foil');
 
-    fireEvent.click(screen.getByRole('button', { name: /add class/i }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Advanced Epee' } });
-    fireEvent.change(screen.getByLabelText('Level'), { target: { value: 'level-1' } });
-    fireEvent.change(screen.getByLabelText('Location'), { target: { value: 'loc-1' } });
-    fireEvent.change(screen.getByLabelText('Capacity'), { target: { value: '8' } });
+    await user.click(screen.getByRole('button', { name: /add class/i }));
+    await user.type(screen.getByLabelText('Name'), 'Advanced Epee');
+    await user.selectOptions(screen.getByLabelText('Level'), 'level-1');
+    await user.selectOptions(screen.getByLabelText('Location'), 'loc-1');
+    await user.type(screen.getByLabelText('Capacity'), '8');
 
     server.use(
       http.get('*/group-classes', () =>
@@ -73,7 +81,7 @@ describe('ClassesPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createdPayload).toEqual({ name: 'Advanced Epee', levelId: 'level-1', locationId: 'loc-1', capacity: 8 });
@@ -86,13 +94,15 @@ describe('ClassesPage', () => {
     render(<ClassesPage />);
     await screen.findByText('Beginner Foil');
 
-    fireEvent.click(screen.getByRole('button', { name: /edit beginner foil/i }));
+    await user.click(screen.getByRole('button', { name: /edit beginner foil/i }));
 
     const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
     expect(nameInput.value).toBe('Beginner Foil');
 
-    fireEvent.change(nameInput, { target: { value: 'Beginner Foil Updated' } });
-    fireEvent.change(screen.getByLabelText('Capacity'), { target: { value: '12' } });
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Beginner Foil Updated');
+    await user.clear(screen.getByLabelText('Capacity'));
+    await user.type(screen.getByLabelText('Capacity'), '12');
 
     server.use(
       http.get('*/group-classes', () =>
@@ -102,7 +112,7 @@ describe('ClassesPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => {
       expect(updatedPayload).toEqual({
@@ -120,8 +130,8 @@ describe('ClassesPage', () => {
     render(<ClassesPage />);
     await screen.findByText('Beginner Foil');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete beginner foil/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /delete beginner foil/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(deletedId).toBe('class-1'));
     await waitFor(() => expect(screen.queryByText('Beginner Foil')).not.toBeInTheDocument());
@@ -137,8 +147,8 @@ describe('ClassesPage', () => {
     render(<ClassesPage />);
     await screen.findByText('Beginner Foil');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete beginner foil/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /delete beginner foil/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     expect(await screen.findByText('Cannot Delete')).toBeInTheDocument();
     expect(screen.getByText('Cannot delete: 1 schedule(s) reference this class.')).toBeInTheDocument();

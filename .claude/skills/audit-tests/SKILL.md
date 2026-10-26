@@ -313,8 +313,8 @@ Triage every candidate, because the script cannot tell these apart:
 - **Composed / intentional**: the app could build the text at runtime, and the test
   proves it does not. Note it as such and move on.
 
-Baseline (2026-10-26): 73 test files, 117 literal negative assertions, 2 candidates,
-both intentional: `app/parent/register/__tests__/page.test.tsx:541-542` (`$210.71`,
+Baseline (2026-10-26, after testing PR D): 75 test files, 117 literal negative assertions, 2
+candidates, both intentional: `app/parent/register/__tests__/page.test.tsx:549-550` (`$210.71`,
 `$134.50`). Each asserts that the page never shows a sum it computed itself, because
 the backend is the only source of billing figures (CLAUDE.md hard rule 7).
 

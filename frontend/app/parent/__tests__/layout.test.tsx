@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import ParentLayout from '../layout';
 import { AuthProvider } from '../../context/AuthContext';
@@ -21,7 +22,7 @@ const server = setupServer(
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();

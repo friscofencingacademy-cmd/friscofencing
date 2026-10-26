@@ -1,8 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import SchedulesPage from '../page';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const GROUP_CLASS = { _id: 'class-1', name: 'Beginner Foil' };
 const COACH = { _id: 'coach-1', firstName: 'Cathy', lastName: 'Coach' };
@@ -31,7 +39,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -63,15 +71,15 @@ describe('SchedulesPage', () => {
     render(<SchedulesPage />);
     await screen.findByText('Beginner Foil');
 
-    fireEvent.click(screen.getByRole('button', { name: /add schedule/i }));
+    await user.click(screen.getByRole('button', { name: /add schedule/i }));
 
-    fireEvent.change(screen.getByLabelText('Class'), { target: { value: 'class-1' } });
-    fireEvent.change(screen.getByLabelText('Coach'), { target: { value: 'coach-1' } });
-    fireEvent.change(screen.getByLabelText('Day of Week'), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText('Start Time'), { target: { value: '18:00' } });
-    fireEvent.change(screen.getByLabelText('End Time'), { target: { value: '19:00' } });
+    await user.selectOptions(screen.getByLabelText('Class'), 'class-1');
+    await user.selectOptions(screen.getByLabelText('Coach'), 'coach-1');
+    await user.selectOptions(screen.getByLabelText('Day of Week'), '1');
+    await user.type(screen.getByLabelText('Start Time'), '18:00');
+    await user.type(screen.getByLabelText('End Time'), '19:00');
 
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createdPayload).toEqual({

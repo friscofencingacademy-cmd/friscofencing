@@ -16,15 +16,11 @@ const path = require('path');
 const TESTS_ROOT = path.join(__dirname, '..');
 
 // Forward-slash paths relative to backend/tests — a regex on the raw path
-// silently fails on Windows backslashes. Each entry says why; a "PR D" entry
-// is removed by the PR that pins that file's clock, and the "still needed"
-// test below forces that removal.
+// silently fails on Windows backslashes. Each entry says why, and the "still
+// needed" test below fails once an exempted file pins its clock. Pin the clock
+// (tests/testUtils/clock.js's freezeAt) rather than adding an entry.
 const EXEMPT = new Map([
   ['guards/realClockDateHelperGuard.test.js', 'this guard (its self-test strings contain the flagged calls)'],
-  ['routes/kiosk.routes.test.js', 'PR D pins the clock'],
-  ['services/kiosk.service.test.js', 'PR D pins the clock'],
-  ['services/renewal.previewAndCharge.test.js', 'PR D pins the clock'],
-  ['services/renewal.service.test.js', 'PR D pins the clock'],
 ]);
 
 // A call reads the real clock whatever its argument (the argument is a timezone).
@@ -33,8 +29,8 @@ const FLAGGED_PATTERNS = [/\btodayAtMidnight\(/, /\btodayDateOnly\(/];
 const COMMENT_LINE = /^\s*(\/\/|\/?\*)/;
 
 // A bare jest.useFakeTimers() starts at the REAL time, so it is not a pin;
-// only a literal `now` (or setSystemTime / testUtils' freezeDate) is.
-const PINNED_PATTERNS = [/useFakeTimers\(\s*\{[^}]*\bnow\b/s, /setSystemTime\(/, /\bfreezeDate\(/];
+// only a literal `now` (or setSystemTime / testUtils' freezeAt or freezeDate) is.
+const PINNED_PATTERNS = [/useFakeTimers\(\s*\{[^}]*\bnow\b/s, /setSystemTime\(/, /\bfreezeAt\(/, /\bfreezeDate\(/];
 
 function isClockPinned(content) {
   return PINNED_PATTERNS.some((re) => re.test(content));
@@ -82,7 +78,7 @@ describe('real-clock date-helper guard', () => {
     if (offenders.length > 0) {
       throw new Error(
         `Tests call a real-clock date helper without pinning the clock:\n  ${offenders.join('\n  ')}\n` +
-          "Pin a literal instant (jest.useFakeTimers({ now: ..., doNotFake: [...] }), or testUtils' freezeDate) " +
+          "Pin a literal instant with tests/testUtils/clock.js's freezeAt('<ISO instant>') " +
           'and assert literal dates. See docs/TESTING_STRATEGY.md.'
       );
     }
@@ -121,7 +117,8 @@ describe('real-clock date-helper guard', () => {
       expect(findViolations('jest.useFakeTimers();\ntodayDateOnly();')).toEqual([2]);
     });
 
-    it('does not flag calls in a file pinned with a literal now, setSystemTime or freezeDate', () => {
+    it('does not flag calls in a file pinned with a literal now, setSystemTime, freezeAt or freezeDate', () => {
+      expect(findViolations("freezeAt('2026-10-15T15:00:00.000Z');\ntodayDateOnly();")).toEqual([]);
       expect(findViolations("jest.useFakeTimers({\n  now: new Date('2026-10-15T15:00:00Z'),\n});\ntodayDateOnly();")).toEqual([]);
       expect(findViolations("jest.setSystemTime(new Date('2026-10-15T15:00:00Z'));\ntodayAtMidnight();")).toEqual([]);
       expect(findViolations('freezeDate();\ntodayDateOnly();')).toEqual([]);
