@@ -26,6 +26,7 @@ function makeFakePaymentProvider(overrides = {}) {
       providerEventType: 'fake.event',
       raw: {},
     }),
+    publicConfig: jest.fn().mockReturnValue({ publicKey: 'fake_public' }),
     ...overrides,
   };
 

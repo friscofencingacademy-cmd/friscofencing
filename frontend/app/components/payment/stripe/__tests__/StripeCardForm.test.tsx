@@ -3,31 +3,32 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { onUnhandledRequest } from '../../../../test-utils/msw';
+import { onUnhandledRequest } from '../../../../../test-utils/msw';
 
-import PaymentMethodCardForm from '../PaymentMethodCardForm';
+import type { loadStripe } from '@stripe/stripe-js';
 
-let user: ReturnType<typeof userEvent.setup>;
+import StripeCardForm from '../StripeCardForm';
 
-beforeEach(() => {
-  user = userEvent.setup();
-});
-
-// Same Stripe-mocking approach as payment-method/__tests__/page.test.tsx —
-// CardElement renders into a cross-origin iframe jsdom can't simulate, so
-// the third-party SDK is stubbed directly (not our own service layer). The
-// real POST /payment-methods call still goes through MSW as normal.
+// CardElement renders into a cross-origin iframe jsdom can't simulate, so the
+// third-party SDK is stubbed directly (docs/TESTING_STRATEGY.md's named
+// external-SDK exception — not our own service layer). The real
+// POST /payment-methods call still goes through MSW as normal.
 const createPaymentMethodMock = jest.fn();
+// Typed from the real function, so an SDK signature change fails compilation.
+const loadStripeMock = jest.fn<ReturnType<typeof loadStripe>, Parameters<typeof loadStripe>>(() => Promise.resolve(null));
+
+jest.mock('@stripe/stripe-js', () => ({
+  loadStripe: (...args: Parameters<typeof loadStripe>) => loadStripeMock(...args),
+}));
 
 jest.mock('@stripe/react-stripe-js', () => ({
+  Elements: ({ children }: { children: ReactNode }) => <>{children}</>,
   CardElement: () => <div data-testid="card-element" />,
   useStripe: () => ({ createPaymentMethod: createPaymentMethodMock }),
   useElements: () => ({ getElement: () => ({}) }),
 }));
 
-function Wrapper({ children }: { children: ReactNode }) {
-  return <>{children}</>;
-}
+const PUBLISHABLE_KEY = 'pk_test_from_backend_config';
 
 const SAVED_CARD = {
   _id: 'pm-1',
@@ -48,7 +49,12 @@ const server = setupServer(
   })
 );
 
+let user: ReturnType<typeof userEvent.setup>;
+
 beforeAll(() => server.listen({ onUnhandledRequest }));
+beforeEach(() => {
+  user = userEvent.setup();
+});
 afterEach(() => {
   server.resetHandlers();
   createPaymentMethodMock.mockReset();
@@ -56,15 +62,13 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-describe('PaymentMethodCardForm', () => {
+describe('StripeCardForm', () => {
   it('saves the card and calls onSaved with the real backend response', async () => {
     createPaymentMethodMock.mockResolvedValue({ paymentMethod: STRIPE_PAYMENT_METHOD });
     const onSaved = jest.fn();
 
     render(
-      <Wrapper>
-        <PaymentMethodCardForm onSaved={onSaved} />
-      </Wrapper>
+      <StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={onSaved} />
     );
 
     expect(screen.getByTestId('card-element')).toBeInTheDocument();
@@ -81,16 +85,12 @@ describe('PaymentMethodCardForm', () => {
 
   it('uses a custom submitLabel when provided, defaulting to "Save Card" otherwise', () => {
     const { rerender } = render(
-      <Wrapper>
-        <PaymentMethodCardForm onSaved={jest.fn()} />
-      </Wrapper>
+      <StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={jest.fn()} />
     );
     expect(screen.getByRole('button', { name: 'Save Card' })).toBeInTheDocument();
 
     rerender(
-      <Wrapper>
-        <PaymentMethodCardForm onSaved={jest.fn()} submitLabel="Add Card" />
-      </Wrapper>
+      <StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={jest.fn()} submitLabel="Add Card" />
     );
     expect(screen.getByRole('button', { name: 'Add Card' })).toBeInTheDocument();
   });
@@ -100,9 +100,7 @@ describe('PaymentMethodCardForm', () => {
     const onSaved = jest.fn();
 
     render(
-      <Wrapper>
-        <PaymentMethodCardForm onSaved={onSaved} />
-      </Wrapper>
+      <StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={onSaved} />
     );
 
     await user.click(screen.getByRole('button', { name: /save card/i }));
@@ -125,9 +123,7 @@ describe('PaymentMethodCardForm', () => {
     const onSaved = jest.fn();
 
     render(
-      <Wrapper>
-        <PaymentMethodCardForm onSaved={onSaved} />
-      </Wrapper>
+      <StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={onSaved} />
     );
 
     await user.click(screen.getByRole('button', { name: /save card/i }));
@@ -137,5 +133,12 @@ describe('PaymentMethodCardForm', () => {
     });
 
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('loads Stripe.js once per publishable key, with the key the backend served', () => {
+    render(<StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={jest.fn()} />);
+    render(<StripeCardForm publishableKey={PUBLISHABLE_KEY} onSaved={jest.fn()} />);
+
+    expect(loadStripeMock.mock.calls.filter(([key]) => key === PUBLISHABLE_KEY)).toHaveLength(1);
   });
 });

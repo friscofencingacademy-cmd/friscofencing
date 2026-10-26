@@ -42,12 +42,11 @@ export default defineConfig({
   ],
   // Builds+starts the real Next.js app once per run and reuses it locally
   // (fast iteration); CI always starts fresh so a stale build can't mask a
-  // real breakage. `next build` needs NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY at
-  // build time (lib/stripe.ts's module-scope loadStripe() call) — set here
-  // to Stripe's own published example test publishable key (not secret by
-  // design, safe to commit) rather than assumed present in the environment.
-  // See docs/plans/e2e-testing-plan.md's D11 for why BACKEND_URL needs no
-  // equivalent entry: every backend call is mocked before it ever reaches
+  // real breakage. The build needs no payment-provider key: the card form
+  // reads the active provider's public config from GET /payments/config at
+  // runtime (mocked in fixtures/mock-api.ts — docs/decisions/013). See
+  // docs/plans/e2e-testing-plan.md's D11 for why BACKEND_URL needs no entry
+  // either: every backend call is mocked before it ever reaches
   // next.config.js's rewrite.
   //
   // NEXT_PUBLIC_API_URL is pinned EMPTY so the build is hermetic: a developer's
@@ -63,7 +62,6 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       PORT: String(PORT),
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_TYooMQauvdEDq54NiTphI7jx',
       NEXT_PUBLIC_API_URL: '',
     },
   },

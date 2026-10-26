@@ -225,7 +225,7 @@ afterAll(() => server.close());
 
 - `next/navigation` (`useRouter`, `usePathname`, `useSearchParams`, `useParams`, `redirect`) — there is no real Next.js router in a Jest/jsdom environment to exercise; mocking it is the only option, not a shortcut.
 - A context provider, when the test's whole point is isolating one consumer component from the rest of that context's tree (rare — prefer rendering with the real provider + MSW, as every test in this repo does today).
-- `@stripe/react-stripe-js`'s `CardElement`/`Elements`/`useStripe`/`useElements` — `CardElement` renders into a cross-origin iframe that jsdom cannot simulate at all; there is no way to "type a card number" into it in a test environment. This is an external-SDK exception, not our own service boundary — the real `POST /payment-methods` call the page makes afterward still goes through MSW like any other endpoint.
+- A payment provider's browser SDK — `@stripe/stripe-js`'s `loadStripe` and `@stripe/react-stripe-js`'s `CardElement`/`Elements`/`useStripe`/`useElements` (and, from payment PR 5, Square's Web Payments SDK through a `window.Square` stub) — the card field renders into a cross-origin iframe that jsdom cannot simulate at all; there is no way to "type a card number" into it in a test environment. This is an external-SDK exception, not our own service boundary — `GET /payments/config` and the `POST /payment-methods` call the form makes afterward still go through MSW like any other endpoint. Type an SDK stub from the real function (`jest.fn<ReturnType<typeof loadStripe>, Parameters<typeof loadStripe>>()`), never bare. Only `app/components/payment/` may import a provider SDK in production code (`lib/__tests__/guards/paymentSdkBoundaryGuard.test.ts`).
 
 ### Typed fixtures
 
@@ -260,6 +260,7 @@ All in `frontend/lib/__tests__/guards/`, each with a matcher self-test and a sca
 - **`e2eCatchAllGuard.test.ts`** — only `e2e/fixtures/mock-api.ts` may register a `**/api/v1/**` route.
 - **`e2eMockLayerGuard.test.ts`** — every spec imports `test` from `fixtures/test`, never as a value from `@playwright/test`.
 - **`e2eWaitOrderGuard.test.ts`** — no directly awaited `page.waitForResponse`/`waitForRequest`, no synthetic `visibilitychange`.
+- **`paymentSdkBoundaryGuard.test.ts`** — in production code, only `app/components/payment/` loads or calls a payment provider's browser SDK (`@stripe/*`, and Square's CDN script or `window.Square` from payment PR 5); pages render `<PaymentMethodCollector>`. Tests may stub an SDK (`docs/decisions/013-payment-provider-port.md`).
 - **`selfHostedFontsGuard.test.ts`** — no file loads fonts from Google; every font file `app/layout.tsx` points at exists (a `next/font/google` build-time fetch failed a develop build, 2026-09-30).
 - **`playwrightVersionGuard.test.ts`** — `@playwright/test`, `playwright-core` and the CI Playwright image tag are the same version.
 - **`portalTableWrapGuard.test.ts`** — every table styled with the portal's shared `.table` sits directly inside a `.tableWrap` (`overflow-x: auto`), so a wide table scrolls in its own box instead of the whole page on a phone.

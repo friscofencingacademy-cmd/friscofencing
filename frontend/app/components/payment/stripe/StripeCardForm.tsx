@@ -1,28 +1,50 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import axios from 'axios';
-import { CardElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
+import { loadStripe, type Stripe } from '@stripe/stripe-js';
 
-import api from '../../../lib/api';
-import type { PaymentMethodInfo } from '../../../lib/types';
-import Button from '../ui/Button/Button';
-import Card from '../ui/Card/Card';
-import Alert from '../ui/Alert/Alert';
-import styles from '../ui/shared.module.css';
+import { savePaymentMethod } from '../../../../lib/services/parent';
+import type { PaymentMethodInfo } from '../../../../lib/types';
+import Button from '../../ui/Button/Button';
+import Card from '../../ui/Card/Card';
+import Alert from '../../ui/Alert/Alert';
+import styles from '../../ui/shared.module.css';
 
-export interface PaymentMethodCardFormProps {
+export interface StripeCardFormProps {
+  publishableKey: string;
   onSaved: (paymentMethod: PaymentMethodInfo) => void;
   submitLabel?: string;
 }
 
-// The one Stripe CardElement integration in the app — extracted here so
-// /parent/payment-method and the register wizard's inline "add a card"
-// step both call the exact same save path (stripe.createPaymentMethod ->
-// POST /payment-methods) rather than each having their own copy. Must be
-// rendered inside a Stripe <Elements> provider — callers own that wrapping,
-// since each page mounts it at a different point in its own tree.
-export default function PaymentMethodCardForm({ onSaved, submitLabel = 'Save Card' }: PaymentMethodCardFormProps) {
+// One Stripe.js instance per publishable key for the life of the page —
+// Stripe's own recommended pattern (loadStripe must not run on every render).
+const stripePromises = new Map<string, Promise<Stripe | null>>();
+
+function stripeFor(publishableKey: string): Promise<Stripe | null> {
+  let promise = stripePromises.get(publishableKey);
+
+  if (!promise) {
+    promise = loadStripe(publishableKey);
+    stripePromises.set(publishableKey, promise);
+  }
+
+  return promise;
+}
+
+// The Stripe card form — rendered only by PaymentMethodCollector when Stripe
+// is the active provider. This folder (components/payment/) is the only place
+// a provider SDK may be imported (lib/__tests__/guards/paymentSdkBoundaryGuard.test.ts).
+// Owns its own <Elements> provider, so callers know nothing about Stripe.
+export default function StripeCardForm({ publishableKey, onSaved, submitLabel = 'Save Card' }: StripeCardFormProps) {
+  return (
+    <Elements stripe={stripeFor(publishableKey)}>
+      <StripeCardFields onSaved={onSaved} submitLabel={submitLabel} />
+    </Elements>
+  );
+}
+
+function StripeCardFields({ onSaved, submitLabel }: Omit<StripeCardFormProps, 'publishableKey'>) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -56,16 +78,14 @@ export default function PaymentMethodCardForm({ onSaved, submitLabel = 'Save Car
         return;
       }
 
-      const res = await api.post<{ paymentMethod: PaymentMethodInfo }>('/payment-methods', {
-        paymentMethodToken: result.paymentMethod.id,
-      });
+      const saved = await savePaymentMethod(result.paymentMethod.id);
 
-      onSaved(res.data.paymentMethod);
-    } catch (err) {
-      const message = axios.isAxiosError(err) && err.response?.data?.message
-        ? err.response.data.message
-        : 'Failed to save card. Please try again.';
-      setError(message);
+      if (saved.status === 'error') {
+        setError(saved.message);
+        return;
+      }
+
+      onSaved(saved.data);
     } finally {
       setSubmitting(false);
     }

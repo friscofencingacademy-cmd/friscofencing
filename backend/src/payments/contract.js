@@ -82,6 +82,11 @@
  *   for that reference, or null (always null when !capabilities.findByReference).
  * @property {(args: { rawBody: Buffer, headers: Object }) => Promise<NormalizedWebhookEvent>} verifyWebhook
  *   Throws httpError(400, `Webhook signature verification failed: <reason>`) on a bad or missing signature.
+ * @property {() => Object} publicConfig
+ *   What this provider's BROWSER card form needs to tokenize a card — public
+ *   identifiers only, never a secret. Served by GET /api/v1/payments/config as
+ *   `{ provider: name, [name]: publicConfig() }`. Throws when the provider is
+ *   selected but its public configuration is missing (a deployment defect).
  */
 
 // Every provider an adapter exists or is planned for — the ONE list the
@@ -98,6 +103,7 @@ const REQUIRED_MEMBERS = [
   'detachPaymentMethod',
   'findPayment',
   'verifyWebhook',
+  'publicConfig',
 ];
 
 /**

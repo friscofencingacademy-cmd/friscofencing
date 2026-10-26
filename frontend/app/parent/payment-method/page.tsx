@@ -1,15 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Elements } from '@stripe/react-stripe-js';
 
 import api from '../../../lib/api';
-import stripePromise from '../../../lib/stripe';
 import type { PaymentMethodInfo } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import Alert from '../../components/ui/Alert/Alert';
-import PaymentMethodCardForm from '../../components/portal/PaymentMethodCardForm';
+import PaymentMethodCollector from '../../components/payment/PaymentMethodCollector';
 import styles from '../../components/ui/shared.module.css';
 
 function PaymentMethodPageContent() {
@@ -88,9 +86,7 @@ function PaymentMethodPageContent() {
           </Button>
         </Card>
       ) : (
-        <Elements stripe={stripePromise}>
-          <PaymentMethodCardForm onSaved={handleSaved} />
-        </Elements>
+        <PaymentMethodCollector onSaved={handleSaved} />
       )}
     </main>
   );
