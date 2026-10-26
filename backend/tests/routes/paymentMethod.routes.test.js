@@ -57,9 +57,9 @@ describe('PaymentMethod routes', () => {
       const parent = await seedUser({ role: 'parent', email: 'pm-parent1@example.com' });
       const parentAgent = await loginAgent('pm-parent1@example.com');
 
-      const stripePaymentMethodId = await mintCardToken('success');
+      const paymentMethodToken = await mintCardToken('success');
 
-      const res = await parentAgent.post('/api/v1/payment-methods').send({ stripePaymentMethodId });
+      const res = await parentAgent.post('/api/v1/payment-methods').send({ paymentMethodToken });
 
       expect(res.status).toBe(201);
       const card = successCardDetails();
@@ -71,14 +71,16 @@ describe('PaymentMethod routes', () => {
       expect(res.body.paymentMethod.cardExpYear).toBeGreaterThan(2020);
 
       const updatedUser = await User.findById(parent._id);
-      expect(typeof updatedUser.stripeCustomerId).toBe('string');
-      expect(updatedUser.stripeCustomerId.length).toBeGreaterThan(0);
+      expect(typeof updatedUser.providerCustomerId).toBe('string');
+      expect(updatedUser.providerCustomerId.length).toBeGreaterThan(0);
 
       // The stored card is the one actually attached to this parent's own
       // provider customer — and the only one.
       const savedDoc = await PaymentMethod.findOne({ parentId: parent._id });
       expect(savedDoc).not.toBeNull();
-      expect(await listCustomerCards(parent._id)).toEqual([savedDoc.stripePaymentMethodId]);
+      expect(savedDoc.provider).toBe('stripe');
+      expect(updatedUser.paymentProvider).toBe('stripe');
+      expect(await listCustomerCards(parent._id)).toEqual([savedDoc.providerPaymentMethodId]);
     }, 20000);
 
     it('replaces the existing card when a parent saves a second one', async () => {
@@ -87,24 +89,24 @@ describe('PaymentMethod routes', () => {
 
       const firstRes = await parentAgent
         .post('/api/v1/payment-methods')
-        .send({ stripePaymentMethodId: await mintCardToken('success') });
+        .send({ paymentMethodToken: await mintCardToken('success') });
       expect(firstRes.status).toBe(201);
-      const firstCardId = (await PaymentMethod.findOne({ parentId: parent._id })).stripePaymentMethodId;
+      const firstCardId = (await PaymentMethod.findOne({ parentId: parent._id })).providerPaymentMethodId;
 
       const secondRes = await parentAgent
         .post('/api/v1/payment-methods')
-        .send({ stripePaymentMethodId: await mintCardToken('success') });
+        .send({ paymentMethodToken: await mintCardToken('success') });
       expect(secondRes.status).toBe(201);
 
       // Still exactly one doc for this parent (unique index), pointing at
       // the new card, not the old one.
       const docs = await PaymentMethod.find({ parentId: parent._id });
       expect(docs).toHaveLength(1);
-      expect(docs[0].stripePaymentMethodId).not.toBe(firstCardId);
+      expect(docs[0].providerPaymentMethodId).not.toBe(firstCardId);
 
       // The old card was actually detached from the provider customer, not
       // left orphaned: only the new card is attached.
-      expect(await listCustomerCards(parent._id)).toEqual([docs[0].stripePaymentMethodId]);
+      expect(await listCustomerCards(parent._id)).toEqual([docs[0].providerPaymentMethodId]);
     }, 30000);
 
     it(
@@ -117,7 +119,7 @@ describe('PaymentMethod routes', () => {
 
         const res = await parentAgent
           .post('/api/v1/payment-methods')
-          .send({ stripePaymentMethodId: declinePaymentMethodId });
+          .send({ paymentMethodToken: declinePaymentMethodId });
 
         expect(res.status).toBe(402);
         expect(res.body.message).toBeTruthy();
@@ -126,7 +128,7 @@ describe('PaymentMethod routes', () => {
         // runs BEFORE the attach and succeeds regardless — only the attach
         // itself fails.
         const updatedUser = await User.findById(parent._id);
-        expect(typeof updatedUser.stripeCustomerId).toBe('string');
+        expect(typeof updatedUser.providerCustomerId).toBe('string');
 
         expect(await PaymentMethod.countDocuments({ parentId: parent._id })).toBe(0);
 
@@ -137,15 +139,50 @@ describe('PaymentMethod routes', () => {
       20000
     );
 
+    it('replaces a card saved with a provider that is no longer active, without calling that provider (plan D7)', async () => {
+      const parent = await seedUser({ role: 'parent', email: 'pm-switched@example.com' });
+      await PaymentMethod.create({
+        parentId: parent._id,
+        provider: 'square',
+        providerPaymentMethodId: 'ccof:card-from-the-previous-provider',
+        cardBrand: 'MASTERCARD',
+        cardLast4: '9999',
+        cardExpMonth: 1,
+        cardExpYear: 2031,
+      });
+      const parentAgent = await loginAgent('pm-switched@example.com');
+
+      // The old card's id is not a Stripe id, so any detach call on the
+      // active provider for it would fail the request — a 201 proves none was made.
+      const res = await parentAgent.post('/api/v1/payment-methods').send({ paymentMethodToken: await mintCardToken('success') });
+
+      expect(res.status).toBe(201);
+      const docs = await PaymentMethod.find({ parentId: parent._id });
+      expect(docs).toHaveLength(1);
+      expect(docs[0].provider).toBe('stripe');
+      expect(await listCustomerCards(parent._id)).toEqual([docs[0].providerPaymentMethodId]);
+    }, 30000);
+
+    it('returns 400 and saves nothing when no paymentMethodToken is sent', async () => {
+      const parent = await seedUser({ role: 'parent', email: 'pm-notoken@example.com' });
+      const parentAgent = await loginAgent('pm-notoken@example.com');
+
+      const res = await parentAgent.post('/api/v1/payment-methods').send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('paymentMethodToken is required');
+      expect(await PaymentMethod.countDocuments({ parentId: parent._id })).toBe(0);
+    });
+
     it('returns 403 when a non-parent role attempts to save a card', async () => {
       await seedUser({ role: 'admin', email: 'pm-admin1@example.com' });
       const adminAgent = await loginAgent('pm-admin1@example.com');
 
-      const stripePaymentMethodId = await mintCardToken('success');
+      const paymentMethodToken = await mintCardToken('success');
 
       const res = await adminAgent
         .post('/api/v1/payment-methods')
-        .send({ stripePaymentMethodId });
+        .send({ paymentMethodToken });
 
       expect(res.status).toBe(403);
     }, 20000);
@@ -156,8 +193,8 @@ describe('PaymentMethod routes', () => {
       await seedUser({ role: 'parent', email: 'pm-parent3@example.com' });
       const parentAgent = await loginAgent('pm-parent3@example.com');
 
-      const stripePaymentMethodId = await mintCardToken('success');
-      await parentAgent.post('/api/v1/payment-methods').send({ stripePaymentMethodId });
+      const paymentMethodToken = await mintCardToken('success');
+      await parentAgent.post('/api/v1/payment-methods').send({ paymentMethodToken });
 
       const res = await parentAgent.get('/api/v1/payment-methods/mine');
 
@@ -168,6 +205,27 @@ describe('PaymentMethod routes', () => {
         cardLast4: card.last4,
       });
     }, 20000);
+
+    it('returns null for a card saved with a provider that is no longer active — "no card on file" (plan D7)', async () => {
+      const parent = await seedUser({ role: 'parent', email: 'pm-inactive@example.com' });
+      await PaymentMethod.create({
+        parentId: parent._id,
+        provider: 'square',
+        providerPaymentMethodId: 'ccof:inactive-provider-card',
+        cardBrand: 'VISA',
+        cardLast4: '1111',
+        cardExpMonth: 1,
+        cardExpYear: 2031,
+      });
+      const parentAgent = await loginAgent('pm-inactive@example.com');
+
+      const res = await parentAgent.get('/api/v1/payment-methods/mine');
+
+      expect(res.status).toBe(200);
+      expect(res.body.paymentMethod).toBeNull();
+      // Kept, never deleted — switching back makes it usable again.
+      expect(await PaymentMethod.countDocuments({ parentId: parent._id })).toBe(1);
+    });
 
     it('returns null when the parent has no saved card yet', async () => {
       await seedUser({ role: 'parent', email: 'pm-parent4@example.com' });

@@ -120,12 +120,14 @@ export async function fetchMyPaymentMethod(): Promise<PaymentMethodInfo | null> 
   return res.data.paymentMethod;
 }
 
+// `paymentMethodToken` is what the active payment provider's browser card
+// form produced (docs/decisions/013-payment-provider-port.md).
 export async function savePaymentMethod(
-  stripePaymentMethodId: string
+  paymentMethodToken: string
 ): Promise<MutationResult<PaymentMethodInfo>> {
   try {
     const res = await api.post<{ paymentMethod: PaymentMethodInfo }>('/payment-methods', {
-      stripePaymentMethodId,
+      paymentMethodToken,
     });
     return { status: 'success', data: res.data.paymentMethod };
   } catch (err) {

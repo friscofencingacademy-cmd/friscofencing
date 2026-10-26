@@ -56,8 +56,11 @@ async function advanceSubscriptionPeriod(
 // — does NOT touch the Registration row, the Subscription, or send any email.
 // A card decline is a resolved `status: 'failed'` from the port, never a
 // throw (docs/plans/payment-provider-port-plan.md D3); anything else the
-// provider throws propagates unchanged.
-async function chargeLedgerRow({ row, paymentMethod, stripeCustomerId, attemptNumber = 1 }) {
+// provider throws propagates unchanged. The result names the provider the
+// attempt went through and its payment id (null when a decline produced no
+// payment object), for the row's `provider`/`providerPaymentId`.
+async function chargeLedgerRow({ row, paymentMethod, providerCustomerId, attemptNumber = 1 }) {
+  const provider = getPaymentProvider();
   const idempotencyKey =
     attemptNumber > 1 ? `payment_${row._id}_retry${attemptNumber}` : `payment_${row._id}`;
   // Stored with the payment itself — stale-pending recovery looks a payment
@@ -67,20 +70,20 @@ async function chargeLedgerRow({ row, paymentMethod, stripeCustomerId, attemptNu
       ? { registrationId: String(row._id), retry: String(attemptNumber) }
       : { registrationId: String(row._id) };
 
-  const result = await getPaymentProvider().charge({
+  const result = await provider.charge({
     amount: row.amount,
-    customerId: stripeCustomerId,
-    paymentMethodId: paymentMethod.stripePaymentMethodId,
+    customerId: providerCustomerId,
+    paymentMethodId: paymentMethod.providerPaymentMethodId,
     idempotencyKey,
     reference: String(row._id),
     metadata,
   });
 
   if (result.status !== 'succeeded') {
-    return { outcome: 'failed', failureMessage: result.failureMessage, paymentIntentId: result.id };
+    return { outcome: 'failed', failureMessage: result.failureMessage, provider: provider.name, paymentId: result.id };
   }
 
-  return { outcome: 'succeeded', paymentIntentId: result.id };
+  return { outcome: 'succeeded', provider: provider.name, paymentId: result.id };
 }
 
 // `chargeAmount` defaults to the ledger row's own `amount` — correct for a
@@ -92,11 +95,12 @@ async function chargeLedgerRow({ row, paymentMethod, stripeCustomerId, attemptNu
 // .lastChargeAmount must stay the recurring monthly amount only, never the
 // one-time fee folded in (the fee is tracked in its own field and never
 // recurs).
-async function finalizeSuccessfulCharge({ row, subscription, paymentIntentId, chargeAmount = row.amount, siblingDiscountApplied, attemptNumber = 1 }) {
+async function finalizeSuccessfulCharge({ row, subscription, provider, paymentId, chargeAmount = row.amount, siblingDiscountApplied, attemptNumber = 1 }) {
   await SubscriptionCycleRegistration.findByIdAndUpdate(row._id, {
     $set: {
       status: 'completed',
-      stripePaymentIntentId: paymentIntentId,
+      provider,
+      providerPaymentId: paymentId,
       paidAt: new Date(),
       attempt: attemptNumber,
     },
@@ -112,12 +116,13 @@ async function finalizeSuccessfulCharge({ row, subscription, paymentIntentId, ch
   };
 }
 
-async function finalizeFailedCharge({ row, subscription, failureMessage, paymentIntentId, attemptNumber = 1 }) {
+async function finalizeFailedCharge({ row, subscription, failureMessage, provider, paymentId, attemptNumber = 1 }) {
   await SubscriptionCycleRegistration.findByIdAndUpdate(row._id, {
     $set: {
       status: 'failed',
       failureMessage,
-      stripePaymentIntentId: paymentIntentId,
+      provider,
+      providerPaymentId: paymentId,
       attempt: attemptNumber,
     },
   });
@@ -149,14 +154,15 @@ async function finalizeFailedCharge({ row, subscription, failureMessage, payment
 // the "charge -> finalize" sequencing is defined exactly once. The caller
 // branches on `result.outcome` to decide which email to send and (for a
 // brand-new registration only) whether to grant roster access.
-async function chargeAndFinalize({ row, subscription, paymentMethod, stripeCustomerId, chargeAmount, siblingDiscountApplied, attemptNumber = 1 }) {
-  const result = await chargeLedgerRow({ row, paymentMethod, stripeCustomerId, attemptNumber });
+async function chargeAndFinalize({ row, subscription, paymentMethod, providerCustomerId, chargeAmount, siblingDiscountApplied, attemptNumber = 1 }) {
+  const result = await chargeLedgerRow({ row, paymentMethod, providerCustomerId, attemptNumber });
 
   if (result.outcome === 'succeeded') {
     return finalizeSuccessfulCharge({
       row,
       subscription,
-      paymentIntentId: result.paymentIntentId,
+      provider: result.provider,
+      paymentId: result.paymentId,
       chargeAmount,
       siblingDiscountApplied,
       attemptNumber,
@@ -167,7 +173,8 @@ async function chargeAndFinalize({ row, subscription, paymentMethod, stripeCusto
     row,
     subscription,
     failureMessage: result.failureMessage,
-    paymentIntentId: result.paymentIntentId,
+    provider: result.provider,
+    paymentId: result.paymentId,
     attemptNumber,
   });
 }

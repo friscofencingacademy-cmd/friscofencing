@@ -148,7 +148,7 @@ async function seedParentAndStudent(email) {
 
 async function savePaymentMethodForParent(parent) {
   return paymentMethodService.savePaymentMethod(
-    { stripePaymentMethodId: await mintCardToken('success') },
+    { paymentMethodToken: await mintCardToken('success') },
     parent
   );
 }

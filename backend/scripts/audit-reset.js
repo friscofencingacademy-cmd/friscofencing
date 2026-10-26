@@ -126,8 +126,12 @@ async function main() {
       if (!paymentMethod) continue;
 
       try {
-        // eslint-disable-next-line no-await-in-loop
-        await getPaymentProvider().detachPaymentMethod({ paymentMethodId: paymentMethod.stripePaymentMethodId });
+        // Only the active provider can be told to detach; a card saved with
+        // another provider is unusable here and just has its doc deleted.
+        if (paymentMethod.provider === getPaymentProvider().name) {
+          // eslint-disable-next-line no-await-in-loop
+          await getPaymentProvider().detachPaymentMethod({ paymentMethodId: paymentMethod.providerPaymentMethodId });
+        }
       } catch (error) {
         // Already detached / never attached — not fatal, the doc deletion
         // below is what actually matters for a clean re-run.

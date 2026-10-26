@@ -63,7 +63,7 @@ describe('PaymentMethodCardForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
-      expect(postPayload).toEqual({ stripePaymentMethodId: STRIPE_PAYMENT_METHOD.id });
+      expect(postPayload).toEqual({ paymentMethodToken: STRIPE_PAYMENT_METHOD.id });
     });
 
     await waitFor(() => {

@@ -731,7 +731,7 @@ describe('Subscription routes', () => {
         expect(row.chargeMethod).toBe('manual');
         expect(row.manualNote).toBe('Paid by check #1042');
         expect(row.recordedBy.toString()).toBe(superadmin._id.toString());
-        expect(row.stripePaymentIntentId).toBeNull();
+        expect(row.providerPaymentId).toBeNull();
         expect(row.periodMonth).toBe('2026-02');
       }
     );

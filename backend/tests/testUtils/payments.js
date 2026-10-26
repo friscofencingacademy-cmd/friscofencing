@@ -61,15 +61,18 @@ function declineAtChargeCardId() {
   return 'pm_card_chargeDeclined';
 }
 
-/** The provider customer id our code stored for this user, read from our own database. */
+/**
+ * The ACTIVE provider's customer id our code stored for this user, read from
+ * our own database. Throws if the user has none on the active provider.
+ */
 async function customerIdOf(userId) {
-  const user = await User.findById(userId, 'stripeCustomerId').lean();
+  const user = await User.findById(userId, 'paymentProvider providerCustomerId').lean();
 
-  if (!user || !user.stripeCustomerId) {
-    throw new Error(`User ${userId} has no payment-provider customer yet`);
+  if (!user || !user.providerCustomerId || user.paymentProvider !== activeProviderName()) {
+    throw new Error(`User ${userId} has no ${activeProviderName()} customer yet`);
   }
 
-  return user.stripeCustomerId;
+  return user.providerCustomerId;
 }
 
 function toTestPayment(paymentIntent) {
@@ -106,9 +109,10 @@ async function listCustomerPayments(userId) {
 }
 
 /**
- * Asserts the exact charge a ledger row recorded: it exists, it succeeded, it
- * was for `expectedAmount` dollars, it carries the row's own id as its
- * reference, and it belongs to the row's own parent. Proves the
+ * Asserts the exact charge a ledger row recorded: the row names the active
+ * provider, the payment exists, it succeeded, it was for `expectedAmount`
+ * dollars, it carries the row's own id as its reference, and it belongs to
+ * the row's own parent. Proves the
  * ledger-to-provider link, not merely that some charge of that amount exists.
  * Returns the normalized payment.
  */
@@ -117,13 +121,15 @@ async function expectLedgerChargeSucceeded(ledgerRow, expectedAmount) {
     throw new Error('expectLedgerChargeSucceeded: no ledger row was found');
   }
 
-  if (!ledgerRow.stripePaymentIntentId) {
+  if (!ledgerRow.providerPaymentId) {
     throw new Error(
       `Ledger row ${ledgerRow._id} (status ${ledgerRow.status}) has no recorded payment id — no charge was recorded`
     );
   }
 
-  const payment = await retrievePayment(ledgerRow.stripePaymentIntentId);
+  expect(ledgerRow.provider).toBe(activeProviderName());
+
+  const payment = await retrievePayment(ledgerRow.providerPaymentId);
 
   expect(payment.status).toBe('succeeded');
   expect(payment.amount).toBeCloseTo(expectedAmount, 2);

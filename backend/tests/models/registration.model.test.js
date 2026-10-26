@@ -151,3 +151,26 @@ describe('Guard B — unique (subscriptionId, periodMonth) over pending/complete
     expect(marchRow.periodMonth).toBe('2026-03');
   });
 });
+
+describe('Registration.provider / providerPaymentId (docs/decisions/013-payment-provider-port.md)', () => {
+  it('defaults both to null — a row that never reached a payment provider names none', async () => {
+    const row = await SubscriptionCycleRegistration.create(baseRow());
+
+    expect(row.provider).toBeNull();
+    expect(row.providerPaymentId).toBeNull();
+  });
+
+  it('accepts every known provider name', async () => {
+    for (const [i, provider] of ['stripe', 'square'].entries()) {
+      // eslint-disable-next-line no-await-in-loop
+      const row = await SubscriptionCycleRegistration.create(
+        baseRow({ subscriptionId: new mongoose.Types.ObjectId(), provider, providerPaymentId: `pay_${i}` })
+      );
+      expect(row.provider).toBe(provider);
+    }
+  });
+
+  it('rejects a provider name that is not one of PROVIDER_NAMES', async () => {
+    await expect(SubscriptionCycleRegistration.create(baseRow({ provider: 'paypal' }))).rejects.toThrow(/provider/);
+  });
+});

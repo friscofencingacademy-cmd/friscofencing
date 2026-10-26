@@ -58,6 +58,16 @@ describe('getPaymentProvider', () => {
     expect(() => getPaymentProvider()).toThrow(/unknown PAYMENT_PROVIDER/);
   });
 
+  it('refuses an adapter whose name differs from the PAYMENT_PROVIDER it was selected by', () => {
+    process.env.PAYMENT_PROVIDER = 'stripe';
+    const real = jest.requireActual('../../src/payments/stripe/stripe.provider');
+    jest.doMock('../../src/payments/stripe/stripe.provider', () => ({ ...real, name: 'square' }));
+    const { getPaymentProvider } = require('../../src/payments');
+
+    expect(() => getPaymentProvider()).toThrow('[payments] adapter selected as "stripe" is named "square"');
+    jest.dontMock('../../src/payments/stripe/stripe.provider');
+  });
+
   it('refuses an adapter that does not implement the contract', () => {
     process.env.PAYMENT_PROVIDER = 'stripe';
     jest.doMock('../../src/payments/stripe/stripe.provider', () => ({ name: 'stripe' }));

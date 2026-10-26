@@ -90,11 +90,11 @@ async function loginAgent(email) {
 // POST /payment-methods route (Phase 7a) rather than reaching into the model
 // directly, so the provider-customer + attach side effects are the real ones.
 async function savePaymentMethodFor(parentAgent) {
-  const stripePaymentMethodId = await mintCardToken('success');
+  const paymentMethodToken = await mintCardToken('success');
 
   const res = await parentAgent
     .post('/api/v1/payment-methods')
-    .send({ stripePaymentMethodId });
+    .send({ paymentMethodToken });
 
   expect(res.status).toBe(201);
 }
@@ -348,8 +348,8 @@ describe('Registration routes', () => {
         expect(ledgerRow.periodStart).toBeInstanceOf(Date);
         expect(ledgerRow.periodEnd).toBeInstanceOf(Date);
         expect(ledgerRow.periodEnd.getTime()).toBeGreaterThan(ledgerRow.periodStart.getTime());
-        expect(typeof ledgerRow.stripePaymentIntentId).toBe('string');
-        expect(ledgerRow.stripePaymentIntentId).not.toHaveLength(0);
+        expect(typeof ledgerRow.providerPaymentId).toBe('string');
+        expect(ledgerRow.providerPaymentId).not.toHaveLength(0);
         expect(ledgerRow.paidAt).toBeInstanceOf(Date);
 
         const subscriptions = await Subscription.find({ studentId: student._id });
@@ -512,7 +512,7 @@ describe('Registration routes', () => {
         const parent = await User.findOne({ email: 'reg-decline@example.com' });
         await PaymentMethod.updateOne(
           { parentId: parent._id },
-          { stripePaymentMethodId: declineAtChargeCardId() }
+          { providerPaymentMethodId: declineAtChargeCardId() }
         );
 
         const res = await parentAgent.post('/api/v1/registrations').send({
@@ -584,7 +584,7 @@ describe('Registration routes', () => {
         const parent = await User.findOne({ email: 'reg-decline-exhaust@example.com' });
         await PaymentMethod.updateOne(
           { parentId: parent._id },
-          { stripePaymentMethodId: declineAtChargeCardId() }
+          { providerPaymentMethodId: declineAtChargeCardId() }
         );
 
         const res = await parentAgent.post('/api/v1/registrations').send({

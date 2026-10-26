@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
+const { PROVIDER_NAMES } = require('../payments/contract');
 
 // One saved card per parent for MVP, not multiple — the unique index on
 // parentId is the race-safety backstop behind the service-layer
@@ -14,7 +15,16 @@ const paymentMethodSchema = new Schema(
       required: true,
       unique: true,
     },
-    stripePaymentMethodId: {
+    // The payment provider this card is saved with, and that provider's own
+    // saved-card id. A card on a provider that is no longer active is treated
+    // as "no card on file" (paymentMethod.service.js getMine), never deleted —
+    // cards never move between providers (docs/plans/payment-provider-port-plan.md D7).
+    provider: {
+      type: String,
+      enum: PROVIDER_NAMES,
+      required: true,
+    },
+    providerPaymentMethodId: {
       type: String,
       required: true,
     },

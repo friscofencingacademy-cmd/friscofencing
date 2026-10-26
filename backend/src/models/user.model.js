@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
+const { PROVIDER_NAMES } = require('../payments/contract');
 
 // 'kiosk' is the front-desk sign-in tablet's account (docs/plans/kiosk-signin-
 // plan.md K1): login-capable, NOT an admin role — it can only reach the two
@@ -68,11 +69,20 @@ const userSchema = new Schema(
     dateOfBirth: {
       type: Date,
     },
-    // Set the first time a parent saves a card (paymentCustomer.service.js).
-    // Not schema-required: most users (students, coaches, admins who never
-    // pay) never get one. sparse: true for the same reason as email above —
-    // without it, every user missing this field would collide on `null`.
-    stripeCustomerId: {
+    // The payment provider customer this parent's cards hang on, and which
+    // provider it belongs to — set together, only by paymentCustomer.service.js
+    // (ensureCustomer), the first time a parent saves a card with the active
+    // provider. A customer on a provider that is no longer active is ignored
+    // and replaced on next use, never deleted
+    // (docs/plans/payment-provider-port-plan.md D7). Not schema-required: most
+    // users (students, coaches, admins who never pay) never get one.
+    // sparse: true for the same reason as email above — without it, every
+    // user missing this field would collide on `null`.
+    paymentProvider: {
+      type: String,
+      enum: PROVIDER_NAMES,
+    },
+    providerCustomerId: {
       type: String,
       unique: true,
       sparse: true,
@@ -80,7 +90,7 @@ const userSchema = new Schema(
     // The legacy system's stable per-person "PIN" (backend/scripts/
     // import-legacy-data.js). Only ever set on migrated students — sparse:
     // true so every non-migrated user (the overwhelming majority) omitting
-    // it never collides on `null`, same reasoning as email/stripeCustomerId
+    // it never collides on `null`, same reasoning as email/providerCustomerId
     // above. This is what makes the import script idempotent: re-running it
     // against a corrected export (e.g. the real data at go-live) upserts by
     // this field instead of duplicating.

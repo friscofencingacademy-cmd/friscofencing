@@ -57,7 +57,7 @@ export default function PaymentMethodCardForm({ onSaved, submitLabel = 'Save Car
       }
 
       const res = await api.post<{ paymentMethod: PaymentMethodInfo }>('/payment-methods', {
-        stripePaymentMethodId: result.paymentMethod.id,
+        paymentMethodToken: result.paymentMethod.id,
       });
 
       onSaved(res.data.paymentMethod);

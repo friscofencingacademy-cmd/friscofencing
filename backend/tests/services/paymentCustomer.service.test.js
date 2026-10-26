@@ -51,4 +51,48 @@ describe('ensureCustomer', () => {
 
     expect(one).not.toBe(two);
   }, 20000);
+
+  it('ignores a customer stored for a provider that is not the active one, and replaces it on the active provider (plan D7)', async () => {
+    const parent = await User.create({
+      role: 'parent',
+      firstName: 'Switched',
+      lastName: 'Provider',
+      email: 'pc-switched@example.com',
+      paymentProvider: 'square',
+      providerCustomerId: 'SQUARE_CUSTOMER_FROM_BEFORE',
+    });
+
+    const customerId = await ensureCustomer(parent);
+
+    expect(customerId).not.toBe('SQUARE_CUSTOMER_FROM_BEFORE');
+    const reloaded = await User.findById(parent._id).lean();
+    expect(reloaded.paymentProvider).toBe('stripe');
+    expect(reloaded.providerCustomerId).toBe(customerId);
+  }, 20000);
+
+  it('returns the stored customer for a stale in-memory user — never mints a second one', async () => {
+    const parent = await seedParent('pc-stale@example.com');
+    const first = await ensureCustomer(parent);
+
+    // `parent` was loaded before the customer existed and never refreshed.
+    const second = await ensureCustomer(parent);
+
+    expect(second).toBe(first);
+    expect(await customerIdOf(parent._id)).toBe(first);
+  }, 20000);
+
+  it('settles on ONE customer when two requests race for the same new parent', async () => {
+    const parent = await seedParent('pc-race@example.com');
+
+    const [a, b] = await Promise.all([ensureCustomer(parent), ensureCustomer(parent)]);
+
+    expect(a).toBe(b);
+    expect(await customerIdOf(parent._id)).toBe(a);
+  }, 20000);
+
+  it('throws a 404 for a user that does not exist', async () => {
+    const ghost = new User({ role: 'parent', firstName: 'No', lastName: 'Body', email: 'ghost@example.com' });
+
+    await expect(ensureCustomer(ghost)).rejects.toMatchObject({ status: 404 });
+  });
 });

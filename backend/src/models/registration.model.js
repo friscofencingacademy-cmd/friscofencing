@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 const { BILLING_SHAPES } = require('./service.model');
+const { PROVIDER_NAMES } = require('../payments/contract');
 
 const REGISTRATION_STATUSES = ['pending', 'completed', 'failed'];
 const REGISTRATION_EVENT_TYPES = ['initial', 'renewal', 'legacy'];
@@ -31,7 +32,7 @@ const REGISTRATION_EVENT_TYPES = ['initial', 'renewal', 'legacy'];
 // Mutation contract, on every row regardless of shape (enforced by code
 // discipline, not schema machinery): immutable after insert except the
 // `pending -> completed|failed` transition and retry's own updates to
-// `attempt` / `stripePaymentIntentId` / `failureMessage` / `paidAt` /
+// `attempt` / `provider` / `providerPaymentId` / `failureMessage` / `paidAt` /
 // `status`. Nothing ever rewrites `amount` or any shape-specific id
 // reference after insert.
 const registrationSchema = new Schema(
@@ -62,7 +63,19 @@ const registrationSchema = new Schema(
       type: Number,
       required: true,
     },
-    stripePaymentIntentId: {
+    // Which payment provider this row's charge attempt went through, and that
+    // provider's payment id — written by the charge path
+    // (chargeFinalization.service.js, privateClassEnrollment.service.js).
+    // `provider` is set on every attempt, a decline included;
+    // `providerPaymentId` stays null when a decline produced no payment
+    // object. Both stay null on a row that never reached a provider (a manual
+    // recording, a legacy import) — docs/decisions/013-payment-provider-port.md.
+    provider: {
+      type: String,
+      enum: [...PROVIDER_NAMES, null],
+      default: null,
+    },
+    providerPaymentId: {
       type: String,
       default: null,
     },

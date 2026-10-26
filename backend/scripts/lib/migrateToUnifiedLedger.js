@@ -101,7 +101,11 @@ async function migrateToUnifiedLedger({ dryRun = true } = {}) {
         parentId: charge.parentId,
         amount: charge.amount,
         status: charge.status,
-        stripePaymentIntentId: charge.stripePaymentIntentId ?? null,
+        // The retired PrivateClassCharge collection only ever held Stripe
+        // charges, under the pre-port field name; written as the ledger's
+        // provider-neutral fields (docs/decisions/013-payment-provider-port.md).
+        provider: charge.stripePaymentIntentId ? 'stripe' : null,
+        providerPaymentId: charge.stripePaymentIntentId ?? null,
         attempt: charge.attempt ?? 1,
         failureMessage: charge.failureMessage ?? null,
         paidAt: charge.paidAt ?? null,

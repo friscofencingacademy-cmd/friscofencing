@@ -1,5 +1,5 @@
 // The full "bring new data in cleanly" sequence (owner request, 2026-08-24,
-// grown 2026-08-31 with the index migration + Stripe scrub + test-password
+// grown 2026-08-31 with the index migration + provider scrub + test-password
 // steps):
 // 1. Wipe every collection (no exceptions — see wipe-staging-environment.js)
 // 2. periodMonth/Guard B index migration (docs/plans/payment-airtight-plan
@@ -8,7 +8,7 @@
 // 3. Seed the Service registry
 // 4. Run the legacy import (scripts/import-legacy-data.js's same logic)
 // 5. Re-seed superadmin
-// 6. Scrub any Stripe fields (defense-in-depth — see scrubStripeFields.js)
+// 6. Scrub any payment-provider fields (defense-in-depth — see scrubProviderFields.js)
 // 7. Set one known password (Test@123) on every login-capable user, for
 //    staging testing convenience — see setStagingTestPasswords.js
 //
@@ -155,10 +155,10 @@ async function main() {
     console.log('Step 5/7 — Superadmin:');
     console.log(`  ${result.superadminEmail} — ${result.superadminCreated ? 'created' : 'already existed'}`);
 
-    console.log('Step 6/7 — Stripe scrub:');
-    console.log(`  stripeCustomerId cleared:      ${result.stripeScrubResult.stripeCustomerIdsCleared}`);
-    console.log(`  PaymentMethod docs deleted:    ${result.stripeScrubResult.paymentMethodsDeleted}`);
-    console.log(`  stripePaymentIntentId cleared: ${result.stripeScrubResult.stripePaymentIntentIdsCleared}`);
+    console.log('Step 6/7 — Payment-provider scrub:');
+    console.log(`  provider customer ids cleared: ${result.providerScrubResult.providerCustomerIdsCleared}`);
+    console.log(`  PaymentMethod docs deleted:    ${result.providerScrubResult.paymentMethodsDeleted}`);
+    console.log(`  provider payment ids cleared:  ${result.providerScrubResult.providerPaymentIdsCleared}`);
 
     console.log('Step 7/7 — Staging test passwords:');
     console.log(

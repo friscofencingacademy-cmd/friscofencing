@@ -34,7 +34,7 @@ async function handle(req, res, next) {
   }
 
   try {
-    const existing = await WebhookEvent.findOne({ stripeEventId: event.eventId });
+    const existing = await WebhookEvent.findOne({ provider: provider.name, providerEventId: event.eventId });
 
     if (existing) {
       // Providers redeliver events (at-least-once); a redelivery is a safe no-op.
@@ -43,9 +43,10 @@ async function handle(req, res, next) {
 
     if (event.type !== 'ignored') {
       await WebhookEvent.create({
-        stripeEventId: event.eventId,
+        provider: provider.name,
+        providerEventId: event.eventId,
         type: event.providerEventType,
-        paymentIntentId: event.paymentId,
+        providerPaymentId: event.paymentId,
         status: event.providerStatus,
       });
     }
