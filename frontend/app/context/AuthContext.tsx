@@ -11,6 +11,7 @@ import {
 import axios from 'axios';
 
 import api from '../../lib/api';
+import type { AuthUserResponse } from '../../lib/apiResponses';
 
 // 'kiosk' is the front-desk sign-in tablet's account (docs/plans/kiosk-signin-
 // plan.md K1): it lands on /kiosk and can use nothing else.
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function restoreSession() {
       try {
-        const res = await api.get<{ user: AuthUser }>('/auth/me');
+        const res = await api.get<AuthUserResponse>('/auth/me');
 
         if (isMounted) {
           setUser(res.data.user);
@@ -84,14 +85,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ user: AuthUser }>('/auth/login', { email, password });
+    const res = await api.post<AuthUserResponse>('/auth/login', { email, password });
     setUser(res.data.user);
     return res.data.user;
   }, []);
 
   const register = useCallback(
     async (firstName: string, lastName: string, email: string, password: string, phone: string) => {
-      const res = await api.post<{ user: AuthUser }>('/auth/register', {
+      const res = await api.post<AuthUserResponse>('/auth/register', {
         firstName,
         lastName,
         email,

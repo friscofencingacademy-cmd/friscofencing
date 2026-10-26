@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import ParentBillingPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
@@ -92,7 +93,7 @@ const server = setupServer(
   http.get('*/registrations/history', () => HttpResponse.json({ history: historyResponse }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   historyResponse = [GROUP_ROW, MANUAL_ROW, FAILED_ROW, PRIVATE_ROW];

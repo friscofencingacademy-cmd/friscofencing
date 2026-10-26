@@ -1,6 +1,7 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
+const mongoose = require('mongoose');
 const request = require('supertest');
 
 const app = require('../../src/app');
@@ -516,5 +517,72 @@ describe('GroupClassSchedule routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.schedules).toHaveLength(0);
     });
+  });
+});
+
+// Every protected route answers 401 without a session, every admin-only route
+// 403 for a non-admin (changing nothing), and an unknown id 404 — the negative
+// paths /audit-tests Check 11 asks of each route
+// (docs/plans/testing-strategy-refresh-plan.md PR C).
+describe('GroupClassSchedule routes — access control and unknown ids', () => {
+  const UNKNOWN_ID = new mongoose.Types.ObjectId().toString();
+
+  async function seedSchedule() {
+    const groupClass = await seedClass();
+    const coach = await User.create({ role: 'coach', firstName: 'Coach', lastName: 'Test', email: 'schedule-coach@example.com' });
+    return GroupClassSchedule.create({
+      classId: groupClass._id,
+      coachId: coach._id,
+      dayOfWeek: 3,
+      startTime: '17:00',
+      endTime: '18:00',
+      students: [],
+    });
+  }
+
+  it.each([
+    ['get', '/api/v1/group-class-schedules'],
+    ['get', '/api/v1/group-class-schedules/mine'],
+    ['get', `/api/v1/group-class-schedules/${UNKNOWN_ID}`],
+    ['post', '/api/v1/group-class-schedules'],
+    ['put', `/api/v1/group-class-schedules/${UNKNOWN_ID}`],
+    ['delete', `/api/v1/group-class-schedules/${UNKNOWN_ID}`],
+  ])('%s %s returns 401 without a session', async (method, url) => {
+    const res = await request(app)[method](url).send({ startTime: '17:00', endTime: '18:00' });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when a non-admin tries to create, update, or delete a schedule, and changes nothing', async () => {
+    const schedule = await seedSchedule();
+    await seedUser({ role: 'parent', email: 'test-parent@example.com' });
+    const agent = await loginAgent('test-parent@example.com');
+
+    const createRes = await agent.post('/api/v1/group-class-schedules').send({
+      classId: schedule.classId.toString(),
+      coachId: schedule.coachId.toString(),
+      dayOfWeek: 4,
+      startTime: '17:00',
+      endTime: '18:00',
+    });
+    const updateRes = await agent.put(`/api/v1/group-class-schedules/${schedule._id}`).send({ startTime: '09:00', endTime: '10:00' });
+    const deleteRes = await agent.delete(`/api/v1/group-class-schedules/${schedule._id}`);
+
+    expect(createRes.status).toBe(403);
+    expect(updateRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
+    const stored = await GroupClassSchedule.find();
+    expect(stored).toHaveLength(1);
+    expect(stored[0].startTime).toBe('17:00');
+  });
+
+  it.each(['get', 'put', 'delete'])('%s of an unknown schedule id returns 404', async (method) => {
+    await seedUser();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent[method](`/api/v1/group-class-schedules/${UNKNOWN_ID}`).send({ startTime: '09:00', endTime: '10:00' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe('Group class schedule not found');
   });
 });

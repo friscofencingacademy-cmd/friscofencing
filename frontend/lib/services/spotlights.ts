@@ -1,11 +1,12 @@
 import api from '../api';
 import type { PublicSpotlight, Spotlight, SpotlightType } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+import type { ImageUploadResponse, PublicSpotlightsResponse, SpotlightResponse, SpotlightsResponse } from '../apiResponses';
 
 // ── Public (no auth) ─────────────────────────────────────────────────────
 
 export async function fetchPublicSpotlights(type: SpotlightType): Promise<PublicSpotlight[]> {
-  const res = await api.get<{ spotlights: PublicSpotlight[] }>('/spotlights/public', {
+  const res = await api.get<PublicSpotlightsResponse>('/spotlights/public', {
     params: { type },
   });
   return res.data.spotlights;
@@ -14,7 +15,7 @@ export async function fetchPublicSpotlights(type: SpotlightType): Promise<Public
 // ── Admin CRUD ───────────────────────────────────────────────────────────
 
 export async function fetchSpotlights(): Promise<Spotlight[]> {
-  const res = await api.get<{ spotlights: Spotlight[] }>('/spotlights');
+  const res = await api.get<SpotlightsResponse>('/spotlights');
   return res.data.spotlights;
 }
 
@@ -27,7 +28,7 @@ export async function createSpotlight(
   data: SpotlightInput
 ): Promise<MutationResult<Spotlight>> {
   try {
-    const res = await api.post<{ spotlight: Spotlight }>('/spotlights', data);
+    const res = await api.post<SpotlightResponse>('/spotlights', data);
     return { status: 'success', data: res.data.spotlight };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to create spotlight.') };
@@ -39,7 +40,7 @@ export async function updateSpotlight(
   data: Partial<SpotlightInput>
 ): Promise<MutationResult<Spotlight>> {
   try {
-    const res = await api.put<{ spotlight: Spotlight }>(`/spotlights/${id}`, data);
+    const res = await api.put<SpotlightResponse>(`/spotlights/${id}`, data);
     return { status: 'success', data: res.data.spotlight };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to update spotlight.') };
@@ -63,7 +64,7 @@ export async function uploadSpotlightImage(file: File): Promise<MutationResult<s
     const formData = new FormData();
     formData.append('image', file);
 
-    const res = await api.post<{ imageUrl: string }>('/spotlights/upload-image', formData);
+    const res = await api.post<ImageUploadResponse>('/spotlights/upload-image', formData);
     return { status: 'success', data: res.data.imageUrl };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to upload image.') };

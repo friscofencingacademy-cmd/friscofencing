@@ -11,11 +11,18 @@ import type {
   TrialClass,
 } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+import type {
+  MyPaymentMethodResponse,
+  MyStudentsResponse,
+  MySubscriptionsResponse,
+  MyTrialClassesResponse,
+  PaymentHistoryResponse,
+} from '../apiResponses';
 
 // ── Students (children) ─────────────────────────────────────────────────
 
 export async function fetchMyStudents(): Promise<Student[]> {
-  const res = await api.get<{ students: Student[] }>('/students/mine');
+  const res = await api.get<MyStudentsResponse>('/students/mine');
   return res.data.students;
 }
 
@@ -36,7 +43,7 @@ export async function createStudent(data: {
 // ── Trial classes ────────────────────────────────────────────────────────
 
 export async function fetchMyTrialClasses(): Promise<TrialClass[]> {
-  const res = await api.get<{ trialClasses: TrialClass[] }>('/trial-classes/mine');
+  const res = await api.get<MyTrialClassesResponse>('/trial-classes/mine');
   return res.data.trialClasses;
 }
 
@@ -55,7 +62,7 @@ export async function bookTrialClass(data: {
 // ── Registrations / subscriptions ───────────────────────────────────────
 
 export async function fetchMySubscriptions(): Promise<Subscription[]> {
-  const res = await api.get<{ subscriptions: Subscription[] }>('/registrations/mine');
+  const res = await api.get<MySubscriptionsResponse>('/registrations/mine');
   return res.data.subscriptions;
 }
 
@@ -99,7 +106,7 @@ export async function cancelSubscription(id: string): Promise<MutationResult<und
 // a parent has actually been charged, across every billing shape.
 
 export async function fetchMyPaymentHistory(): Promise<PaymentHistoryRow[]> {
-  const res = await api.get<{ history: PaymentHistoryRow[] }>('/registrations/history');
+  const res = await api.get<PaymentHistoryResponse>('/registrations/history');
   return res.data.history;
 }
 
@@ -116,7 +123,7 @@ export function invoiceDownloadUrl(registrationId: string): string {
 // ── Payment method ───────────────────────────────────────────────────────
 
 export async function fetchMyPaymentMethod(): Promise<PaymentMethodInfo | null> {
-  const res = await api.get<{ paymentMethod: PaymentMethodInfo | null }>('/payment-methods/mine');
+  const res = await api.get<MyPaymentMethodResponse>('/payment-methods/mine');
   return res.data.paymentMethod;
 }
 

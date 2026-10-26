@@ -71,50 +71,52 @@ function AttendanceTab() {
         </Card>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Parent</th>
-                <th>Lesson</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((booking) => (
-                <tr key={booking._id}>
-                  <td>{studentOf(booking)}</td>
-                  <td>{personName(booking.parentId, 'Parent no longer available')}</td>
-                  <td>{formatLessonTime(booking.startDate)}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          setSaveError(null);
-                          setTarget({ booking, status: 'attended' });
-                        }}
-                      >
-                        Attended
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setSaveError(null);
-                          setTarget({ booking, status: 'missed' });
-                        }}
-                      >
-                        Missed
-                      </Button>
-                    </div>
-                  </td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Parent</th>
+                  <th>Lesson</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.map((booking) => (
+                  <tr key={booking._id}>
+                    <td>{studentOf(booking)}</td>
+                    <td>{personName(booking.parentId, 'Parent no longer available')}</td>
+                    <td>{formatLessonTime(booking.startDate)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            setSaveError(null);
+                            setTarget({ booking, status: 'attended' });
+                          }}
+                        >
+                          Attended
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setSaveError(null);
+                            setTarget({ booking, status: 'missed' });
+                          }}
+                        >
+                          Missed
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -183,40 +185,42 @@ function UpcomingTab() {
         </Card>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Parent</th>
-                <th>Lesson</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((booking) => (
-                <tr key={booking._id}>
-                  <td>{studentOf(booking)}</td>
-                  <td>{personName(booking.parentId, 'Parent no longer available')}</td>
-                  <td>{formatLessonTime(booking.startDate)}</td>
-                  <td>
-                    {booking.canCancel ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setSaveError(null);
-                          setTarget(booking);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    ) : null}
-                  </td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Parent</th>
+                  <th>Lesson</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.map((booking) => (
+                  <tr key={booking._id}>
+                    <td>{studentOf(booking)}</td>
+                    <td>{personName(booking.parentId, 'Parent no longer available')}</td>
+                    <td>{formatLessonTime(booking.startDate)}</td>
+                    <td>
+                      {booking.canCancel ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setSaveError(null);
+                            setTarget(booking);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -303,38 +307,40 @@ function AvailabilityTab() {
         </Card>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Slot</th>
-                <th>Open</th>
-                <th>Booked</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((rule) => (
-                <tr key={rule._id}>
-                  <td>{formatRuleSlot(rule)}</td>
-                  <td>{formatRuleRange(rule)}</td>
-                  <td>{rule.bookedCount}</td>
-                  <td>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setRemoveError(null);
-                        setTarget(rule);
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </td>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Slot</th>
+                  <th>Open</th>
+                  <th>Booked</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.map((rule) => (
+                  <tr key={rule._id}>
+                    <td>{formatRuleSlot(rule)}</td>
+                    <td>{formatRuleRange(rule)}</td>
+                    <td>{rule.bookedCount}</td>
+                    <td>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setRemoveError(null);
+                          setTarget(rule);
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

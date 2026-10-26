@@ -26,6 +26,7 @@ const { generateInitialSessions } = require('../../src/services/groupClassSessio
 const { addStudentToRoster } = require('../../src/services/roster.service');
 const { renewOne, runRenewals, retryOne, runRetries } = require('../../src/services/renewal.service');
 const { addOneMonth, addOneDay, todayAtMidnight } = require('../../src/utils/billingDates');
+const { freezeAt } = require('../testUtils/clock');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const {
   mintCardToken,
@@ -47,12 +48,18 @@ const FAR_FUTURE_DATE = new Date('2099-01-01T00:00:00.000Z');
 
 let mongod;
 
+// The clock is pinned (docs/TESTING_STRATEGY.md; tests/guards/realClockDateHelperGuard.test.js):
+// mid-month (Oct 15, 10:00 Central), so "today" and the fixtures derived from it never cross a month or day boundary.
+const NOW = '2026-10-15T15:00:00.000Z';
+
 beforeAll(async () => {
+  freezeAt(NOW);
   mongod = await connectTestDB();
 });
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+  jest.useRealTimers();
 });
 
 beforeEach(async () => {

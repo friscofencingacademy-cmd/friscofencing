@@ -356,3 +356,15 @@ No `backend/` files touched at all — this suite never talks to a real backend 
    confirmation the axe-core scans and screenshot baselines were each proven to fail once (§4.4)
    before being trusted — matching this repo's own established convention of recording what a real
    run found, not just what was designed.
+---
+
+## Addendum (2026-10-26): loud-fail, typed mocks, mobile project
+
+`docs/plans/testing-strategy-refresh-plan.md` PR B changes three things in this layer:
+- An unmocked backend call now fails the test. The catch-all's `console.warn` + 501 is gone. Each
+  spec imports `test` from `e2e/fixtures/test.ts`.
+- Every mock body is type-checked against the response type the app reads
+  (`frontend/lib/apiResponses.ts`).
+- A `mobile-chrome` project, plus a 360 px no-sideways-scroll check.
+
+The as-built details are in that plan's §9.

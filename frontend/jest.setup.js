@@ -49,3 +49,11 @@ const { BroadcastChannel } = require('worker_threads');
 if (typeof global.BroadcastChannel === 'undefined') {
   global.BroadcastChannel = BroadcastChannel;
 }
+
+// Strict MSW (test-utils/msw.ts): a request no handler matched fails the test
+// that made it.
+const { assertNoUnhandledRequests } = require('./test-utils/msw');
+
+afterEach(() => {
+  assertNoUnhandledRequests();
+});

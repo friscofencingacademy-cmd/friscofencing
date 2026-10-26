@@ -6,6 +6,7 @@ import type {
   ChargeResult,
   PaymentHistoryRow,
 } from '../types';
+import type { AdminSubscriptionResponse, PaymentHistoryResponse } from '../apiResponses';
 import { extractErrorMessage, type MutationResult } from './shared';
 
 export type AdminSubscriptionStatusFilter = 'active' | 'pending_cancel' | 'cancelled';
@@ -33,7 +34,7 @@ export async function fetchSubscriptions(
 // just one student's — same scope the parent themselves sees. Reuses
 // PaymentHistoryTable verbatim, per that component's own doc comment.
 export async function fetchPaymentHistoryForParent(parentId: string): Promise<PaymentHistoryRow[]> {
-  const res = await api.get<{ history: PaymentHistoryRow[] }>('/registrations/history', {
+  const res = await api.get<PaymentHistoryResponse>('/registrations/history', {
     params: { parentId },
   });
   return res.data.history;
@@ -46,7 +47,7 @@ export async function changeSubscriptionSchedule(
   newScheduleId: string
 ): Promise<MutationResult<AdminSubscriptionRow>> {
   try {
-    const res = await api.patch<{ subscription: AdminSubscriptionRow }>(
+    const res = await api.patch<AdminSubscriptionResponse>(
       `/subscriptions/${id}/schedule`,
       { newScheduleId }
     );

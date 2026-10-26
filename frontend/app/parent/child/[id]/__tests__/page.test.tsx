@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../../test-utils/msw';
 
 import ChildDetailPage from '../page';
 import { ParentPortalProvider } from '../../../../context/ParentPortalContext';
@@ -71,7 +72,7 @@ const server = setupServer(
   http.get('*/group-class-schedules', () => HttpResponse.json({ schedules: CLASS_SCHEDULES }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   mockParams = { id: 'student-1' };

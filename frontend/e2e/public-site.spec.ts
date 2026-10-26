@@ -1,7 +1,8 @@
-import { test, expect } from '@playwright/test';
-import AxeBuilder from '@axe-core/playwright';
+import { test, expect } from './fixtures/test';
 
-import { mockApi } from './fixtures/mock-api';
+import { CALENDAR_NOW, mockApi } from './fixtures/mock-api';
+import { expectNoBlockingA11yViolations } from './helpers/a11y';
+import { expectNoHorizontalOverflow } from './helpers/layout';
 
 // Logged-out marketing pages — zero real-browser coverage before this
 // suite existed. A hydration/rendering break here is invisible to Jest's
@@ -9,6 +10,31 @@ import { mockApi } from './fixtures/mock-api';
 test.describe('public site (logged out)', () => {
   test.beforeEach(async ({ page }) => {
     await mockApi(page);
+  });
+
+  // 360 px is the common small-Android floor; the mobile project runs at 393 px,
+  // so a layout that breaks only at 360 px would pass it (CKQ's own lesson).
+  test('public pages render without sideways scroll at 360 px', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Olympic Fencing.' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto('/classes');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto('/coaches');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    // The month grid is the widest public layout. Clock pinned so the month
+    // shown (and its heading) is fixed — see calendar.spec.ts.
+    await page.clock.setFixedTime(CALENDAR_NOW);
+    await page.goto('/calendar');
+    await expect(page.getByRole('heading', { name: 'October 2026' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
   });
 
   test('home page renders without a client error', async ({ page }) => {
@@ -51,7 +77,11 @@ test.describe('public site (logged out)', () => {
   // Real-DOM coverage for the pill-toggle level filter (docs/plans/
   // frontend-polish-plan.md PR 4/A5) — a real radiogroup of real <button>s,
   // driven through the browser rather than jsdom.
+  // The level filter is a pill row above 600 px and a <select> at or below it
+  // (app/classes/page.tsx) — each test pins the width it means, so both run on
+  // every project.
   test('/classes: the level filter pill row filters the schedule list and updates aria-checked', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/classes');
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
 
@@ -66,6 +96,24 @@ test.describe('public site (logged out)', () => {
     await expect(page.getByText('No classes match this level.')).toBeVisible();
 
     await pillGroup.getByRole('radio', { name: 'Fencing Foundation' }).click();
+    await expect(page.getByText('Fencing Foundation · Fencing Foundation', { exact: false })).toBeVisible();
+  });
+
+  test('/classes: on a phone the level filter is a select that filters the schedule list', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/classes');
+    await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
+
+    // exact: the pill row's "Filter by level" label also contains "Level".
+    const levelSelect = page.getByLabel('Level', { exact: true });
+    await expect(levelSelect).toHaveValue('');
+    await expect(page.getByRole('radiogroup', { name: 'Filter by level' })).toBeHidden();
+    await expect(page.getByText('Fencing Foundation · Fencing Foundation', { exact: false })).toBeVisible();
+
+    await levelSelect.selectOption('Intermediate');
+    await expect(page.getByText('No classes match this level.')).toBeVisible();
+
+    await levelSelect.selectOption('Fencing Foundation');
     await expect(page.getByText('Fencing Foundation · Fencing Foundation', { exact: false })).toBeVisible();
   });
 
@@ -100,6 +148,7 @@ test.describe('public site (logged out)', () => {
     await expect(page).toHaveScreenshot('home-page.png', { fullPage: true });
   });
 
+  // Skipped until a CI-container baseline exists — same reason as the home page baseline above.
   test.skip('/classes visual baseline', async ({ page }) => {
     await page.goto('/classes');
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
@@ -125,18 +174,13 @@ test.describe('public site (logged out)', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Olympic Fencing.' })).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-
-    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 
   test('/classes has no serious/critical accessibility violations', async ({ page }) => {
     await page.goto('/classes');
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 });

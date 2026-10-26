@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import ChildrenPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const STUDENT = { _id: 'student-1', firstName: 'Kid', lastName: 'One', skillLevel: 'beginner' };
 
@@ -22,7 +30,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -50,7 +58,7 @@ describe('ChildrenPage', () => {
     renderChildrenPage();
     await screen.findByText('One');
 
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.click(screen.getByRole('button', { name: /add child/i }));
 
     const dialog = await screen.findByRole('dialog', { name: /add child/i });
 
@@ -60,10 +68,10 @@ describe('ChildrenPage', () => {
       )
     );
 
-    fireEvent.change(within(dialog).getByLabelText('First Name'), { target: { value: 'New' } });
-    fireEvent.change(within(dialog).getByLabelText('Last Name'), { target: { value: 'Kid' } });
-    fireEvent.change(within(dialog).getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: /add child/i }));
+    await user.type(within(dialog).getByLabelText('First Name'), 'New');
+    await user.type(within(dialog).getByLabelText('Last Name'), 'Kid');
+    await user.type(within(dialog).getByLabelText('Date of Birth'), '2018-01-01');
+    await user.click(within(dialog).getByRole('button', { name: /add child/i }));
 
     await waitFor(() => {
       expect(createdPayload).toEqual({
@@ -85,13 +93,13 @@ describe('ChildrenPage', () => {
     renderChildrenPage();
     await screen.findByText('One');
 
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.click(screen.getByRole('button', { name: /add child/i }));
     const dialog = await screen.findByRole('dialog', { name: /add child/i });
 
-    fireEvent.change(within(dialog).getByLabelText('First Name'), { target: { value: 'New' } });
-    fireEvent.change(within(dialog).getByLabelText('Last Name'), { target: { value: 'Kid' } });
-    fireEvent.change(within(dialog).getByLabelText('Date of Birth'), { target: { value: '2018-01-01' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: /add child/i }));
+    await user.type(within(dialog).getByLabelText('First Name'), 'New');
+    await user.type(within(dialog).getByLabelText('Last Name'), 'Kid');
+    await user.type(within(dialog).getByLabelText('Date of Birth'), '2018-01-01');
+    await user.click(within(dialog).getByRole('button', { name: /add child/i }));
 
     expect(await screen.findByText('Failed to add child.')).toBeInTheDocument();
   });

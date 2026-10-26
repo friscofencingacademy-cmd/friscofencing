@@ -1,9 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import TestimonialsPage from '../page';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const EXISTING_TESTIMONIAL = {
   _id: 'test-1',
@@ -53,7 +60,7 @@ const server = setupServer(
   )
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -78,10 +85,10 @@ describe('TestimonialsPage', () => {
     render(<TestimonialsPage />);
     await screen.findByText('Steve');
 
-    fireEvent.click(screen.getByRole('button', { name: /add testimonial/i }));
+    await user.click(screen.getByRole('button', { name: /add testimonial/i }));
 
-    fireEvent.change(screen.getByLabelText('Quote'), { target: { value: 'New quote.' } });
-    fireEvent.change(screen.getByLabelText('Author Name'), { target: { value: 'New Author' } });
+    await user.type(screen.getByLabelText('Quote'), 'New quote.');
+    await user.type(screen.getByLabelText('Author Name'), 'New Author');
 
     server.use(
       http.get('*/testimonials', () =>
@@ -100,7 +107,7 @@ describe('TestimonialsPage', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createdPayload).toEqual({
@@ -120,16 +127,16 @@ describe('TestimonialsPage', () => {
     render(<TestimonialsPage />);
     await screen.findByText('Steve');
 
-    fireEvent.click(screen.getByRole('button', { name: /edit testimonial by steve/i }));
+    await user.click(screen.getByRole('button', { name: /edit testimonial by steve/i }));
 
     expect((screen.getByLabelText('Author Name') as HTMLInputElement).value).toBe('Steve');
     expect((screen.getByLabelText('Caption') as HTMLInputElement).value).toBe(
       'More than a sport, an environment for growth'
     );
 
-    fireEvent.click(screen.getByLabelText('Published'));
+    await user.click(screen.getByLabelText('Published'));
 
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => {
       expect(updatedId).toBe('test-1');
@@ -141,8 +148,8 @@ describe('TestimonialsPage', () => {
     render(<TestimonialsPage />);
     await screen.findByText('Steve');
 
-    fireEvent.click(screen.getByRole('button', { name: /add testimonial/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /add testimonial/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(await screen.findByText('Quote and author name are required.')).toBeInTheDocument();
     expect(createdPayload).toBeNull();
@@ -152,23 +159,22 @@ describe('TestimonialsPage', () => {
     render(<TestimonialsPage />);
     await screen.findByText('Steve');
 
-    fireEvent.click(screen.getByRole('button', { name: /delete testimonial by steve/i }));
+    await user.click(screen.getByRole('button', { name: /delete testimonial by steve/i }));
     expect(
       screen.getByText(/delete the testimonial by "steve"\? this cannot be undone\./i)
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(deletedId).toBe('test-1'));
     await waitFor(() => expect(screen.queryByText('Steve')).not.toBeInTheDocument());
   });
 
   it('uploads a selected image file and fills the Image URL field with the returned url', async () => {
-    const user = userEvent.setup();
     render(<TestimonialsPage />);
     await screen.findByText('Steve');
 
-    fireEvent.click(screen.getByRole('button', { name: /add testimonial/i }));
+    await user.click(screen.getByRole('button', { name: /add testimonial/i }));
 
     const file = new File(['fake-bytes'], 'steve.jpg', { type: 'image/jpeg' });
     await user.upload(screen.getByLabelText('Or upload a file:'), file);
@@ -190,10 +196,10 @@ describe('TestimonialsPage', () => {
     render(<TestimonialsPage />);
     await screen.findByText('Steve');
 
-    fireEvent.click(screen.getByRole('button', { name: /add testimonial/i }));
-    fireEvent.change(screen.getByLabelText('Quote'), { target: { value: 'New quote.' } });
-    fireEvent.change(screen.getByLabelText('Author Name'), { target: { value: 'New Author' } });
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await user.click(screen.getByRole('button', { name: /add testimonial/i }));
+    await user.type(screen.getByLabelText('Quote'), 'New quote.');
+    await user.type(screen.getByLabelText('Author Name'), 'New Author');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(await screen.findByText('Failed to create testimonial.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^create$/i })).toBeInTheDocument();

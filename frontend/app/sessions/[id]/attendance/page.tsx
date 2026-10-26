@@ -180,51 +180,53 @@ function AttendancePageContent() {
         </Card>
       ) : session ? (
         <Card>
-          <table className={styles.table}>
-            <tbody>
-              {session.students.map((entry) => {
-                const studentId = entry.studentId._id;
-                // Evaluate only ever offered for a trial row already
-                // persisted as present (entry.isPresent reflects the last
-                // save, not the in-progress checkbox toggle) — matches
-                // evaluation.service.js's own "must be an attended trial
-                // Visit" requirement.
-                const canEvaluate = entry.classType === 'trial' && entry.isPresent;
-                const alreadyEvaluated = evaluatedStudentIds.has(studentId);
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <tbody>
+                {session.students.map((entry) => {
+                  const studentId = entry.studentId._id;
+                  // Evaluate only ever offered for a trial row already
+                  // persisted as present (entry.isPresent reflects the last
+                  // save, not the in-progress checkbox toggle) — matches
+                  // evaluation.service.js's own "must be an attended trial
+                  // Visit" requirement.
+                  const canEvaluate = entry.classType === 'trial' && entry.isPresent;
+                  const alreadyEvaluated = evaluatedStudentIds.has(studentId);
 
-                return (
-                  <tr key={studentId}>
-                    <td>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={attendance[studentId] ?? false}
-                          onChange={() => toggleStudent(studentId)}
-                        />{' '}
-                        {entry.studentId.firstName} {entry.studentId.lastName}
-                      </label>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {canEvaluate ? (
-                        alreadyEvaluated ? (
-                          <span style={{ color: 'var(--color-text-muted)' }}>Evaluated</span>
-                        ) : (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => openEvaluate(studentId)}
-                          >
-                            Evaluate
-                          </Button>
-                        )
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={studentId}>
+                      <td>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={attendance[studentId] ?? false}
+                            onChange={() => toggleStudent(studentId)}
+                          />{' '}
+                          {entry.studentId.firstName} {entry.studentId.lastName}
+                        </label>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {canEvaluate ? (
+                          alreadyEvaluated ? (
+                            <span style={{ color: 'var(--color-text-muted)' }}>Evaluated</span>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => openEvaluate(studentId)}
+                            >
+                              Evaluate
+                            </Button>
+                          )
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           <div style={{ marginTop: 'var(--space-4)' }}>
             <Button type="button" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : 'Save Attendance'}

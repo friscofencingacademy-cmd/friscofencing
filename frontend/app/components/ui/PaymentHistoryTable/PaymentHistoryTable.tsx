@@ -53,7 +53,7 @@ export default function PaymentHistoryTable({ rows, loading }: PaymentHistoryTab
 
   return (
     <Card>
-      <div style={{ overflowX: 'auto' }}>
+      <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
             <tr>

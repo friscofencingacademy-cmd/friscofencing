@@ -67,51 +67,53 @@ function CoachSessionsPageContent() {
         <p>Loading...</p>
       ) : (
         <Card>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Students</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((session) =>
-                session.isHoliday ? (
-                  <tr key={session._id}>
-                    <td style={{ color: 'var(--color-muted)' }}>{formatDateOnly(session.date)}</td>
-                    <td>
-                      <span className={`${styles.chip} ${styles.chipMuted}`}>Holiday — {session.holidayName}</span>
-                    </td>
-                    <td />
-                  </tr>
-                ) : (
-                  <tr key={session._id}>
-                    <td>{formatDateOnly(session.date)}</td>
-                    <td>{session.students.length}</td>
-                    <td>
-                      {session.attendanceOpen === false ? (
-                        // Attendance opens on the session's own day
-                        // (docs/plans/duplication-cleanup-plan.md A-D1) — the
-                        // row keeps its student count but offers no link yet.
-                        // Blocked only on an explicit `false`.
-                        <span className={`${styles.chip} ${styles.chipMuted}`}>Not open yet</span>
-                      ) : (
-                        <Button
-                          as="a"
-                          href={`/sessions/${session._id}/attendance`}
-                          size="sm"
-                          variant="secondary"
-                        >
-                          Mark Attendance
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              )}
-            </tbody>
-          </table>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Students</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((session) =>
+                  session.isHoliday ? (
+                    <tr key={session._id}>
+                      <td style={{ color: 'var(--color-muted)' }}>{formatDateOnly(session.date)}</td>
+                      <td>
+                        <span className={`${styles.chip} ${styles.chipMuted}`}>Holiday — {session.holidayName}</span>
+                      </td>
+                      <td />
+                    </tr>
+                  ) : (
+                    <tr key={session._id}>
+                      <td>{formatDateOnly(session.date)}</td>
+                      <td>{session.students.length}</td>
+                      <td>
+                        {session.attendanceOpen === false ? (
+                          // Attendance opens on the session's own day
+                          // (docs/plans/duplication-cleanup-plan.md A-D1) — the
+                          // row keeps its student count but offers no link yet.
+                          // Blocked only on an explicit `false`.
+                          <span className={`${styles.chip} ${styles.chipMuted}`}>Not open yet</span>
+                        ) : (
+                          <Button
+                            as="a"
+                            href={`/sessions/${session._id}/attendance`}
+                            size="sm"
+                            variant="secondary"
+                          >
+                            Mark Attendance
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
     </main>

@@ -1,10 +1,18 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import AdminSettingsPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
 import type { Setting } from '../../../../lib/types';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const SUPERADMIN_USER = {
   _id: 'super-1',
@@ -39,7 +47,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   patchPayload = null;
@@ -66,9 +74,10 @@ describe('AdminSettingsPage', () => {
     renderPage();
 
     const feeInput = await screen.findByLabelText('Default Registration Fee ($)');
-    fireEvent.change(feeInput, { target: { value: '40' } });
+    await user.clear(feeInput);
+    await user.type(feeInput, '40');
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(patchPayload).toEqual({
@@ -88,9 +97,9 @@ describe('AdminSettingsPage', () => {
     const toggle = await screen.findByLabelText('Ask students to confirm their name on the sign-in tablet');
     expect(toggle).toBeChecked();
 
-    fireEvent.click(toggle);
+    await user.click(toggle);
     expect(toggle).not.toBeChecked();
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(patchPayload).toEqual({
@@ -114,9 +123,10 @@ describe('AdminSettingsPage', () => {
     renderPage();
 
     const feeInput = await screen.findByLabelText('Default Registration Fee ($)');
-    fireEvent.change(feeInput, { target: { value: '-5' } });
+    await user.clear(feeInput);
+    await user.type(feeInput, '-5');
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     expect(await screen.findByText(/must be a number/i)).toBeInTheDocument();
     expect(patchPayload).toBeNull();
@@ -128,8 +138,9 @@ describe('AdminSettingsPage', () => {
     renderPage();
 
     const feeInput = await screen.findByLabelText('Default Registration Fee ($)');
-    fireEvent.change(feeInput, { target: { value: '40' } });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await user.clear(feeInput);
+    await user.type(feeInput, '40');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('boom');
   });
@@ -151,7 +162,7 @@ describe('AdminSettingsPage', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument();
 
     server.use(http.get('*/settings', () => HttpResponse.json({ settings: SETTINGS })));
-    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    await user.click(screen.getByRole('button', { name: /try again/i }));
 
     expect(await screen.findByLabelText('Default Registration Fee ($)')).toHaveValue(25);
   });

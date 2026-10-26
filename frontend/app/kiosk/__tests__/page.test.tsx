@@ -1,11 +1,22 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import KioskPage from '../page';
 import { AuthProvider } from '../../context/AuthContext';
 import { POLL_INTERVAL_MS, SUCCESS_DISMISS_MS } from '../../../lib/kiosk';
 import type { KioskSignInResult, KioskState } from '../../../lib/types';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  // Some tests fake setTimeout part-way through (fakeOnly below). `delay: null`
+  // stops userEvent waiting on a timer between actions, so it behaves the same
+  // whether the real or a fake setTimeout is installed.
+  user = userEvent.setup({ delay: null });
+});
 
 // The front-desk sign-in tablet (docs/plans/kiosk-signin-plan.md K7). HTTP is
 // mocked at the network boundary (MSW); only the Next.js router is mocked
@@ -56,7 +67,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   state = STATE;
@@ -80,8 +91,11 @@ async function renderReady() {
   return screen.findByTestId('roster-search');
 }
 
-function type(value: string) {
-  fireEvent.change(screen.getByTestId('roster-search'), { target: { value } });
+// Replaces the search text, as a student retyping their name would.
+async function search(value: string) {
+  const box = screen.getByTestId('roster-search');
+  await user.clear(box);
+  await user.type(box, value);
 }
 
 // Fakes ONLY the named timer functions; Date, promises, and the timers MSW and
@@ -114,14 +128,14 @@ describe('KioskPage — search', () => {
     expect(screen.getByText('Type your name to sign in.')).toBeInTheDocument();
     expect(screen.queryAllByTestId('roster-row')).toHaveLength(0);
 
-    type('a');
+    await search('a');
     expect(screen.queryAllByTestId('roster-row')).toHaveLength(0);
   });
 
   it('matches the start of a first OR last name, case-insensitively', async () => {
     await renderReady();
 
-    type('AV');
+    await search('AV');
 
     const rows = screen.getAllByTestId('roster-row').map((row) => row.textContent);
     expect(rows).toEqual(['Ava AndersonFoundation', 'Bob Avery']);
@@ -130,7 +144,7 @@ describe('KioskPage — search', () => {
 
   it('says so when nothing matches, and when nobody is enrolled', async () => {
     await renderReady();
-    type('zz');
+    await search('zz');
     expect(screen.getByText('No matching names.')).toBeInTheDocument();
   });
 
@@ -145,27 +159,27 @@ describe('KioskPage — search', () => {
 describe('KioskPage — signing in', () => {
   it('confirms, sends only the student id, shows the signed-in card, and a tap returns to search', async () => {
     await renderReady();
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
 
     // Visible text, not the computed accessible name: the name algorithm pads
     // the <strong> with spaces ("Anderson ?") that are not on screen.
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^Are you Ava Anderson\?$/);
-    fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+    await user.click(screen.getByRole('button', { name: "Yes, that's me" }));
 
     expect(await screen.findByText('Ava Anderson signed in')).toBeInTheDocument();
     expect(screen.getByText('Foundation Foil · 4:00 PM–5:00 PM')).toBeInTheDocument();
     expect(signInBodies).toEqual([{ studentId: 'stu-ava' }]);
 
-    fireEvent.click(screen.getByText('Ava Anderson signed in'));
+    await user.click(screen.getByText('Ava Anderson signed in'));
     expect(screen.getByTestId('roster-search')).toHaveValue('');
   });
 
   it('"Not me" goes back to the search without signing in', async () => {
     await renderReady();
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
-    fireEvent.click(screen.getByRole('button', { name: 'Not me' }));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
+    await user.click(screen.getByRole('button', { name: 'Not me' }));
 
     expect(screen.getByTestId('roster-search')).toBeInTheDocument();
     expect(signInBodies).toEqual([]);
@@ -174,8 +188,8 @@ describe('KioskPage — signing in', () => {
   it('signs in on the first tap, with no confirm step, when the setting is off', async () => {
     state = { ...STATE, confirmationRequired: false };
     await renderReady();
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
 
     expect(await screen.findByText('Ava Anderson signed in')).toBeInTheDocument();
     expect(screen.queryByText(/are you/i)).not.toBeInTheDocument();
@@ -185,9 +199,9 @@ describe('KioskPage — signing in', () => {
   it('tells a student who already signed in today', async () => {
     server.use(http.post('*/kiosk/sign-in', () => HttpResponse.json(signedIn({ alreadySignedIn: true }))));
     await renderReady();
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
-    fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
+    await user.click(screen.getByRole('button', { name: "Yes, that's me" }));
 
     expect(await screen.findByText("Ava, you're already signed in for today.")).toBeInTheDocument();
   });
@@ -199,24 +213,24 @@ describe('KioskPage — signing in', () => {
       )
     );
     await renderReady();
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
-    fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
+    await user.click(screen.getByRole('button', { name: "Yes, that's me" }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent("Ava's class today has already ended");
 
-    type('cal');
+    await search('cal');
     expect(screen.getByText('Cal Brown')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it(`returns to the search by itself ${SUCCESS_DISMISS_MS} ms after signing in`, async () => {
     await renderReady();
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
 
     fakeOnly('setTimeout', 'clearTimeout');
-    fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+    await user.click(screen.getByRole('button', { name: "Yes, that's me" }));
     expect(await screen.findByText('Ava Anderson signed in')).toBeInTheDocument();
 
     act(() => {
@@ -245,8 +259,8 @@ describe('KioskPage — staying current', () => {
     jest.useRealTimers();
     await waitFor(() => expect(stateRequests).toBe(before + 1));
 
-    type('ava');
-    fireEvent.click(screen.getByText('Ava Anderson'));
+    await search('ava');
+    await user.click(screen.getByText('Ava Anderson'));
     expect(await screen.findByText('Ava Anderson signed in')).toBeInTheDocument();
   });
 
@@ -268,7 +282,7 @@ describe('KioskPage — staying current', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument();
 
     server.use(http.get('*/kiosk/state', () => HttpResponse.json(STATE)));
-    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    await user.click(screen.getByRole('button', { name: /try again/i }));
 
     expect(await screen.findByTestId('roster-search')).toBeInTheDocument();
   });
@@ -283,7 +297,7 @@ describe('KioskPage — staying current', () => {
     });
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 
-    type('ava');
+    await search('ava');
     expect(screen.getByText('Ava Anderson')).toBeInTheDocument();
     expect(stateRequests).toBe(before);
   });

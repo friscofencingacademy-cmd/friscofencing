@@ -1,6 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
-import { json, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
+import type { ApiErrorResponse, MyPrivateBookingsResponse, PrivateAvailableDatesResponse } from '../lib/apiResponses';
+import type { PrivateAttendanceResult, PrivateBookingResult, PrivatePurchaseQuote } from '../lib/types';
+import { json, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_DATE, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
 // Private lessons, end to end in a real browser (docs/decisions/011-private-
@@ -17,7 +19,7 @@ test.describe('private lesson booking', () => {
         path: '/private-class-enrollments',
         handler: (route) => {
           purchasePayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 });
+          return json<PrivateBookingResult>(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 });
         },
       },
     ];
@@ -60,14 +62,14 @@ test.describe('private lesson booking', () => {
       {
         method: 'GET',
         path: '/private-class-enrollments/quote',
-        handler: (route) => json(route, 200, { ...FIXTURE_PRIVATE_QUOTE, availableCredits: 3 }),
+        handler: (route) => json<PrivatePurchaseQuote>(route, 200, { ...FIXTURE_PRIVATE_QUOTE, availableCredits: 3 }),
       },
       {
         method: 'POST',
         path: '/private-class-sessions',
         handler: (route) => {
           creditPayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 });
+          return json<PrivateBookingResult>(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 });
         },
       },
     ];
@@ -86,6 +88,47 @@ test.describe('private lesson booking', () => {
     expect(creditPayload).toEqual({ studentId: 'student-1', scheduleId: 'private-rule-1', day: '2026-10-06' });
   });
 
+  // The backend's atomic slot claim refuses a date another family just took
+  // (privateClassSession.service.js's SLOT_TAKEN_MESSAGE). Nothing is charged
+  // or booked: the wizard shows the server's message, refetches the dates and
+  // sends the parent back to pick another one.
+  test('a slot taken mid-checkout shows the server message, books nothing, and sends the parent back to pick another date', async ({ page }) => {
+    let dateFetches = 0;
+    const overrides: MockRule[] = [
+      {
+        method: 'GET',
+        path: '/private-class-schedules/:id/available-dates',
+        handler: (route) => {
+          dateFetches += 1;
+          return json<PrivateAvailableDatesResponse>(route, 200, { dates: [FIXTURE_PRIVATE_DATE] });
+        },
+      },
+      {
+        method: 'POST',
+        path: '/private-class-enrollments',
+        handler: (route) =>
+          json<ApiErrorResponse>(route, 409, { message: 'This time slot was just taken — please pick another' }),
+      },
+    ];
+    await loginAs(page, 'parent', overrides);
+
+    await page.goto('/parent/register-private?slot=private-rule-1&child=student-1&day=2026-10-06');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('radio', { name: /buy 10 sessions/i }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    const fetchesBeforePay = dateFetches;
+    await page.getByRole('button', { name: 'Pay $300.00 & book' }).click();
+
+    await expect(page.getByText('This time slot was just taken — please pick another')).toBeVisible();
+    await expect(page.getByText("You're booked!")).toHaveCount(0);
+    await expect.poll(() => dateFetches).toBeGreaterThan(fetchesBeforePay);
+
+    await page.getByRole('button', { name: /pick another date/i }).click();
+    await expect(page.getByRole('radio', { name: /tue, oct 6/i })).toBeVisible();
+  });
+
   test('a coach marks a started private lesson attended', async ({ page }) => {
     let attendancePayload: unknown = null;
     const overrides: MockRule[] = [
@@ -93,7 +136,7 @@ test.describe('private lesson booking', () => {
         method: 'GET',
         path: '/private-class-sessions/mine',
         handler: (route, { url }) =>
-          json(route, 200, {
+          json<MyPrivateBookingsResponse>(route, 200, {
             sessions:
               url.searchParams.get('window') === 'unmarked'
                 ? [
@@ -113,7 +156,7 @@ test.describe('private lesson booking', () => {
         path: `/private-class-sessions/${FIXTURE_PRIVATE_BOOKING._id}/attendance`,
         handler: (route) => {
           attendancePayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } });
+          return json<PrivateAttendanceResult>(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } });
         },
       },
     ];

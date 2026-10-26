@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
+import type { GroupClassSessionDetailResponse, IgnoredBodyResponse } from '../lib/apiResponses';
 import { json, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
@@ -18,7 +19,7 @@ test.describe('coach attendance', () => {
         method: 'GET',
         path: `/group-class-sessions/${sessionId}`,
         handler: (route) =>
-          json(route, 200, {
+          json<GroupClassSessionDetailResponse>(route, 200, {
             session: { _id: sessionId, date: new Date().toISOString(), students: [{ studentId: student, isPresent: false }] },
           }),
       },
@@ -27,7 +28,7 @@ test.describe('coach attendance', () => {
         path: `/group-class-sessions/${sessionId}/attendance`,
         handler: (route) => {
           savedPayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 200, { success: true });
+          return json<IgnoredBodyResponse>(route, 200, {});
         },
       },
     ];
@@ -62,7 +63,7 @@ test.describe('coach attendance', () => {
         method: 'GET',
         path: `/group-class-sessions/${sessionId}`,
         handler: (route) =>
-          json(route, 200, {
+          json<GroupClassSessionDetailResponse>(route, 200, {
             session: {
               _id: sessionId,
               date: '2026-12-02T00:00:00.000Z',

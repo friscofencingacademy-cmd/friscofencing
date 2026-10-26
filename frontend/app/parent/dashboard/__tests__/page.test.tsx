@@ -1,9 +1,17 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import ParentDashboardPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 // enrollment is server-decided (student.service.js's attachEnrollment(),
 // docs/plans/frontend-polish-plan.md PR 3) — these fixtures set it directly
@@ -48,7 +56,7 @@ const server = setupServer(
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -74,7 +82,7 @@ describe('ParentDashboardPage', () => {
     expect(screen.getByText('Account Created')).toBeInTheDocument();
     expect(screen.getByText('Add Your Child')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /add child/i }));
+    await user.click(screen.getByRole('button', { name: /add child/i }));
     expect(await screen.findByRole('dialog', { name: /add child/i })).toBeInTheDocument();
   });
 

@@ -1,10 +1,17 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import HolidaysPage from '../page';
 import type { Holiday } from '../../../../lib/types';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const EXISTING_HOLIDAY: Holiday = {
   _id: 'holiday-1',
@@ -38,7 +45,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   createdPayload = null;
@@ -59,17 +66,13 @@ describe('HolidaysPage', () => {
   });
 
   it('creates a new holiday with the exact YYYY-MM-DD payload', async () => {
-    const user = userEvent.setup();
     render(<HolidaysPage />);
     await screen.findByText('Winter Break');
 
     await user.click(screen.getByRole('button', { name: /add holiday/i }));
     await user.type(screen.getByLabelText('Name'), 'Thanksgiving');
-    // Native date inputs don't reliably accept userEvent.type in jsdom —
-    // fireEvent.change is the established pattern for these (see
-    // AddChildModal's "Date of Birth" field test).
-    fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-11-26' } });
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-11-27' } });
+    await user.type(screen.getByLabelText('Start Date'), '2026-11-26');
+    await user.type(screen.getByLabelText('End Date'), '2026-11-27');
 
     server.use(
       http.get('*/holidays', () =>
@@ -92,7 +95,6 @@ describe('HolidaysPage', () => {
   });
 
   it('edits a holiday, prefilling the date inputs from the sentinel ISO strings, and sends the exact PUT payload', async () => {
-    const user = userEvent.setup();
     render(<HolidaysPage />);
     await screen.findByText('Winter Break');
 
@@ -103,7 +105,8 @@ describe('HolidaysPage', () => {
     expect((screen.getByLabelText('Start Date') as HTMLInputElement).value).toBe('2026-12-24');
     expect((screen.getByLabelText('End Date') as HTMLInputElement).value).toBe('2026-12-26');
 
-    fireEvent.change(nameInput, { target: { value: 'Winter Holidays' } });
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Winter Holidays');
 
     server.use(
       http.get('*/holidays', () =>
@@ -123,7 +126,6 @@ describe('HolidaysPage', () => {
   });
 
   it('deletes a holiday (happy path) and removes the row optimistically', async () => {
-    const user = userEvent.setup();
     render(<HolidaysPage />);
     await screen.findByText('Winter Break');
 
@@ -138,8 +140,6 @@ describe('HolidaysPage', () => {
     server.use(
       http.put('*/holidays/:id', () => HttpResponse.json({ message: 'Holiday overlaps with: Spring Break' }, { status: 409 }))
     );
-
-    const user = userEvent.setup();
     render(<HolidaysPage />);
     await screen.findByText('Winter Break');
 
@@ -153,22 +153,19 @@ describe('HolidaysPage', () => {
 
   it('shows an inline error and does not crash when create fails', async () => {
     server.use(http.post('*/holidays', () => HttpResponse.json({ message: 'Failed to create holiday.' }, { status: 500 })));
-
-    const user = userEvent.setup();
     render(<HolidaysPage />);
     await screen.findByText('Winter Break');
 
     await user.click(screen.getByRole('button', { name: /add holiday/i }));
     await user.type(screen.getByLabelText('Name'), 'Thanksgiving');
-    fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-11-26' } });
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-11-27' } });
+    await user.type(screen.getByLabelText('Start Date'), '2026-11-26');
+    await user.type(screen.getByLabelText('End Date'), '2026-11-27');
     await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(await screen.findByText('Failed to create holiday.')).toBeInTheDocument();
   });
 
   it('requires name, start date, and end date before saving', async () => {
-    const user = userEvent.setup();
     render(<HolidaysPage />);
     await screen.findByText('Winter Break');
 
