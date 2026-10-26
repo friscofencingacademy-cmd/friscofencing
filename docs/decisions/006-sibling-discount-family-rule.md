@@ -47,6 +47,28 @@ The rate itself — 10% — is a fixed constant of this rule, implemented in `ca
 
 Owner-decided, 2026-08-29: no admin setting for the rate today — it has never changed and there is no plan to change it, so a configurable `Setting.siblingDiscountPercent` would be built for a need that doesn't exist yet. If the rate ever does become configurable, the sequence is: `Setting` gains the field (the same precedent `registrationFee` already set) → `calculateChargeAmount` reads it → API responses/`reason` strings carry the live value → only then do the frontend labels switch to rendering it. Labels are never the first thing to change.
 
+## Addendum, 2026-10-26: the reason describes the plans, not this month's charge
+
+Found by the live audit's S5 on staging (`docs/plans/audit-and-health-refresh-plan.md` §9, F12).
+At registration the discount base is `min(charge now, top sibling fee)`, where "charge now" may be a
+prorated first month — unchanged, and still the money rule. But the `reason` was chosen from that
+same comparison, so a late-month start on the pricier plan (prorated below the sibling's plan) was
+told "This is the lower-priced plan among your active children" — false for that parent.
+
+The reason is now chosen by comparing the PLANS (monthly list prices; the caller passes `planFee`):
+
+| This child's plan vs the top sibling's | 10% taken from | Reason (`SIBLING_DISCOUNT_REASONS`) |
+|---|---|---|
+| lower or equal | this charge | `OWN_PLAN` — "This is the lower-priced plan among your active children…" |
+| higher, charge above the sibling fee | the sibling's fee | `BRIDGE` — "…based on your other child's lower-priced plan." |
+| higher, prorated charge at or below it | this prorated charge | `BRIDGE_PRORATED` — "…based on this month's prorated charge, which is lower than your other child's plan." |
+
+No amount changes. Renewal mode is not changed by this addendum. **Open, same root cause (F15,
+owner decision pending):** the superadmin Charge dialog's prorated option (`renewal.service.js`
+`previewRenewal`) passes the prorated amount into renewal mode, which picks the top payer by
+comparing amounts — so a top payer whose prorated charge falls below a sibling's plan fee is
+wrongly discounted. The proposed fix is the same principle: decide the top payer by plans.
+
 ## Alternatives considered
 
 - **Wait-for-next-renewal when the new child is the top payer** (CKQ's behavior) — rejected by owner as unfair: "If someone registers on the 2nd and his sibling registers on the 3rd, it is unfair to say they won't get discount until the next month."

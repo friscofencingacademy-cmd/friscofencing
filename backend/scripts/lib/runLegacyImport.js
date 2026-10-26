@@ -225,6 +225,7 @@ async function enrollStudentInLevel({ studentId, parentId, levelKey, classResour
     // sibling-discount-family-rule.md.
     const { amount, siblingDiscountApplied } = await calculateChargeAmount(student, resources.price.monthlyFee, {
       mode: 'registration',
+      planFee: resources.price.monthlyFee,
     });
     const now = new Date();
     const currentPeriodEnd = addOneMonth(now);

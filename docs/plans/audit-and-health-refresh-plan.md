@@ -1,9 +1,10 @@
 # Audit & Health Refresh Plan — live audit revival, session extension, `/health`, audit guards
 
 **Status:** BUILT — all four PRs merged to `develop` on 2026-10-26 (#125, #126, #127, and the docs
-close-out). §9 holds the as-built notes. **Owner steps still open (§7):** the `extend-sessions`
-catch-up on staging and production, the GitHub secrets (`deployment-launch-plan.md` §4e), the first
-live run (§7.4). Done 2026-10-26: `ci-passed` is the one required check on `develop` and `main`
+close-out). §9 holds the as-built notes. **Staging is fully live (2026-10-26, §9 "Staging go-live"):**
+catch-up run, fixtures seeded, first live audit run, both weekly workflows running from `develop`
+(now the GitHub default branch). **Production deferred by owner decision (2026-10-26):** its
+`extend-sessions` catch-up and the `PRODUCTION_MONGO_URI` secret wait until production is set up. Done 2026-10-26: `ci-passed` is the one required check on `develop` and `main`
 (strict, admins not enforced), and the user-level CKQ `health.md` is renamed `ckq-health.md`. Spec'd 2026-10-26 from a measured audit of the repo, GitHub, and a read-only
 query against the staging database.
 **Executor:** another model (Opus or Sonnet), in auto mode, one PR at a time, in order. §1 is the
@@ -493,3 +494,44 @@ sections above with the reason._
   wrong database, or none, fails before any write; `health-check.js` requires each environment's
   exact database name.
 
+### Staging go-live, 2026-10-26
+
+Owner decision: get staging fully working now; production is not fully set up yet and follows later.
+
+- **Catch-up run on staging** (`extend-group-sessions.js --expect-db=friscofencing-staging`, dry run
+  then `--live`): 152 sessions (8 on each of the 19 schedules) and 2,136 roster Visits, which is
+  exactly the sum of the rosters × 8. A second run found 0 missing. `audit:seed` then created the 5
+  audit families, 2 classes and 2 schedules (8 sessions each); `npm run health -- --env staging` went
+  from 2 ❌ + 1 ⚠️ to all ✅ apart from the audit result.
+- **First live run since 2026-08-28: 5/6.** P0 preflight, S1 (rewritten), S2, S3, S4 and S6 passed
+  against the real staging deploy. S5 failed on its reason text, not on money:
+- **F12 (fixed in the same PR as this note).** `calculateChargeAmount`'s registration mode chose its
+  reason by `base === feeNow`, i.e. by this month's possibly-prorated charge. A late-month start on
+  the $100 plan is prorated to $25, below a sibling's $50 plan, so the parent on the PRICIER plan was
+  told "This is the lower-priced plan among your active children". The staging ledger showed it:
+  $25 prorated, 10% off = $22.50 — correct money, false sentence. It passed in August only because
+  that run's start fell in the next month (no proration). Fix: registration mode now requires
+  `planFee` (the plan's monthly list price, passed by both `registration.service.js` callers and
+  `runLegacyImport.js`) and picks the reason by plan vs plan; a third reason, `BRIDGE_PRORATED`,
+  states that the 10% came from this month's prorated charge. All reasons live in one exported
+  `SIBLING_DISCOUNT_REASONS`. Money is unchanged (ADR 006 addendum, 2026-10-26). S5 now checks the
+  opening both bridge sentences share, so it is correct on every day of the month.
+- **F13 — the weekly jobs could never run.** GitHub only runs `schedule` and `workflow_dispatch`
+  workflows that exist on the repo's default branch; that was `main`, which had no `.github/` at
+  all. Owner-approved fix: `develop` is now the default branch (Vercel's production branch is its
+  own setting and is unchanged; new PRs now target `develop` by default, matching CLAUDE.md's flow).
+  Both workflows registered immediately.
+- **F14 — the production job read the staging secret.** `extend-sessions.yml` chose its secret with
+  `cond && secrets.PRODUCTION_MONGO_URI || secrets.STAGING_MONGO_URI`; with the production secret
+  unset, the expression fell through to the staging one. The first dispatched run (#40400904519)
+  shows it: the staging job succeeded (0 missing), and the production job connected with the staging
+  URI and was refused by `--expect-db` (#130) before any write. Fix: the matrix names each
+  environment's `secret` and `database`, read as `secrets[matrix.secret]`, so an unset secret is
+  empty and the job skips with a notice.
+- **F15 — open, owner decision pending (money).** Same root cause as F12, in renewal mode: the
+  superadmin Charge dialog's prorated option (`renewal.service.js` `previewRenewal`, ~line 360)
+  passes `proration.proratedAmount` as `feeNow`, and renewal mode picks the top payer by comparing
+  `feeNow` with the siblings' plan fees. A top payer ($100 plan) charged a prorated $25 against a
+  sibling's $50 plan is treated as NOT the top payer and gets 10% off — ADR 006 says the highest
+  plan pays full. Proposed fix: renewal mode also takes `planFee` and decides the top payer by plan;
+  the 10% stays on the charge actually made. Not built: it changes amounts and needs the owner's `write`.

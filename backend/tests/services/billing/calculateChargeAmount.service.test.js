@@ -5,7 +5,10 @@ const GroupClass = require('../../../src/models/groupClass.model');
 const GroupClassSchedule = require('../../../src/models/groupClassSchedule.model');
 const Price = require('../../../src/models/price.model');
 const Subscription = require('../../../src/models/subscription.model');
-const { calculateChargeAmount } = require('../../../src/services/billing/calculateChargeAmount.service');
+const {
+  calculateChargeAmount,
+  SIBLING_DISCOUNT_REASONS,
+} = require('../../../src/services/billing/calculateChargeAmount.service');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../../testUtils/db');
 
 let mongod;
@@ -121,6 +124,14 @@ describe('calculateChargeAmount', () => {
 
       await expect(calculateChargeAmount(student, 150, { mode: 'renewal' })).rejects.toThrow(/subscription/);
     });
+
+    it("throws in 'registration' mode without planFee — the reason must describe the plan, not just this month's charge", async () => {
+      const parent = await seedParent('parent-no-plan-fee@example.com');
+      const student = await seedStudent(parent._id);
+
+      await expect(calculateChargeAmount(student, 150, { mode: 'registration' })).rejects.toThrow(/planFee/);
+      await expect(calculateChargeAmount(student, 150, { mode: 'registration', planFee: NaN })).rejects.toThrow(/planFee/);
+    });
   });
 
   describe('no active siblings (both modes)', () => {
@@ -140,7 +151,7 @@ describe('calculateChargeAmount', () => {
       const parent = await seedParent('parent-no-sibling-reg@example.com');
       const student = await seedStudent(parent._id);
 
-      const result = await calculateChargeAmount(student, 150, { mode: 'registration' });
+      const result = await calculateChargeAmount(student, 150, { mode: 'registration', planFee: 150 });
 
       expect(result).toEqual({ amount: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0, reason: null });
     });
@@ -384,7 +395,7 @@ describe('calculateChargeAmount', () => {
       const existingSchedule = await seedScheduleForLevel(pricierLevel, { locationName: 'loc-reg-lower-a' });
       await seedActiveSubscription(existingChild, parent, existingSchedule._id);
 
-      const result = await calculateChargeAmount(newChild, 100, { mode: 'registration' });
+      const result = await calculateChargeAmount(newChild, 100, { mode: 'registration', planFee: 100 });
 
       expect(result).toEqual({
         amount: 90,
@@ -408,7 +419,7 @@ describe('calculateChargeAmount', () => {
       const existingSchedule = await seedScheduleForLevel(cheapLevel, { locationName: 'loc-reg-higher-a' });
       await seedActiveSubscription(existingChild, parent, existingSchedule._id);
 
-      const result = await calculateChargeAmount(newChild, 200, { mode: 'registration' });
+      const result = await calculateChargeAmount(newChild, 200, { mode: 'registration', planFee: 200 });
 
       // 10% of the LOWER (existing sibling's) fee, 100 -> 10, off the new
       // child's 200 bill -> 190. NOT 10% of 200.
@@ -438,10 +449,68 @@ describe('calculateChargeAmount', () => {
       // feeNow here simulates an already-prorated amount (e.g. $45 of a
       // $150 list price) — this function never knows or cares whether the
       // caller prorated first; it just compares whatever fee it's given.
-      const result = await calculateChargeAmount(newChild, 45, { mode: 'registration' });
+      const result = await calculateChargeAmount(newChild, 45, { mode: 'registration', planFee: 150 });
 
       expect(result.amount).toBe(40.5);
       expect(result.siblingDiscountAmount).toBe(4.5);
+      // The $150 plan IS the lower one (sibling: $200) — prorated or not.
+      expect(result.reason).toBe(SIBLING_DISCOUNT_REASONS.OWN_PLAN);
+    });
+
+    // Found by the live audit's S5 on 2026-10-26 (ADR 006 addendum): a late-
+    // month start prorates the PRICIER plan below the sibling's plan. The
+    // money is 10% of the prorated charge, as always — but the parent is on
+    // the pricier plan, so they must not be told theirs is the lower one.
+    it('bridge with a prorated charge BELOW the sibling fee: 10% of the prorated charge, and the reason still names the pricier plan', async () => {
+      const cheapLevel = await seedLevelWithPrice(50, { name: 'ProratedBridgeCheap', order: 1 });
+      const parent = await seedParent('parent-reg-prorated-bridge@example.com');
+      const existingChild = await seedStudent(parent._id, { firstName: 'ExistingFifty' });
+      const newChild = await seedStudent(parent._id, { firstName: 'NewHundred' });
+      const existingSchedule = await seedScheduleForLevel(cheapLevel, { locationName: 'loc-prorated-bridge' });
+      await seedActiveSubscription(existingChild, parent, existingSchedule._id);
+
+      // The $100 plan, prorated to $25 for the rest of the month.
+      const result = await calculateChargeAmount(newChild, 25, { mode: 'registration', planFee: 100 });
+
+      expect(result).toEqual({
+        amount: 22.5,
+        siblingDiscountApplied: true,
+        siblingDiscountAmount: 2.5,
+        reason: SIBLING_DISCOUNT_REASONS.BRIDGE_PRORATED,
+        discountBase: 25,
+        siblingComparison: [expect.objectContaining({ studentId: existingChild._id, monthlyFee: 50 })],
+      });
+      expect(result.reason).not.toBe(SIBLING_DISCOUNT_REASONS.OWN_PLAN);
+    });
+
+    it('bridge with a prorated charge still ABOVE the sibling fee: 10% of the sibling fee, the plain bridge reason', async () => {
+      const cheapLevel = await seedLevelWithPrice(100, { name: 'ProratedAboveCheap', order: 1 });
+      const parent = await seedParent('parent-reg-prorated-above@example.com');
+      const existingChild = await seedStudent(parent._id, { firstName: 'ExistingHundred' });
+      const newChild = await seedStudent(parent._id, { firstName: 'NewTwoHundred' });
+      const existingSchedule = await seedScheduleForLevel(cheapLevel, { locationName: 'loc-prorated-above' });
+      await seedActiveSubscription(existingChild, parent, existingSchedule._id);
+
+      // The $200 plan, prorated to $150 — still above the sibling's $100.
+      const result = await calculateChargeAmount(newChild, 150, { mode: 'registration', planFee: 200 });
+
+      expect(result.amount).toBe(140);
+      expect(result.discountBase).toBe(100);
+      expect(result.reason).toBe(SIBLING_DISCOUNT_REASONS.BRIDGE);
+    });
+
+    it('equal plans: the own-plan reason (neither child is on a pricier plan)', async () => {
+      const level = await seedLevelWithPrice(100, { name: 'EqualPlans', order: 1 });
+      const parent = await seedParent('parent-reg-equal-plans@example.com');
+      const existingChild = await seedStudent(parent._id, { firstName: 'ExistingEqual' });
+      const newChild = await seedStudent(parent._id, { firstName: 'NewEqual' });
+      const schedule = await seedScheduleForLevel(level, { locationName: 'loc-equal-plans' });
+      await seedActiveSubscription(existingChild, parent, schedule._id);
+
+      const result = await calculateChargeAmount(newChild, 100, { mode: 'registration', planFee: 100 });
+
+      expect(result.amount).toBe(90);
+      expect(result.reason).toBe(SIBLING_DISCOUNT_REASONS.OWN_PLAN);
     });
 
     it('3-kid bridge: min(newFee, topExistingFee) in both directions', async () => {
@@ -461,7 +530,7 @@ describe('calculateChargeAmount', () => {
       // New child's fee (200) sits between the two existing fees — the
       // family's current top is 300, so base = min(200, 300) = 200 (the
       // new child's OWN fee, since it's still below the family max).
-      const result = await calculateChargeAmount(newChild, 200, { mode: 'registration' });
+      const result = await calculateChargeAmount(newChild, 200, { mode: 'registration', planFee: 200 });
 
       expect(result.siblingDiscountAmount).toBe(20);
       expect(result.amount).toBe(180);
@@ -483,7 +552,7 @@ describe('calculateChargeAmount', () => {
       const schedule = await seedScheduleForLevel(level, { locationName: 'loc-never-negative' });
       await seedActiveSubscription(existingChild, parent, schedule._id);
 
-      const result = await calculateChargeAmount(newChild, 1, { mode: 'registration' });
+      const result = await calculateChargeAmount(newChild, 1, { mode: 'registration', planFee: 50 });
 
       expect(result.amount).toBeGreaterThanOrEqual(0);
     });

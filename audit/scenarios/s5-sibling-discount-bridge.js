@@ -43,11 +43,16 @@ async function run(context, config) {
     await registerChild(page, config, /audit bridgefirst/i, 'Audit Level B', false);
 
     // Second child, PRICIER level — the bridge case: expects the discount
-    // (based on the first child's lower fee) with the bridge-specific
-    // reason text, distinct from S3's own-fee wording.
+    // with bridge wording, distinct from S3's own-plan wording. The backend
+    // has two bridge sentences (calculateChargeAmount.service.js
+    // SIBLING_DISCOUNT_REASONS): BRIDGE when the 10% comes from the sibling's
+    // plan, BRIDGE_PRORATED when a late-month start prorates this plan's first
+    // charge below it. Which one depends on today's date, so this checks the
+    // opening both share — and the own-plan sentence lacks — keeping S5
+    // correct on every day of the month (found 2026-10-26: S5 failed late in
+    // the month when the reason was still chosen by the prorated amount).
     await registerChild(page, config, /audit bridgesecond/i, 'Audit Level A', true, {
-      expectedReason:
-        "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.",
+      expectedReason: "Your family's 10% sibling discount applies to this registration",
     });
 
     return { id: ID, name: NAME, result: 'pass', note: '' };

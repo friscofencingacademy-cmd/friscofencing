@@ -41,6 +41,30 @@ function round2(value) {
   return Math.round(value * 100) / 100;
 }
 
+// Every reason string a parent can see for the sibling discount — one home,
+// so the services, their tests and the live audit (audit/scenarios/s5-*)
+// all name the same text.
+//
+// The reason describes the two PLANS (monthly list prices), never this
+// month's possibly-prorated charge: a parent on the $100 plan registering
+// late in the month pays a prorated $25 that may sit below a sibling's $50
+// plan, and must not be told theirs is "the lower-priced plan" (found by
+// the live audit's S5 on 2026-10-26; ADR 006 addendum of that date). The
+// MONEY is unaffected — it is always 10% of min(charge now, top sibling fee).
+const SIBLING_DISCOUNT_REASONS = {
+  // This child's plan is the lower-priced one (renewal or registration).
+  OWN_PLAN: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+  // Registration bridge: this child's plan is pricier; the 10% is taken
+  // from the sibling's lower plan fee.
+  BRIDGE: "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.",
+  // Registration bridge with a prorated first charge that is already below
+  // the sibling's plan fee: the 10% is taken from that prorated charge.
+  BRIDGE_PRORATED:
+    "Your family's 10% sibling discount applies to this registration, based on this month's prorated charge, which is lower than your other child's plan.",
+  // Renewal: this child is the family's top payer.
+  TOP_PAYER: 'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
+};
+
 // Every counted sibling's { studentId, fee, createdAt } — shared by both
 // modes below. A sibling counts only if they hold an active subscription
 // (Guard A, docs/decisions/005-one-active-subscription-per-student.md,
@@ -113,15 +137,22 @@ async function gatherSiblingFees(student) {
 //   deliberately NOT symmetric with 'renewal': it is what makes the family
 //   discount start the moment the family qualifies, instead of waiting for
 //   an existing sibling's next renewal (owner-decided, ADR 006).
+//   Requires `planFee` — this registration's monthly list price, which
+//   `feeNow` may be a prorated part of — so the reason can describe the
+//   plans rather than this month's charge (SIBLING_DISCOUNT_REASONS).
 async function calculateChargeAmount(student, feeNow, options) {
   if (!options || (options.mode !== 'registration' && options.mode !== 'renewal')) {
     throw new Error("calculateChargeAmount: options.mode must be 'registration' or 'renewal'");
   }
 
-  const { mode, subscription } = options;
+  const { mode, subscription, planFee } = options;
 
   if (mode === 'renewal' && !subscription) {
     throw new Error("calculateChargeAmount: mode 'renewal' requires the student's own active subscription");
+  }
+
+  if (mode === 'registration' && !(Number.isFinite(planFee) && planFee >= 0)) {
+    throw new Error("calculateChargeAmount: mode 'registration' requires planFee, the plan's monthly list price");
   }
 
   const siblingEntries = await gatherSiblingFees(student);
@@ -136,12 +167,18 @@ async function calculateChargeAmount(student, feeNow, options) {
     const siblingDiscountAmount = round2(base * 0.1);
     const amount = round2(feeNow - siblingDiscountAmount);
 
-    // Two distinguishable reasons — the "mark" that a family discount was
-    // applied, and which rate it was based on, per the owner's ask.
-    const reason =
-      base === feeNow
-        ? 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.'
-        : "Your family's 10% sibling discount applies to this registration, based on your other child's lower-priced plan.";
+    // Distinguishable reasons — the "mark" that a family discount was
+    // applied, and which figure it was based on, per the owner's ask. Which
+    // plan is lower is decided by the plans' list prices; which figure the
+    // 10% came from is decided by `base`.
+    let reason;
+    if (planFee <= topSiblingFee) {
+      reason = SIBLING_DISCOUNT_REASONS.OWN_PLAN;
+    } else if (base === feeNow) {
+      reason = SIBLING_DISCOUNT_REASONS.BRIDGE_PRORATED;
+    } else {
+      reason = SIBLING_DISCOUNT_REASONS.BRIDGE;
+    }
 
     // Display-only breakdown for the register wizard's quote panel (docs/
     // plans/booking-flow-sequential-plan.md) — siblingComparison lists the
@@ -209,7 +246,7 @@ async function calculateChargeAmount(student, feeNow, options) {
       amount: feeNow,
       siblingDiscountApplied: false,
       siblingDiscountAmount: 0,
-      reason: 'Your other child has the lower-priced plan, so the sibling discount applies to their plan instead.',
+      reason: SIBLING_DISCOUNT_REASONS.TOP_PAYER,
     };
   }
 
@@ -220,8 +257,8 @@ async function calculateChargeAmount(student, feeNow, options) {
     amount,
     siblingDiscountApplied: true,
     siblingDiscountAmount,
-    reason: 'This is the lower-priced plan among your active children, so the 10% sibling discount applies here.',
+    reason: SIBLING_DISCOUNT_REASONS.OWN_PLAN,
   };
 }
 
-module.exports = { calculateChargeAmount, resolveCurrentFee };
+module.exports = { calculateChargeAmount, resolveCurrentFee, SIBLING_DISCOUNT_REASONS };

@@ -212,7 +212,7 @@ async function create({ studentId, scheduleId, startDate }, requestingUser) {
   const feeForDiscountCalc = prorationInfo.proratedAmount;
 
   const { amount: chargeAmount, siblingDiscountApplied, siblingDiscountAmount, reason: siblingDiscountReason } =
-    await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration' });
+    await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration', planFee: price.monthlyFee });
 
   // One-time fee, on top of the monthly charge above — never discounted by
   // the sibling rule (a flat enrollment fee, not recurring tuition) and
@@ -487,7 +487,7 @@ async function previewChargeAmount({ studentId, scheduleId, startDate }, request
     reason: siblingDiscountReason,
     siblingComparison,
     discountBase,
-  } = await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration' });
+  } = await calculateChargeAmount(student, feeForDiscountCalc, { mode: 'registration', planFee: price.monthlyFee });
 
   const {
     amount: registrationFeeCharged,
