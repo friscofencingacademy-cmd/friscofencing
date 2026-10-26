@@ -55,17 +55,28 @@ function sessionInstantsFor(date, schedule) {
   };
 }
 
-function generateInitialSessions(schedule) {
-  const firstDate = nextDateOnlyOnOrAfter(todayDateOnly(), schedule.dayOfWeek);
+// The ONE planner for which sessions a schedule should have
+// (docs/plans/audit-and-health-refresh-plan.md D1): the `count` weekly
+// occurrences of `schedule.dayOfWeek` on or after `fromSentinel` (a
+// calendar-day sentinel). Schedule creation (generateInitialSessions, below)
+// and the weekly extension (scripts/lib/extendGroupSessions.js) both call
+// this, so the two can never disagree about which dates a schedule has or
+// how far ahead it reaches. Pure: no clock read, no database.
+function plannedSessionsFor(schedule, fromSentinel, count = SESSION_COUNT) {
+  const firstDate = nextDateOnlyOnOrAfter(fromSentinel, schedule.dayOfWeek);
 
   const sessions = [];
 
-  for (let i = 0; i < SESSION_COUNT; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     const date = addDaysToDateOnly(firstDate, i * DAYS_PER_WEEK);
     sessions.push({ scheduleId: schedule._id, date, ...sessionInstantsFor(date, schedule) });
   }
 
   return sessions;
+}
+
+function generateInitialSessions(schedule) {
+  return plannedSessionsFor(schedule, todayDateOnly());
 }
 
 // "Is attendance open?" is a DAY question (docs/plans/duplication-cleanup-
@@ -550,7 +561,9 @@ async function markKioskAttendance(studentId, sessionId, markedBy) {
 }
 
 module.exports = {
+  SESSION_COUNT,
   sessionInstantsFor,
+  plannedSessionsFor,
   generateInitialSessions,
   listBySchedule,
   listUpcomingByClass,

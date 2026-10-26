@@ -168,15 +168,17 @@ pushes create Preview deployments automatically — that is our staging.
   `node scripts/check-private-credit-ledger.js` (ADR 011). The old
   `extend-private-sessions` script no longer exists — nothing is generated ahead of time.
 - **Fix the recurring cold-start MongoDB bug properly** (see the gotcha note above — recurred 4 times): `backend/api/index.js`'s `connectDB()` is fire-and-forget with no retry. Make the serverless entry await the connection (or add a disconnect-detecting reconnect) instead of relying on a manual redeploy every time a container goes cold. Highest-priority item on this list — it's a real production reliability bug, not just a launch-week hiccup.
-- **Group-session generation cron** (planned, owner decision 2026-09-25 — the CKQ model): group
-  sessions are generated once, 8 weeks ahead, only when a schedule is created
-  (`groupClassSession.service.js` `generateInitialSessions`), and nothing extends them, so every
-  schedule runs out of sessions 8 weeks after it was created. Add a weekly cron that adds one week
-  so each schedule always stays 8 weeks ahead. It must build dates through `dateShapes.js`, write
-  `startsAt`/`endsAt` through `sessionInstantsFor`, create roster Visits for the new sessions, and be
-  idempotent under the `(scheduleId, date)` unique index. **Blocks shipping the public calendar**
-  (`docs/plans/calendar-view-plan.md` §9); the trial and register start-date pickers have the same
-  gap today.
+- **Group-session generation cron — BUILT** (`docs/plans/audit-and-health-refresh-plan.md` PR 1;
+  owner decision 2026-09-25, the CKQ model). Sessions used to be generated once, 8 weeks ahead, only
+  at schedule creation, so every schedule ran dry 8 weeks later (measured 2026-10-26: staging had
+  zero upcoming sessions). `npm run extend-sessions` (dry run; `-- --live` to apply) tops every
+  schedule back up to its next 8 weekly sessions through the same planner schedule creation uses
+  (`plannedSessionsFor`), creates scheduled Visits for each schedule's roster, and is idempotent
+  under the `(scheduleId, date)` unique index. **Owner steps:** (1) one catch-up run on staging and
+  on production (dry run first) — that plan's §7.3; (2) `gh secret set STAGING_MONGO_URI` and
+  `gh secret set PRODUCTION_MONGO_URI` so `.github/workflows/extend-sessions.yml` runs it every
+  Monday (a job whose secret is unset is skipped with a notice). This unblocks the public calendar
+  (`docs/plans/calendar-view-plan.md` §9), the trial/register pickers and the kiosk.
 - **Stripe webhook registration**: Stripe dashboard → Webhooks → add endpoint
   `https://<backend-prod-url>/api/v1/webhooks/stripe` (events: `payment_intent.succeeded`,
   `payment_intent.failed`) → put the signing secret in `STRIPE_WEBHOOK_SECRET`. Repeat
