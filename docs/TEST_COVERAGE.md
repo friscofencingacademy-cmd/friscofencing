@@ -6,12 +6,39 @@ CKQ-style coverage snapshot. Numbers below are real, captured by actually runnin
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | 80% | 92.66% | 90.73% |
-| Branches | — (informational) | 83.65% | 84% |
-| Functions | — (informational) | 95.15% | 88.75% |
-| Lines | — (informational) | 92.85% | 92.01% |
+| Statements | **80% — enforced in CI** | 92.88% | 90.18% |
+| Branches | — (informational) | 84.35% | 83.54% |
+| Functions | — (informational) | 95.38% | 88.61% |
+| Lines | — (informational) | 93.08% | 91.47% |
 
-Both re-measured 2026-09-24 via `TZ=UTC npm test -- --coverage` (backend) and `TZ=UTC npx jest --coverage` (frontend) after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract). Backend: 76 suites / 980 tests, all passing. Frontend: 60 suites / 472 tests, all passing. Both clear the 80%-statements target. After the plan's §8 follow-up (contracts edited as versions, 2026-09-25) the counts are backend 76 suites / 987 tests and frontend 61 suites / 474 tests, all passing, E2E 31 + 2 known skips; the percentages above were not re-measured for that change. After kiosk sign-in PR 1 (`docs/plans/kiosk-signin-plan.md`, 2026-09-29, uncommitted at the time of writing): backend 82 suites / 1091 tests, all passing (baseline before it: 80 / 1045). After kiosk PR 2 (2026-09-30): frontend 67 suites / 554 tests, E2E 41 + 2 known skips, all passing (baseline 65 / 530, E2E 36 + 2).
+**Re-measured 2026-10-26** (`docs/plans/testing-strategy-refresh-plan.md` PR A) with `npm run test:coverage` in each repo: backend 82 suites / 1,091 tests, frontend 69 suites / 560 tests, all passing. **These numbers count every source file** (`collectCoverageFrom` in each `jest.config.js`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`), including files no test loads — the earlier figures below counted only files a test happened to load, so the two are not directly comparable. CI now runs each suite once with coverage and fails below 80% statements (`coverageThreshold`); the summary is in each job's GitHub summary.
+
+**Branch / line coverage by directory** (2026-10-26):
+
+| Backend directory | Branches | Lines |
+|---|---|---|
+| `src/utils` | 99.05% | 100.00% |
+| `src/models` | 96.77% | 100.00% |
+| `src/middlewares` | 94.29% | 100.00% |
+| `src/config` | 85.71% | 91.67% |
+| `src/services` (incl. `billing/`) — the business logic | 84.25% | 92.36% |
+| `scripts/lib` | 84.32% | 98.70% |
+| `src/email` | 75.74% | 93.33% |
+| `src/controllers` | 71.88% | 81.41% |
+| `src/routes` | 50.00% | 99.29% |
+
+| Frontend directory | Branches | Lines |
+|---|---|---|
+| `lib/hooks` | 96.15% | 98.86% |
+| `app/parent` | 90.51% | 97.38% |
+| `lib` | 89.86% | 97.22% |
+| `app/components` | 83.20% | 93.62% |
+| `lib/services` | 81.25% | 90.51% |
+| `app/admin` | 78.68% | 87.18% |
+| `app/coach` | 77.27% | 75.00% |
+| `app/context` | 73.33% | 95.71% |
+
+Previous snapshot — measured 2026-09-24 via `TZ=UTC npm test -- --coverage` (backend) and `TZ=UTC npx jest --coverage` (frontend) after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract). Backend: 76 suites / 980 tests, all passing. Frontend: 60 suites / 472 tests, all passing. Statements 92.66% backend / 90.73% frontend at that time (loaded files only); both cleared the 80% target. After the plan's §8 follow-up (contracts edited as versions, 2026-09-25) the counts are backend 76 suites / 987 tests and frontend 61 suites / 474 tests, all passing, E2E 31 + 2 known skips; those percentages were not re-measured for that change. After kiosk sign-in PR 1 (`docs/plans/kiosk-signin-plan.md`, 2026-09-29, uncommitted at the time of writing): backend 82 suites / 1091 tests, all passing (baseline before it: 80 / 1045). After kiosk PR 2 (2026-09-30): frontend 67 suites / 554 tests, E2E 41 + 2 known skips, all passing (baseline 65 / 530, E2E 36 + 2).
 
 **vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
 backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
@@ -46,7 +73,7 @@ non-`TZ=UTC` local dev host, a class of tests reads a UTC-midnight calendar-day 
 Date's LOCAL getters and fails — correct under `TZ=UTC` (true in CI and production), wrong otherwise.**
 
 ```
-cd backend && TZ=UTC npm test
+cd backend && npm test            # TZ=UTC is set by the script itself
 ```
 
 | Layer | Location | What it tests | DB? |
@@ -76,7 +103,7 @@ cd backend && TZ=UTC npm test
 **Current state: 60 test suites / 472 tests, all passing under `TZ=UTC`, 2026-09-24 (after `docs/plans/coach-pack-pricing-plan.md` PR 2 — the shared `PackEditor` with its server-verbatim preview guard and a fake-timer debounce test, the new `useDebouncedValue` hook and `lib/services/__tests__/coachContracts.test.ts` contract suite, packs chosen by `packId` in the booking wizard). Before that: `docs/plans/private-class-per-session-booking-plan.md` PR 3 — the private-lesson pages rebuilt for per-session bookings, a new `lib/services/__tests__/privateClass.test.ts` contract suite, and the portal context's removed private fetch guarded by a test). `tsc --noEmit` clean, `next build` succeeds. E2E: 31 passed + the 2 known visual-baseline skips, including the new `private-booking.spec.ts`.**
 
 ```
-cd frontend && TZ=UTC npm test
+cd frontend && npm test           # TZ=UTC is set by the script itself
 ```
 
 | Layer | Location | What it tests | Network |

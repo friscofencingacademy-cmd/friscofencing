@@ -385,3 +385,30 @@ Same seven rules as `docs/plans/payment-provider-port-plan.md` §9, with these s
 
 ## 8. Follow-ups recorded, not built here
 ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behind the Jest guards) in both repos; WebKit/Firefox projects; a central MSW handlers registry + both-registries guard (only worth it once a second global handlers file exists); visual-regression baselines generated inside the Playwright Docker image (the 2 standing skips); converting `audit/` to the loud-fail fixture.
+
+---
+
+## 9. As-built notes
+
+### PR A (2026-10-26, `feature/testing-ci-hardening`)
+- **Coverage is gated now, not after PR E (deviation from T2, an improvement).** Both repos already
+  clear the floor with every file counted (backend 92.88% statements, frontend 90.18%), so the
+  planned reporting-only `coverage` job — which would have run the backend suite, and its real
+  Stripe TEST-mode calls, a second time on every PR — was not built. Each test job runs its suite
+  once with `npm run test:coverage` and `coverageThreshold` fails it below 80%. PR E therefore only
+  adds the `ci-passed` umbrella job.
+- **Type-checking `e2e/` found a real defect, fixed here.** `@axe-core/playwright` declares
+  `playwright-core` as a peer; nothing at the top level provided it, so npm installed
+  `playwright-core@1.62.1` beside the runner's 1.47.2 and the accessibility scans ran on a second
+  Playwright. `playwright-core` is now pinned exactly to the runner's version (one copy, deduped),
+  and `frontend/lib/__tests__/guards/playwrightVersionGuard.test.ts` fails if `@playwright/test`,
+  `playwright-core` and the CI image tag ever differ.
+- **Route-existence guard** (`scripts/check-route-existence.mjs` + `scripts/route-introspect.cjs`):
+  introspects the live Express app (117 routes, matching the 117 `router.<method>(` definitions);
+  scans 110 frontend `api.<method>()` calls and 36 E2E `MockRule`s; zero phantoms. Stricter than
+  CKQ's: an unparseable call site is an extraction failure (exit 2), not a warning, since every
+  call site in this repo is a literal today. Planted phantoms in both an app file and the E2E mock
+  registry were reported (exit 1). CI runs `--self-test` first.
+- **Before PR A**, a separate fix shipped as PR #113: fonts are self-hosted (`next/font/local` over
+  `@fontsource-variable/*`) because `next/font/google`'s build-time fetch failed the develop E2E
+  build on 2026-09-30; `selfHostedFontsGuard.test.ts` prevents a regression.
