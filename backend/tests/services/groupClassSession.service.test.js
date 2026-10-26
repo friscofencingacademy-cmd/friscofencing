@@ -12,7 +12,9 @@ const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/d
 const { createSession, makeSessionAttendable } = require('../testUtils/sessions');
 
 const {
+  SESSION_COUNT,
   sessionInstantsFor,
+  plannedSessionsFor,
   generateInitialSessions,
   listUpcomingByClass,
   listBySchedule,
@@ -191,6 +193,52 @@ describe('groupClassSession.service — generateInitialSessions', () => {
     const sessions = generateInitialSessions(schedule);
 
     expect(sessions[0].date.toISOString()).toBe('2026-08-26T00:00:00.000Z');
+  });
+});
+
+// The one planner shared by schedule creation and the weekly extension
+// (docs/plans/audit-and-health-refresh-plan.md D1). Pure — no clock read.
+describe('groupClassSession.service — plannedSessionsFor', () => {
+  const schedule = { _id: 'schedule-1', dayOfWeek: 1, startTime: '18:00', endTime: '19:00' };
+
+  it('plans SESSION_COUNT weekly sessions on the weekday, starting on or after the given day', () => {
+    const sessions = plannedSessionsFor(schedule, new Date('2026-10-28T00:00:00.000Z')); // a Wednesday
+
+    expect(SESSION_COUNT).toBe(8);
+    expect(sessions.map((session) => session.date.toISOString().slice(0, 10))).toEqual([
+      '2026-11-02',
+      '2026-11-09',
+      '2026-11-16',
+      '2026-11-23',
+      '2026-11-30',
+      '2026-12-07',
+      '2026-12-14',
+      '2026-12-21',
+    ]);
+    sessions.forEach((session) => {
+      expect(session.scheduleId).toBe('schedule-1');
+      expect(session.startsAt.getTime()).toBe(sessionInstantsFor(session.date, schedule).startsAt.getTime());
+      expect(session.endsAt.getTime()).toBe(sessionInstantsFor(session.date, schedule).endsAt.getTime());
+    });
+  });
+
+  it('includes the start day itself when it falls on the weekday, and honors a custom count', () => {
+    const sessions = plannedSessionsFor(schedule, new Date('2026-11-02T00:00:00.000Z'), 2); // a Monday
+
+    expect(sessions.map((session) => session.date.toISOString())).toEqual([
+      '2026-11-02T00:00:00.000Z',
+      '2026-11-09T00:00:00.000Z',
+    ]);
+  });
+
+  it('is what generateInitialSessions returns for today', () => {
+    freezeAt('2026-10-28T15:00:00.000Z');
+
+    try {
+      expect(generateInitialSessions(schedule)).toEqual(plannedSessionsFor(schedule, new Date('2026-10-28T00:00:00.000Z')));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

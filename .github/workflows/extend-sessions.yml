@@ -1,0 +1,56 @@
+name: Extend group sessions
+
+# Keeps every group-class schedule stocked with its next 8 weekly sessions
+# (docs/plans/audit-and-health-refresh-plan.md PR 1, D5). Sessions are only
+# generated when a schedule is created, so without this every schedule runs
+# dry 8 weeks later and the trial/register pickers, the calendar and the kiosk
+# go empty. The script only inserts missing dates (idempotent), so a manual
+# run, a re-run or an overlap with a hand run is always safe.
+#
+# Secrets (repo Actions secrets, set by the owner with `gh secret set`):
+#   STAGING_MONGO_URI     — the friscofencing-staging database
+#   PRODUCTION_MONGO_URI  — the friscofencing database
+# A job whose secret is not set logs a notice and succeeds, so this never goes
+# red before the owner opts an environment in.
+
+on:
+  schedule:
+    # Mondays 11:00 UTC (05:00 CST / 06:00 CDT) — before the week's classes.
+    - cron: '0 11 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging, production]
+    concurrency:
+      group: extend-sessions-${{ matrix.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - name: Extend sessions (${{ matrix.environment }})
+        working-directory: backend
+        env:
+          MONGO_URI: ${{ matrix.environment == 'production' && secrets.PRODUCTION_MONGO_URI || secrets.STAGING_MONGO_URI }}
+        run: |
+          if [ -z "$MONGO_URI" ]; then
+            echo "::notice::${{ matrix.environment }} MONGO_URI secret is not set — skipping."
+            exit 0
+          fi
+          echo "── Plan (dry run) ──"
+          npm run extend-sessions
+          echo "── Apply ──"
+          npm run extend-sessions -- --live
