@@ -1,6 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 import AxeBuilder from '@axe-core/playwright';
 
+import type { LevelResponse, LevelsResponse } from '../lib/apiResponses';
+import type { Level } from '../lib/types';
 import { json, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
@@ -72,17 +74,17 @@ test.describe('admin shell', () => {
   });
 
   test('Levels: create, edit, and delete round-trip against mocked responses', async ({ page }) => {
-    let levels = [{ _id: 'level-a', name: 'Fencing Foundation', order: 1 }];
+    let levels: Level[] = [{ _id: 'level-a', name: 'Fencing Foundation', order: 1 }];
 
     const overrides: MockRule[] = [
-      { method: 'GET', path: '/levels', handler: (route) => json(route, 200, { levels }) },
+      { method: 'GET', path: '/levels', handler: (route) => json<LevelsResponse>(route, 200, { levels }) },
       {
         method: 'POST',
         path: '/levels',
         handler: (route) => {
-          const created = { _id: 'level-new', name: 'Advanced Fencing', order: 2 };
+          const created: Level = { _id: 'level-new', name: 'Advanced Fencing', order: 2 };
           levels = [...levels, created];
-          return json(route, 201, { level: created });
+          return json<LevelResponse>(route, 201, { level: created });
         },
       },
       {
@@ -90,7 +92,9 @@ test.describe('admin shell', () => {
         path: '/levels/:id',
         handler: (route, { params }) => {
           levels = levels.map((l) => (l._id === params.id ? { ...l, name: 'Advanced Fencing (Updated)' } : l));
-          return json(route, 200, { level: levels.find((l) => l._id === params.id) });
+          const updated = levels.find((l) => l._id === params.id);
+          if (!updated) throw new Error(`PUT /levels/${params.id}: no such level in this test's mock state`);
+          return json<LevelResponse>(route, 200, { level: updated });
         },
       },
       {

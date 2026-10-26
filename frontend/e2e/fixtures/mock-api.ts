@@ -1,15 +1,77 @@
 import type { Page, Route } from '@playwright/test';
 
+import type {
+  ApiErrorResponse,
+  GroupClassesResponse,
+  GroupClassSchedulesResponse,
+  GroupClassSessionDetailResponse,
+  GroupClassSessionsByClassResponse,
+  IgnoredBodyResponse,
+  LevelResponse,
+  LevelsResponse,
+  LocationsResponse,
+  MyPaymentMethodResponse,
+  MyPrivateAvailabilityRulesResponse,
+  MyPrivateBookingsResponse,
+  MyPrivatePurchasesResponse,
+  MyStudentsResponse,
+  MySubscriptionsResponse,
+  MyTrialClassesResponse,
+  PricesResponse,
+  PrivateAvailableDatesResponse,
+  PublicGroupClassSchedulesResponse,
+  PublicLevelsResponse,
+  PublicLocationsResponse,
+  PublicSpotlightsResponse,
+  PublicTestimonialsResponse,
+} from '../../lib/apiResponses';
+import type {
+  CalendarEvent,
+  CalendarPersonRef,
+  CalendarResponse,
+  GroupClass,
+  GroupClassSchedule,
+  KioskDirectoryEntry,
+  KioskState,
+  Level,
+  Location,
+  PaymentMethodInfo,
+  Price,
+  PrivateAttendanceResult,
+  PrivateAvailableDate,
+  PrivateBooking,
+  PrivateBookingResult,
+  PrivatePurchaseOption,
+  PrivatePurchaseQuote,
+  PublicLevel,
+  PublicLocation,
+  PublicPrivateClassSlot,
+  PublicPrivateLessons,
+  Registration,
+  RegistrationCreateResponse,
+  RegistrationPricePreview,
+  Student,
+  Subscription,
+} from '../../lib/types';
+
 // Every backend call this E2E suite makes goes through here — see
 // docs/plans/e2e-testing-plan.md's D2. No real backend, no real database:
 // each spec gets a sensible, non-empty default response for every endpoint
 // the app actually calls (enumerated by reading the real service files, not
 // guessed), and overrides only what that spec cares about asserting on.
 //
-// Known, accepted limitation (D2/§0 of the plan): these are hand-written
-// snapshots of the API's current shape. If the real backend's response
-// shape changes, this suite keeps passing — that class of drift stays
-// audit/'s job, which talks to the real API.
+// LOUD-FAIL (docs/plans/testing-strategy-refresh-plan.md PR B, CKQ's
+// pattern): a request no rule answers is fulfilled with HTTP 599 and
+// recorded, and the shared `test` fixture (./test.ts) fails the test in
+// teardown with the list — an unmocked endpoint can never let a spec pass on
+// a silently-empty page. A spec that deliberately exercises an unmocked path
+// declares it with `test.use({ allowUnmocked: [pattern] })`.
+//
+// TYPE-LOCKED: every fixture object below is typed with the real domain type
+// from lib/types.ts (and `tsc -p e2e/tsconfig.json` runs in CI), so a
+// frontend type change breaks a stale mock at compile time on the PR that
+// causes it. A mock is still a hand-written snapshot of the API: drift in the
+// real BACKEND's response stays the live audit's job (audit/).
 
 export interface MockRule {
   method: string;
@@ -34,41 +96,81 @@ function pathToRegExp(path: string): { regexp: RegExp; keys: string[] } {
   return { regexp: new RegExp(`^${pattern}$`), keys };
 }
 
-export function json(route: Route, status: number, body: unknown) {
+/**
+ * Fulfils `route` with a JSON body of a NAMED response type:
+ * `json<PublicLevelsResponse>(route, 200, { levels })`. The type argument is
+ * required — `NoInfer` stops it being inferred from the body, so the body is
+ * checked against the shape the app actually reads (lib/apiResponses.ts,
+ * lib/types.ts) and a stale mock fails `tsc`. Errors use ApiErrorResponse.
+ */
+export function json<T = never>(route: Route, status: number, body: NoInfer<T>) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
-// ── Fixture data — shapes verified against the real service files and
-// model fields this session, not guessed. ──────────────────────────────────
+/** A request URL pattern a spec allows to go unmocked — substring or RegExp. */
+export type UnmockedAllowPattern = string | RegExp;
 
-export const FIXTURE_LEVEL_A = { _id: 'level-a', name: 'Fencing Foundation', order: 1 };
-export const FIXTURE_LEVEL_B = { _id: 'level-b', name: 'Intermediate', order: 2 };
+interface PageMockState {
+  // Checked first to last — overrides are prepended, so a spec's own rule
+  // always wins over a default (an explicit priority list, not route LIFO).
+  rules: MockRule[];
+  unmocked: string[];
+  allow: UnmockedAllowPattern[];
+}
+
+const pageStates = new WeakMap<Page, PageMockState>();
+
+function isAllowed(url: string, allow: UnmockedAllowPattern[]): boolean {
+  return allow.some((pattern) => (typeof pattern === 'string' ? url.includes(pattern) : pattern.test(url)));
+}
+
+// ── Fixture data — every object typed with the real domain type (lib/types.ts),
+// shapes verified against the real service files and model fields. ──────────
+
+export const FIXTURE_LEVEL_A: Level = { _id: 'level-a', name: 'Fencing Foundation', order: 1 };
+export const FIXTURE_LEVEL_B: Level = { _id: 'level-b', name: 'Intermediate', order: 2 };
+// GET /levels/public sends PublicLevel — no _id, and only levels with a Price,
+// carrying that fee (level.service.js listPublic).
+export const FIXTURE_PUBLIC_LEVELS: PublicLevel[] = [
+  { name: FIXTURE_LEVEL_A.name, order: FIXTURE_LEVEL_A.order, monthlyFee: 100 },
+  { name: FIXTURE_LEVEL_B.name, order: FIXTURE_LEVEL_B.order, monthlyFee: 140 },
+];
 // phone/email (docs/plans/frontend-polish-plan.md PR 5.3) — always present
 // on a real /locations/public response; set here so the home page's
 // ContactBlock/SiteFooter tel:/mailto: links have real coverage in this
 // suite too, not just Jest.
-export const FIXTURE_LOCATION = {
+export const FIXTURE_LOCATION: Location = {
   _id: 'location-1',
   name: 'Frisco Main',
   address: '123 Main St, Frisco, TX',
+  timezone: 'America/Chicago',
   phone: '(214) 555-0100',
   email: 'info@friscofencingacademy.com',
 };
-export const FIXTURE_GROUP_CLASS_A = {
+// GET /locations/public sends PublicLocation — the same location without its id.
+export const FIXTURE_PUBLIC_LOCATION: PublicLocation = {
+  name: FIXTURE_LOCATION.name,
+  address: FIXTURE_LOCATION.address,
+  timezone: FIXTURE_LOCATION.timezone,
+  phone: FIXTURE_LOCATION.phone,
+  email: FIXTURE_LOCATION.email,
+};
+export const FIXTURE_GROUP_CLASS_A: GroupClass = {
   _id: 'class-a',
   name: 'Fencing Foundation',
   levelId: FIXTURE_LEVEL_A._id,
   locationId: FIXTURE_LOCATION._id,
   capacity: 20,
 };
-export const FIXTURE_PRICE_A = { _id: 'price-a', levelId: FIXTURE_LEVEL_A._id, monthlyFee: 100 };
-export const FIXTURE_SCHEDULE_A = {
+export const FIXTURE_PRICE_A: Price = { _id: 'price-a', levelId: FIXTURE_LEVEL_A._id, monthlyFee: 100 };
+export const FIXTURE_SCHEDULE_A: GroupClassSchedule = {
   _id: 'schedule-a',
   classId: FIXTURE_GROUP_CLASS_A._id,
   coachId: 'coach-1',
   dayOfWeek: 2,
   startTime: '16:00',
   endTime: '17:00',
+  students: [],
 };
 // enrollment is server-decided (student.service.js's attachEnrollment(),
 // docs/plans/frontend-polish-plan.md PR 3) — always present on a real
@@ -76,25 +178,71 @@ export const FIXTURE_SCHEDULE_A = {
 // child-detail pages (which read student.enrollment directly, no fallback)
 // crash under this mock the same way they would against a stale real
 // backend response.
-export const FIXTURE_STUDENT = {
+export const FIXTURE_STUDENT: Student = {
   _id: 'student-1',
   firstName: 'Test',
   lastName: 'Child',
-  role: 'student' as const,
-  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null as null },
+  enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
 };
-export const FIXTURE_PAYMENT_METHOD = { cardBrand: 'visa', cardLast4: '4242' };
+export const FIXTURE_PAYMENT_METHOD: PaymentMethodInfo = {
+  _id: 'payment-method-1',
+  cardBrand: 'visa',
+  cardLast4: '4242',
+  cardExpMonth: 12,
+  cardExpYear: 2030,
+};
+
+// POST /registrations — the ledger row and the reserved Subscription the
+// real create() returns (RegistrationCreateResponse requires both).
+const FIXTURE_PERIOD_START = '2026-10-01T00:00:00.000Z';
+const FIXTURE_PERIOD_END = '2026-11-01T00:00:00.000Z';
+export const FIXTURE_REGISTRATION: Registration = {
+  _id: 'registration-1',
+  subscriptionId: 'subscription-1',
+  studentId: FIXTURE_STUDENT._id,
+  scheduleId: FIXTURE_SCHEDULE_A._id,
+  parentId: 'user-parent',
+  eventType: 'initial',
+  status: 'completed',
+  amount: 100,
+  breakdown: {
+    monthlyFee: 100,
+    prorated: false,
+    proratedAmount: null,
+    siblingDiscountApplied: false,
+    siblingDiscountAmount: 0,
+    registrationFeeCharged: 0,
+  },
+  periodStart: FIXTURE_PERIOD_START,
+  periodEnd: FIXTURE_PERIOD_END,
+  stripePaymentIntentId: 'pi_e2e_fixture',
+  failureMessage: null,
+  attempt: 1,
+  paidAt: FIXTURE_PERIOD_START,
+};
+export const FIXTURE_SUBSCRIPTION: Subscription = {
+  _id: FIXTURE_REGISTRATION.subscriptionId,
+  studentId: { _id: FIXTURE_STUDENT._id, firstName: FIXTURE_STUDENT.firstName, lastName: FIXTURE_STUDENT.lastName },
+  scheduleId: FIXTURE_SCHEDULE_A,
+  status: 'active',
+  cancelAtPeriodEnd: false,
+  currentPeriodStart: FIXTURE_PERIOD_START,
+  currentPeriodEnd: FIXTURE_PERIOD_END,
+  nextBillingDate: FIXTURE_PERIOD_END,
+  lastChargeAmount: 100,
+  lastPayment: { amount: 100, paidAt: FIXTURE_PERIOD_START, chargeMethod: 'card' },
+};
 
 // Private lessons (docs/decisions/011-private-per-session-booking.md) —
 // shapes from privateClassSchedule/Enrollment/Session.service.js. A purchase
 // option is the coach's own pack for the slot's length, keyed by packId
 // (docs/plans/coach-pack-pricing-plan.md) — one shape for the quote and the
 // public listing.
-export const FIXTURE_PRIVATE_OPTIONS = [
+export const FIXTURE_PRIVATE_OPTIONS: PrivatePurchaseOption[] = [
   { packId: null, unitPrice: 32.5, quantity: 1, subtotal: 32.5, savings: 0, total: 32.5 },
   { packId: 'private-pack-10', unitPrice: 32.5, quantity: 10, subtotal: 325, savings: 25, total: 300 },
 ];
-export const FIXTURE_PRIVATE_SLOT = {
+export const FIXTURE_PRIVATE_SLOT: PublicPrivateClassSlot = {
   scheduleId: 'private-rule-1',
   dayOfWeek: 2,
   dayName: 'Tuesday',
@@ -106,12 +254,12 @@ export const FIXTURE_PRIVATE_SLOT = {
   hourlyRate: 65,
   options: FIXTURE_PRIVATE_OPTIONS,
 };
-export const FIXTURE_PRIVATE_DATE = {
+export const FIXTURE_PRIVATE_DATE: PrivateAvailableDate = {
   day: '2026-10-06',
   startDate: '2026-10-06T21:30:00.000Z',
   endDate: '2026-10-06T22:00:00.000Z',
 };
-export const FIXTURE_PRIVATE_QUOTE = {
+export const FIXTURE_PRIVATE_QUOTE: PrivatePurchaseQuote = {
   // The contract version the prices come from; the purchase sends it back
   // (docs/plans/coach-pack-pricing-plan.md §8 V5).
   contractId: 'private-contract-1',
@@ -121,7 +269,7 @@ export const FIXTURE_PRIVATE_QUOTE = {
   cancelCutoffHours: 24,
   options: FIXTURE_PRIVATE_OPTIONS,
 };
-export const FIXTURE_PRIVATE_BOOKING = {
+export const FIXTURE_PRIVATE_BOOKING: PrivateBooking = {
   _id: 'private-booking-1',
   scheduleId: FIXTURE_PRIVATE_SLOT.scheduleId,
   enrollmentId: 'private-enrollment-1',
@@ -138,8 +286,8 @@ export const FIXTURE_PRIVATE_BOOKING = {
 // page ignores a `coach` URL value that isn't one. Pin the clock to
 // CALENDAR_NOW (Mon Oct 5 2026) so the default month is October 2026.
 export const CALENDAR_NOW = new Date('2026-10-05T14:00:00.000Z');
-export const FIXTURE_CALENDAR_COACH_PRIVATE = { id: '64b0000000000000000000c1', name: 'Dana Cole' };
-export const FIXTURE_CALENDAR_COACH_GROUP = { id: '64b0000000000000000000c2', name: 'Gia Park' };
+export const FIXTURE_CALENDAR_COACH_PRIVATE: CalendarPersonRef = { id: '64b0000000000000000000c1', name: 'Dana Cole' };
+export const FIXTURE_CALENDAR_COACH_GROUP: CalendarPersonRef = { id: '64b0000000000000000000c2', name: 'Gia Park' };
 const CALENDAR_EVENT_DEFAULTS = {
   locationName: null,
   levelName: null,
@@ -150,7 +298,7 @@ const CALENDAR_EVENT_DEFAULTS = {
   isHoliday: false,
   holidayName: null,
 };
-export const FIXTURE_CALENDAR_EVENTS = [
+export const FIXTURE_CALENDAR_EVENTS: CalendarEvent[] = [
   {
     ...CALENDAR_EVENT_DEFAULTS,
     id: `private-open:${FIXTURE_PRIVATE_SLOT.scheduleId}:${FIXTURE_PRIVATE_DATE.day}`,
@@ -181,7 +329,7 @@ export const FIXTURE_CALENDAR_EVENTS = [
   },
 ];
 
-export const FIXTURE_KIOSK_STUDENTS = [
+export const FIXTURE_KIOSK_STUDENTS: KioskDirectoryEntry[] = [
   { studentId: 'student-ava', firstName: 'Ava', lastName: 'Student', levelName: 'Fencing Foundation' },
   { studentId: 'student-bo', firstName: 'Bo', lastName: 'Avery', levelName: null },
   { studentId: 'student-cal', firstName: 'Cal', lastName: 'Brown', levelName: 'Intermediate' },
@@ -190,18 +338,22 @@ export const FIXTURE_KIOSK_STUDENTS = [
 const DEFAULT_RULES: MockRule[] = [
   // Session — logged out by default; loginAs() in fixtures/auth.ts
   // prepends an override that wins over this one.
-  { method: 'GET', path: '/auth/me', handler: (route) => json(route, 401, { message: 'Not authenticated' }) },
+  { method: 'GET', path: '/auth/me', handler: (route) => json<ApiErrorResponse>(route, 401, { message: 'Not authenticated' }) },
 
   // Public site
-  { method: 'GET', path: '/levels/public', handler: (route) => json(route, 200, { levels: [FIXTURE_LEVEL_A, FIXTURE_LEVEL_B] }) },
-  { method: 'GET', path: '/locations/public', handler: (route) => json(route, 200, { locations: [FIXTURE_LOCATION] }) },
+  { method: 'GET', path: '/levels/public', handler: (route) => json<PublicLevelsResponse>(route, 200, { levels: FIXTURE_PUBLIC_LEVELS }) },
+  {
+    method: 'GET',
+    path: '/locations/public',
+    handler: (route) => json<PublicLocationsResponse>(route, 200, { locations: [FIXTURE_PUBLIC_LOCATION] }),
+  },
   {
     method: 'GET',
     path: '/spotlights/public',
     // Empty by default for both coach/student spotlights — the home page
     // and /coaches both render a real, valid "nothing published yet" state
     // on an empty array, which is itself worth exercising by default.
-    handler: (route) => json(route, 200, { spotlights: [] }),
+    handler: (route) => json<PublicSpotlightsResponse>(route, 200, { spotlights: [] }),
   },
   // Was missing entirely before docs/plans/frontend-polish-plan.md PR 5.3 —
   // the home page's fetchHomePageData() bundles this with /locations/public
@@ -210,65 +362,81 @@ const DEFAULT_RULES: MockRule[] = [
   // was mocked correctly. No existing spec had ever asserted on the home
   // page's real location/footer content, so this went uncaught until PR
   // 5.3's own ContactBlock test needed `locations` to actually populate.
-  { method: 'GET', path: '/testimonials/public', handler: (route) => json(route, 200, { testimonials: [] }) },
+  { method: 'GET', path: '/testimonials/public', handler: (route) => json<PublicTestimonialsResponse>(route, 200, { testimonials: [] }) },
   {
     method: 'GET',
     path: '/group-class-schedules/public',
     handler: (route) =>
-      json(route, 200, {
+      json<PublicGroupClassSchedulesResponse>(route, 200, {
         schedules: [
           {
-            ...FIXTURE_SCHEDULE_A,
             // className/coachName were missing from this fixture entirely
             // before docs/plans/frontend-polish-plan.md PR 4 — the real
             // listPublic() always sends both (public-site.md's endpoint
             // table), but nothing here previously asserted on a schedule
             // row's actual text closely enough to catch a silently-blank
-            // "· {level}" / "Coach " render. Added while writing PR 4's own
-            // pill-filter e2e coverage; a byte-accurate mock is the whole
-            // point of this layer (TESTING_STRATEGY's mock/reality-drift
-            // warning).
+            // "· {level}" / "Coach " render.
             className: FIXTURE_GROUP_CLASS_A.name,
             levelName: FIXTURE_LEVEL_A.name,
             locationName: FIXTURE_LOCATION.name,
             // Per-row, sourced from this schedule's own location
             // (docs/plans/frontend-polish-plan.md PR 4) — never a guess
             // from a separate locations fetch.
-            timezone: 'America/Chicago',
+            timezone: FIXTURE_LOCATION.timezone,
             coachName: 'Jane Coach',
+            dayOfWeek: FIXTURE_SCHEDULE_A.dayOfWeek,
+            startTime: FIXTURE_SCHEDULE_A.startTime,
+            endTime: FIXTURE_SCHEDULE_A.endTime,
           },
         ],
       }),
   },
 
   // Admin — catalog data
-  { method: 'GET', path: '/group-classes', handler: (route) => json(route, 200, { groupClasses: [FIXTURE_GROUP_CLASS_A] }) },
-  { method: 'GET', path: '/group-class-schedules', handler: (route) => json(route, 200, { schedules: [FIXTURE_SCHEDULE_A] }) },
-  { method: 'GET', path: '/group-class-schedules/mine', handler: (route) => json(route, 200, { schedules: [FIXTURE_SCHEDULE_A] }) },
-  { method: 'GET', path: '/locations', handler: (route) => json(route, 200, { locations: [FIXTURE_LOCATION] }) },
-  { method: 'GET', path: '/levels', handler: (route) => json(route, 200, { levels: [FIXTURE_LEVEL_A, FIXTURE_LEVEL_B] }) },
-  { method: 'POST', path: '/levels', handler: (route) => json(route, 201, { level: { _id: 'level-new', name: 'New Level', order: 3 } }) },
-  { method: 'PUT', path: '/levels/:id', handler: (route, { params }) => json(route, 200, { level: { _id: params.id, name: 'Updated Level', order: 1 } }) },
+  { method: 'GET', path: '/group-classes', handler: (route) => json<GroupClassesResponse>(route, 200, { groupClasses: [FIXTURE_GROUP_CLASS_A] }) },
+  { method: 'GET', path: '/group-class-schedules', handler: (route) => json<GroupClassSchedulesResponse>(route, 200, { schedules: [FIXTURE_SCHEDULE_A] }) },
+  { method: 'GET', path: '/group-class-schedules/mine', handler: (route) => json<GroupClassSchedulesResponse>(route, 200, { schedules: [FIXTURE_SCHEDULE_A] }) },
+  { method: 'GET', path: '/locations', handler: (route) => json<LocationsResponse>(route, 200, { locations: [FIXTURE_LOCATION] }) },
+  { method: 'GET', path: '/levels', handler: (route) => json<LevelsResponse>(route, 200, { levels: [FIXTURE_LEVEL_A, FIXTURE_LEVEL_B] }) },
+  { method: 'POST', path: '/levels', handler: (route) => json<LevelResponse>(route, 201, { level: { _id: 'level-new', name: 'New Level', order: 3 } }) },
+  {
+    method: 'PUT',
+    path: '/levels/:id',
+    handler: (route, { params }) => json<LevelResponse>(route, 200, { level: { _id: params.id, name: 'Updated Level', order: 1 } }),
+  },
   { method: 'DELETE', path: '/levels/:id', handler: (route) => route.fulfill({ status: 204 }) },
-  { method: 'GET', path: '/prices', handler: (route) => json(route, 200, { prices: [FIXTURE_PRICE_A] }) },
+  { method: 'GET', path: '/prices', handler: (route) => json<PricesResponse>(route, 200, { prices: [FIXTURE_PRICE_A] }) },
 
   // Parent portal
-  { method: 'GET', path: '/students/mine', handler: (route) => json(route, 200, { students: [FIXTURE_STUDENT] }) },
-  { method: 'GET', path: '/trial-classes/mine', handler: (route) => json(route, 200, { trialClasses: [] }) },
-  { method: 'GET', path: '/registrations/mine', handler: (route) => json(route, 200, { subscriptions: [] }) },
-  { method: 'GET', path: '/payment-methods/mine', handler: (route) => json(route, 200, { paymentMethod: FIXTURE_PAYMENT_METHOD }) },
-  { method: 'GET', path: '/private-class-enrollments/mine', handler: (route) => json(route, 200, { enrollments: [] }) },
+  { method: 'GET', path: '/students/mine', handler: (route) => json<MyStudentsResponse>(route, 200, { students: [FIXTURE_STUDENT] }) },
+  { method: 'GET', path: '/trial-classes/mine', handler: (route) => json<MyTrialClassesResponse>(route, 200, { trialClasses: [] }) },
+  { method: 'GET', path: '/registrations/mine', handler: (route) => json<MySubscriptionsResponse>(route, 200, { subscriptions: [] }) },
+  {
+    method: 'GET',
+    path: '/payment-methods/mine',
+    handler: (route) => json<MyPaymentMethodResponse>(route, 200, { paymentMethod: FIXTURE_PAYMENT_METHOD }),
+  },
+  {
+    method: 'GET',
+    path: '/private-class-enrollments/mine',
+    handler: (route) => json<MyPrivatePurchasesResponse>(route, 200, { enrollments: [] }),
+  },
 
   // Register wizard
   {
     method: 'GET',
     path: '/group-class-sessions/by-class/:classId',
     handler: (route) =>
-      json(route, 200, {
+      json<GroupClassSessionsByClassResponse>(route, 200, {
         sessions: [
           {
             _id: 'session-1',
-            scheduleId: FIXTURE_SCHEDULE_A,
+            scheduleId: {
+              _id: FIXTURE_SCHEDULE_A._id,
+              dayOfWeek: FIXTURE_SCHEDULE_A.dayOfWeek,
+              startTime: FIXTURE_SCHEDULE_A.startTime,
+              endTime: FIXTURE_SCHEDULE_A.endTime,
+            },
             date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
           },
         ],
@@ -278,7 +446,8 @@ const DEFAULT_RULES: MockRule[] = [
     method: 'GET',
     path: '/registrations/preview',
     handler: (route) =>
-      json(route, 200, {
+      json<RegistrationPricePreview>(route, 200, {
+        monthlyFee: 100,
         chargeAmount: 100,
         totalChargeAmount: 100,
         siblingDiscountApplied: false,
@@ -303,7 +472,9 @@ const DEFAULT_RULES: MockRule[] = [
     method: 'POST',
     path: '/registrations',
     handler: (route) =>
-      json(route, 201, {
+      json<RegistrationCreateResponse>(route, 201, {
+        registration: FIXTURE_REGISTRATION,
+        subscription: FIXTURE_SUBSCRIPTION,
         chargeAmount: 100,
         totalChargeAmount: 100,
         paymentStatus: 'completed',
@@ -327,43 +498,52 @@ const DEFAULT_RULES: MockRule[] = [
     method: 'GET',
     path: '/group-class-sessions/:id',
     handler: (route, { params }) =>
-      json(route, 200, {
+      json<GroupClassSessionDetailResponse>(route, 200, {
         session: {
           _id: params.id,
           date: new Date().toISOString(),
-          students: [{ studentId: FIXTURE_STUDENT, isPresent: false }],
+          students: [
+            {
+              studentId: { _id: FIXTURE_STUDENT._id, firstName: FIXTURE_STUDENT.firstName, lastName: FIXTURE_STUDENT.lastName },
+              isPresent: false,
+            },
+          ],
         },
       }),
   },
-  { method: 'PATCH', path: '/group-class-sessions/:id/attendance', handler: (route) => json(route, 200, { success: true }) },
+  { method: 'PATCH', path: '/group-class-sessions/:id/attendance', handler: (route) => json<IgnoredBodyResponse>(route, 200, {}) },
 
   // Private lessons
   {
     method: 'GET',
     path: '/private-class-schedules/public',
     handler: (route) =>
-      json(route, 200, {
+      json<PublicPrivateLessons>(route, 200, {
         coaches: [{ coachId: 'user-coach', coachName: 'Dana Cole', slots: [FIXTURE_PRIVATE_SLOT] }],
       }),
   },
   {
     method: 'GET',
     path: '/private-class-schedules/:id/available-dates',
-    handler: (route) => json(route, 200, { dates: [FIXTURE_PRIVATE_DATE] }),
+    handler: (route) => json<PrivateAvailableDatesResponse>(route, 200, { dates: [FIXTURE_PRIVATE_DATE] }),
   },
-  { method: 'GET', path: '/private-class-schedules/mine', handler: (route) => json(route, 200, { schedules: [] }) },
-  { method: 'GET', path: '/private-class-enrollments/quote', handler: (route) => json(route, 200, FIXTURE_PRIVATE_QUOTE) },
+  {
+    method: 'GET',
+    path: '/private-class-schedules/mine',
+    handler: (route) => json<MyPrivateAvailabilityRulesResponse>(route, 200, { schedules: [] }),
+  },
+  { method: 'GET', path: '/private-class-enrollments/quote', handler: (route) => json<PrivatePurchaseQuote>(route, 200, FIXTURE_PRIVATE_QUOTE) },
   {
     method: 'POST',
     path: '/private-class-enrollments',
-    handler: (route) => json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 }),
+    handler: (route) => json<PrivateBookingResult>(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 }),
   },
   {
     method: 'POST',
     path: '/private-class-sessions',
-    handler: (route) => json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 }),
+    handler: (route) => json<PrivateBookingResult>(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 }),
   },
-  { method: 'GET', path: '/private-class-sessions/mine', handler: (route) => json(route, 200, { sessions: [] }) },
+  { method: 'GET', path: '/private-class-sessions/mine', handler: (route) => json<MyPrivateBookingsResponse>(route, 200, { sessions: [] }) },
 
   // Calendar — honors the coachId/type filters like the real endpoint, so a
   // spec that filters sees the narrowed result the backend would send.
@@ -375,12 +555,13 @@ const DEFAULT_RULES: MockRule[] = [
       const type = url.searchParams.get('type');
       const events = FIXTURE_CALENDAR_EVENTS.filter(
         (event) =>
-          (!coachId || event.coach.id === coachId) &&
+          (!coachId || event.coach?.id === coachId) &&
           (!type || (type === 'group' ? event.kind === 'group' : event.kind !== 'group'))
       );
-      return json(route, 200, {
-        from: url.searchParams.get('from'),
-        to: url.searchParams.get('to'),
+      return json<CalendarResponse>(route, 200, {
+        // The real endpoint echoes the requested range; the page always sends both.
+        from: url.searchParams.get('from') ?? '',
+        to: url.searchParams.get('to') ?? '',
         horizonTo: '2026-12-06',
         events,
         coaches: [FIXTURE_CALENDAR_COACH_PRIVATE, FIXTURE_CALENDAR_COACH_GROUP],
@@ -390,7 +571,7 @@ const DEFAULT_RULES: MockRule[] = [
   {
     method: 'PATCH',
     path: '/private-class-sessions/:id/attendance',
-    handler: (route) => json(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } }),
+    handler: (route) => json<PrivateAttendanceResult>(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } }),
   },
 
   // Kiosk sign-in (docs/plans/kiosk-signin-plan.md) — the page a `kiosk`
@@ -399,21 +580,25 @@ const DEFAULT_RULES: MockRule[] = [
     method: 'GET',
     path: '/kiosk/state',
     handler: (route) =>
-      json(route, 200, { students: FIXTURE_KIOSK_STUDENTS, confirmationRequired: true, serverTime: '2026-09-30T20:00:00.000Z' }),
+      json<KioskState>(route, 200, { students: FIXTURE_KIOSK_STUDENTS, confirmationRequired: true, serverTime: '2026-09-30T20:00:00.000Z' }),
   },
 ];
 
 /**
- * Installs the shared default mock registry for `**\/api/v1/**`, with
- * `overrides` checked first (last-registered-wins semantics don't apply
- * here — this is an explicit priority list, not Playwright's route stack).
- * An unmocked endpoint fails loudly (501 + console warning) rather than
- * silently 200ing with `{}` — a spec that hits one should add a rule, not
- * quietly render an empty state that looks like it passed for the wrong
- * reason.
+ * Installs the ONE `**\/api/v1/**` handler for `page` with the default
+ * registry, once per page. The shared `test` fixture (./test.ts) calls this
+ * before every test; calling it again only adds allow patterns.
  */
-export async function mockApi(page: Page, overrides: MockRule[] = []) {
-  const rules = [...overrides, ...DEFAULT_RULES];
+export async function installApiMocks(page: Page, allowUnmocked: UnmockedAllowPattern[] = []): Promise<void> {
+  const existing = pageStates.get(page);
+
+  if (existing) {
+    existing.allow.push(...allowUnmocked);
+    return;
+  }
+
+  const state: PageMockState = { rules: [...DEFAULT_RULES], unmocked: [], allow: [...allowUnmocked] };
+  pageStates.set(page, state);
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -422,7 +607,7 @@ export async function mockApi(page: Page, overrides: MockRule[] = []) {
     const pathname = apiIndex >= 0 ? url.pathname.slice(apiIndex + '/api/v1'.length) || '/' : url.pathname;
     const method = request.method();
 
-    for (const rule of rules) {
+    for (const rule of state.rules) {
       if (rule.method !== method) continue;
       const { regexp, keys } = pathToRegExp(rule.path);
       const match = pathname.match(regexp);
@@ -437,7 +622,35 @@ export async function mockApi(page: Page, overrides: MockRule[] = []) {
       return;
     }
 
-    console.warn(`[mock-api] Unmocked request — add a MockRule: ${method} ${pathname}`);
-    await json(route, 501, { message: `Unmocked in E2E suite: ${method} ${pathname}` });
+    if (!isAllowed(url.toString(), state.allow)) {
+      state.unmocked.push(`${method} ${pathname}`);
+    }
+    // Never a fake success: an unmocked call fails visibly in the page AND
+    // fails the test in teardown (assertNoUnmockedRequests).
+    await json<ApiErrorResponse>(route, 599, { message: `Unmocked in E2E suite: ${method} ${pathname}` });
   });
+}
+
+/**
+ * Adds `overrides` ahead of every rule already registered for `page` (so they
+ * win over the defaults), installing the default registry first if needed.
+ */
+export async function mockApi(page: Page, overrides: MockRule[] = []): Promise<void> {
+  await installApiMocks(page);
+  const state = pageStates.get(page) as PageMockState;
+  state.rules.unshift(...overrides);
+}
+
+/** Throws, listing every request no rule answered and no allow pattern excused. */
+export function assertNoUnmockedRequests(page: Page): void {
+  const state = pageStates.get(page);
+
+  if (state && state.unmocked.length > 0) {
+    const list = [...new Set(state.unmocked)].map((entry) => `  - ${entry}`).join('\n');
+    throw new Error(
+      `${state.unmocked.length} request(s) reached no mock rule:\n${list}\n` +
+        'Add a MockRule (to DEFAULT_RULES if a shell/context fires it on every page, else to the spec), ' +
+        'or test.use({ allowUnmocked: [...] }) if the test deliberately exercises an unmocked path.'
+    );
+  }
 }

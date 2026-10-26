@@ -14,8 +14,17 @@
 // annotated isHoliday. A mock that simply omits the blocked date is the
 // faithful stand-in for "the backend filtered it out."
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
+import type {
+  GroupClassSessionDetailResponse,
+  GroupClassSessionsByClassResponse,
+  GroupClassSessionsByScheduleResponse,
+  HolidayResponse,
+  HolidaysResponse,
+  IgnoredBodyResponse,
+} from '../lib/apiResponses';
+import type { Holiday } from '../lib/types';
 import { mockApi, json, FIXTURE_GROUP_CLASS_A, FIXTURE_LEVEL_A, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
@@ -24,7 +33,7 @@ function sessionsByClassFixture(sessions: { _id: string; date: string }[]) {
     method: 'GET',
     path: `/group-class-sessions/by-class/${FIXTURE_GROUP_CLASS_A._id}`,
     handler: (route) =>
-      json(route, 200, {
+      json<GroupClassSessionsByClassResponse>(route, 200, {
         sessions: sessions.map((s) => ({
           _id: s._id,
           scheduleId: { _id: 'schedule-a', dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
@@ -36,17 +45,17 @@ function sessionsByClassFixture(sessions: { _id: string; date: string }[]) {
 
 test.describe('holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
   test('admin: creates a holiday, sees it listed, and deletes it', async ({ page }) => {
-    let holidays: { _id: string; name: string; startDate: string; endDate: string }[] = [];
+    let holidays: Holiday[] = [];
 
     const overrides: MockRule[] = [
-      { method: 'GET', path: '/holidays', handler: (route) => json(route, 200, { holidays }) },
+      { method: 'GET', path: '/holidays', handler: (route) => json<HolidaysResponse>(route, 200, { holidays }) },
       {
         method: 'POST',
         path: '/holidays',
         handler: (route) => {
-          const created = { _id: 'holiday-new', name: 'Winter Break', startDate: '2026-12-24', endDate: '2026-12-26' };
+          const created: Holiday = { _id: 'holiday-new', name: 'Winter Break', startDate: '2026-12-24', endDate: '2026-12-26' };
           holidays = [...holidays, created];
-          return json(route, 201, { holiday: created });
+          return json<HolidayResponse>(route, 201, { holiday: created });
         },
       },
       {
@@ -54,7 +63,7 @@ test.describe('holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
         path: '/holidays/:id',
         handler: (route, { params }) => {
           holidays = holidays.filter((h) => h._id !== params.id);
-          return json(route, 200, { success: true });
+          return json<IgnoredBodyResponse>(route, 200, {});
         },
       },
     ];
@@ -137,7 +146,7 @@ test.describe('holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
         method: 'GET',
         path: `/group-class-sessions/${sessionId}`,
         handler: (route) =>
-          json(route, 200, {
+          json<GroupClassSessionDetailResponse>(route, 200, {
             session: {
               _id: sessionId,
               date: '2026-12-25T00:00:00.000Z',
@@ -166,7 +175,7 @@ test.describe('holiday blocking (docs/plans/holiday-blocking-plan.md)', () => {
         method: 'GET',
         path: `/group-class-sessions/by-schedule/${scheduleId}`,
         handler: (route) =>
-          json(route, 200, {
+          json<GroupClassSessionsByScheduleResponse>(route, 200, {
             sessions: [
               {
                 _id: 'session-open',

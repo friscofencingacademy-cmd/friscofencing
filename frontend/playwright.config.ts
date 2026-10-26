@@ -30,6 +30,15 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // Phone width (393 px, touch) for the pages parents and students mostly
+    // reach on a phone (docs/plans/testing-strategy-refresh-plan.md PR B, T6).
+    // A spec joins this list once it passes on a phone and any layout bug it
+    // finds is fixed in the product, never by relaxing the spec.
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['Pixel 5'] },
+      testMatch: /(public-site|login|calendar|kiosk)\.spec\.ts$/,
+    },
   ],
   // Builds+starts the real Next.js app once per run and reuses it locally
   // (fast iteration); CI always starts fresh so a stale build can't mask a

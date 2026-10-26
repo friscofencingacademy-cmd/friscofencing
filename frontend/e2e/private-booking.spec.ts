@@ -1,5 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
+import type { MyPrivateBookingsResponse } from '../lib/apiResponses';
+import type { PrivateAttendanceResult, PrivateBookingResult, PrivatePurchaseQuote } from '../lib/types';
 import { json, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
@@ -17,7 +19,7 @@ test.describe('private lesson booking', () => {
         path: '/private-class-enrollments',
         handler: (route) => {
           purchasePayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 });
+          return json<PrivateBookingResult>(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 9 });
         },
       },
     ];
@@ -60,14 +62,14 @@ test.describe('private lesson booking', () => {
       {
         method: 'GET',
         path: '/private-class-enrollments/quote',
-        handler: (route) => json(route, 200, { ...FIXTURE_PRIVATE_QUOTE, availableCredits: 3 }),
+        handler: (route) => json<PrivatePurchaseQuote>(route, 200, { ...FIXTURE_PRIVATE_QUOTE, availableCredits: 3 }),
       },
       {
         method: 'POST',
         path: '/private-class-sessions',
         handler: (route) => {
           creditPayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 });
+          return json<PrivateBookingResult>(route, 201, { session: FIXTURE_PRIVATE_BOOKING, remaining: 2 });
         },
       },
     ];
@@ -93,7 +95,7 @@ test.describe('private lesson booking', () => {
         method: 'GET',
         path: '/private-class-sessions/mine',
         handler: (route, { url }) =>
-          json(route, 200, {
+          json<MyPrivateBookingsResponse>(route, 200, {
             sessions:
               url.searchParams.get('window') === 'unmarked'
                 ? [
@@ -113,7 +115,7 @@ test.describe('private lesson booking', () => {
         path: `/private-class-sessions/${FIXTURE_PRIVATE_BOOKING._id}/attendance`,
         handler: (route) => {
           attendancePayload = JSON.parse(route.request().postData() ?? '{}');
-          return json(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } });
+          return json<PrivateAttendanceResult>(route, 200, { session: { ...FIXTURE_PRIVATE_BOOKING, attendance: 'attended' } });
         },
       },
     ];
