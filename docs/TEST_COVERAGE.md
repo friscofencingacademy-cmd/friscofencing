@@ -1,76 +1,67 @@
 # Test Coverage — Frisco Fencing Academy
 
-CKQ-style coverage snapshot. Numbers below are real, captured by actually running both suites — not estimated.
+Every number here is real, captured by running the suites — not estimated. The policy behind them (floors, what each layer is for) lives in `docs/TESTING_STRATEGY.md`; this file holds the figures, and is re-measured on every PR that adds or moves tests.
 
-## Real coverage % (CKQ's "Coverage Expectations" table — see `docs/TESTING_STRATEGY.md`)
+**Backend: 89 suites / 1,232 tests, all passing. Statements 94.08%.**
+**Frontend: 76 suites / 609 tests, all passing. Statements 90.13%. The full run prints no warning or error.**
+**E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
+
+Measured 2026-10-26 after `docs/plans/testing-strategy-refresh-plan.md` PR F (backend unchanged since PR D), with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
+
+## Change log (newest first)
+
+- **2026-10-26 — testing PR F** (`feature/testing-e2e-phase2`): E2E Phase 2 — `subscriptions`, `billing` and `spotlights-admin` specs, plus a slot-taken case in `private-booking` (it already covered the register-private wizard, so no duplicate spec). They found and fixed three product defects: the admin sidebar's section toggles and links had no accessible name below 1024 px; `/parent/subscriptions` was 740 px wide on a 393 px phone (every portal table now scrolls in its own `.tableWrap`, kept by a new guard); and local E2E builds baked in a developer's `NEXT_PUBLIC_API_URL`. Every axe scan now goes through one helper, and the route-existence guard checks every spec's mock overrides (35 → 82 routes). E2E 73 → 99 listed; frontend 75 → 76 suites / 605 → 609 tests.
+- **2026-10-26 — testing PR E** (`feature/testing-docs-and-gate`): `TESTING_STRATEGY.md` restructured to CKQ's layout; this file re-measured into this shape; the `ci-passed` umbrella job; the admin dashboard's axe ratchet narrowed from the whole `color-contrast` rule to the two known sidebar nodes. Counts unchanged.
+- **2026-10-26 — testing PR D** (#121): `fireEvent` → `userEvent` in all 30 files, with no exceptions (two edit tests that only passed because `fireEvent.change` replaces a value were fixed). Strict MSW across all 50 MSW files (it found one handler-less request). The clock is pinned in the last 4 unpinned backend files (`testUtils/clock.js`). Two new guards. Frontend 73 → 75 suites / 596 → 605 tests.
+- **2026-10-26 — testing PR C** (#120): six static guards, `scripts/dead-negative-assertions.mjs`, the `/audit-tests` skill, and 401/403/404 negatives so every route test file meets Check 11 (`student`, `groupClass`, `groupClassSchedule`, `level`, `location`, `testimonial`). After it: backend 89 suites / 1,232 tests; frontend 73 / 596.
+- **2026-10-26 — testing PR B** (#119): E2E loud-fail (599 + teardown), type-locked mocks, the `mobile-chrome` project and a 360 px overflow check. E2E 41 + 2 skips → 69 + 4 across two projects.
+- **2026-10-26 — payment PR 1** (#116): the payment provider port, the Stripe adapter and the shared contract suite.
+- **2026-10-26 — testing PR A** (#115): coverage gated at 80% statements in CI, every source file counted, `TZ=UTC` enforced by the `test` scripts, e2e type-checked, the route-existence guard. Backend 82 suites / 1,091 tests; frontend 69 / 560.
+- **2026-09-30 — kiosk PR 2**: frontend 67 suites / 554 tests, E2E 41 + 2 skips (baseline 65 / 530, E2E 36 + 2).
+- **2026-09-29 — kiosk PR 1**: backend 82 suites / 1,091 tests (baseline 80 / 1,045).
+- **2026-09-25 — versioned coach contracts**: backend 76 / 987, frontend 61 / 474, E2E 31 + 2.
+- **2026-09-24 — coach pack pricing**: backend 76 / 980, frontend 60 / 472. Statements 92.66% / 90.73% (loaded files only — not comparable with the every-file figures above).
+
+## Coverage
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | **80% — enforced in CI** | 92.88% | 90.18% |
-| Branches | — (informational) | 84.35% | 83.54% |
-| Functions | — (informational) | 95.38% | 88.61% |
-| Lines | — (informational) | 93.08% | 91.47% |
+| Statements | **80% — enforced in CI** | 94.08% | 90.13% |
+| Branches | — (read per directory) | 85.18% | 83.45% |
+| Functions | — | 97.30% | 88.61% |
+| Lines | — | 94.30% | 91.47% |
 
-**Re-measured 2026-10-26** (`docs/plans/testing-strategy-refresh-plan.md` PR A) with `npm run test:coverage` in each repo: backend 82 suites / 1,091 tests, frontend 69 suites / 560 tests, all passing. **These numbers count every source file** (`collectCoverageFrom` in each `jest.config.js`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`), including files no test loads — the earlier figures below counted only files a test happened to load, so the two are not directly comparable. CI now runs each suite once with coverage and fails below 80% statements (`coverageThreshold`); the summary is in each job's GitHub summary.
+| Backend directory | Statements | Branches | Lines |
+|---|---|---|---|
+| `src/utils` | 100% | 99.04% | 100% |
+| `src/models` | 100% | 96.77% | 100% |
+| `src/middlewares` | 100% | 94.28% | 100% |
+| `src/payments` | 100% | 100% | 100% |
+| `src/payments/stripe` | 93.33% | 76.31% | 93.18% |
+| `src/services/billing` | 97.31% | 91.46% | 97.18% |
+| `src/services` — the business logic | 93.34% | 85.14% | 93.50% |
+| `scripts/lib` | 97.61% | 84.31% | 98.69% |
+| `src/config` | 91.66% | 85.71% | 91.66% |
+| `src/email` | 92.57% | 75.73% | 93.33% |
+| `src/controllers` | 85.63% | 78.12% | 85.63% |
+| `src/routes` | 99.29% | 50.00% | 99.29% |
 
-**Branch / line coverage by directory** (2026-10-26):
+`src/routes`' 50% branches is multer upload-handler branches in `spotlight`/`testimonial`, not business logic. `src/controllers` is a real signal since duplication-cleanup PR B moved the fallback error logic into the directly-tested `errorHandler.js` (see `docs/TESTING_STRATEGY.md`, "Branch coverage").
 
-| Backend directory | Branches | Lines |
-|---|---|---|
-| `src/utils` | 99.05% | 100.00% |
-| `src/models` | 96.77% | 100.00% |
-| `src/middlewares` | 94.29% | 100.00% |
-| `src/config` | 85.71% | 91.67% |
-| `src/services` (incl. `billing/`) — the business logic | 84.25% | 92.36% |
-| `scripts/lib` | 84.32% | 98.70% |
-| `src/email` | 75.74% | 93.33% |
-| `src/controllers` | 71.88% | 81.41% |
-| `src/routes` | 50.00% | 99.29% |
-
-| Frontend directory | Branches | Lines |
-|---|---|---|
-| `lib/hooks` | 96.15% | 98.86% |
-| `app/parent` | 90.51% | 97.38% |
-| `lib` | 89.86% | 97.22% |
-| `app/components` | 83.20% | 93.62% |
-| `lib/services` | 81.25% | 90.51% |
-| `app/admin` | 78.68% | 87.18% |
-| `app/coach` | 77.27% | 75.00% |
-| `app/context` | 73.33% | 95.71% |
-
-Previous snapshot — measured 2026-09-24 via `TZ=UTC npm test -- --coverage` (backend) and `TZ=UTC npx jest --coverage` (frontend) after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract). Backend: 76 suites / 980 tests, all passing. Frontend: 60 suites / 472 tests, all passing. Statements 92.66% backend / 90.73% frontend at that time (loaded files only); both cleared the 80% target. After the plan's §8 follow-up (contracts edited as versions, 2026-09-25) the counts are backend 76 suites / 987 tests and frontend 61 suites / 474 tests, all passing, E2E 31 + 2 known skips; those percentages were not re-measured for that change. After kiosk sign-in PR 1 (`docs/plans/kiosk-signin-plan.md`, 2026-09-29, uncommitted at the time of writing): backend 82 suites / 1091 tests, all passing (baseline before it: 80 / 1045). After kiosk PR 2 (2026-09-30): frontend 67 suites / 554 tests, E2E 41 + 2 known skips, all passing (baseline 65 / 530, E2E 36 + 2).
-
-**vs. CKQ** (checked directly against their `docs/TEST_COVERAGE.md`, not assumed): CKQ tracks zero
-backend % coverage — their backend section is entirely test/route counts (264 files, 6,331
-tests), no istanbul numbers at all. Their one recorded % figure is frontend, dated 2026-05-27
-(stale — Statements 92.59% / Branches 76.48% / Functions 62.00% / Lines 92.59%) — Frisco's
-frontend branch and function coverage already beat that number. CKQ's real edge is scale/breadth
-(6,331 tests vs. this repo's much smaller surface), not tighter coverage discipline.
-
-**Branch coverage, by directory** (measured 2026-09-24):
-
-| Directory | Branches |
-|---|---|
-| `src/utils` | 99.01% |
-| `src/middlewares` | 94.28% (incl. `errorHandler.js`) |
-| `src/models` | 96.77% |
-| `src/services/billing` | 88.37% |
-| `src/services` (the real business logic) | 83.19% |
-| `src/controllers` | 71.87% (was 24.9% before PR B) |
-| `src/routes` | 50% |
-
-The controllers jump is structural, not new tests chasing branches: every controller's catch block used to carry an untestable `error.status || 500` / `error.message || 'Failed to ...'` fallback (104 of them); PR B replaced each with `return next(error)` and moved the logic into one directly-tested middleware. `src/routes` (50%) is the same kind of number — mostly multer upload-handler branches in `spotlight`/`testimonial` — not business logic. Full reasoning in `docs/TESTING_STRATEGY.md`'s "Branch coverage" section.
+| Frontend directory (grouped) | Statements | Branches | Lines |
+|---|---|---|---|
+| `lib/hooks` | 98.07% | 94.23% | 98.86% |
+| `lib` (formatters, calendar view, kiosk) | 95.75% | 89.85% | 97.22% |
+| `lib/services` | 90.50% | 81.25% | 90.50% |
+| `app/parent/*` | 89–100% | 78–100% | 89–100% |
+| `app/components/*` | 88–100% | 50–100% | 87–100% |
+| `app/admin/*` | 78–100% | 59–100% | 82–100% |
+| `app/context` | 95.83% | 73.33% | 95.71% |
+| `app/kiosk`, `app/login`, `app/register`, `app/calendar`, `app/classes`, `app/coaches`, `app/private-classes` | 97–100% | 90–100% | 97–100% |
+| `app/coach/private-students` | 86.81% | 80.76% | 89.53% |
+| `app/coach/schedules` | **0%** | **0%** | **0%** |
 
 ## Backend (`backend/`)
-
-**Current state: 76 test suites / 980 tests, all passing under `TZ=UTC` — re-run in full 2026-09-24
-after `docs/plans/coach-pack-pricing-plan.md` (packs on the coach contract; the pack band, the
-edited-pack id rule, and the purchase-by-`packId` path, incl. real-Stripe proofs that an edited or
-removed pack charges nothing). Before that: `docs/plans/private-class-per-session-booking-plan.md` PRs 1–2 (universal `Visit`, per-session
-private-lesson bookings). The private-lesson suites freeze only `Date` (`tests/testUtils/privateLessons.js`
-`freezeDate`), so none of them depends on the time of day they run. Previously documented here: on a
-non-`TZ=UTC` local dev host, a class of tests reads a UTC-midnight calendar-day sentinel via a
-Date's LOCAL getters and fails — correct under `TZ=UTC` (true in CI and production), wrong otherwise.**
 
 ```
 cd backend && npm test            # TZ=UTC is set by the script itself
@@ -78,85 +69,71 @@ cd backend && npm test            # TZ=UTC is set by the script itself
 
 | Layer | Location | What it tests | DB? |
 |---|---|---|---|
-| Unit | `tests/utils/{jwt,password}.test.js` | Token signing/verification, bcrypt hashing | No |
-| Unit | `tests/utils/privateClassPricing.test.js` | Per-session pricing; `quotePurchase` (the one savings formula, whole cents); the pack price band's exact edges incl. a half-cent floor; `describePack` errors (never throws) and `validatePacks` throwing the identical message; `purchaseOptionsFor` (single first, only the slot's length); `purchaseBreakdown`; fail-closed throws | No |
-| Unit | `tests/services/billing/{calculateChargeAmount,proration}.service.test.js` | Sibling-discount math; proration math incl. `resolveFirstChargePeriod`'s current-vs-future-month branch (docs/plans/payment-airtight-plan.md D1) | No |
-| Unit | `tests/models/registration.model.test.js` | `periodMonth` derivation (schema pre-validate hook), `manualNote` validation, Guard B's re-keyed unique index — incl. the exact same-month-different-day collision case the old index missed (docs/plans/payment-airtight-plan.md D7) | Yes (memory) |
-| Unit | `tests/email/renderEmail.test.js` | Every registry key renders (subject/html/text non-empty, no `{{` leftovers, no `undefined`), escaping, breakdown math renders verbatim, text twin contains detailList labels + button URLs (CKQ parity Phase 2) | No |
-| Service | `tests/services/{mail,renewal,subscription}.service.test.js` | Confirmation emails (staging gate + Ethereal fallback), idempotent renewal job + cancel-then-charge race, subscription list/cancel/reactivate/changeSchedule (all 4 writes, same-level/capacity/duplicate 409s, email-failure-never-fails-the-change) | Yes (memory) |
-| Service | `tests/services/holiday.service.test.js` | CRUD incl. date-sentinel normalization, ≤31-day duration cap, unique-name + inclusive-overlap 409s (self-excluded on update), `getHolidaysInRange`/`findHolidayForDate` boundary inclusivity (`docs/plans/holiday-blocking-plan.md`) | Yes (memory) |
-| Route-integration | `tests/routes/*.routes.test.js` (21 files) | Full HTTP round-trip per entity — auth, locations, levels, group-classes, schedules, sessions (incl. `by-class` cross-schedule listing, **holiday-date filtering/annotation, attendance/walk-in blocked on a holiday**), prices, students, users, trial-classes (**incl. holiday-blocked booking**), registrations (incl. the pricing preview, **the new Registration payment-ledger row shape, Guard A's DB-level active-subscription-uniqueness index proven via both a re-registration-after-cancel path and a real concurrent-request race, holiday-blocked `startDate`**), subscriptions, payment-methods, Stripe webhook, spotlights, **coach contracts (incl. packs: band 400s, carry-over re-check on a rate change, edit keeps an unchanged pack's id and mints a new one for an edited pack, the side-effect-free `pack-quotes` preview returning the save's exact error text), private-lesson availability (bulk publish, overlap 409s, bookable-date computation incl. holidays/DST/started lessons, retire-vs-delete), private-lesson purchases (real Stripe: single session + the coach's own pack by `packId`, a pack for another length / removed / edited after the quote = 409 with zero PaymentIntents, 402 decline releases the slot, two-parent race = one charge, abandoned-hold takeover rules, payment-history description), private-lesson bookings (oldest-credit-first, last-credit race, credit returned on a lost slot, Visit-backed attendance with no money, 24h parent cancel cutoff), audit runs (superadmin-only reporting sink for `docs/plans/audit-system-plan.md`), holidays (admin/superadmin-only CRUD, `docs/plans/holiday-blocking-plan.md`)** | Yes (memory), + real Stripe TEST-mode API for `registration`/`paymentMethod`/`privateClassSession`/`privateClassEnrollment` |
-| Script | `tests/scripts/lib/migrateRegistrationsToLedger.test.js` | The one-time old-shape-Registration → payment-ledger migration script (`docs/plans/registration-ledger-plan.md` D8): dry-run writes nothing, live run rewrites matched docs (incl. the prorated-periodEnd variant), orphaned docs left untouched and reported, safe to re-run | Yes (memory) |
-| Script | `tests/scripts/lib/migratePeriodMonth.test.js` | The one-time `periodMonth` backfill + Guard B index re-key (docs/plans/payment-airtight-plan.md D7): dry-run vs. live, idempotent re-run, collision abort with zero writes, a `failed` row never blocks | Yes (memory) |
-| Service | `tests/services/{visit,privateClassSession}.service.test.js` | Universal Visit: serviceId stamping, fail-closed without the Service registry, the one-session-ref validator, private visit lifecycle, private never in a group roster (ADR 010). The private slot claim: concurrent claims, cancelled/released free the slot, abandoned-hold release rules (ADR 011) | Yes (memory) |
-| Script | `tests/scripts/lib/{backfillVisitService,retireRecurringPrivateClasses,checkPrivateCreditLedger}.test.js` | Visit serviceId backfill; the recurring-to-booking cutover (money gate, partial-index swap, idempotent); the read-only purchase/ledger reconciliation incl. a non-partial slot index | Yes (memory) |
-| Smoke | `tests/health.test.js` | `/health` endpoint | No |
+| Unit | `tests/utils/*.test.js` (8 files) | JWT, bcrypt, `billingDates` (DST-transition proofs), `dateShapes`, `errors`, `roles` (vs `User.ROLES`), age, `privateClassPricing` (the one savings formula in whole cents, the pack price band's exact edges, `purchaseOptionsFor`, fail-closed throws) | No |
+| Unit | `tests/services/billing/*.test.js` | Sibling-discount math; proration incl. `resolveFirstChargePeriod`'s current-vs-future-month branch; the registration fee | No |
+| Unit | `tests/models/*.test.js`, `tests/email/*.test.js`, `tests/config/`, `tests/middlewares/` | `periodMonth` derivation and Guard B's index; every email template renders; the timezone config; the central error handler | Some (memory) |
+| Service | `tests/services/*.test.js` (16 files, plus `billing/`) | Renewal + retry/dunning with the cancel-then-charge race on each path, subscriptions, holidays, Visit, the private slot claim, kiosk, invoices, mail (staging gate) | Yes (memory) |
+| Route-integration | `tests/routes/*.routes.test.js` (26 files) | Full HTTP round-trip per entity, with every route's 401/403/404 negatives (`/audit-tests` Check 11) — registrations (pricing preview, ledger rows, Guard A under a real concurrent race), private-lesson purchases and bookings (real Stripe), coach contracts and packs, availability, holidays, kiosk (incl. the lock-down from every admin endpoint), webhooks | Yes (memory), + real Stripe TEST mode for the payment routes |
+| Payments | `tests/payments/*.test.js` | The port's contract and selection, the Stripe adapter through the shared contract suite (`providerContract.shared.js`), the boundary guard | Real Stripe TEST mode |
+| Script | `tests/scripts/lib/*.test.js` (22 files) | Every migration/backfill helper: dry-run writes nothing, the live run, idempotent re-runs, collision aborts | Yes (memory) |
+| Guards | `tests/guards/*.test.js` | No focused/reasonless-skipped test; no unpinned real-clock date helper | No |
+| Smoke | `tests/health.test.js` | `/health` | No |
 
 ### Coverage gaps (honest, not hidden)
 
-- `src/utils/billingDates.js` (`addOneMonth`, `addOneDay`, `todayAtMidnight`) has no standalone unit test — only indirect coverage via `registration.routes.test.js` and `renewal.service.test.js` exercising the dates it produces.
-- The two new delete guards added in the UI-adoption plan (`GroupClass` blocked by `GroupClassSchedule`, `Level` also blocked by `Price`) are tested at the route-integration level (`groupClass.routes.test.js`, `level.routes.test.js`) — no separate service-unit test, consistent with how every other existing guard was already tested.
-- `backend/scripts/preview-emails.js` are manual-run operational scripts with no test file, consistent with the pre-existing `run-renewals.js`/`seed-superadmin.js` convention (none of the manual scripts in this repo have dedicated tests — their underlying logic, `generateSessions`/`renderEmail`/`renewOne`, is what's actually tested).
+- `src/payments/stripe` branches (76.31%): the adapter's rarer Stripe error shapes are mapped but not each provoked in TEST mode.
+- `src/email` branches (75.73%): optional template sections (no CC, no breakdown) are rendered by the registry test but not each branch asserted.
+- `backend/scripts/*.js` entry points (seeders, `run-renewals.js`, `preview-emails.js`) have no test of their own by convention — their logic lives in `scripts/lib/` and `src/services`, which are tested.
 
 ## Frontend (`frontend/`)
 
-**Current state: 60 test suites / 472 tests, all passing under `TZ=UTC`, 2026-09-24 (after `docs/plans/coach-pack-pricing-plan.md` PR 2 — the shared `PackEditor` with its server-verbatim preview guard and a fake-timer debounce test, the new `useDebouncedValue` hook and `lib/services/__tests__/coachContracts.test.ts` contract suite, packs chosen by `packId` in the booking wizard). Before that: `docs/plans/private-class-per-session-booking-plan.md` PR 3 — the private-lesson pages rebuilt for per-session bookings, a new `lib/services/__tests__/privateClass.test.ts` contract suite, and the portal context's removed private fetch guarded by a test). `tsc --noEmit` clean, `next build` succeeds. E2E: 31 passed + the 2 known visual-baseline skips, including the new `private-booking.spec.ts`.**
-
 ```
 cd frontend && npm test           # TZ=UTC is set by the script itself
+npm run typecheck                 # app + e2e
 ```
 
 | Layer | Location | What it tests | Network |
 |---|---|---|---|
-| Component — admin | `app/admin/**/__tests__/*.test.tsx` (layout, dashboard, redirect page, 5 Pattern-A CRUD pages incl. **holidays**, schedules, sessions, **subscriptions, coach-contracts, private-classes**) | Shell role-gate, dashboard counts, full CRUD (create/edit/delete/blocked-delete) per entity — **holidays incl. `YYYY-MM-DD` payload round-trip and a 409-overlap "Cannot Delete"-shaped error** — subscriptions list/filter/change-schedule/cancel/reactivate, coach-contract create/deactivate, private-class enrollment-cancel + schedule add/delete guards, **admin/coach sessions pages render a holiday row's muted `Holiday — <name>` chip with no Mark Attendance link** | MSW |
-| Component — portal shell | `app/components/portal/{PortalLayout,ParentPortalShell,AddChildModal}/__tests__/*.test.tsx` | Nav rendering/active-state, per-child rows + status lines, modal payload/validation/error, Private Lessons nav item | MSW (shell tests), none (pure `AddChildModal` unit tests) |
-| Component — flow kit | `app/components/portal/flow/__tests__/flow.test.tsx` | Stepper done/active/upcoming states, `OrderSummary` CTA disabled/loading, `ChildPickerCards` selection, `FlowConfirmation` rendering | None (pure component tests) |
-| Component — parent pages | `app/parent/**/__tests__/*.test.tsx` (layout, dashboard, children, child detail, book-trial wizard, register wizard, subscriptions, **billing**, payment-method, register-private wizard) | Full wizard walkthroughs with exact payload assertions, context-driven rendering, tab/not-found states, guard behavior, private-lessons section (charges list + cancel), 409 slot-taken recovery; **`/parent/billing`** (docs/plans/payment-airtight-plan.md D10): row rendering across billing shapes, the manual-payment chip + note, failed-row status with no download link, a real invoice-download `<a href>`, empty state | MSW (+ Stripe SDK module mock for `payment-method`) |
-| Component — shared payment UI | `app/components/ui/PaymentHistoryTable/` | Covered transitively through `/parent/billing`'s own test file (no standalone component test yet — same "coverage is real, organized under the consuming page" pattern the gaps list below already accepts for other UI primitives) | — |
-| Component — public/coach | `app/private-classes/__tests__/page.test.tsx`, `app/coach/private-students/__tests__/page.test.tsx` | Public availability browse page (empty state, book-slot href); coach attendance page (unmarked list, confirm-dialog amount, attended/missed PATCH payloads, failed-charge Retry) | MSW |
-| Component — shared UI | `app/components/ui/{Button,LoadError}/__tests__/*.test.tsx`, `app/components/__tests__/ProtectedRoute.test.tsx` | Design-system primitives, route guard | None |
-| Component — auth/public | `app/{login,register}/__tests__/*.test.tsx` | Login/register forms | MSW |
-| Component — coach/shared | `app/sessions/[id]/attendance/__tests__/page.test.tsx` | Shared attendance-marking page (coach + admin), incl. **the holiday-blocked state (no roster/Save, `docs/plans/holiday-blocking-plan.md`)** | MSW |
-| Hook | `lib/hooks/__tests__/useLoadState.test.ts` | Success/error/retry/data-reset, `getErrorMessage` status-code branching | None |
-| Service | `lib/services/__tests__/catalog.test.ts` | Query-throws / mutation-never-throws contract | MSW |
-| Context | `app/context/__tests__/ParentPortalContext.test.tsx` | `privateEnrollments` added to the `Promise.allSettled` set; its failure degrades to `[]` without setting `error` | MSW |
+| Component — admin | `app/admin/**/__tests__/*.test.tsx` | Shell role-gate, dashboard counts, Pattern A CRUD per entity (create/edit/delete/blocked-delete, holidays' `YYYY-MM-DD` payload), subscriptions (filter/change-schedule/cancel/reactivate/charge), coach contracts and packs, private classes, audits, settings, users | MSW (strict) |
+| Component — portal | `app/components/portal/**/__tests__/*.test.tsx` | Portal shell nav and per-child rows, `AddChildModal`, the flow kit (stepper, order summary, child picker), the card form | MSW (strict) / none |
+| Component — parent pages | `app/parent/**/__tests__/*.test.tsx` | The book-trial, register and register-private wizards with exact payloads (frozen `Date`), dashboard, children, child detail, subscriptions, billing history, payment method | MSW (strict) + the Stripe SDK module mock |
+| Component — public/coach/shared | `app/{page,classes,coaches,calendar,private-classes,login,register,kiosk}/__tests__`, `app/coach/**/__tests__`, `app/sessions/[id]/attendance/__tests__` | Public pages, auth forms, the kiosk tablet (partial fake timers), coach pages, shared attendance incl. the holiday-blocked state | MSW (strict) |
+| Component — UI primitives | `app/components/ui/**/__tests__`, `app/components/layout/__tests__/AppShell.test.tsx`, `app/components/__tests__/ProtectedRoute.test.tsx` | Design-system primitives, the app shell, the route guard | None / MSW |
+| Hook | `lib/hooks/__tests__/*.test.ts(x)` | `useLoadState`, `useContractPreview`, debounce | None / MSW |
+| Service | `lib/services/__tests__/*.test.ts` (6 files) | The query-throws / mutation-never-throws contract for `calendar`, `catalog`, `coachContracts`, `kiosk`, `parent`, `privateClass` | MSW (strict) |
+| Context | `app/context/__tests__/*.test.tsx` | `ParentPortalContext`'s `Promise.allSettled` degradation | MSW (strict) |
+| Guards | `lib/__tests__/guards/*.test.ts` (9 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin | No |
 
 ### Coverage gaps (honest, not hidden)
 
-- Only one service file (`catalog.ts`) has a dedicated service-level test; `scheduling.ts`, `parent.ts`, and the new `privateClass*`/`coachContracts.ts` service files are exercised only transitively through the pages that call them — every mutation/query path IS covered this way (payload assertions live in the consuming page's test), but there's no standalone `*.test.ts` the way `catalog.test.ts` exists. Low priority: the coverage is real, just organized under the consuming page instead of the service file.
-- `AppShell.tsx` itself still has **zero direct test coverage** (a pre-existing gap, not introduced by any of the plans run so far) — it's exercised only indirectly by every coach/logged-out page test that renders through it (now including the new `/coach/private-students` nav link).
-- No component-level test exists for `AdminPageHeader`/`AdminTableRows` in isolation — coverage is real but only via every admin page that renders them.
-- The `Card` component (`app/components/ui/Card/`) has no dedicated test file (it's a two-line wrapper; every page test renders through it).
+- **`app/coach/schedules/page.tsx` has no test (0%)** — the coach's schedule list. Its sessions sub-page is tested.
+- `app/components/marketing/SpotlightCard.tsx` and `TeamBand.tsx` (0%) render only on public pages whose tests do not reach them; `app/layout.tsx` (0%) is the root layout (fonts, providers), exercised by every E2E run instead.
+- `app/admin/audits` branches (59.18%) and `app/components/marketing` branches (50%): optional display states not asserted.
+- `scheduling.ts` and `privateClassCoach.ts` have no service-level test of their own; they are covered through the pages that call them.
+- No component-level test exists for `AdminPageHeader` in isolation — covered through every admin page that renders it. `Card` (a two-line wrapper) has no test file.
 
 ### Intentionally skipped (by design, not oversight)
 
-- **`/sessions/[id]/attendance` restyle** — out of scope for the UI-adoption plan (shared coach/admin page, explicitly left untouched); its existing test suite was left as-is.
-- **Schedule edit/delete** (group classes) — deliberately deferred (ripple effects on generated `GroupClassSession` docs and rosters); there is no UI to test because there is no feature. (The narrow "move a student between same-level schedules" case IS now covered — see the Subscriptions rows above.)
+- **Schedule edit/delete** (group classes) — deliberately deferred (ripple effects on generated `GroupClassSession` docs and rosters); there is no UI to test because there is no feature. The narrow "move a student between same-level schedules" case IS covered (Subscriptions).
+
 ## E2E (Playwright)
 
-Built 2026-08-28 (Phase 1, `docs/plans/e2e-testing-plan.md`) — 6 spec files, 26 active tests + 2
-intentionally skipped (visual-regression baselines pending a Docker-generated bootstrap), CI-gated
-on every PR/push to `develop`/`main`. Real Chromium against a real Next.js server, fully mocked
-network — no istanbul %-coverage number applies to this layer (it isn't measuring code paths
-exercised, it's proving real DOM/routing/accessibility behavior). Full spec-by-spec breakdown, the
-two known-and-ratcheted accessibility findings, and run instructions live in
-`docs/TESTING_STRATEGY.md`'s E2E section — not duplicated here.
+Real Chromium against a real, locally-built Next.js server, network fully mocked (loud-fail, type-locked). No istanbul number applies to this layer — it proves real DOM, routing, layout and accessibility. The spec-by-spec table, the projects and the accessibility ratchets live in `docs/TESTING_STRATEGY.md`'s E2E section.
 
-`holiday-blocking.spec.ts` (added `docs/plans/holiday-blocking-plan.md`): admin creates/lists/
-deletes a holiday through the real Pattern A UI; the register and book-trial wizards' pickers never
-offer a date the mocked backend response already excludes (the real server-side filtering is the
-backend suite's job — this layer proves the frontend renders correctly for whatever the backend
-hands it); coach attendance renders its blocked state for an `isHoliday` session; the admin sessions
-list renders a holiday row's muted chip with no Mark Attendance link. `admin-shell.spec.ts`'s nav
-assertion also gained `Holidays` to its expected label list.
+| Project | Tests listed | Specs |
+|---|---|---|
+| `chromium` (Desktop Chrome) | 61 | all 12 |
+| `mobile-chrome` (Pixel 5) | 38 | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions` |
 
-**Phase 2, not yet built**: subscriptions management, the private-class coach-contract → booking →
-attendance-charge chain, the register-private wizard, spotlight admin content, cross-browser/mobile
-viewports.
+Skipped: the two visual-baseline tests in `public-site.spec.ts` on each project (a baseline has to be generated inside the CI container — see the in-file comment).
+
+**Not yet covered by E2E:** testimonials admin, the coach schedule pages, parent children/child detail, the book-trial wizard end to end (holiday-blocking drives its date picker only). Each is covered by its Jest page test.
 
 ## Improvement plan (short)
 
 1. ~~Add a standalone `backend/tests/utils/billingDates.test.js` for `addOneMonth`/`todayAtMidnight`.~~ Done 2026-08-28 — `docs/plans/timezone-consistency-plan.md`, plus a new `scheduleOccurrence.test.js` sibling.
-2. Retrofit the frontend suite from `fireEvent` to `userEvent.setup()` per the interaction rule codified in `docs/TESTING_STRATEGY.md` — sizable, tracked here rather than done ad hoc inside a docs-organization phase.
-3. Consider splitting `scheduling.ts`/`parent.ts`/`privateClass*.ts`/`coachContracts.ts` service-level tests out from their consuming pages once any of them grows past what its current pages exercise.
-4. `Modal` (`docs/plans/shared-modal-component-plan.md`) handles initial-focus-on-open and focus-restore-on-close, but not full focus **trapping** — Tab/Shift+Tab can still escape the dialog to the page behind it. A real, separate a11y task (or a small dependency like `focus-trap-react`), not bundled into that plan.
+2. ~~Retrofit the frontend suite from `fireEvent` to `userEvent.setup()`.~~ Done 2026-10-26 (`docs/plans/testing-strategy-refresh-plan.md` PR D): all 30 files converted with no exceptions, and `userEventGuard.test.ts` keeps it that way.
+3. A test for `app/coach/schedules/page.tsx` (the one 0% page).
+4. ~~E2E Phase 2.~~ Done 2026-10-26 (`docs/plans/testing-strategy-refresh-plan.md` PR F).
+5. `Modal` (`docs/plans/shared-modal-component-plan.md`) handles initial-focus-on-open and focus-restore-on-close, but not full focus **trapping** — Tab/Shift+Tab can still escape the dialog to the page behind it. A real, separate a11y task (or a small dependency like `focus-trap-react`), not bundled into that plan.
+6. The admin sidebar's muted text (4.28:1, needs 4.5:1) — a colour decision for `docs/design-system.md`; the E2E ratchet allows only those nodes until then.

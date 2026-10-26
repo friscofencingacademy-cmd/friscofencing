@@ -1,5 +1,8 @@
 import type { Page } from '@playwright/test';
 
+import type { AuthUserResponse } from '../../lib/apiResponses';
+import type { AuthUser } from '../../lib/types';
+
 import { mockApi, json, type MockRule } from './mock-api';
 
 export type Role = 'student' | 'parent' | 'coach' | 'admin' | 'superadmin' | 'kiosk';
@@ -13,7 +16,7 @@ export const ROLE_LANDING_PATH: Record<Role, string> = {
   kiosk: '/kiosk',
 };
 
-function fakeUser(role: Role) {
+function fakeUser(role: Role): AuthUser {
   return {
     _id: `user-${role}`,
     role,
@@ -47,7 +50,7 @@ export async function loginAs(page: Page, role: Role, extraOverrides: MockRule[]
   const authOverride: MockRule = {
     method: 'GET',
     path: '/auth/me',
-    handler: (route) => json(route, 200, { user }),
+    handler: (route) => json<AuthUserResponse>(route, 200, { user }),
   };
 
   await mockApi(page, [authOverride, ...extraOverrides]);

@@ -16,6 +16,13 @@
 }
 
 /* Table */
+/* Every portal table sits in one of these: a table wider than a phone
+   scrolls inside its own box instead of making the whole page scroll
+   sideways (e2e/helpers/layout.ts' zero-tolerance overflow check). */
+.tableWrap {
+  overflow-x: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import PaymentMethodCollector from '../PaymentMethodCollector';
 import type { PaymentConfig } from '../../../../lib/types';
@@ -27,7 +28,7 @@ const server = setupServer(http.get('*/payments/config', () => HttpResponse.json
 
 let user: ReturnType<typeof userEvent.setup>;
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 beforeEach(() => {
   user = userEvent.setup();
 });

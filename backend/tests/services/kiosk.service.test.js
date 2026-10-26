@@ -16,6 +16,7 @@ const { addStudentToSession } = require('../../src/services/groupClassSession.se
 const { todayDateOnly } = require('../../src/utils/billingDates');
 const { addDaysToDateOnly } = require('../../src/utils/dateShapes');
 const { seedServices } = require('../../scripts/lib/seedServices');
+const { freezeAt } = require('../testUtils/clock');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { createSession } = require('../testUtils/sessions');
 
@@ -26,12 +27,18 @@ const { createSession } = require('../testUtils/sessions');
 
 let mongod;
 
+// The clock is pinned (docs/TESTING_STRATEGY.md; tests/guards/realClockDateHelperGuard.test.js):
+// Monday noon Central — the seeded schedules' own weekday, hours before their 16:00 classes, far from a day boundary.
+const NOW = '2026-10-19T17:00:00.000Z';
+
 beforeAll(async () => {
+  freezeAt(NOW);
   mongod = await connectTestDB();
 });
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+  jest.useRealTimers();
 });
 
 // Every Visit write resolves its serviceId by Service code (ADR 010).

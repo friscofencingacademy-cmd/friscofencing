@@ -157,3 +157,66 @@ describe('GroupClass routes', () => {
     expect(res.body.message).toMatch(/1 schedule\(s\) reference this class/);
   });
 });
+
+// Every protected route answers 401 without a session, every admin-only route
+// 403 for a non-admin (changing nothing), and an unknown id 404 — the negative
+// paths /audit-tests Check 11 asks of each route
+// (docs/plans/testing-strategy-refresh-plan.md PR C).
+describe('GroupClass routes — access control and unknown ids', () => {
+  const UNKNOWN_ID = new mongoose.Types.ObjectId().toString();
+
+  async function seedGroupClass() {
+    const level = await Level.create({ name: 'Beginner', order: 1 });
+    const location = await Location.create({ name: 'Frisco HQ', address: '123 Main St' });
+    return GroupClass.create({ name: 'Beginner Foil', levelId: level._id, locationId: location._id, capacity: 10 });
+  }
+
+  it.each([
+    ['get', '/api/v1/group-classes'],
+    ['get', `/api/v1/group-classes/${UNKNOWN_ID}`],
+    ['post', '/api/v1/group-classes'],
+    ['put', `/api/v1/group-classes/${UNKNOWN_ID}`],
+    ['delete', `/api/v1/group-classes/${UNKNOWN_ID}`],
+  ])('%s %s returns 401 without a session', async (method, url) => {
+    const res = await request(app)[method](url).send({ name: 'Beginner Foil' });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when a non-admin tries to create, update, or delete a group class, and changes nothing', async () => {
+    const groupClass = await seedGroupClass();
+    await User.create({
+      role: 'parent',
+      firstName: 'Test',
+      lastName: 'Parent',
+      email: 'test-parent@example.com',
+      passwordHash: await hashPassword(TEST_PASSWORD),
+    });
+    const agent = await loginAgent('test-parent@example.com');
+
+    const createRes = await agent.post('/api/v1/group-classes').send({
+      name: 'Sneaky Class',
+      levelId: groupClass.levelId.toString(),
+      locationId: groupClass.locationId.toString(),
+      capacity: 10,
+    });
+    const updateRes = await agent.put(`/api/v1/group-classes/${groupClass._id}`).send({ name: 'Renamed' });
+    const deleteRes = await agent.delete(`/api/v1/group-classes/${groupClass._id}`);
+
+    expect(createRes.status).toBe(403);
+    expect(updateRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
+    const stored = await GroupClass.find();
+    expect(stored.map((c) => c.name)).toEqual(['Beginner Foil']);
+  });
+
+  it.each(['get', 'put', 'delete'])('%s of an unknown group class id returns 404', async (method) => {
+    await seedAdmin();
+    const agent = await loginAgent('test-admin@example.com');
+
+    const res = await agent[method](`/api/v1/group-classes/${UNKNOWN_ID}`).send({ name: 'Renamed' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe('Group class not found');
+  });
+});

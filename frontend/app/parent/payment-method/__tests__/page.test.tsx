@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import PaymentMethodPage from '../page';
 import { AuthProvider } from '../../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const pushMock = jest.fn();
 
@@ -63,7 +71,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
@@ -88,7 +96,7 @@ describe('PaymentMethodPage', () => {
 
     expect(await screen.findByTestId('card-element')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /save card/i }));
+    await user.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
       expect(postPayload).toEqual({ paymentMethodToken: STRIPE_PAYMENT_METHOD.id });
@@ -112,7 +120,7 @@ describe('PaymentMethodPage', () => {
     ).toBeInTheDocument();
     expect(screen.queryByTestId('card-element')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /update card/i }));
+    await user.click(screen.getByRole('button', { name: /update card/i }));
 
     expect(await screen.findByTestId('card-element')).toBeInTheDocument();
   });
@@ -126,7 +134,7 @@ describe('PaymentMethodPage', () => {
 
     await screen.findByTestId('card-element');
 
-    fireEvent.click(screen.getByRole('button', { name: /save card/i }));
+    await user.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Your card number is invalid.');
@@ -148,7 +156,7 @@ describe('PaymentMethodPage', () => {
 
     await screen.findByTestId('card-element');
 
-    fireEvent.click(screen.getByRole('button', { name: /save card/i }));
+    await user.click(screen.getByRole('button', { name: /save card/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Failed to save payment method');

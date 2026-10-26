@@ -412,3 +412,202 @@ ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behi
 - **Before PR A**, a separate fix shipped as PR #113: fonts are self-hosted (`next/font/local` over
   `@fontsource-variable/*`) because `next/font/google`'s build-time fetch failed the develop E2E
   build on 2026-09-30; `selfHostedFontsGuard.test.ts` prevents a regression.
+### PR B (2026-10-26, `feature/testing-e2e-hardening`)
+- **Loud-fail is live.** An unmocked `/api/v1/*` request is answered `599` and fails the test in
+  teardown (`frontend/e2e/fixtures/test.ts` → `assertNoUnmockedRequests`). No spec uses
+  `allowUnmocked`. Proven by a planted unmocked call, which went red with the request listed.
+- **Mocks are type-locked to what the app reads (T5, extended).** `json<T = never>(route, status,
+  body: NoInfer<T>)` will not compile without a named response type, and the body must match it.
+  The envelopes (`{ levels: … }`, `{ user: … }`, …) were inline types in each service, so there was
+  nothing to name. They now live once in the new `frontend/lib/apiResponses.ts`, used by both the
+  services (and `AuthContext`) and the mocks. A body type stays in `lib/types.ts` when it is
+  already a domain type. Typing the fixtures found drift that had been passing silently:
+  - The public endpoints were mocked with admin shapes. `/levels/public` and `/locations/public`
+    now use `FIXTURE_PUBLIC_LEVELS: PublicLevel[]` and `FIXTURE_PUBLIC_LOCATION: PublicLocation`.
+  - Fields that were missing: the schedule's `students`, the location's `timezone`, the payment
+    method's `_id`/`cardExpMonth`/`cardExpYear`, and the price preview's `monthlyFee`.
+  - The register spec's 201 left out `registration`/`subscription`. It now sends the failed-ledger
+    row plus the reserved subscription in dunning, as ADR 008 returns them on a decline.
+  - The attendance PATCH mock sent `{ success: true }`, which the app never reads. It now sends
+    `IgnoredBodyResponse` (`{}`).
+- **Mobile project (T6).** `mobile-chrome` (Pixel 5) runs `public-site`, `login`, `calendar` and
+  `kiosk`. Phones open `/calendar` in the List view on purpose (design-system "Calendar", C10), so
+  the month-grid tests request `?view=month`. A new test pins 390 px and asserts the List default.
+  At ≤ 600 px, `/classes` filters with a `<select>` instead of the pill row. The pill test pins
+  1280 px, and a new test drives the `<select>` at 390 px. Every width-dependent test pins its
+  width, so it runs on both projects, and nothing is skipped by device.
+- **360 px overflow check** (`e2e/helpers/layout.ts`, zero tolerance). It covers `/`, `/classes`,
+  `/coaches` (beyond T6's list) and `/calendar`. Instead of `networkidle` (discouraged by
+  Playwright), it waits for a visible heading, and the clock is pinned so the month grid always
+  shows the same month. No product layout bug was found. Proven by a planted wide element, which
+  went red.
+- **Result:** e2e and app `tsc` are clean; Jest 69 suites / 560 tests; Playwright 69 passed and
+  4 skipped (the two un-baselined visual tests on each project).
+- **Follow-up when payment PR 2 (#117) merges:** `FIXTURE_REGISTRATION` uses
+  `stripePaymentIntentId` because develop still has that field. The rename will turn it into a
+  type error in `tsc -p e2e`, which is exactly what this PR's typing is for.
+
+### PR C (2026-10-26, `feature/testing-static-guards`)
+- **Six static guards**: `backend/tests/guards/{noFocusedOrBareSkip,realClockDateHelperGuard}.test.js`
+  and `frontend/lib/__tests__/guards/{noFocusedOrBareSkip,e2eCatchAllGuard,e2eMockLayerGuard,e2eWaitOrderGuard}.test.ts`.
+  Each has a matcher self-test and a "scanned enough files" floor, and each went red on a planted
+  violation before being trusted.
+- **Where the guards are stricter than the spec, and why.** Each change closes a hole the spec
+  left open:
+  - *Skip/focus*: the guards also catch Jest's `fit`/`fdescribe`/`xit`/`xdescribe`/`xtest` aliases
+    and Playwright's `test.fixme`, which are the same bug in other forms. A skip's reason can be the
+    whole `//` comment block above it, not only the nearest line, because a reason often wraps onto
+    a short last line. `public-site.spec.ts`'s second visual-baseline skip did not meet the rule.
+    Its reason had only ever been written above the first skip, so it now has its own comment.
+  - *Real clock*: a bare `jest.useFakeTimers()` starts at the real time, so it does not count as a
+    pin. Only a literal `now`, `setSystemTime` or testUtils' `freezeDate` does, matching CKQ's
+    pattern and PR D's D2 form. Every call is flagged whatever its argument, because a timezone
+    argument still reads the real clock. Comment lines are ignored. `utils/billingDates.test.js`
+    already pins, so it needs no exemption. The four files that do not pin (`routes/kiosk.routes`,
+    `services/kiosk.service`, `services/renewal.previewAndCharge`, `services/renewal.service`) are
+    exempt with "PR D pins the clock". A "still needed" test fails once a file pins, which forces
+    PR D to remove its entry.
+  - *Mock layer*: one rule with no allowlist. Every spec imports `test` from `fixtures/test` and
+    never as a value from `@playwright/test`. Unlike CKQ, the raw import is not allowed even with
+    manual mock calls.
+- **`scripts/dead-negative-assertions.mjs`** baseline: 73 test files, 117 literal negative
+  assertions, 2 candidates (`$210.71`/`$134.50` in `app/parent/register/__tests__/page.test.tsx`).
+  Both are intentional: they assert the page never shows a sum it computed itself (hard rule 7).
+  The baseline is recorded in the skill.
+- **`/audit-tests` skill** (`.claude/skills/audit-tests/SKILL.md`): CKQ's 13 checks, rebased on
+  this repo's layout. It derives every gap list live instead of carrying a hard-coded one.
+  - **Check 11 is stricter than CKQ's**: a route test file fails when its 4xx/5xx assertions are
+    fewer than its routes, not only when it has none.
+  - Run against the tree, that found five files under the bar besides `student.routes` (C9):
+    `groupClass` 3 < 5, `groupClassSchedule` 3 < 7, `level` 5 < 6, `location` 5 < 6, `testimonial`
+    6 < 7. Each file now has an "access control and unknown ids" block: 401 without a session on
+    every protected route, 403 for a non-admin on every admin route with the stored data checked
+    unchanged, and 404 for an unknown id. Every route file now meets the bar.
+  - The new testimonial 403 test also covers delete, which an existing test's title claimed but
+    never asserted.
+- **C9 `student.routes`**: covers 401 (no session) and 403 (coach/student/kiosk on create;
+  admin/superadmin/coach/student/kiosk on `/mine`, which is parent-only). It also covers 400 for an
+  admin who omits `parentId` or gives an unknown one. Each negative test checks that no child was
+  created.
+
+### PR D (2026-10-26, `feature/testing-retrofit`)
+- **D1: `fireEvent` → `userEvent` in all 30 files, with no exceptions.** It was done with a codemod
+  (clicks → `user.click`; changes → `user.type`, `user.selectOptions` for selects, and
+  `user.clear` + `user.type` for a pre-filled field), then each file was run on its own.
+  - `userEvent` found two tests that only passed because `fireEvent.change` replaces a value.
+    `user.type` appends, as a person typing does, so the classes edit test sent capacity `1012` and
+    the users edit test sent a doubled first name. Both now clear the field first.
+  - Native date and time inputs accept `user.type` in this jsdom. The holidays test's comment saying
+    they don't was stale and is removed.
+  - The kiosk test fakes timers part-way through. `advanceTimers: jest.advanceTimersByTime` (the
+    spec's form) warned on every action while real timers were in, so the file uses
+    `userEvent.setup({ delay: null })`, which waits on no timer at all.
+  - The spec's file list named `PaymentMethodCardForm.test.tsx`, because payment PR 3 (#118) has not
+    merged. That file was converted.
+  - New `frontend/lib/__tests__/guards/userEventGuard.test.ts`: `fireEvent` only with a
+    `// fireEvent kept: <reason>` comment.
+- **Strict MSW (an addition, the Jest counterpart of PR B's loud-fail).** The conversion run printed
+  an MSW "unhandled request" warning. Tracing it showed that all 50 MSW test files started their
+  server with a bare `server.listen()`, so a request no handler matched errored quietly and the test
+  still passed. Now:
+  - `frontend/test-utils/msw.ts` records unhandled requests (`onUnhandledRequest`), and
+    `jest.setup.js` fails the test that made one.
+  - All 50 files use `server.listen({ onUnhandledRequest })`, enforced by `mswStrictGuard.test.ts`.
+  - It found one test: `register-private`'s "slot no longer offered" fetched that slot's dates with
+    no handler. It now mirrors the real backend's 404 "Private class schedule not found". The page's
+    parallel fetch is intended.
+  - The suite's last console noise, an `act()` warning from `app/register`'s synchronous first test
+    (the `/auth/me` check landing after the test ended), is fixed. The test now waits for an
+    `AuthSettled` probe. The full Jest run prints no warning or error.
+- **D2: clock pinned in all four exempt backend files** with the new
+  `backend/tests/testUtils/clock.js` `freezeAt(iso)`. That is the shared helper
+  `docs/plans/duplication-cleanup-plan.md` D1 names; its nine older `doNotFake` copies stay for that
+  plan.
+  - The kiosk files use Monday 2026-10-19 at noon Central (the seeded schedules' weekday, before
+    their 16:00 classes). The renewal files use mid-month 2026-10-15 at 10:00 Central.
+  - Each file also passed at a second instant (2026-11-02 Monday and 2027-03-11), so the result does
+    not depend on the instant chosen.
+  - The guard's exemption list now holds only the guard itself, and `freezeAt(` counts as a pin.
+- **D3:** the dead-negative-assertion baseline is unchanged: 2 intentional candidates (line numbers
+  moved to 549–550). The skill is updated.
+- `docs/TESTING_STRATEGY.md`'s interaction rule and MSW lifecycle line now describe the converted
+  suite. `docs/TEST_COVERAGE.md`'s improvement item 2 is marked done.
+
+### PR E (2026-10-26, `feature/testing-docs-and-gate`)
+- **E1 `docs/TESTING_STRATEGY.md`** is restructured to CKQ's order: Overview → Backend → Date rules
+  → Frontend → E2E → Cross-repo tooling → Coverage → Isolation → Live audits. Every existing Frisco
+  rule is kept, mostly verbatim. New sections cover the per-layer static guards, strict MSW, the
+  E2E projects table, mocking rules and interaction determinism 1–8. CKQ's "symptom of the
+  `fireEvent` bug" paragraph is included, and the "Known gap … fireEvent" paragraph is removed (PR D
+  closed it).
+  - Rule 5's `/ship-main` flake-history enforcement and rule 9's per-engine scrolling are CKQ-only
+    (there is one desktop engine here and no ship skill), so they are not ported.
+  - The payment plan's `paymentSdkBoundaryGuard` is not listed yet: it lands with #118.
+- **The doc's own claim surfaced a real defect, fixed here.** `admin-shell.spec.ts` allowlisted the
+  whole `color-contrast` rule id on the dashboard. That is the same shape that once hid a second
+  finding on the home page, so any new contrast failure on the dashboard would have passed.
+  - The ratchet now allows `color-contrast` only when every failing node is the sidebar's
+    brand-role or section-label element.
+  - Proven both ways: it passes on today's page, and it fails when only one of the two node kinds is
+    allowed.
+  - The colour itself is a design decision and is not changed here. It is listed in
+    `TEST_COVERAGE.md`'s improvement plan.
+- **E2 `docs/TEST_COVERAGE.md`** is rewritten to CKQ's shape: bold headline counts, a dated change
+  log (newest first), and re-measured coverage tables.
+  - The stale "gaps" are removed: `billingDates` and `AppShell` have tests, and six service files
+    now have service-level suites.
+  - The re-measurement found real 0% files, now listed: `app/coach/schedules/page.tsx`, the
+    marketing `SpotlightCard`/`TeamBand`, and the root `app/layout.tsx`.
+- **E3 `ci-passed`**: PR A already folded coverage into the test jobs, so there was no separate
+  `coverage` job and no `continue-on-error` to remove.
+  - The job runs with `if: always()` and fails unless every needed job's result is `success`.
+    Without `always()`, a failed dependency makes the job *skipped*, and GitHub counts a skipped
+    required check as passing.
+  - The workflow header names `ci-passed` as the one check to mark required.
+- **E4 `CLAUDE.md`**: a pre-read row for `frontend/e2e/**`, a Documentation Map row for
+  `/audit-tests`, and the status text of this plan's row and the payment plan's row, which still
+  said "none started".
+- **E5, owner step (one time):** GitHub → Settings → Branches → add a rule for `develop` and one for
+  `main` → "Require status checks to pass before merging" → select **`ci-passed`**.
+
+### PR F (2026-10-26, `feature/testing-e2e-phase2`)
+- **Specs:** `subscriptions.spec.ts` (parent and admin), `billing.spec.ts`, `spotlights-admin.spec.ts`.
+  Each mirrors its Jest page test with exact request bodies, a pinned clock where dates render, and
+  an axe scan. `subscriptions` and `billing` joined the `mobile-chrome` project.
+- **No `register-private.spec.ts` (a deliberate divergence).** `private-booking.spec.ts` already
+  drives that wizard through buying a pack (with the exact `packId` + `contractId` body) and booking
+  with a credit. A second spec would duplicate both flows. The one case it lacked, a slot taken
+  mid-checkout (the backend's exact `SLOT_TAKEN_MESSAGE` 409, nothing booked, dates refetched, back
+  to the date step), was added there.
+- **Three real product defects found and fixed:**
+  1. *Admin sidebar, below 1024 px:* the section toggles and nav links had **no accessible name**.
+     CSS hides their text labels in the icon rail and the closed phone drawer (axe
+     `button-name`/`link-name`, critical, found by the phone run). Every link and toggle now carries
+     `aria-label` with its visible text, and each section toggle exposes `aria-expanded` +
+     `aria-controls`. A new Jest test covers it. The parent portal hides labels with `font-size: 0`,
+     which keeps the name, so it was not affected.
+  2. *`/parent/subscriptions` was 740 px wide on a 393 px phone.* Portal tables had no scroll
+     container; only `PaymentHistoryTable` had one, as an inline style. `shared.module.css` gains
+     `.tableWrap` (`overflow-x: auto`, the admin stylesheet's name). Every portal table now sits in
+     one: the two subscriptions tables, the coach pages, children, attendance and payment history.
+     New `portalTableWrapGuard.test.ts` keeps it that way.
+  3. *Local E2E builds were not hermetic.* This machine's `frontend/.env.local` still sets the
+     pre-proxy `NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1`, which
+     `docs/plans/deployment-launch-plan.md` asked to replace with `BACKEND_URL`. That baked an
+     absolute backend origin into the E2E bundle, so the invoice link pointed straight at the
+     backend: a local-only difference from CI and production. `playwright.config.ts` now pins the
+     variable to empty for the E2E build. **Owner action:** update `.env.local` per the deployment
+     plan.
+- **One home for the accessibility assertion:** `e2e/helpers/a11y.ts`'s
+  `expectNoBlockingA11yViolations(page)`, which holds the one node-level ratchet. All scans
+  (`public-site`, `calendar`, `admin-shell`, and the new specs) use it, because every admin page now
+  scanned shows the same sidebar finding.
+- **Route-existence guard extended:** it now reads every `MockRule` under `e2e/`, including each
+  spec's overrides and template-literal paths, instead of `mock-api.ts` only (35 → 82 routes). A
+  non-literal path is an extraction failure (exit 2). Proven: a planted phantom exits 1, a planted
+  non-literal path exits 2.
+- **Envelopes named** (`lib/apiResponses.ts`): `PaymentHistoryResponse`,
+  `AdminSubscriptionResponse`, `SpotlightsResponse`, `SpotlightResponse` and `ImageUploadResponse`,
+  each used by its service. Spotlight and testimonial uploads share the last one.
+- **Result:** typecheck clean; Jest 76 suites / 609 tests with zero console output; Playwright 99
+  listed (61 chromium + 38 mobile-chrome), 95 passed and 4 known skips; route guard 0 phantoms.

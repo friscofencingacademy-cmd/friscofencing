@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import { fetchLocations, createLocation, deleteLocation } from '../catalog';
 
@@ -15,7 +16,7 @@ const server = setupServer(
   )
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../../test-utils/msw';
 
 import AttendancePage from '../page';
 import { AuthProvider } from '../../../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const pushMock = jest.fn();
 
@@ -60,7 +68,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
@@ -89,8 +97,8 @@ describe('AttendancePage', () => {
     expect(adaCheckbox).toBeChecked();
     expect(benCheckbox).not.toBeChecked();
 
-    fireEvent.click(benCheckbox);
-    fireEvent.click(screen.getByRole('button', { name: /save attendance/i }));
+    await user.click(benCheckbox);
+    await user.click(screen.getByRole('button', { name: /save attendance/i }));
 
     await waitFor(() => {
       expect(patchedPayload).toEqual({
@@ -184,15 +192,11 @@ describe('AttendancePage', () => {
     const evaluateButtons = screen.getAllByRole('button', { name: /evaluate/i });
     expect(evaluateButtons).toHaveLength(1);
 
-    fireEvent.click(evaluateButtons[0]);
+    await user.click(evaluateButtons[0]);
 
-    fireEvent.change(screen.getByRole('combobox', { name: /recommended level/i }), {
-      target: { value: 'level-1' },
-    });
-    fireEvent.change(screen.getByRole('textbox', { name: /evaluation notes/i }), {
-      target: { value: 'Great trial.' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /save evaluation/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /recommended level/i }), 'level-1');
+    await user.type(screen.getByRole('textbox', { name: /evaluation notes/i }), 'Great trial.');
+    await user.click(screen.getByRole('button', { name: /save evaluation/i }));
 
     await waitFor(() => {
       expect(evaluationPayload).toEqual({
@@ -217,15 +221,11 @@ describe('AttendancePage', () => {
     renderAttendancePage();
 
     await screen.findByText('Ada One');
-    fireEvent.click(screen.getByRole('button', { name: /evaluate/i }));
+    await user.click(screen.getByRole('button', { name: /evaluate/i }));
 
-    fireEvent.change(screen.getByRole('combobox', { name: /recommended level/i }), {
-      target: { value: 'level-1' },
-    });
-    fireEvent.change(screen.getByRole('textbox', { name: /evaluation notes/i }), {
-      target: { value: 'Notes.' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /save evaluation/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /recommended level/i }), 'level-1');
+    await user.type(screen.getByRole('textbox', { name: /evaluation notes/i }), 'Notes.');
+    await user.click(screen.getByRole('button', { name: /save evaluation/i }));
 
     expect(await screen.findByText('An evaluation already exists for this student and session')).toBeInTheDocument();
   });
@@ -244,7 +244,7 @@ describe('AttendancePage', () => {
 
     await screen.findByText('Ada One');
 
-    fireEvent.click(screen.getByRole('button', { name: /save attendance/i }));
+    await user.click(screen.getByRole('button', { name: /save attendance/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(

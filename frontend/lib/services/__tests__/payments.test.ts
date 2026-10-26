@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import { fetchPaymentConfig } from '../payments';
 import type { PaymentConfig } from '../../types';
@@ -14,7 +15,7 @@ const SQUARE_CONFIG: PaymentConfig = {
 
 const server = setupServer(http.get('*/payments/config', () => HttpResponse.json(STRIPE_CONFIG)));
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

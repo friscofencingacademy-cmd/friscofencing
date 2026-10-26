@@ -1,8 +1,10 @@
-import { test, expect } from '@playwright/test';
-import AxeBuilder from '@axe-core/playwright';
+import { test, expect } from './fixtures/test';
 
+import type { LevelResponse, LevelsResponse } from '../lib/apiResponses';
+import type { Level } from '../lib/types';
 import { json, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
+import { expectNoBlockingA11yViolations } from './helpers/a11y';
 
 // AppShell/the admin sidebar has zero direct test coverage today
 // (docs/TEST_COVERAGE.md's own documented gap) — this is the cheapest
@@ -44,45 +46,28 @@ test.describe('admin shell', () => {
     await expect(page.getByTestId('roster-search')).toBeVisible();
   });
 
-  // KNOWN, PRE-EXISTING FINDING (not introduced by this suite, not fixed
-  // here): the first real run of this scan found the sidebar's brand-role
-  // and section-label text (`admin/layout.module.css`'s --sidebar-muted,
-  // effectively #787f86 on --sidebar-bg) fails WCAG AA contrast (4.28:1,
-  // needs 4.5:1) — a near-miss, still a real design-system decision outside
-  // this plan's scope. UNCHANGED by the WP-alignment rebrand (Phase 1,
-  // docs/plans/wordpress-ui-alignment-plan.md, 2026-08-29): --sidebar-bg
-  // moved from #1b1a17 to #0e1b2a, but the two colors are similarly dark
-  // (luminance ~0.0104 either way), so the ratio is still ~4.28:1 — verified,
-  // not assumed, before leaving this ratchet in place (see public-site.spec
-  // .ts's matching comment for the one violation that WAS fixed by the
-  // rebrand). Ratcheted, not ignored: this exact violation is allowed so
-  // the suite can ship green; any OTHER/NEW finding still fails.
-  const KNOWN_ADMIN_DASHBOARD_VIOLATIONS = new Set(['color-contrast']);
-
+  // The sidebar's one known contrast finding is ratcheted by node in
+  // helpers/a11y.ts — the one home for it (docs/TESTING_STRATEGY.md).
   test('dashboard has no NEW serious/critical accessibility violations', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/admin/dashboard');
     await expect(page.getByText('Dashboard').first()).toBeVisible();
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    const unexpected = blocking.filter((v) => !KNOWN_ADMIN_DASHBOARD_VIOLATIONS.has(v.id));
-
-    expect(unexpected, JSON.stringify(unexpected, null, 2)).toEqual([]);
+    await expectNoBlockingA11yViolations(page);
   });
 
   test('Levels: create, edit, and delete round-trip against mocked responses', async ({ page }) => {
-    let levels = [{ _id: 'level-a', name: 'Fencing Foundation', order: 1 }];
+    let levels: Level[] = [{ _id: 'level-a', name: 'Fencing Foundation', order: 1 }];
 
     const overrides: MockRule[] = [
-      { method: 'GET', path: '/levels', handler: (route) => json(route, 200, { levels }) },
+      { method: 'GET', path: '/levels', handler: (route) => json<LevelsResponse>(route, 200, { levels }) },
       {
         method: 'POST',
         path: '/levels',
         handler: (route) => {
-          const created = { _id: 'level-new', name: 'Advanced Fencing', order: 2 };
+          const created: Level = { _id: 'level-new', name: 'Advanced Fencing', order: 2 };
           levels = [...levels, created];
-          return json(route, 201, { level: created });
+          return json<LevelResponse>(route, 201, { level: created });
         },
       },
       {
@@ -90,7 +75,9 @@ test.describe('admin shell', () => {
         path: '/levels/:id',
         handler: (route, { params }) => {
           levels = levels.map((l) => (l._id === params.id ? { ...l, name: 'Advanced Fencing (Updated)' } : l));
-          return json(route, 200, { level: levels.find((l) => l._id === params.id) });
+          const updated = levels.find((l) => l._id === params.id);
+          if (!updated) throw new Error(`PUT /levels/${params.id}: no such level in this test's mock state`);
+          return json<LevelResponse>(route, 200, { level: updated });
         },
       },
       {

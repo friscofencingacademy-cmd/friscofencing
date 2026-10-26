@@ -30,6 +30,15 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // Phone width (393 px, touch) for the pages parents and students mostly
+    // reach on a phone (docs/plans/testing-strategy-refresh-plan.md PR B, T6).
+    // A spec joins this list once it passes on a phone and any layout bug it
+    // finds is fixed in the product, never by relaxing the spec.
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['Pixel 5'] },
+      testMatch: /(public-site|login|calendar|kiosk|billing|subscriptions)\.spec\.ts$/,
+    },
   ],
   // Builds+starts the real Next.js app once per run and reuses it locally
   // (fast iteration); CI always starts fresh so a stale build can't mask a
@@ -39,6 +48,13 @@ export default defineConfig({
   // docs/plans/e2e-testing-plan.md's D11 for why BACKEND_URL needs no entry
   // either: every backend call is mocked before it ever reaches
   // next.config.js's rewrite.
+  //
+  // NEXT_PUBLIC_API_URL is pinned EMPTY so the build is hermetic: a developer's
+  // .env.local may still set it (the pre-proxy local setup), which would bake
+  // an absolute backend origin into the bundle and make a local run differ
+  // from CI and production, where the app always uses the same-origin
+  // `/api/v1` proxy (lib/api.ts). Next never overrides a variable already in
+  // the environment, so the empty value wins and `|| '/api/v1'` applies.
   webServer: {
     command: 'npm run build && npm run start',
     url: `http://127.0.0.1:${PORT}`,
@@ -46,6 +62,7 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       PORT: String(PORT),
+      NEXT_PUBLIC_API_URL: '',
     },
   },
 });

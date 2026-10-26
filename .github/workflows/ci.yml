@@ -21,7 +21,8 @@ name: CI
 # these checks run and report status on a PR. Making a red run actually
 # block a merge requires enabling "required status checks" under
 # Settings -> Branches for develop/main — a GitHub repo-settings action
-# only the owner can take (see the plan's D6/§3 for the one-time steps).
+# only the owner can take. Mark ONE check as required: ci-passed (the last
+# job below), which fails unless every test job succeeded.
 #
 # GATES (docs/plans/testing-strategy-refresh-plan.md PR A):
 #   - backend-tests / frontend-tests run each suite ONCE, with coverage, and
@@ -117,3 +118,26 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 14
+
+  # The ONE check the owner marks as required (Settings → Branches →
+  # "Require status checks to pass" → ci-passed, for develop and main) —
+  # docs/plans/testing-strategy-refresh-plan.md PR E. `if: always()` matters:
+  # without it this job is SKIPPED when a dependency fails, and GitHub treats
+  # a skipped required check as passing. It succeeds only when every job it
+  # needs succeeded; a new test job is added to `needs` in the PR that adds it.
+  ci-passed:
+    if: always()
+    needs: [backend-tests, frontend-tests, e2e-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every required job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needs results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::a required job finished with '$result'"
+              exit 1
+            fi
+          done

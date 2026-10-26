@@ -1,5 +1,8 @@
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
+import type { ApiErrorResponse } from '../lib/apiResponses';
+import type { KioskSignInResult, KioskState } from '../lib/types';
 import { json, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
@@ -8,13 +11,13 @@ import { loginAs } from './fixtures/auth';
 // sees the signed-in card, and the tablet returns to the search by itself.
 // Every request is mocked; the sign-in body is asserted exactly.
 
-const SIGNED_IN = {
+const SIGNED_IN: KioskSignInResult = {
   student: { _id: 'student-ava', firstName: 'Ava', lastName: 'Student' },
   session: { _id: 'session-1', className: 'Fencing Foundation', startTime: '16:00', endTime: '17:00', coachName: 'Cora Coach' },
   alreadySignedIn: false,
 };
 
-function signInRule(onBody: (body: unknown) => void, respond: MockRule['handler'] = (route) => json(route, 200, SIGNED_IN)): MockRule {
+function signInRule(onBody: (body: unknown) => void, respond: MockRule['handler'] = (route) => json<KioskSignInResult>(route, 200, SIGNED_IN)): MockRule {
   return {
     method: 'POST',
     path: '/kiosk/sign-in',
@@ -61,7 +64,7 @@ test.describe('kiosk sign-in', () => {
         method: 'GET',
         path: '/kiosk/state',
         handler: (route) =>
-          json(route, 200, {
+          json<KioskState>(route, 200, {
             students: [{ studentId: 'student-ava', firstName: 'Ava', lastName: 'Student', levelName: null }],
             confirmationRequired: false,
             serverTime: '2026-09-30T20:00:00.000Z',
@@ -82,7 +85,7 @@ test.describe('kiosk sign-in', () => {
     await loginAs(page, 'kiosk', [
       signInRule(
         () => {},
-        (route) => json(route, 409, { message: "Ava's class today has already ended" })
+        (route) => json<ApiErrorResponse>(route, 409, { message: "Ava's class today has already ended" })
       ),
     ]);
 

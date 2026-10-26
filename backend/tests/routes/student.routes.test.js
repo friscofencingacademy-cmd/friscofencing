@@ -1,6 +1,7 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.JWT_EXPIRES_IN = '7d';
 
+const mongoose = require('mongoose');
 const request = require('supertest');
 
 const app = require('../../src/app');
@@ -147,6 +148,63 @@ describe('Student routes', () => {
       expect(res.status).toBe(201);
       expect(res.body.student.age).toBeNull();
     });
+
+    it('returns 401 without a session and creates nothing', async () => {
+      const res = await request(app).post('/api/v1/students').send({
+        firstName: 'Kid',
+        lastName: 'Anon',
+        skillLevel: 'beginner',
+      });
+
+      expect(res.status).toBe(401);
+      expect(await User.countDocuments({ lastName: 'Anon' })).toBe(0);
+    });
+
+    it.each(['coach', 'student', 'kiosk'])('returns 403 for a %s and creates nothing', async (role) => {
+      const parent = await seedUser({ role: 'parent', email: 'owner-parent@example.com' });
+      await seedUser({ role, email: `${role}@example.com` });
+      const agent = await loginAgent(`${role}@example.com`);
+
+      const res = await agent.post('/api/v1/students').send({
+        firstName: 'Kid',
+        lastName: 'Forbidden',
+        skillLevel: 'beginner',
+        parentId: parent._id.toString(),
+      });
+
+      expect(res.status).toBe(403);
+      expect(await User.countDocuments({ lastName: 'Forbidden' })).toBe(0);
+    });
+
+    it('returns 400 when an admin omits parentId', async () => {
+      await seedUser({ role: 'admin', email: 'admin3@example.com' });
+      const adminAgent = await loginAgent('admin3@example.com');
+
+      const res = await adminAgent.post('/api/v1/students').send({
+        firstName: 'Kid',
+        lastName: 'NoParent',
+        skillLevel: 'beginner',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('parentId is required');
+      expect(await User.countDocuments({ lastName: 'NoParent' })).toBe(0);
+    });
+
+    it('returns 400 when an admin passes a parentId that matches no user', async () => {
+      await seedUser({ role: 'admin', email: 'admin4@example.com' });
+      const adminAgent = await loginAgent('admin4@example.com');
+
+      const res = await adminAgent.post('/api/v1/students').send({
+        firstName: 'Kid',
+        lastName: 'GhostParent',
+        skillLevel: 'beginner',
+        parentId: new mongoose.Types.ObjectId().toString(),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await User.countDocuments({ lastName: 'GhostParent' })).toBe(0);
+    });
   });
 
   describe('GET /api/v1/students/mine', () => {
@@ -218,6 +276,22 @@ describe('Student routes', () => {
         canBookTrial: true,
         schedule: null,
       });
+    });
+
+    it('returns 401 without a session', async () => {
+      const res = await request(app).get('/api/v1/students/mine');
+
+      expect(res.status).toBe(401);
+    });
+
+    // Parent-only: an admin reads children through the admin user pages, not this endpoint.
+    it.each(['admin', 'superadmin', 'coach', 'student', 'kiosk'])('returns 403 for a %s', async (role) => {
+      await seedUser({ role, email: `${role}-mine@example.com` });
+      const agent = await loginAgent(`${role}-mine@example.com`);
+
+      const res = await agent.get('/api/v1/students/mine');
+
+      expect(res.status).toBe(403);
     });
   });
 });

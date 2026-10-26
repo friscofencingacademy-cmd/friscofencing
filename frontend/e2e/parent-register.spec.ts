@@ -4,9 +4,19 @@
 // this wizard's DOM; a change here without the others is how this drifted
 // stale before.)
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
-import { mockApi, json, FIXTURE_GROUP_CLASS_A, FIXTURE_STUDENT, type MockRule } from './fixtures/mock-api';
+import type { GroupClassSessionsByClassResponse, MyStudentsResponse } from '../lib/apiResponses';
+import type { RegistrationCreateResponse, Student } from '../lib/types';
+import {
+  mockApi,
+  json,
+  FIXTURE_GROUP_CLASS_A,
+  FIXTURE_REGISTRATION,
+  FIXTURE_STUDENT,
+  FIXTURE_SUBSCRIPTION,
+  type MockRule,
+} from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
 // Directly reproduces this session's two real breaks (docs/plans/
@@ -31,7 +41,7 @@ function sessionsFixture(dates: string[]) {
     method: 'GET',
     path: `/group-class-sessions/by-class/${FIXTURE_GROUP_CLASS_A._id}`,
     handler: (route) =>
-      json(route, 200, {
+      json<GroupClassSessionsByClassResponse>(route, 200, {
         sessions: dates.map((date, i) => ({
           _id: `session-${i}`,
           scheduleId: { _id: 'schedule-a', dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
@@ -105,7 +115,11 @@ test.describe('parent register wizard', () => {
         method: 'POST',
         path: '/registrations',
         handler: (route) =>
-          json(route, 201, {
+          json<RegistrationCreateResponse>(route, 201, {
+            // The first charge was declined: the ledger row is failed and the
+            // reserved subscription enters dunning (ADR 008).
+            registration: { ...FIXTURE_REGISTRATION, status: 'failed', paidAt: null, failureMessage: 'Your card was declined.' },
+            subscription: { ...FIXTURE_SUBSCRIPTION, lastChargeAmount: null, lastPayment: null },
             chargeAmount: 100,
             totalChargeAmount: 100,
             paymentStatus: 'pending',
@@ -158,7 +172,7 @@ test.describe('parent register wizard', () => {
       {
         method: 'GET',
         path: '/students/mine',
-        handler: (route) => json(route, 200, { students: [enrolledStudent] }),
+        handler: (route) => json<MyStudentsResponse>(route, 200, { students: [enrolledStudent] }),
       },
     ]);
 

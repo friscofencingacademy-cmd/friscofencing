@@ -1,10 +1,17 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import AdminLayout from '../layout';
 import { AuthProvider } from '../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const pushMock = jest.fn();
 let mockPathname = '/admin/dashboard';
@@ -32,7 +39,7 @@ const PARENT_USER = {
 
 const server = setupServer();
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
@@ -113,7 +120,6 @@ describe('AdminLayout', () => {
   });
 
   it('promotes Users to a standalone top-level item, and reorganizes Billing/Programs', async () => {
-    const user = userEvent.setup();
     server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
 
     renderAdminLayout();
@@ -147,6 +153,33 @@ describe('AdminLayout', () => {
     expect(within(programsSection).queryByRole('link', { name: 'Prices' })).not.toBeInTheDocument();
   });
 
+  // Below 1024 px the CSS hides every text label (icon rail, closed phone
+  // drawer), which left the section toggles and links with no accessible
+  // name (axe button-name/link-name, found by e2e/subscriptions.spec.ts on a
+  // phone). The name now comes from aria-label, so it holds at any width.
+  it('names every nav link and section toggle independently of the visible label, and exposes each section open state', async () => {
+    server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
+
+    renderAdminLayout();
+    await screen.findByText('Dashboard');
+
+    const sidebar = screen.getByRole('navigation', { name: 'Admin sidebar' });
+    expect(within(sidebar).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-label', 'Dashboard');
+    expect(within(sidebar).getByRole('link', { name: 'Classes' })).toHaveAttribute('aria-label', 'Classes');
+
+    const programs = within(sidebar).getByRole('button', { name: 'Programs' });
+    expect(programs).toHaveAttribute('aria-label', 'Programs');
+    expect(programs).toHaveAttribute('aria-controls', 'admin-nav-programs');
+    expect(document.getElementById('admin-nav-programs')).toContainElement(
+      within(sidebar).getByRole('link', { name: 'Classes' })
+    );
+
+    const billing = within(sidebar).getByRole('button', { name: 'Billing' });
+    expect(billing).toHaveAttribute('aria-expanded', 'false');
+    await user.click(billing);
+    expect(billing).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('opens and closes the mobile drawer', async () => {
     server.use(http.get('*/auth/me', () => HttpResponse.json({ user: ADMIN_USER })));
 
@@ -154,10 +187,10 @@ describe('AdminLayout', () => {
     await screen.findByText('Dashboard');
 
     const openButton = screen.getByRole('button', { name: /open navigation/i });
-    fireEvent.click(openButton);
+    await user.click(openButton);
 
     const closeButton = screen.getByRole('button', { name: /close navigation/i });
-    fireEvent.click(closeButton);
+    await user.click(closeButton);
 
     // No crash / still renders the sidebar content after closing.
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
@@ -172,7 +205,7 @@ describe('AdminLayout', () => {
     renderAdminLayout();
     await screen.findByText('Dashboard');
 
-    fireEvent.click(screen.getByRole('button', { name: /log out/i }));
+    await user.click(screen.getByRole('button', { name: /log out/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/'));
   });

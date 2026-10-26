@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import RegisterPage from '../page';
-import { AuthProvider } from '../../context/AuthContext';
+import { AuthProvider, useAuth } from '../../context/AuthContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 const pushMock = jest.fn();
 let mockSearchParams = new URLSearchParams();
@@ -19,7 +27,7 @@ const server = setupServer(
   http.get('*/auth/me', () => new HttpResponse(null, { status: 401 }))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   pushMock.mockClear();
@@ -27,10 +35,19 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
+// Renders once AuthProvider's session check (GET /auth/me) has settled, so a
+// test that asserts only on the first render can wait for it to finish
+// instead of letting it land after the test, outside act().
+function AuthSettled() {
+  const { loading } = useAuth();
+  return loading ? null : <span data-testid="auth-settled" />;
+}
+
 function renderRegisterPage() {
   return render(
     <AuthProvider>
       <RegisterPage />
+      <AuthSettled />
     </AuthProvider>
   );
 }
@@ -45,22 +62,23 @@ async function fillAndSubmit(
   // block the native HTML5 form submission before handleSubmit ever runs.
   phone = '555-123-4567'
 ) {
-  fireEvent.change(screen.getByLabelText('First Name'), { target: { value: firstName } });
-  fireEvent.change(screen.getByLabelText('Last Name'), { target: { value: lastName } });
-  fireEvent.change(screen.getByLabelText('Email'), { target: { value: email } });
-  fireEvent.change(screen.getByLabelText('Phone Number'), { target: { value: phone } });
-  fireEvent.change(screen.getByLabelText('Password'), { target: { value: password } });
-  fireEvent.click(screen.getByRole('button', { name: /sign up/i }));
+  await user.type(screen.getByLabelText('First Name'), firstName);
+  await user.type(screen.getByLabelText('Last Name'), lastName);
+  await user.type(screen.getByLabelText('Email'), email);
+  await user.type(screen.getByLabelText('Phone Number'), phone);
+  await user.type(screen.getByLabelText('Password'), password);
+  await user.click(screen.getByRole('button', { name: /sign up/i }));
 }
 
 describe('RegisterPage', () => {
   // docs/plans/trial-registration-required-fields-plan.md §2.1.
-  it('shows the trial-class info section above the signup form', () => {
+  it('shows the trial-class info section above the signup form', async () => {
     renderRegisterPage();
 
     expect(screen.getByText('Your First Class Is Free')).toBeInTheDocument();
     expect(screen.getByText(/basic fencing movements and footwork/i)).toBeInTheDocument();
     expect(screen.getByText(/what to bring/i)).toBeInTheDocument();
+    expect(await screen.findByTestId('auth-settled')).toBeInTheDocument();
   });
 
   it('submits phone in the registration payload — required for trial-class booking later', async () => {

@@ -1,23 +1,34 @@
 import api from '../api';
 import type { GroupClass, Holiday, Level, Location, Price, PublicLevel, PublicLocation } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
+import type {
+  GroupClassesResponse,
+  HolidayResponse,
+  HolidaysResponse,
+  LevelResponse,
+  LevelsResponse,
+  LocationsResponse,
+  PricesResponse,
+  PublicLevelsResponse,
+  PublicLocationsResponse,
+} from '../apiResponses';
 
 // ── Public (no auth) ─────────────────────────────────────────────────────
 
 export async function fetchPublicLevels(): Promise<PublicLevel[]> {
-  const res = await api.get<{ levels: PublicLevel[] }>('/levels/public');
+  const res = await api.get<PublicLevelsResponse>('/levels/public');
   return res.data.levels;
 }
 
 export async function fetchPublicLocations(): Promise<PublicLocation[]> {
-  const res = await api.get<{ locations: PublicLocation[] }>('/locations/public');
+  const res = await api.get<PublicLocationsResponse>('/locations/public');
   return res.data.locations;
 }
 
 // ── Locations ────────────────────────────────────────────────────────────
 
 export async function fetchLocations(): Promise<Location[]> {
-  const res = await api.get<{ locations: Location[] }>('/locations');
+  const res = await api.get<LocationsResponse>('/locations');
   return res.data.locations;
 }
 
@@ -56,7 +67,7 @@ export async function deleteLocation(id: string): Promise<MutationResult<undefin
 // ── Levels ───────────────────────────────────────────────────────────────
 
 export async function fetchLevels(): Promise<Level[]> {
-  const res = await api.get<{ levels: Level[] }>('/levels');
+  const res = await api.get<LevelsResponse>('/levels');
   return res.data.levels;
 }
 
@@ -64,7 +75,7 @@ export async function createLevel(
   data: Pick<Level, 'name' | 'order'>
 ): Promise<MutationResult<Level>> {
   try {
-    const res = await api.post<{ level: Level }>('/levels', data);
+    const res = await api.post<LevelResponse>('/levels', data);
     return { status: 'success', data: res.data.level };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to create level.') };
@@ -76,7 +87,7 @@ export async function updateLevel(
   data: Partial<Pick<Level, 'name' | 'order'>>
 ): Promise<MutationResult<Level>> {
   try {
-    const res = await api.put<{ level: Level }>(`/levels/${id}`, data);
+    const res = await api.put<LevelResponse>(`/levels/${id}`, data);
     return { status: 'success', data: res.data.level };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to update level.') };
@@ -95,7 +106,7 @@ export async function deleteLevel(id: string): Promise<MutationResult<undefined>
 // ── Group classes ────────────────────────────────────────────────────────
 
 export async function fetchGroupClasses(): Promise<GroupClass[]> {
-  const res = await api.get<{ groupClasses: GroupClass[] }>('/group-classes');
+  const res = await api.get<GroupClassesResponse>('/group-classes');
   return res.data.groupClasses;
 }
 
@@ -134,7 +145,7 @@ export async function deleteGroupClass(id: string): Promise<MutationResult<undef
 // ── Prices ───────────────────────────────────────────────────────────────
 
 export async function fetchPrices(): Promise<Price[]> {
-  const res = await api.get<{ prices: Price[] }>('/prices');
+  const res = await api.get<PricesResponse>('/prices');
   return res.data.prices;
 }
 
@@ -177,7 +188,7 @@ export async function deletePrice(id: string): Promise<MutationResult<undefined>
 // lib/formatDate.ts's sentinel-safe helpers.
 
 export async function fetchHolidays(): Promise<Holiday[]> {
-  const res = await api.get<{ holidays: Holiday[] }>('/holidays');
+  const res = await api.get<HolidaysResponse>('/holidays');
   return res.data.holidays;
 }
 
@@ -185,7 +196,7 @@ export async function createHoliday(
   data: Pick<Holiday, 'name' | 'startDate' | 'endDate'>
 ): Promise<MutationResult<Holiday>> {
   try {
-    const res = await api.post<{ holiday: Holiday }>('/holidays', data);
+    const res = await api.post<HolidayResponse>('/holidays', data);
     return { status: 'success', data: res.data.holiday };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to create holiday.') };
@@ -197,7 +208,7 @@ export async function updateHoliday(
   data: Partial<Pick<Holiday, 'name' | 'startDate' | 'endDate'>>
 ): Promise<MutationResult<Holiday>> {
   try {
-    const res = await api.put<{ holiday: Holiday }>(`/holidays/${id}`, data);
+    const res = await api.put<HolidayResponse>(`/holidays/${id}`, data);
     return { status: 'success', data: res.data.holiday };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to update holiday.') };

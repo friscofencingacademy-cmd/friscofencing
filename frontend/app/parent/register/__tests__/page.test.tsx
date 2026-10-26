@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import RegisterPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 // Same Stripe-mocking approach as payment-method/__tests__/page.test.tsx —
 // CardElement renders into a cross-origin iframe jsdom can't simulate, so
@@ -161,7 +169,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 beforeEach(() => {
   CURRENT_NOW = FIXED_NOW;
   global.Date = FrozenDate as DateConstructor;
@@ -188,7 +196,7 @@ function renderRegisterPage() {
 // "Continue" click) — this alone replaces what used to be a two-step
 // Who -> click Continue -> Class dance.
 async function selectChildAndReachLevelStep() {
-  fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
+  await user.click(await screen.findByRole('radio', { name: /kid one/i }));
   await screen.findByRole('radiogroup', { name: /select a level/i });
 }
 
@@ -199,9 +207,9 @@ async function selectChildAndReachLevelStep() {
 // runner's local timezone (toLocaleDateString renders differently per TZ).
 async function goToPayableState() {
   await selectChildAndReachLevelStep();
-  fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+  await user.click(screen.getByRole('radio', { name: /beginner/i }));
   const [sessionPill] = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
-  fireEvent.click(sessionPill);
+  await user.click(sessionPill);
   await waitFor(() => expect(sessionPill).toHaveAttribute('aria-checked', 'true'));
 }
 
@@ -235,7 +243,7 @@ describe('RegisterPage wizard', () => {
   it('shows every upcoming session (start date) for the chosen level as pickable options, not just one time slot', async () => {
     renderRegisterPage();
     await selectChildAndReachLevelStep();
-    fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+    await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
     const pills = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
     expect(pills).toHaveLength(2);
@@ -247,7 +255,7 @@ describe('RegisterPage wizard', () => {
 
     expect(await screen.findByText(/card on file: visa ending in 4242/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+    await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
     await waitFor(() => {
       expect(postRegistrationPayload).toEqual({
@@ -288,7 +296,7 @@ describe('RegisterPage wizard', () => {
     renderRegisterPage();
     await goToPayableState();
 
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+    await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
     expect(await screen.findByText('Registration received')).toBeInTheDocument();
     expect(screen.queryByText('Registration complete!')).not.toBeInTheDocument();
@@ -301,11 +309,11 @@ describe('RegisterPage wizard', () => {
 
     expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+    await user.click(screen.getByRole('radio', { name: /beginner/i }));
     expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
 
     const [sessionPill] = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
-    fireEvent.click(sessionPill);
+    await user.click(sessionPill);
 
     await waitFor(() => expect(screen.getByRole('button', { name: /register & pay/i })).not.toBeDisabled());
   });
@@ -330,7 +338,7 @@ describe('RegisterPage wizard', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+    await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('This student is already registered for this schedule');
@@ -383,7 +391,7 @@ describe('RegisterPage wizard', () => {
       );
 
       renderRegisterPage();
-      fireEvent.click(await screen.findByRole('radio', { name: /sana sarath/i }));
+      await user.click(await screen.findByRole('radio', { name: /sana sarath/i }));
 
       expect(await screen.findByText(/sana is already enrolled/i)).toBeInTheDocument();
       expect(screen.getByText(/every wednesday.*4:00 pm.*5:00 pm/i)).toBeInTheDocument();
@@ -418,7 +426,7 @@ describe('RegisterPage wizard', () => {
       server.use(http.get('*/students/mine', () => HttpResponse.json({ students: [orphanedSchedule] })));
 
       renderRegisterPage();
-      fireEvent.click(await screen.findByRole('radio', { name: /sana sarath/i }));
+      await user.click(await screen.findByRole('radio', { name: /sana sarath/i }));
 
       expect(await screen.findByText(/sana is already enrolled\./i)).toBeInTheDocument();
       expect(screen.queryByText(/every/i)).not.toBeInTheDocument();
@@ -432,7 +440,7 @@ describe('RegisterPage wizard', () => {
       );
 
       renderRegisterPage();
-      fireEvent.click(await screen.findByRole('radio', { name: /fresh kid/i }));
+      await user.click(await screen.findByRole('radio', { name: /fresh kid/i }));
 
       expect(await screen.findByRole('radiogroup', { name: /select a level/i })).toBeInTheDocument();
       expect(screen.queryByText(/is already enrolled/i)).not.toBeInTheDocument();
@@ -450,7 +458,7 @@ describe('RegisterPage wizard', () => {
       expect(await screen.findByTestId('card-element')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /register & pay/i })).toBeDisabled();
 
-      fireEvent.click(screen.getByRole('button', { name: /add card/i }));
+      await user.click(screen.getByRole('button', { name: /add card/i }));
 
       await waitFor(() => {
         expect(postPaymentMethodPayload).toEqual({ paymentMethodToken: STRIPE_PAYMENT_METHOD.id });
@@ -462,7 +470,7 @@ describe('RegisterPage wizard', () => {
       expect(await screen.findByText(/card on file: visa ending in 4242/i)).toBeInTheDocument();
       await waitFor(() => expect(screen.getByRole('button', { name: /register & pay/i })).not.toBeDisabled());
 
-      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
       await waitFor(() => {
         expect(postRegistrationPayload).toEqual({
@@ -482,7 +490,7 @@ describe('RegisterPage wizard', () => {
       await goToPayableState();
 
       // The card form renders once GET /payments/config resolves.
-      fireEvent.click(await screen.findByRole('button', { name: /add card/i }));
+      await user.click(await screen.findByRole('button', { name: /add card/i }));
 
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent('Your card number is invalid.');
@@ -497,7 +505,7 @@ describe('RegisterPage wizard', () => {
 
       renderRegisterPage();
       await selectChildAndReachLevelStep();
-      fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+      await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
       expect(screen.queryByTestId('card-element')).not.toBeInTheDocument();
     });
@@ -644,7 +652,7 @@ describe('RegisterPage wizard', () => {
       await goToPayableState();
       await screen.findByText(/card on file: visa ending in 4242/i);
 
-      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
       await waitFor(() => {
         expect(postRegistrationPayload).toEqual({
@@ -681,7 +689,7 @@ describe('RegisterPage wizard', () => {
       await goToPayableState();
       await screen.findByText(/card on file/i);
 
-      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
       expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
       expect(screen.getByText(/\$135\.00/)).toBeInTheDocument();
@@ -734,7 +742,7 @@ describe('RegisterPage wizard', () => {
       await goToPayableState();
       await screen.findByText(/card on file/i);
 
-      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
       expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
       expect(screen.getByText(/your card was charged \$175\.00/i)).toBeInTheDocument();
@@ -795,7 +803,7 @@ describe('RegisterPage wizard', () => {
       await goToPayableState();
       await screen.findByText(/card on file/i);
 
-      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
       expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
       expect(screen.getByText(/your card was charged \$150\.00/i)).toBeInTheDocument();
@@ -867,7 +875,7 @@ describe('RegisterPage wizard', () => {
       await goToPayableState();
       await screen.findByText(/card on file/i);
 
-      fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+      await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
       expect(await screen.findByText('Registration complete!')).toBeInTheDocument();
       expect(screen.getByText(/your card was charged \$160\.00/i)).toBeInTheDocument();
@@ -913,7 +921,7 @@ describe('RegisterPage wizard', () => {
 
       renderRegisterPage();
       await selectChildAndReachLevelStep();
-      fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+      await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
       const pills = await screen.findAllByRole('radio', { name: /4:00 PM–5:00 PM/i });
       expect(pills).toHaveLength(1);
@@ -952,7 +960,7 @@ describe('RegisterPage wizard', () => {
 
         renderRegisterPage();
         await selectChildAndReachLevelStep();
-        fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+        await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
         // Wait for sessions to actually finish loading (the level-picker's
         // own radios already exist by this point and would otherwise
@@ -997,9 +1005,9 @@ describe('RegisterPage wizard', () => {
 
         renderRegisterPage();
         await selectChildAndReachLevelStep();
-        fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+        await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
-        fireEvent.click(await screen.findByRole('button', { name: /enroll for next month/i }));
+        await user.click(await screen.findByRole('button', { name: /enroll for next month/i }));
 
         // Full-price framing in the quote panel — "Due at enrollment" shows
         // the full fee, and no "Prorated" row appears at all.
@@ -1007,7 +1015,7 @@ describe('RegisterPage wizard', () => {
         expect(screen.queryByText('Prorated')).not.toBeInTheDocument();
 
         await screen.findByText(/card on file: visa ending in 4242/i);
-        fireEvent.click(screen.getByRole('button', { name: /register & pay/i }));
+        await user.click(screen.getByRole('button', { name: /register & pay/i }));
 
         await waitFor(() => {
           expect(postRegistrationPayload).toEqual({
@@ -1035,7 +1043,7 @@ describe('RegisterPage wizard', () => {
 
         renderRegisterPage();
         await selectChildAndReachLevelStep();
-        fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+        await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
         expect(await screen.findByRole('button', { name: /enroll for next month/i })).toBeDisabled();
         expect(screen.getByText(/next month's schedule isn't posted yet/i)).toBeInTheDocument();
@@ -1053,7 +1061,7 @@ describe('RegisterPage wizard', () => {
 
         renderRegisterPage();
         await selectChildAndReachLevelStep();
-        fireEvent.click(screen.getByRole('radio', { name: /beginner/i }));
+        await user.click(screen.getByRole('radio', { name: /beginner/i }));
 
         expect(
           await screen.findByText(/no class dates available in the next two weeks this month/i)

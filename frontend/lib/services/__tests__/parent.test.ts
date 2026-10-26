@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../test-utils/msw';
 
 import { fetchRegistrationPricePreview } from '../parent';
 
@@ -9,7 +10,7 @@ const server = setupServer(
   http.get('*/registrations/preview', () => HttpResponse.json(PREVIEW))
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

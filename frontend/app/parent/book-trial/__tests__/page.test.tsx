@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import BookTrialPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+
+let user: ReturnType<typeof userEvent.setup>;
+
+beforeEach(() => {
+  user = userEvent.setup();
+});
 
 let mockSearchParams = new URLSearchParams();
 
@@ -56,7 +64,7 @@ const server = setupServer(
   })
 );
 
-beforeAll(() => server.listen());
+beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   postPayload = null;
@@ -85,7 +93,7 @@ describe('BookTrialPage wizard', () => {
     // Picking a child reveals the Level section below it — the child card
     // stays on screen, never replaced.
     const childCard = await screen.findByRole('radio', { name: /kid one/i });
-    fireEvent.click(childCard);
+    await user.click(childCard);
 
     await screen.findByLabelText('Level');
     expect(childCard).toBeInTheDocument();
@@ -93,7 +101,7 @@ describe('BookTrialPage wizard', () => {
 
     // Picking a level reveals the Session section below it — Who and Level
     // both stay on screen.
-    fireEvent.change(screen.getByLabelText('Level'), { target: { value: LEVEL_BEGINNER._id } });
+    await user.selectOptions(screen.getByLabelText('Level'), LEVEL_BEGINNER._id);
 
     const sessionA = await screen.findByRole('radio', { name: /4:00 PM–5:00 PM/i });
     const sessionB = screen.getByRole('radio', { name: /6:00 PM–7:00 PM/i });
@@ -101,10 +109,10 @@ describe('BookTrialPage wizard', () => {
     expect(sessionB).toBeInTheDocument();
     expect(screen.getByLabelText('Level')).toBeInTheDocument();
 
-    fireEvent.click(sessionA);
+    await user.click(sessionA);
     expect(cta).not.toBeDisabled();
 
-    fireEvent.click(cta);
+    await user.click(cta);
 
     await waitFor(() => {
       expect(postPayload).toEqual({ studentId: STUDENT._id, sessionId: SESSION_A._id });
@@ -127,7 +135,7 @@ describe('BookTrialPage wizard', () => {
     it('shows each Level\'s own name in the picker, never the underlying GroupClass name', async () => {
       renderBookTrialPage();
 
-      fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
+      await user.click(await screen.findByRole('radio', { name: /kid one/i }));
 
       const levelSelect = await screen.findByLabelText('Level');
       expect(within(levelSelect).getByText(LEVEL_BEGINNER.name)).toBeInTheDocument();
@@ -150,14 +158,14 @@ describe('BookTrialPage wizard', () => {
   it('picking a different child keeps the Level/Session sections in place, not a separate navigable step', async () => {
     renderBookTrialPage();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
+    await user.click(await screen.findByRole('radio', { name: /kid one/i }));
     await screen.findByLabelText('Level');
-    fireEvent.change(screen.getByLabelText('Level'), { target: { value: LEVEL_BEGINNER._id } });
+    await user.selectOptions(screen.getByLabelText('Level'), LEVEL_BEGINNER._id);
     await screen.findByRole('radio', { name: /4:00 PM–5:00 PM/i });
 
     // Re-clicking the (only) child card doesn't hide anything that was
     // already chosen — there's no "back" step to navigate away from.
-    fireEvent.click(screen.getByRole('radio', { name: /kid one/i }));
+    await user.click(screen.getByRole('radio', { name: /kid one/i }));
 
     expect(screen.getByRole('radio', { name: /kid one/i })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByLabelText('Level')).toBeInTheDocument();
@@ -167,11 +175,11 @@ describe('BookTrialPage wizard', () => {
   it('shows an inline error on a booking failure without crashing, and keeps the form on screen', async () => {
     renderBookTrialPage();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /kid one/i }));
+    await user.click(await screen.findByRole('radio', { name: /kid one/i }));
 
     await screen.findByLabelText('Level');
-    fireEvent.change(screen.getByLabelText('Level'), { target: { value: LEVEL_BEGINNER._id } });
-    fireEvent.click(await screen.findByRole('radio', { name: /4:00 PM–5:00 PM/i }));
+    await user.selectOptions(screen.getByLabelText('Level'), LEVEL_BEGINNER._id);
+    await user.click(await screen.findByRole('radio', { name: /4:00 PM–5:00 PM/i }));
 
     server.use(
       http.post('*/trial-classes', () =>
@@ -179,7 +187,7 @@ describe('BookTrialPage wizard', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /book trial class/i }));
+    await user.click(screen.getByRole('button', { name: /book trial class/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('This student has already used their trial class');
