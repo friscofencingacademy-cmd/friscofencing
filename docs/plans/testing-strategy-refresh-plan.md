@@ -532,3 +532,40 @@ ESLint (+ `eslint-plugin-jest`, `no-restricted-imports` as defence in depth behi
   moved to 549–550). The skill is updated.
 - `docs/TESTING_STRATEGY.md`'s interaction rule and MSW lifecycle line now describe the converted
   suite. `docs/TEST_COVERAGE.md`'s improvement item 2 is marked done.
+
+### PR E (2026-10-26, `feature/testing-docs-and-gate`)
+- **E1 `docs/TESTING_STRATEGY.md`** is restructured to CKQ's order: Overview → Backend → Date rules
+  → Frontend → E2E → Cross-repo tooling → Coverage → Isolation → Live audits. Every existing Frisco
+  rule is kept, mostly verbatim. New sections cover the per-layer static guards, strict MSW, the
+  E2E projects table, mocking rules and interaction determinism 1–8. CKQ's "symptom of the
+  `fireEvent` bug" paragraph is included, and the "Known gap … fireEvent" paragraph is removed (PR D
+  closed it).
+  - Rule 5's `/ship-main` flake-history enforcement and rule 9's per-engine scrolling are CKQ-only
+    (there is one desktop engine here and no ship skill), so they are not ported.
+  - The payment plan's `paymentSdkBoundaryGuard` is not listed yet: it lands with #118.
+- **The doc's own claim surfaced a real defect, fixed here.** `admin-shell.spec.ts` allowlisted the
+  whole `color-contrast` rule id on the dashboard. That is the same shape that once hid a second
+  finding on the home page, so any new contrast failure on the dashboard would have passed.
+  - The ratchet now allows `color-contrast` only when every failing node is the sidebar's
+    brand-role or section-label element.
+  - Proven both ways: it passes on today's page, and it fails when only one of the two node kinds is
+    allowed.
+  - The colour itself is a design decision and is not changed here. It is listed in
+    `TEST_COVERAGE.md`'s improvement plan.
+- **E2 `docs/TEST_COVERAGE.md`** is rewritten to CKQ's shape: bold headline counts, a dated change
+  log (newest first), and re-measured coverage tables.
+  - The stale "gaps" are removed: `billingDates` and `AppShell` have tests, and six service files
+    now have service-level suites.
+  - The re-measurement found real 0% files, now listed: `app/coach/schedules/page.tsx`, the
+    marketing `SpotlightCard`/`TeamBand`, and the root `app/layout.tsx`.
+- **E3 `ci-passed`**: PR A already folded coverage into the test jobs, so there was no separate
+  `coverage` job and no `continue-on-error` to remove.
+  - The job runs with `if: always()` and fails unless every needed job's result is `success`.
+    Without `always()`, a failed dependency makes the job *skipped*, and GitHub counts a skipped
+    required check as passing.
+  - The workflow header names `ci-passed` as the one check to mark required.
+- **E4 `CLAUDE.md`**: a pre-read row for `frontend/e2e/**`, a Documentation Map row for
+  `/audit-tests`, and the status text of this plan's row and the payment plan's row, which still
+  said "none started".
+- **E5, owner step (one time):** GitHub → Settings → Branches → add a rule for `develop` and one for
+  `main` → "Require status checks to pass before merging" → select **`ci-passed`**.
