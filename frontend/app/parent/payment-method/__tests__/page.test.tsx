@@ -22,6 +22,8 @@ jest.mock('next/navigation', () => ({
 // /payment-methods call below still goes through MSW as normal.
 const createPaymentMethodMock = jest.fn();
 
+jest.mock('@stripe/stripe-js', () => ({ loadStripe: () => Promise.resolve(null) }));
+
 jest.mock('@stripe/react-stripe-js', () => ({
   Elements: ({ children }: { children: ReactNode }) => <>{children}</>,
   CardElement: () => <div data-testid="card-element" />,
@@ -50,6 +52,9 @@ const STRIPE_PAYMENT_METHOD = { id: 'pm_stripe_test_123' };
 let postPayload: unknown = null;
 
 const server = setupServer(
+  http.get('*/payments/config', () =>
+    HttpResponse.json({ provider: 'stripe', stripe: { publishableKey: 'pk_test_page_suite' } })
+  ),
   http.get('*/auth/me', () => HttpResponse.json({ user: PARENT_USER })),
   http.get('*/payment-methods/mine', () => HttpResponse.json({ paymentMethod: null })),
   http.post('*/payment-methods', async ({ request }) => {

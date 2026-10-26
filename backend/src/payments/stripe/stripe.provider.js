@@ -180,6 +180,17 @@ async function verifyWebhook({ rawBody, headers }) {
   };
 }
 
+// Stripe.js needs only the account's publishable key — public by design.
+function publicConfig() {
+  const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
+
+  if (!publishableKey) {
+    throw new Error('[payments] STRIPE_PUBLISHABLE_KEY is not configured');
+  }
+
+  return { publishableKey };
+}
+
 module.exports = {
   name: 'stripe',
   capabilities: { savedPaymentMethods: true, webhooks: true, findByReference: true },
@@ -189,6 +200,7 @@ module.exports = {
   detachPaymentMethod,
   findPayment,
   verifyWebhook,
+  publicConfig,
   // Exported for direct unit tests of the pure mappings.
   _normalizeStatus: normalizeStatus,
   _nonSucceededMessage: nonSucceededMessage,

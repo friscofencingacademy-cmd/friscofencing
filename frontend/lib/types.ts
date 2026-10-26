@@ -376,6 +376,14 @@ export interface Subscription {
   lastPayment: { amount: number; paidAt: string; chargeMethod: 'card' | 'manual' } | null;
 }
 
+// GET /payments/config (backend paymentsConfig.service.js) — the ACTIVE
+// payment provider and what its browser card form needs. Public identifiers
+// only. The backend is the one source of which provider is active
+// (docs/decisions/013-payment-provider-port.md).
+export type PaymentConfig =
+  | { provider: 'stripe'; stripe: { publishableKey: string } }
+  | { provider: 'square'; square: { applicationId: string; locationId: string; environment: 'sandbox' | 'production' } };
+
 export interface PaymentMethodInfo {
   _id: string;
   cardBrand: string;

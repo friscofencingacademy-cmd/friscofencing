@@ -6,6 +6,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_contract_suite_dummy_secret';
+process.env.STRIPE_PUBLISHABLE_KEY = 'pk_test_contract_suite_publishable';
 
 const stripe = require('../../src/config/stripe');
 const stripeProvider = require('../../src/payments/stripe/stripe.provider');
@@ -44,6 +45,7 @@ describeProviderContract(() => stripeProvider, {
     }),
     ignored: stripeEvent('evt_contract_ignored', 'customer.updated', { id: 'cus_contract' }),
   },
+  secretValues: [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_WEBHOOK_SECRET],
   unsignedHeaders: { 'stripe-signature': 't=1,v1=0000000000000000000000000000000000000000000000000000000000000000' },
 });
 
@@ -62,6 +64,20 @@ describe('stripe.provider — pure mappings', () => {
 
   it('stores the pre-port failure text, byte for byte, for a resolved non-succeeded intent', () => {
     expect(stripeProvider._nonSucceededMessage('requires_payment_method')).toBe('PaymentIntent status: requires_payment_method');
+  });
+
+  it('publicConfig serves the publishable key', () => {
+    expect(stripeProvider.publicConfig()).toEqual({ publishableKey: 'pk_test_contract_suite_publishable' });
+  });
+
+  it('publicConfig throws when the publishable key is not configured — a deployment defect, never a blank form', () => {
+    const saved = process.env.STRIPE_PUBLISHABLE_KEY;
+    delete process.env.STRIPE_PUBLISHABLE_KEY;
+    try {
+      expect(() => stripeProvider.publicConfig()).toThrow('[payments] STRIPE_PUBLISHABLE_KEY is not configured');
+    } finally {
+      process.env.STRIPE_PUBLISHABLE_KEY = saved;
+    }
   });
 
   it('declares itself as the stripe provider, able to search by reference', () => {

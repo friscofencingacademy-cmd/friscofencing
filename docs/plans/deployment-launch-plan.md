@@ -93,6 +93,7 @@ Vercel environments to tick when adding:
 | `FRONTEND_URL` | frontend prod URL (e.g. `https://friscofencing-frontend.vercel.app`) | Production |
 | `FRONTEND_URL` | frontend develop alias (see 4c) | Preview |
 | `STRIPE_SECRET_KEY` | `sk_test_...` (test mode until go-live decision) | All |
+| `STRIPE_PUBLISHABLE_KEY` | `pk_test_...` — public by design; served to the browser by `GET /api/v1/payments/config` (moved here from the frontend's `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `docs/plans/payment-provider-port-plan.md` PR 3) | All |
 | `STRIPE_WEBHOOK_SECRET` | leave unset until Step 7 webhook registration | — |
 | `NODEJS_HELPERS` | `0` | All — **required**: disables Vercel's body pre-parsing, which would break Stripe webhook raw-body signature verification |
 | `SMTP_HOST` | `smtp-relay.brevo.com` | All (Step 6) |
@@ -117,7 +118,8 @@ Do NOT set `NODE_ENV` (Vercel manages it) or `PORT` (serverless). `SUPERADMIN_*`
 |---|---|---|
 | `BACKEND_URL` | backend prod URL (e.g. `https://friscofencing-backend.vercel.app`) | Production |
 | `BACKEND_URL` | backend develop alias (see 4c) | Preview |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_test_...` | All |
+
+No payment-provider key lives on the frontend: the card form reads the active provider's public config from the backend at runtime (`docs/decisions/013-payment-provider-port.md`). `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` was removed in payment PR 3 — delete it from the frontend project once that PR is deployed.
 
 ### 4c. Stable develop URLs
 Vercel gives every branch a stable alias:

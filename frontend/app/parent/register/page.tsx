@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Elements } from '@stripe/react-stripe-js';
 
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
@@ -26,7 +25,6 @@ import {
   nextCalendarMonth,
   type CalendarDay,
 } from '../../../lib/formatDate';
-import stripePromise from '../../../lib/stripe';
 import type {
   GroupClass,
   GroupClassSessionWithSchedule,
@@ -39,7 +37,7 @@ import type {
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import LoadError from '../../components/ui/LoadError/LoadError';
-import PaymentMethodCardForm from '../../components/portal/PaymentMethodCardForm';
+import PaymentMethodCollector from '../../components/payment/PaymentMethodCollector';
 import {
   ChildPickerCards,
   FlowConfirmation,
@@ -645,9 +643,7 @@ export default function RegisterPage() {
                     be charged.
                   </p>
                 ) : (
-                  <Elements stripe={stripePromise}>
-                    <PaymentMethodCardForm onSaved={setPaymentMethod} submitLabel="Add Card" />
-                  </Elements>
+                  <PaymentMethodCollector onSaved={setPaymentMethod} submitLabel="Add Card" />
                 )}
               </FlowSection>
             ) : null}

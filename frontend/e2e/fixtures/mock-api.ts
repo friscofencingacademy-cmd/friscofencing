@@ -252,6 +252,15 @@ const DEFAULT_RULES: MockRule[] = [
   { method: 'DELETE', path: '/levels/:id', handler: (route) => route.fulfill({ status: 204 }) },
   { method: 'GET', path: '/prices', handler: (route) => json(route, 200, { prices: [FIXTURE_PRICE_A] }) },
 
+  // Payment provider config (backend paymentsConfig.service.js) — the card
+  // form renders the active provider's form from this. Stripe's published
+  // example test publishable key: public by design, safe to commit.
+  {
+    method: 'GET',
+    path: '/payments/config',
+    handler: (route) => json(route, 200, { provider: 'stripe', stripe: { publishableKey: 'pk_test_TYooMQauvdEDq54NiTphI7jx' } }),
+  },
+
   // Parent portal
   { method: 'GET', path: '/students/mine', handler: (route) => json(route, 200, { students: [FIXTURE_STUDENT] }) },
   { method: 'GET', path: '/trial-classes/mine', handler: (route) => json(route, 200, { trialClasses: [] }) },

@@ -13,6 +13,7 @@
 //   signWebhook(object)       -> { rawBody: Buffer, headers }   a correctly signed delivery
 //   webhookEvents             { succeeded, failed, ignored } provider-shaped event bodies
 //   unsignedHeaders           headers with a well-formed but wrong signature
+//   secretValues              the provider's secret credentials — publicConfig() must never contain one
 
 const crypto = require('crypto');
 
@@ -195,6 +196,15 @@ function describeProviderContract(getAdapter, fixtures) {
 
       expect(await attempt).not.toBe('succeeded');
     }, 30000);
+
+    it('publicConfig returns only public string identifiers, never a secret', () => {
+      const config = adapter.publicConfig();
+      const values = Object.values(config);
+
+      expect(values.length).toBeGreaterThan(0);
+      values.forEach((value) => expect(typeof value).toBe('string'));
+      fixtures.secretValues.filter(Boolean).forEach((secret) => expect(values).not.toContain(secret));
+    });
 
     describe('verifyWebhook', () => {
       it.each([

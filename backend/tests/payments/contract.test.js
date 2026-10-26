@@ -20,6 +20,7 @@ describe('assertProviderContract', () => {
       'detachPaymentMethod',
       'findPayment',
       'verifyWebhook',
+      'publicConfig',
     ]);
   });
 

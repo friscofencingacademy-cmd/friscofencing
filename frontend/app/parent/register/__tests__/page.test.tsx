@@ -12,6 +12,8 @@ import { ParentPortalProvider } from '../../../context/ParentPortalContext';
 // call still goes through MSW as normal.
 const createPaymentMethodMock = jest.fn();
 
+jest.mock('@stripe/stripe-js', () => ({ loadStripe: () => Promise.resolve(null) }));
+
 jest.mock('@stripe/react-stripe-js', () => ({
   Elements: ({ children }: { children: ReactNode }) => <>{children}</>,
   CardElement: () => <div data-testid="card-element" />,
@@ -115,6 +117,9 @@ let postRegistrationPayload: unknown = null;
 let postPaymentMethodPayload: unknown = null;
 
 const server = setupServer(
+  http.get('*/payments/config', () =>
+    HttpResponse.json({ provider: 'stripe', stripe: { publishableKey: 'pk_test_page_suite' } })
+  ),
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
   http.get('*/registrations/mine', () => HttpResponse.json({ subscriptions: [] })),
   http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [] })),
@@ -476,7 +481,8 @@ describe('RegisterPage wizard', () => {
       renderRegisterPage();
       await goToPayableState();
 
-      fireEvent.click(screen.getByRole('button', { name: /add card/i }));
+      // The card form renders once GET /payments/config resolves.
+      fireEvent.click(await screen.findByRole('button', { name: /add card/i }));
 
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent('Your card number is invalid.');
