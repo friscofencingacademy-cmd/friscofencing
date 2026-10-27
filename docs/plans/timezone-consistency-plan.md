@@ -1,6 +1,8 @@
 # Implementation plan: Timezone consistency — Central time default, location-ready
 
-**Status:** BUILT 2026-08-28 on `feature/timezone-consistency`, awaiting owner diff review before
+**Status (current, 2026-10-27):** MERGED TO `develop` as #45 (2026-08-28). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** BUILT 2026-08-28 on `feature/timezone-consistency`, awaiting owner diff review before
 commit (Hard Rule 5 — payment-adjacent). **Sequenced BEFORE `docs/plans/registration-ledger-
 plan.md` PR 2** (explicit owner decision) — PR 2's renewal create-pending-first sequencing reads
 `todayAtMidnight()` for its charge-eligibility gate; it now builds on an already-correct "today"

@@ -1,6 +1,8 @@
 # Shared Modal Component Plan
 
-**Status:** BUILT 2026-08-29, pending owner local testing + review (see Completion Notes at the end)
+**Status (current, 2026-10-27):** MERGED TO `develop` as #70 (2026-08-30). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** BUILT 2026-08-29, pending owner local testing + review (see Completion Notes at the end)
 **Branch:** `feature/shared-modal-component` → PR to `develop`
 **Scope:** One PR. New shared component + tests, then a mechanical migration of every
 existing dialog to it, then CSS/doc cleanup.

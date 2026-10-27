@@ -1,6 +1,8 @@
 # Trial registration: phone, date of birth, and trial info copy
 
-**Status: BUILT 2026-08-29, on branch `feature/trial-registration-required-fields`,
+**Status (current, 2026-10-27):** MERGED TO `develop` as #61 (2026-08-29). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written: BUILT 2026-08-29, on branch `feature/trial-registration-required-fields`,
 awaiting local testing before commit (CLAUDE.md Hard Rule 5 — not committed yet).** Written
 and discussed with the owner before writing any code (Hard Rule 1). Source: the owner's
 existing Kicksite trial signup page

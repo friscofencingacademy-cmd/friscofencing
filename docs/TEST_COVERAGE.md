@@ -5,7 +5,7 @@ Every number here is real, captured by running the suites — not estimated. The
 **Backend: 97 suites / 1,315 tests, all passing. Statements 94.38%.**
 **Frontend: 81 suites / 636 tests, all passing (re-counted 2026-10-27). Statements 90.30% (measured 2026-10-26). The full run prints no warning or error.**
 **Live-gate runner (`audit/`, CI job `audit-tests`): 5 files / 36 tests, all passing under Node 24 and Node 20, `TZ=UTC`, offline.**
-**Live gates (staging, not CI): 4 gate scripts. A headless smoke run of all four passed on staging 2026-10-27 during the build (results not kept); the owner's watched runs are the ones recorded.**
+**Live gates (staging, not CI): 4 gate scripts, all PASSED headed on staging with the owner watching on 2026-10-27 (`docs/live-gates/results/2026-10-27-{f15-prorated-top-payer-4,charge-dialog-modes,payment-history,register-quote}.md`).**
 **Live audit (staging, not CI): 6 scenarios + the P0 preflight. Last real run 2026-08-28, 6/6 pass — before the 2026-10-26 refresh; the next run is the owner step in `docs/plans/audit-and-health-refresh-plan.md` §7.4, then weekly.**
 **E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
 

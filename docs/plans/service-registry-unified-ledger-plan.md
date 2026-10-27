@@ -1,6 +1,8 @@
 # Implementation plan: Service registry + unified two-dimension payment ledger
 
-**Status:** PR A + PR B BUILT 2026-08-28, on `feature/service-registry` and
+**Status (current, 2026-10-27):** MERGED TO `develop` (#41, #42 — 2026-08-28). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** PR A + PR B BUILT 2026-08-28, on `feature/service-registry` and
 `feature/unified-ledger` respectively (PR B branched from PR A's local commit), awaiting owner
 diff review before commit/ship — nothing pushed, nothing merged. Written 2026-08-27
 (owner-directed architecture decision, superseding the earlier "unified ledger via per-service

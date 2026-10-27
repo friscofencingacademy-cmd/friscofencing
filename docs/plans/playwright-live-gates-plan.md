@@ -1,6 +1,8 @@
 # Playwright Live Gates
 
-**Status:** PLANNED 2026-10-27 — owner approved the draft ("ok write"); reviewed against the
+**Status (current, 2026-10-27):** MERGED TO `develop` (#137 plan, #138 PR 1 — 2026-10-27); all four gates passed headed on staging with the owner watching; the optional PR 2 is not built. Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** PLANNED 2026-10-27 — owner approved the draft ("ok write"); reviewed against the
 code the same day and corrected (§1 D2/D3/D5/D8, §2, §3, §6 and the new §7). Plan PR #137.
 PR 1 BUILT 2026-10-27 on `feature/playwright-live-gates` (§8); all four gates passed headed on
 staging with the owner watching the same day; PR open to `develop`.

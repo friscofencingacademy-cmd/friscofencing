@@ -1,6 +1,8 @@
 # Implementation plan: Audit skills refresh (post billing-anchor + sibling-discount plan)
 
-**Status:** DRAFT — for owner review, not yet built. No code has been touched for this plan.
+**Status (current, 2026-10-27):** Built and MERGED TO `develop` as #53 (2026-08-28); the audit was refreshed again by the audit & health refresh (#126, 2026-10-26).
+
+**Status when written:** DRAFT — for owner review, not yet built. No code has been touched for this plan.
 **Triggered by:** owner noticing the live audit skills (`/audit-live-registration`, `/reset-audit-data`) might be stale after the 3-PR billing plan (`docs/plans/billing-anchor-and-sibling-discount-plan.md`) shipped calendar-month billing, the one-active-subscription guard, create-pending-first registration, and the sibling-discount family rule.
 **Scope decided by owner:** full update — fix what's wrong, simplify what a shipped change made unnecessary, and add live coverage for the two genuinely new user-facing paths those PRs introduced.
 

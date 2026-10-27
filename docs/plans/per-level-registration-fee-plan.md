@@ -1,6 +1,8 @@
 # Per-Level Registration Fee Plan
 
-**Status:** BUILT 2026-08-29, pending owner local testing + review (see Completion Notes at the end)
+**Status (current, 2026-10-27):** MERGED TO `develop` as #69 (2026-08-29). Setting the real per-level fees in the admin UI is an owner step. Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** BUILT 2026-08-29, pending owner local testing + review (see Completion Notes at the end)
 **Branch:** `feature/per-level-registration-fee` → PR to `develop`
 **Scope:** One PR. Backend + admin frontend + tests + doc close-outs.
 

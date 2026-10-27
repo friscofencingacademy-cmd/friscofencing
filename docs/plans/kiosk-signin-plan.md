@@ -1,6 +1,8 @@
 # Kiosk Sign-In — one front-desk tablet, a kiosk-only login, name-search attendance
 
-**Status:** PR 1 (backend) MERGED to `develop` as #111 (2026-09-29). PR 2 (frontend) BUILT 2026-09-30 on
+**Status (current, 2026-10-27):** BOTH PRs MERGED TO `develop` (#111 backend 2026-09-29, #112 frontend 2026-09-30); the weekly group-session extension it needs is built (#125). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** PR 1 (backend) MERGED to `develop` as #111 (2026-09-29). PR 2 (frontend) BUILT 2026-09-30 on
 `feature/kiosk-signin-frontend`, pending owner local testing + review, not committed. Revision 2
 replaced revision 1's CKQ-style device pairing with a dedicated low-privilege `kiosk` login (owner
 decision 2026-09-29, §11). As-built notes: §12 (PR 1), §13 (PR 2). No data migration.

@@ -1,5 +1,7 @@
 # Premium Registration & Attendance Plan (Track 2)
 
+**Status (current, 2026-10-27):** MERGED TO `develop` as #28 (2026-08-24). Not in production (`main` was last promoted 2026-08-23, #19).
+
 Re-architects group-class registration around Frisco's real billing model — one flat monthly fee per level, attend any scheduled session of that level — and introduces the attendance ledger (`Visit`) and trial-evaluation (`Evaluation`) models that model requires. Everything here is verified against both codebases directly (`backend/src/` in this repo, `chesskqwebsite/backend/backend-2.0/src/` locally) during the planning conversation on 2026-08-24 — no field, function, or behavior below is assumed.
 
 Follows [ADR 001](../decisions/001-in-house-subscription-billing.md)'s billing model unchanged (Stripe charges a saved card, never Stripe Subscriptions; renewal is our own job with the same three safeguards). This plan does not touch billing math, Stripe integration, or the renewal job's charge logic — only *what a Subscription points at* and *how attendance is tracked*.

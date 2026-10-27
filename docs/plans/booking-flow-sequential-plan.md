@@ -1,6 +1,8 @@
 # Booking Flow Sequential UX + Quote-Panel Consolidation Plan
 
-**Status:** READY TO EXECUTE — not started
+**Status (current, 2026-10-27):** MERGED TO `develop` as #86 (2026-08-31). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** READY TO EXECUTE — not started
 **Owner request date:** 2026-08-31
 **Branches:** PR 1 `feature/preview-sibling-breakdown` (backend), PR 2 `feature/booking-flow-sequential` (frontend). PR 2 depends on PR 1's response shape but degrades gracefully without it (new fields are optional), so the PRs can be reviewed independently.
 

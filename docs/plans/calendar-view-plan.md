@@ -1,6 +1,8 @@
 # Calendar View Plan — one calendar of classes and private lessons (public, parent, admin)
 
-**Status:** PR 1 (backend) OPEN as PR #109 to `develop` (2026-09-25), pending owner staging test.
+**Status (current, 2026-10-27):** PRs 1–2 MERGED TO `develop` (#109 backend, #110 shared `CalendarView` + public `/calendar` — 2026-09-25); PR 3 (parent and admin calendars) not started. The §9 group-session gap is closed by the weekly session extension (#125). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** PR 1 (backend) OPEN as PR #109 to `develop` (2026-09-25), pending owner staging test.
 PR 2 (shared component + public page) BUILT 2026-09-25 on `feature/calendar-public`, stacked on
 PR 1's branch, pending owner review, not committed. PR 3 not started. As-built divergences: §9 (PR 1),
 §10 (PR 2). As-built divergences: §9. Spec'd 2026-09-25 from the current code (every file, function and

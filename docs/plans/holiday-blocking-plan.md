@@ -1,6 +1,8 @@
 # Holiday Blocking Plan
 
-**Status:** READY TO EXECUTE — not started.
+**Status (current, 2026-10-27):** MERGED TO `develop` as #83 (2026-08-31; both planned PRs in one). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** READY TO EXECUTE — not started.
 **Goal:** Port CKQ's Holiday feature, simplified for Frisco. Admin/superadmin manage holidays;
 parents can never book a trial or pick a registration start date on a holiday; coaches (and admins)
 cannot take attendance on a holiday. **No billing impact whatsoever** — unlike CKQ, holidays here do

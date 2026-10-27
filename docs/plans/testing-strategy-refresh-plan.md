@@ -1,6 +1,8 @@
 # Testing Strategy Refresh — CI that gates, guards that bite, E2E that fails loudly
 
-**Status:** READY-TO-EXECUTE (2026-10-26). Spec'd from a measured audit of this repo at `develop` @
+**Status (current, 2026-10-27):** ALL 6 PRs (A–F) MERGED TO `develop` (#115, #119–#123 — 2026-10-26); `ci-passed` is the required check on `develop` and `main`.
+
+**Status when written:** READY-TO-EXECUTE (2026-10-26). Spec'd from a measured audit of this repo at `develop` @
 `5391c8c` (both suites re-run that day: backend 82 suites / 1,091 tests, frontend 67 / 554, Playwright
 `--list` 43 tests in 9 files incl. 2 known skips — all green) against CKQ's testing system
 (`chesskq-workspace/docs/TESTING_STRATEGY.md` 995 lines, `TEST_COVERAGE.md`, 9 backend + 16 frontend

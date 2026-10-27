@@ -1,6 +1,8 @@
 # WordPress UI Alignment + Family Scorecard Checkout — Execution Plan
 
-**Status: ALL 3 PHASES BUILT 2026-08-29** (three stacked PRs: #58 Phase 1, #59 Phase 2, and
+**Status (current, 2026-10-27):** ALL 3 PHASES MERGED TO `develop` (#58, #59, #60 — 2026-08-29). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written: ALL 3 PHASES BUILT 2026-08-29** (three stacked PRs: #58 Phase 1, #59 Phase 2, and
 the Phase 3 branch below). Written 2026-08-29 from a full analysis of the owner's WordPress
 export (`friscofencing.WordPress.2026-08-29.xml`, verified against the live site the same
 day) and the screenshot mock `C:\Users\mages\ckqtestimages\familypaymentcard.jpg`.
