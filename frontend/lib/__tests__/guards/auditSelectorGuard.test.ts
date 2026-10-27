@@ -10,7 +10,8 @@ import path from 'path';
 // "10% sibling discount applied" preview line had all silently disappeared
 // by 2026-10-26). Now the PR that removes the text fails here instead.
 //
-// What is checked, in every audit/lib and audit/scenarios file:
+// What is checked, in every audit/lib, audit/scenarios and audit/gates file
+// (the live-gate scripts, docs/plans/playwright-live-gates-plan.md D8):
 //  - the argument of getByLabel / getByText / getByPlaceholder, the `name` of
 //    getByRole, the `label` of selectOption, and every `expectedReason:`
 //    string;
@@ -25,7 +26,9 @@ import path from 'path';
 
 const FRONTEND_ROOT = path.join(__dirname, '..', '..', '..');
 const REPO_ROOT = path.join(FRONTEND_ROOT, '..');
-const AUDIT_DIRS = [path.join(REPO_ROOT, 'audit', 'lib'), path.join(REPO_ROOT, 'audit', 'scenarios')];
+const AUDIT_DIRS = ['lib', 'scenarios', 'gates'].map((dir) => path.join(REPO_ROOT, 'audit', dir));
+const GATE_SPECS_DIR = path.join(REPO_ROOT, 'docs', 'live-gates');
+const GATE_SCRIPTS_DIR = path.join(REPO_ROOT, 'audit', 'gates');
 const SOURCE_ROOTS = [
   path.join(FRONTEND_ROOT, 'app'),
   path.join(FRONTEND_ROOT, 'lib'),
@@ -126,6 +129,87 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const describeText = (text: AuditText) => (text.kind === 'string' ? `'${text.value}'` : `/${text.source}/${text.flags}`);
+
+/** The step numbers of a gate spec's Steps table, in order. */
+export function specStepNumbers(markdown: string): number[] {
+  const steps = markdown.split(/^## Steps\s*$/m)[1];
+  if (!steps) return [];
+  const table = steps.split(/^## /m)[0];
+  return [...table.matchAll(/^\|\s*(\d+)\s*\|/gm)].map((match) => Number(match[1]));
+}
+
+/** The step numbers a gate script declares with step(n, …), in order. */
+export function scriptStepNumbers(source: string): number[] {
+  return [...source.matchAll(/\bstep\(\s*(\d+)\s*,/g)].map((match) => Number(match[1]));
+}
+
+/** One problem per gate whose spec and script disagree, or that has only one of the two. */
+export function gatePairingProblems(specs: Record<string, string>, scripts: Record<string, string>): string[] {
+  const problems: string[] = [];
+  const ids = [...new Set([...Object.keys(specs), ...Object.keys(scripts)])].sort();
+  for (const id of ids) {
+    if (!(id in scripts)) problems.push(`docs/live-gates/${id}.md has no audit/gates/${id}.js`);
+    else if (!(id in specs)) problems.push(`audit/gates/${id}.js has no docs/live-gates/${id}.md`);
+    else {
+      const fromSpec = specStepNumbers(specs[id]).join(',');
+      const fromScript = scriptStepNumbers(scripts[id]).join(',');
+      if (fromSpec !== fromScript) problems.push(`${id}: the spec's steps are [${fromSpec}], the script's are [${fromScript}]`);
+    }
+  }
+  return problems;
+}
+
+function readDir(dir: string, extension: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(extension) && entry.name !== 'README.md') {
+      files[entry.name.slice(0, -extension.length)] = fs.readFileSync(path.join(dir, entry.name), 'utf8');
+    }
+  }
+  return files;
+}
+
+describe('live-gate spec/script pairing', () => {
+  const specs = readDir(GATE_SPECS_DIR, '.md');
+  const scripts = readDir(GATE_SCRIPTS_DIR, '.js');
+
+  it('finds the gates (fails loudly on a wrong root)', () => {
+    expect(Object.keys(specs).length).toBeGreaterThanOrEqual(4);
+    expect(Object.keys(scripts).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('every gate spec has a script with the same steps, and every script a spec', () => {
+    expect(gatePairingProblems(specs, scripts)).toEqual([]);
+  });
+
+  it('reports a missing script, a missing spec, and a step-count mismatch', () => {
+    const spec = [
+      '# T',
+      '',
+      '## Steps',
+      '| # | Do | Expect |',
+      '|---|---|---|',
+      '| 1 | a | b |',
+      '| 2 | c | d |',
+      '',
+      '## Pass rule',
+      '| 3 | not a step | x |',
+    ].join('\n');
+    expect(specStepNumbers(spec)).toEqual([1, 2]);
+    expect(scriptStepNumbers("step(1, 'a', 'b', fn),\n  step(2, 'c', 'd', fn), liveStep(9, 'x')")).toEqual([1, 2]);
+    expect(
+      gatePairingProblems(
+        { 'only-spec': spec, mismatch: spec, ok: spec },
+        { 'only-script': 'step(1,', mismatch: "step(1, 'a'", ok: "step(1, 'a'\nstep(2, 'c'" }
+      )
+    ).toEqual([
+      "mismatch: the spec's steps are [1,2], the script's are [1]",
+      'audit/gates/only-script.js has no docs/live-gates/only-script.md',
+      'docs/live-gates/only-spec.md has no audit/gates/only-spec.js',
+    ]);
+  });
+});
 
 describe('live-audit selector guard', () => {
   const auditFiles = AUDIT_DIRS.flatMap((dir) => walk(dir));

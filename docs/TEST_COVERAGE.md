@@ -3,7 +3,9 @@
 Every number here is real, captured by running the suites — not estimated. The policy behind them (floors, what each layer is for) lives in `docs/TESTING_STRATEGY.md`; this file holds the figures, and is re-measured on every PR that adds or moves tests.
 
 **Backend: 97 suites / 1,315 tests, all passing. Statements 94.38%.**
-**Frontend: 81 suites / 633 tests, all passing. Statements 90.30%. The full run prints no warning or error.**
+**Frontend: 81 suites / 636 tests, all passing (re-counted 2026-10-27). Statements 90.30% (measured 2026-10-26). The full run prints no warning or error.**
+**Live-gate runner (`audit/`, CI job `audit-tests`): 5 files / 36 tests, all passing under Node 24 and Node 20, `TZ=UTC`, offline.**
+**Live gates (staging, not CI): 4 gate scripts. A headless smoke run of all four passed on staging 2026-10-27 during the build (results not kept); the owner's watched runs are the ones recorded.**
 **Live audit (staging, not CI): 6 scenarios + the P0 preflight. Last real run 2026-08-28, 6/6 pass — before the 2026-10-26 refresh; the next run is the owner step in `docs/plans/audit-and-health-refresh-plan.md` §7.4, then weekly.**
 **E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
 
@@ -11,6 +13,7 @@ Measured 2026-10-26: backend after the explicit-database fix, frontend after PR 
 
 ## Change log (newest first)
 
+- **2026-10-27 — Playwright live gates PR 1** (`feature/playwright-live-gates`, `docs/plans/playwright-live-gates-plan.md`): new `audit/tests/` run by `node --test` in the new CI job `audit-tests` — `gate-runner` (6: narration, stop at the first fail, skipped steps, one retry on a load timeout only, a blocked write fails the step), `write-guard` (5), `gate-dates` (11: four- and five-weekday months, last class day, none left, month ends on the 31st/30th/28th, Central/UTC midnight and the DST change, holidays ignored, rounding once), `gate-result` (5: exact README format, password redaction, `-2`/`-3` suffixing, commit only with both Vercel deployments green), `run-gate` refusals (9). `auditSelectorGuard.test.ts` now also scans `audit/gates/` and pairs each gate spec with its script (+3 cases; proven to fail on a planted label). Frontend 633 → 636 tests.
 - **2026-10-26 — explicit-database fix** (`fix/scripts-require-explicit-database`): new `tests/scripts/lib/mongoTarget.test.js` (13 cases: database name from srv, standard, multi-host and query-string URIs; refusal of a URI naming no database, a non-MongoDB string and the wrong database; no credential in any error). Backend 96 → 97 suites / 1,302 → 1,315 tests.
 - **2026-10-26 — audit-health PR 3** (`feature/health-skill`): new `tests/scripts/lib/healthCheck.test.js` (15 cases: an all-ok database, each check's warn/fail branches — sessions incl. past sessions not counting, services incl. a dormant service left alone, legacy payment fields, inactive-provider cards, stuck pending rows, retry exhaustion, a Guard A bypass, the live-audit fixtures and last run on staging vs production — and a proof that no write method is called). Backend 95 → 96 suites / 1,287 → 1,302 tests.
 - **2026-10-26 — audit-health PR 2** (`feature/live-audit-refresh`): new `tests/scripts/lib/seedAuditFixtures.test.js` (8 cases: full seed with literal session dates, idempotent re-run, convergence of drifted phone/date of birth/fee/password, restocking a schedule that ran dry, a same-named non-audit student never adopted, refusal without the Service registry or a password, nothing outside the audit records touched); `refreshStagingData.test.js` +2 (the refresh ends with the audit fixtures on the audit password; it refuses to start without that password, before wiping) and its clock is now pinned. New frontend guard `auditSelectorGuard.test.ts` (9 cases; proven to fail on a renamed audit label). Backend 94 → 95 suites / 1,277 → 1,287 tests; frontend 80 → 81 suites / 624 → 633 tests.
@@ -108,7 +111,7 @@ npm run typecheck                 # app + e2e
 | Hook | `lib/hooks/__tests__/*.test.ts(x)` | `useLoadState`, `useContractPreview`, debounce | None / MSW |
 | Service | `lib/services/__tests__/*.test.ts` (6 files) | The query-throws / mutation-never-throws contract for `calendar`, `catalog`, `coachContracts`, `kiosk`, `parent`, `privateClass` | MSW (strict) |
 | Context | `app/context/__tests__/*.test.tsx` | `ParentPortalContext`'s `Promise.allSettled` degradation | MSW (strict) |
-| Guards | `lib/__tests__/guards/*.test.ts` (12 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin, the payment SDK boundary, no `NEXT_PUBLIC_*` env, the live audit's selectors still exist in the app | No |
+| Guards | `lib/__tests__/guards/*.test.ts` (12 files) | Skip/focus, `userEvent`, strict MSW, the three E2E layer rules, portal tables wrapped, self-hosted fonts, the Playwright version pin, the payment SDK boundary, no `NEXT_PUBLIC_*` env, the live audit's and live gates' selectors still exist in the app, every gate spec has a script with the same steps | No |
 
 ### Coverage gaps (honest, not hidden)
 

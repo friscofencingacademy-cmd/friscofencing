@@ -16,6 +16,8 @@ This file is the single source of truth for how tests are structured, mocked and
 | Static guards | `backend/tests/guards/`, `backend/tests/payments/providerBoundaryGuard.test.js`, `frontend/lib/__tests__/guards/` | Repo-wide rules a reviewer would otherwise have to remember (see each section's "Static guards") | No |
 | E2E | `frontend/e2e/*.spec.ts` (`@playwright/test`) | Full browser flows through a real, locally-built Next.js server — login/role-redirect, the register wizard, the admin shell, coach attendance, the public site — real DOM/routing/hydration a mocked jsdom render can't exercise | Real Chromium, real Next.js server; network fully mocked (`page.route()`), no real backend/DB |
 | Live audit | `audit/` | Real browser flows against **staging** — real backend, DB and Stripe TEST mode | Yes — staging (owner-triggered) |
+| Live gate | `audit/gates/<id>.js` ↔ `docs/live-gates/<id>.md`, run by `npm run gate` | One feature's checklist on the deployed app, before it is promoted to `main`; read-only, enforced | Yes — staging (owner-watched) |
+| Live-gate runner | `audit/tests/*.test.js` (`node --test`) | The gate runner's own logic: step loop, write guard, Central-time proration, result file, refusals | No |
 
 Backend tests mirror `backend/src/`: `src/services/subscription.service.js` → `tests/services/subscription.service.test.js`. Frontend tests live colocated in `__tests__/` next to the component/page/hook/service they cover — never in a parallel top-level `tests/` tree.
 
@@ -265,7 +267,7 @@ All in `frontend/lib/__tests__/guards/`, each with a matcher self-test and a sca
 - **`selfHostedFontsGuard.test.ts`** — no file loads fonts from Google; every font file `app/layout.tsx` points at exists (a `next/font/google` build-time fetch failed a develop build, 2026-09-30).
 - **`playwrightVersionGuard.test.ts`** — `@playwright/test`, `playwright-core` and the CI Playwright image tag are the same version.
 - **`portalTableWrapGuard.test.ts`** — every table styled with the portal's shared `.table` sits directly inside a `.tableWrap` (`overflow-x: auto`), so a wide table scrolls in its own box instead of the whole page on a phone.
-- **`auditSelectorGuard.test.ts`** — every label and text the live audit (`audit/lib`, `audit/scenarios`) selects by still exists in the app or backend source: `getByLabel`/`getByText`/`getByPlaceholder` arguments, `getByRole` names, `selectOption` labels and `expectedReason` strings, with identifiers resolved to the file's own `const UPPER_CASE`. A regex too complex to read as text fails the guard rather than passing unchecked; "Audit …" fixture names are exempt. The audit itself cannot run on a PR (it needs staging), so this is the PR-time link between it and the app (`docs/plans/audit-and-health-refresh-plan.md` D8).
+- **`auditSelectorGuard.test.ts`** — every label and text the live audit and the live gates (`audit/lib`, `audit/scenarios`, `audit/gates`) select by still exists in the app or backend source: `getByLabel`/`getByText`/`getByPlaceholder` arguments, `getByRole` names, `selectOption` labels and `expectedReason` strings, with identifiers resolved to the file's own `const UPPER_CASE`. A regex too complex to read as text fails the guard rather than passing unchecked; "Audit …" fixture names are exempt. The audit itself cannot run on a PR (it needs staging), so this is the PR-time link between it and the app (`docs/plans/audit-and-health-refresh-plan.md` D8). The same file pairs every gate spec with its script: each `docs/live-gates/<id>.md` needs an `audit/gates/<id>.js` with the same step numbers, and vice versa (`docs/plans/playwright-live-gates-plan.md` D8). A gate script therefore locates by a plain label string or a simple regex and compares amounts from the text it reads, never with a regex selector such as `/\$25\.00/`.
 
 ---
 
@@ -337,7 +339,8 @@ npx playwright test --list                    # the per-project count TEST_COVER
 
 ### CI
 - `.github/workflows/ci.yml` runs this on every PR and every push to `develop`/`main`, inside the official Playwright Docker image pinned to the same version as `@playwright/test` (`playwrightVersionGuard`) — screenshot baselines are only trustworthy from that environment.
-- **The `ci-passed` job is the one required check** (it fails unless every test job succeeded). Making it block a merge is a one-time GitHub setting only the owner can make: Settings → Branches → a rule for `develop` and `main` → "Require status checks to pass" → `ci-passed`.
+- The `audit-tests` job runs the live-gate runner's offline tests (`cd audit && npm test`, `TZ=UTC`, no browser, no secrets).
+- **The `ci-passed` job is the one required check** (it fails unless every test job succeeded: backend, frontend, E2E, audit). Making it block a merge is a one-time GitHub setting only the owner can make: Settings → Branches → a rule for `develop` and `main` → "Require status checks to pass" → `ci-passed`.
 
 ---
 
@@ -398,3 +401,12 @@ The audit fixtures (`npm run audit:seed` — convergent: it repairs drifted acco
 - **Weekly, never a PR gate** — `.github/workflows/live-audit.yml` runs reset → audit every Monday and on demand (owner decision 2026-10-26, reversing `docs/plans/audit-system-plan.md` D7's on-demand-only rule after the audit sat unrun for two months while the app changed under it). It still never gates a pull request: it needs staging, and a PR is checked against the audit by `auditSelectorGuard` instead.
 - **Mutates staging** — every scenario creates a real document or completes/declines a real Stripe TEST-mode charge. `backend/scripts/audit-reset.js` (`/reset-audit-data`) resets it; the audit script itself never resets, the weekly workflow runs the reset first.
 - **Reports non-fatally** to `/admin/audits` (superadmin-only) — a reporting failure never changes the audit's own pass/fail verdict or gets retried.
+
+### Live gates
+
+A live gate is one feature's checklist (`docs/live-gates/<id>.md`), run on staging before that feature is promoted to `main` (`docs/live-gates/README.md`). Each has a Playwright script, `audit/gates/<id>.js`, run with `cd audit && npm run gate -- <id> --headed` while the owner watches (`/live-gate <id>` wraps it). Design: `docs/plans/playwright-live-gates-plan.md`.
+
+- **Read-only is enforced.** Every browser context aborts any non-GET call to `/api/v1/*` except sign-in and sign-out (`audit/lib/write-guard.js`); a blocked call fails the step. A `mutates: true` gate refuses to start without `--allow-writes`.
+- **The script signs in** from `audit/.env`, one isolated context per account, and starts its trace only after sign-in. Claude never types a password.
+- **Preconditions are computed, never hard-coded:** Central-time proration in `audit/lib/gate-dates.js` (plain weekday counts, holidays ignored, rounded once, the backend's rule) and ledger values read through the app's own API as superadmin (GET only). A precondition that does not hold ends the run `blocked` (exit 2), not `fail`.
+- **The runner writes the result file** in the README's format, with the develop commit only when both Vercel deployments for it succeeded. Exit `0` pass, `1` fail, `2` blocked, `3` refused.

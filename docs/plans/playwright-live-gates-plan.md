@@ -1,7 +1,9 @@
 # Playwright Live Gates
 
 **Status:** PLANNED 2026-10-27 — owner approved the draft ("ok write"); reviewed against the
-code the same day and corrected (§1 D2/D3/D5/D8, §2, §3, §6 and the new §7). Not started.
+code the same day and corrected (§1 D2/D3/D5/D8, §2, §3, §6 and the new §7). Plan PR #137.
+PR 1 BUILT 2026-10-27 on `feature/playwright-live-gates` (§8); all four gates passed headed on
+staging with the owner watching the same day; PR open to `develop`.
 **Executor:** Opus or Sonnet. PR 1 (`feature/playwright-live-gates` → `develop`), then the optional
 PR 2. The owner tests each PR (one headed run per gate on staging) before it is merged.
 **Origin:** the owner's go-live rule (`docs/live-gates/README.md`, 2026-10-27). The first gate run
@@ -261,6 +263,39 @@ changes them:
 - Staging guard: `AUDIT_STAGING_URL` must contain `friscofencing` and not be the bare
   `friscofencing.vercel.app` host (`audit/lib/staging-guard.js`); exit code 3 in the runner.
 
-## 8. As built
+## 8. As built (PR 1, 2026-10-27)
 
-(Filled in by the executor.)
+**Files.** As §2, plus `audit/lib/gate-page.js` (shared page reads: `readText`, `waitUntil`, the
+subscriptions search, the Charge and Payment History dialogs). `audit/lib/staging-guard.js` gained a
+pure `stagingProblem(url)` so the runner can refuse with exit 3; `assertStaging()` is unchanged for
+the live audit.
+
+**Divergences from the plan, each for a measured reason:**
+- **Page text is read without `innerText`.** `innerText` applies CSS `text-transform`, so the
+  sidebar role read `SUPERADMIN` and section labels read in capitals. `readText` walks the text
+  nodes instead, grouping them by their nearest non-inline ancestor and putting a space between
+  neighbouring inline elements (an amount and its chip).
+- **A superadmin API reader runs in its own context** (no video, no trace) for every gate, kept open
+  to the end so a step can re-check data (`register-quote` step 8). The steps' recorded contexts
+  are separate.
+- **Videos are per account:** `gate-runs/<date>-<id>/<id>-<account>.webm` and `trace-<account>.zip`;
+  the result's `recording:` lists them. The run folder takes `-2`, `-3` like result files.
+- **Switching level waits for the sessions request.** Between the click and the level's own
+  `/group-class-sessions/by-class/` response the previous level's pills are still on screen.
+- **Precondition rows that only record a value** (the commit, P_A) are `pass`; the commit row says
+  `unknown` when it cannot be confirmed, which never blocks, as the gate files say.
+- **The step-count guard is static:** it counts `step(n,` calls in the script and `| n |` rows in
+  the `.md`'s Steps table (stopping at the next `##`), so the frontend Jest job never loads
+  Playwright.
+
+**Verified during the build:**
+- `cd audit && npm test`: 36/36 under Node 24 and Node 20 (`TZ=UTC`).
+- Frontend: 81 suites / 636 tests; `auditSelectorGuard` fails on a label planted in a gate script.
+- A headless run of all four gates on staging (`develop` at `1e70067`): every one passed, every
+  step. Their result files and run folders were deleted, so the owner's watched runs are the first
+  recorded. No password appears in any result file or trace (both values searched for in every
+  trace archive).
+
+**Watched runs (2026-10-27, `develop` at `1e70067`):** all four gates passed headed with the owner
+watching — F15 9/9, charge-dialog-modes 9/9, payment-history 7/7, register-quote 8/8. Result files:
+`docs/live-gates/results/2026-10-27-{f15-prorated-top-payer-4,charge-dialog-modes,payment-history,register-quote}.md`.

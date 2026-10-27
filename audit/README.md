@@ -1,4 +1,4 @@
-# Live registration audit
+# Live registration audit and live gates
 
 Real Playwright (headless Chromium by default) driving the actual staging frontend, completing
 real Stripe TEST-mode charges. Design: `docs/plans/audit-system-plan.md`. Current state, the
@@ -56,3 +56,33 @@ Actions tab, once its secrets are set (listed at the top of that file).
 text this package selects by still exists in the app. Keep selectors as strings or simple
 regexes (words, spaces, `' & % ! , -`), or as a `const UPPER_CASE = …` in the same file, so the
 guard can read them. Fixture names starting with "Audit " are exempt.
+
+## Live gates
+
+A live gate (`docs/live-gates/<id>.md`) is one feature's watched check on staging, required before
+that feature is promoted to `main` (`docs/live-gates/README.md`). Each gate has a script here,
+`gates/<id>.js`, that mirrors the `.md` step for step. Design: `docs/plans/playwright-live-gates-plan.md`.
+
+```bash
+cd audit
+npm run gate -- f15-prorated-top-payer --headed            # a visible window, 700 ms between actions
+npm run gate -- register-quote --headed --slow 300          # faster
+npm run gate -- payment-history                             # headless
+```
+
+- The script signs in itself from `.env` (`AUDIT_SUPERADMIN_*`, `AUDIT_TEST_PASSWORD`). Each
+  account gets its own browser context; nobody types a password.
+- **Read-only is enforced.** Every context blocks any non-GET call to `/api/v1/*` except sign-in
+  and sign-out, so a stray click on Confirm Charge or Register & Pay never reaches the server. A
+  gate whose `.md` says `mutates: true` refuses to start without `--allow-writes`.
+- It prints `Step n/N — <Do> Expect: <Expect>` before each step and what it saw after, stops at
+  the first failure, and writes `docs/live-gates/results/<date>-<id>.md`.
+- The video and a trace of each account go to `gate-runs/<date>-<id>/` (gitignored). Open a trace
+  with `npx playwright show-trace gate-runs/<folder>/trace-admin.zip`. Tracing starts after
+  sign-in, so it never holds a password.
+- Exit `0` pass, `1` fail, `2` blocked (a precondition does not hold, e.g. a fixture is missing),
+  `3` refused (unknown id, a production URL, missing env, `mutates` without `--allow-writes`).
+
+`npm test` runs the runner's offline tests (`tests/`, Node's built-in runner; CI's `audit-tests`
+job). A new gate needs both files: the guard in `auditSelectorGuard.test.ts` fails when a gate
+`.md` has no script, or their step numbers differ.
