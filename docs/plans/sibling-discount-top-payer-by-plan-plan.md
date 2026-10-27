@@ -1,6 +1,6 @@
 # Sibling Discount — Top Payer Decided by Plan (F15)
 
-**Status:** BUILT 2026-10-26 — PR open to `develop`, not merged; owner tests Charge → prorated on staging first. See §6.
+**Status:** MERGED TO `develop` as #133 (2026-10-27), at the owner's request before the staging test; owner still tests Charge → prorated on staging. Production not promoted. See §6.
 **Executor:** Opus or Sonnet, in auto mode, ONE PR (`fix/sibling-discount-top-payer-by-plan` → `develop`).
 §1 is the binding contract. The owner tests the PR locally/on staging before it is merged.
 **Origin:** finding F15 in `docs/plans/audit-and-health-refresh-plan.md` §9 ("Staging go-live",
