@@ -1,6 +1,8 @@
 # Coach Pack Pricing Plan — private-lesson packs move to the coach contract
 
-**Status:** BOTH PRs MERGED TO `develop` 2026-09-25 (#102 backend, #103 frontend); the owner is testing on staging; production not promoted. §4's read-only checks passed on staging and production before the merge. §7 lists every as-built divergence. Spec'd 2026-09-24 from the current code (every file named below was
+**Status (current, 2026-10-27):** BOTH PRs and the contract-versions follow-up MERGED TO `develop` (#102, #103, #105, #106 — 2026-09-25). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** BOTH PRs MERGED TO `develop` 2026-09-25 (#102 backend, #103 frontend); the owner is testing on staging; production not promoted. §4's read-only checks passed on staging and production before the merge. §7 lists every as-built divergence. Spec'd 2026-09-24 from the current code (every file named below was
 checked against the tree, not assumed); owner decisions D7 and D8 settled 2026-09-24. Reviewed the
 same day against the tree, `docs/TESTING_STRATEGY.md`, `docs/design-system.md`,
 `docs/features/admin.md` and `docs/features/parent-portal.md`; the 13 findings are folded in below

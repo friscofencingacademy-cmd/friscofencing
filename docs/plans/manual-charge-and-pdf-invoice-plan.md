@@ -1,6 +1,8 @@
 # Manual Charge Button + PDF Invoices — Execution Plan
 
-**Status:** BOTH PRs BUILT 2026-08-30, pending owner local testing + review before merging either
+**Status (current, 2026-10-27):** BOTH PRs MERGED TO `develop` (#72, #73 — 2026-08-30). `backend/src/config/academy.js` still holds a placeholder address and EIN for the owner to fill. Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** BOTH PRs BUILT 2026-08-30, pending owner local testing + review before merging either
 to `develop`. PR 1 on `feature/manual-charge-button`. PR 2 on `feature/pdf-invoices`, stacked on
 PR 1's branch (PR 1 was still open/unmerged when PR 2 was built, per the owner's "go for PR 2"
 instruction — see the plan's Execution-order note below, amended accordingly: PR 2's diff will be

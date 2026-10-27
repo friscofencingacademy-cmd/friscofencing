@@ -1,6 +1,8 @@
 # CKQ Parity Plan — Staging Email Block · Email Design System · Admin Subscriptions · Private Classes
 
-**Status: APPROVED FOR AUTONOMOUS EXECUTION (2026-08-21)**
+**Status (current, 2026-10-27):** SHIPPED TO PRODUCTION — merged to `develop` as #17 and promoted to `main` in #18 (2026-08-21).
+
+**Status when written: APPROVED FOR AUTONOMOUS EXECUTION (2026-08-21)**
 Owner directive: all four phases execute in ONE uninterrupted run (no per-phase check-ins), same
 model as the shipped `ckq-ui-adoption-plan.md`. The executing agent follows §0 (Execution
 Protocol) exactly.

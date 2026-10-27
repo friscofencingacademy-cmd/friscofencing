@@ -1,6 +1,8 @@
 # Implementation plan: CI-gated end-to-end testing (closing the third testing layer)
 
-**Status:** DRAFT — for owner review, not yet built. No code has been touched for this plan.
+**Status (current, 2026-10-27):** Phase 1 MERGED TO `develop` as #56 (CI secret fix #57 — 2026-08-29); Phase 2 delivered by the testing strategy refresh, PR F (#123, 2026-10-26). The E2E job runs in CI on every PR.
+
+**Status when written:** DRAFT — for owner review, not yet built. No code has been touched for this plan.
 **Triggered by:** a 2026-08-28 session assessment (`docs/TESTING_STRATEGY.md`, `docs/TEST_COVERAGE.md`)
 found real Jest/MSW coverage (88–90% statements, both layers) but **no real-browser coverage that
 gates a merge** — the only Playwright in the repo is `audit/`, an owner-triggered, real-Stripe,

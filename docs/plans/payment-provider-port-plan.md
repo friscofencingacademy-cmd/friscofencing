@@ -1,6 +1,8 @@
 # Payment Provider Port — Stripe today, Square next, nothing in business code knows which
 
-**Status:** READY-TO-EXECUTE (2026-10-26). Spec'd by the planning session from a measured audit of
+**Status (current, 2026-10-27):** PRs 1–3 MERGED TO `develop` (#116, #117, #118 — 2026-10-26); staging migrated; the Square PRs 4–6 are deferred by the owner (stay on Stripe). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** READY-TO-EXECUTE (2026-10-26). Spec'd by the planning session from a measured audit of
 this repo at `develop` @ `5391c8c` and of CKQ's shipped port (`chesskq-workspace` ADR
 `backend-021`, `backend-2.0` #1025/#1027/#1028, `website2.0` #1462 — all in CKQ production).
 Every Square fact below was read from Square's own docs or SDK source on 2026-10-26, not recalled.

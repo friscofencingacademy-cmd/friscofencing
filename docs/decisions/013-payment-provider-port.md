@@ -1,6 +1,6 @@
 # ADR 013: Payment provider port — one interface, one adapter per vendor, one active at a time
 
-**Status:** Proposed — 2026-10-26 (becomes Implemented when `docs/plans/payment-provider-port-plan.md` PR 1 merges to `develop`; PR numbers recorded here then)
+**Status:** Implemented — `docs/plans/payment-provider-port-plan.md` PRs 1–3 merged to `develop` on 2026-10-26 (#116 port + Stripe adapter, #117 provider-neutral fields + migration, #118 frontend boundary + `GET /payments/config`). Stripe is the one active provider; the Square adapter (plan PRs 4–6) is deferred until the owner starts the switch. Not in production yet.
 
 ## Context
 Every place this backend charges money, saves a card, or verifies a webhook calls the Stripe SDK

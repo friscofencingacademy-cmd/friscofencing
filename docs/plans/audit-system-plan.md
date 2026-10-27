@@ -1,6 +1,8 @@
 # Audit System Plan — Registration/Payment Audits, Admin Report, Testing Strategy Refresh
 
-**Status: APPROVED FOR AUTONOMOUS EXECUTION**
+**Status (current, 2026-10-27):** MERGED TO `develop` as #23 (fixes from its first live run: #24, #25 — 2026-08-23); refreshed by #53 and #126. The live audit runs weekly on staging (`live-audit.yml`). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written: APPROVED FOR AUTONOMOUS EXECUTION**
 Owner directive: all phases execute in ONE uninterrupted run (no per-phase check-ins), same model
 as `ckq-parity-plan.md`. The executing agent follows §0 (Execution Protocol) exactly.
 

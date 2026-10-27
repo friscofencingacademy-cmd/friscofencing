@@ -1,6 +1,8 @@
 # Booking & Private-Class Fixes Plan — five owner-reported issues (2026-08-31)
 
-**Status: PLANNED — no code written yet.**
+**Status (current, 2026-10-27):** MERGED TO `develop` (issues 1–2 in #90, issues 3–4 in #91, issue 5 in #92 — 2026-08-31). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written: PLANNED — no code written yet.**
 
 Origin: owner walkthrough of staging on 2026-08-31 surfaced five issues. Each was traced to a
 concrete root cause in current source before this plan was written (file/line references below are

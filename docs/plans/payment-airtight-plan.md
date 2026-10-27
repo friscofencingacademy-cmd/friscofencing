@@ -1,6 +1,8 @@
 # Airtight Payments — Proration Rule, Admin Charge Modes, Parent Billing Page
 
-**Status:** PR 1 MERGED TO DEVELOP 2026-08-30 (PR #79). PR 2 MERGED TO DEVELOP 2026-08-30
+**Status (current, 2026-10-27):** ALL 3 PRs MERGED TO `develop` (#79, #80, #81 — 2026-08-30/31). Confirm the `periodMonth` migration has run on production before promoting. Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** PR 1 MERGED TO DEVELOP 2026-08-30 (PR #79). PR 2 MERGED TO DEVELOP 2026-08-30
 (PR #80). PR 3 BUILT 2026-08-31 on branch `feature/parent-billing-history`, not yet committed —
 pending owner local testing + review before commit, per Hard Rule 5. All three PRs of this plan
 now built.

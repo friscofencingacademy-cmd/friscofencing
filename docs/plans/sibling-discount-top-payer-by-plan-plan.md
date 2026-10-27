@@ -1,6 +1,8 @@
 # Sibling Discount — Top Payer Decided by Plan (F15)
 
-**Status:** MERGED TO `develop` as #133 (2026-10-27), at the owner's request before the staging test; owner still tests Charge → prorated on staging. Production not promoted. See §6.
+**Status (current, 2026-10-27):** MERGED TO `develop` as #133 (2026-10-27); its live gate `f15-prorated-top-payer` passed on staging the same day (by hand, then by Playwright). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** MERGED TO `develop` as #133 (2026-10-27), at the owner's request before the staging test; owner still tests Charge → prorated on staging. Production not promoted. See §6.
 **Executor:** Opus or Sonnet, in auto mode, ONE PR (`fix/sibling-discount-top-payer-by-plan` → `develop`).
 §1 is the binding contract. The owner tests the PR locally/on staging before it is merged.
 **Origin:** finding F15 in `docs/plans/audit-and-health-refresh-plan.md` §9 ("Staging go-live",
@@ -136,7 +138,8 @@ expected; it proves nothing else read the changed shape). Report counts in the a
 - `grep` check in §3 clean; no amount changes for any full-month path (U5 untouched).
 - Docs in §3 updated; §6 as-built note filled in; staging read-only count from D5 recorded.
 - PR open to `develop`, not merged; owner tests the Charge → prorated option on staging with a
-  two-child audit family before merging.
+  two-child audit family before merging. *(Done: merged as #133 at the owner's request; the
+  `f15-prorated-top-payer` live gate then passed on staging, 2026-10-27.)*
 
 ## 6. AS-BUILT NOTES (executor appends)
 

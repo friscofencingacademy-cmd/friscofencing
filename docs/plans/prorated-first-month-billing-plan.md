@@ -1,6 +1,8 @@
 # Prorated First-Month Billing — Plan
 
-**Status: DRAFT — awaiting owner confirmation.** Not yet approved for autonomous execution. Once the
+**Status (current, 2026-10-27):** Built and MERGED TO `develop` (#32 backend, #33 frontend — 2026-08-26); the rule was later scoped to the current calendar month by #79 (ADR 007 addendum). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written: DRAFT — awaiting owner confirmation.** Not yet approved for autonomous execution. Once the
 owner reviews this document and replies `write`, the executing agent runs PR 1 → PR 2 in one
 uninterrupted pass (same "auto mode" convention as `docs/plans/audit-system-plan.md` and
 `docs/plans/ckq-parity-plan.md`), branching, testing, committing, pushing, opening a PR into

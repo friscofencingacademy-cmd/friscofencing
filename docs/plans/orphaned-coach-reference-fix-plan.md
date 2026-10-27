@@ -1,6 +1,8 @@
 # Implementation plan: orphaned coach references crash multiple pages
 
-**Status:** Approved for implementation. Written 2026-08-27 after live-reproducing the reported
+**Status (current, 2026-10-27):** MERGED TO `develop` as #44 (2026-08-28); §8f live-verified on staging. Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** Approved for implementation. Written 2026-08-27 after live-reproducing the reported
 `/private-classes` crash; **AMENDED 2026-08-28 — read §8 (Amendment) after the base plan; it
 extends the scope to student/parent orphans, closes a student-delete-guard gap the base plan
 missed, adds `reset-customer-data.js` cleanup, and reconciles the plan with the unified-ledger

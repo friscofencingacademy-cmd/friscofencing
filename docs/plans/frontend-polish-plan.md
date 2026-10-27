@@ -1,6 +1,8 @@
 # Frontend polish + source-of-truth alignment — EXECUTABLE PLAN
 
-**Status:** READY TO EXECUTE (owner-approved, verified against source 2026-08-29)
+**Status (current, 2026-10-27):** ALL 5 PRs BUILT and MERGED TO `develop` — the five commits landed inside #72 (2026-08-29/30); the hero band's rounded inset was later reverted to full-bleed (`d96a084`). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** READY TO EXECUTE (owner-approved, verified against source 2026-08-29)
 **Executor:** any Claude model; one PR at a time, no design decisions left open.
 **Origin:** an external design review ("FRONTEND_POLISH_BRIEF.md") audited line-by-line against the
 real backend and frontend on `develop` @ `d5bd12c`. Several of its fixes were **dropped** because

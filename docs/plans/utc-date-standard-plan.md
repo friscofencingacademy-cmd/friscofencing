@@ -1,6 +1,8 @@
 # UTC Date-Storage Standard — Plan
 
-**Status:** READY TO EXECUTE (3 PRs)
+**Status (current, 2026-10-27):** ALL 3 PRs MERGED TO `develop` (#76, #77, #78 — 2026-08-30/31). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** READY TO EXECUTE (3 PRs)
 **Spec'd:** 2026-08-30, against real staging + local-dev data (not assumed — every bug below was reproduced by query or by reading the exact line cited)
 **Executor note:** This plan is written to be executed by a smaller model (Sonnet). Every delta names its exact file and line anchor as of 2026-08-30. If a cited line has drifted, find the same code by the quoted identifier — never guess. Where this plan says **VERIFY**, do the verification before writing code; if it fails, stop and report instead of improvising.
 

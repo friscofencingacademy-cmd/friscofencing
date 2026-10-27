@@ -1,6 +1,8 @@
 # Execution plan: next batch — orphan fix, then renewal sequencing, then retry/dunning
 
-**Status:** Approved for execution. Written 2026-08-28. **Builder: a Sonnet implementation
+**Status (current, 2026-10-27):** COMPLETE — all three items merged to `develop` (#44, #46, #48 — 2026-08-28). Not in production (`main` was last promoted 2026-08-23, #19).
+
+**Status when written:** Approved for execution. Written 2026-08-28. **Builder: a Sonnet implementation
 session executes the three items below IN ORDER, one PR each, shipping each to `develop` after
 its own gates pass and the owner has reviewed the diff (payment-critical files — Hard Rule).**
 This doc is the orchestrator: it fixes the order, carries the deltas that changed since the
