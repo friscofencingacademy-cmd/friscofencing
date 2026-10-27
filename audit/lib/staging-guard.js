@@ -10,25 +10,34 @@
 // origin, per CLAUDE.md's cookie-first-party design) is actually sent. A
 // raw backend-origin URL would be a different domain and wouldn't carry
 // that cookie at all.
-function assertStaging() {
-  const staging = process.env.AUDIT_STAGING_URL || '';
+
+// The reason `staging` must not be used, or null when it is the staging
+// alias. Pure, so the live-gate runner can refuse with its own exit code
+// (docs/plans/playwright-live-gates-plan.md D6) instead of exiting here.
+function stagingProblem(staging) {
+  if (!staging) {
+    return 'AUDIT_STAGING_URL must be set. Refusing to run.';
+  }
 
   // Production is the bare "friscofencing.vercel.app" host per
   // docs/plans/deployment-launch-plan.md's Production URLs — anything else
   // containing "friscofencing" (the git-branch preview alias) is staging.
   const looksLikeStaging = staging.includes('friscofencing') && !staging.includes('friscofencing.vercel.app');
 
-  if (!staging) {
-    console.error('AUDIT_STAGING_URL must be set. Refusing to run.');
-    process.exit(1);
+  if (!looksLikeStaging) {
+    return `AUDIT_STAGING_URL doesn't look like the staging preview alias (got "${staging}"). Refusing to run against what looks like production.`;
   }
 
-  if (!looksLikeStaging) {
-    console.error(
-      `AUDIT_STAGING_URL doesn't look like the staging preview alias (got "${staging}"). Refusing to run against what looks like production.`
-    );
+  return null;
+}
+
+function assertStaging() {
+  const problem = stagingProblem(process.env.AUDIT_STAGING_URL || '');
+
+  if (problem) {
+    console.error(problem);
     process.exit(1);
   }
 }
 
-module.exports = { assertStaging };
+module.exports = { assertStaging, stagingProblem };

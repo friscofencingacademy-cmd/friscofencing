@@ -18,16 +18,15 @@ display side). Covers #81 (parent billing history), #88 (admin payment history),
 link). This gate never clicks Download (opening the PDF is a download) and never changes data.
 
 ## Preconditions
-- **Audit fixtures are seeded and the live audit has run this month.** Read-only query on
-  `friscofencing-staging`, recorded in the result:
+- **Audit fixtures are seeded and the live audit has run this month.** Read through the API by the
+  runner (superadmin, GET only), recorded in the result:
   - Every ledger row of `audit-bridge-parent@example.com`'s family, newest first: student,
     amount, status, method, `periodStart`–`periodEnd`. Today's fixtures give two `completed` card
     rows: BridgeSecond (Audit Level A) and BridgeFirst (Audit Level B).
   - `Audit RetryChild` has a `failed` ledger row.
-- **The owner can sign in as the bridge parent.** Steps 5–7 run as `audit-bridge-parent@example.com`.
-  Claude never types a password: the owner signs in in the gate's tab when Claude reaches step 5
-  (the password is `AUDIT_TEST_PASSWORD` in `audit/.env`). Signing in replaces the superadmin
-  session in that browser.
+- **The bridge parent can sign in.** Steps 5–7 run as `audit-bridge-parent@example.com` in its own
+  browser context, signed in by the script from `audit/.env` (`AUDIT_TEST_PASSWORD`) before the
+  run starts. The superadmin context stays signed in beside it. Claude never types a password.
 - **Staging serves the commit being promoted.** Record the `develop` commit in the result.
 
 ## Steps
@@ -37,9 +36,9 @@ link). This gate never clicks Download (opening the PDF is a download) and never
 | 2 | Close the dialog with **Close** | The dialog closes |
 | 3 | Search `RetryChild`, click **Payment History** | The failed row shows its amount, Status `Failed`, Method `Card`, and Invoice `—` (no Download link) |
 | 4 | Close the dialog with **Close** | The dialog closes |
-| 5 | The owner signs in as `audit-bridge-parent@example.com` in this tab; Claude waits, then reads the page | The parent portal loads; the sidebar shows **My Registrations** and **Payment History** as separate entries |
+| 5 | Open the parent portal in the bridge-parent context (signed in by the script) | The parent portal loads; the sidebar shows **My Registrations** and **Payment History** as separate entries |
 | 6 | Click **Payment History** in the sidebar | `/parent/billing` with the title `Payment History` and `Every charge on file for your family, straight from our billing records.`; the same rows as step 1 — same students, descriptions, periods, amounts, `Paid`, `Card`, `Download` |
-| 7 | Click **My Registrations** in the sidebar | A row per child. **Last Payment** equals that child's newest ledger amount (BridgeSecond `$22.50` with chips `10% sibling` and `Prorated first month`; BridgeFirst `$10.00` with `Prorated first month`). **Sibling Discount (Current)**: BridgeSecond (the $100 plan) `Full price`; BridgeFirst (the $50 plan) `10% sibling — $45.00/mo` |
+| 7 | Click **My Registrations** in the sidebar | A row per child. **Last Payment** equals that child's newest completed ledger amount read in the preconditions, with the chips that charge earned (`10% sibling` when it was discounted, `Prorated first month` when the first charge was prorated, `Manual` for an offline payment). **Sibling Discount (Current)**: BridgeSecond (the $100 plan) `Full price`; BridgeFirst (the $50 plan) `10% sibling — $45.00/mo` |
 
 ## Pass rule
 Every step's Expect holds, and every amount, status and period on the three screens matches the

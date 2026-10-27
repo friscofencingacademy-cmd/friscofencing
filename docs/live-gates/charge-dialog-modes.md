@@ -20,7 +20,8 @@ its own gate, `f15-prorated-top-payer`. This gate only reads; it never confirms 
 
 ## Preconditions
 - **Audit fixtures are seeded and the live audit has run this month** (`cd backend && npm run
-  audit:seed`, then the live audit). Check read-only on `friscofencing-staging`:
+  audit:seed`, then the live audit). Read through the API by the runner (superadmin, GET only:
+  the subscriptions list and each row's charge preview):
   - `Audit FirstSibling` (Audit Level A, $100, Tuesdays) and `Audit SecondSibling` (Audit Level B,
     $50, Thursdays) are `active`, not in dunning, each with a `completed` card ledger row for this
     calendar month (`periodMonth`), and `nextBillingDate` after today.

@@ -20,7 +20,8 @@ a charge.
 - **Audit fixtures are seeded** (`cd backend && npm run audit:seed`). The bridge family has
   `Audit BridgeSecond` on **Audit Level A ($100/month, Tuesdays)** and `Audit BridgeFirst` on
   **Audit Level B ($50/month, Thursdays)**, both active. If either has no active subscription the
-  run is `blocked`; re-run the live audit's S5 or ask the owner.
+  run is `blocked`; re-run the live audit's S5 or ask the owner. The runner reads this through the
+  API (superadmin, GET only).
 - **The prorated amount for Level A today is above $0 and below $50.** Prorated = $100 ×
   (Tuesdays left this month, today included) ÷ (Tuesdays in the month). Compute it before the run
   and write the arithmetic in the result. At $50 or more F15 cannot show, and at $0 the old and
