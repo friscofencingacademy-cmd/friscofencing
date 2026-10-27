@@ -40,6 +40,7 @@ Full setup steps + env-var tables: `docs/plans/deployment-launch-plan.md`.
 | `develop` | staging | Preview deploys (stable branch aliases) | `friscofencing-staging` |
 
 - Work on `feature/*` branches → PR to `develop`; `develop` → `main` only with explicit owner approval.
+- **Live gate before go-live (owner rule, 2026-10-27):** no feature is promoted to `main` until its live gate (`docs/live-gates/<id>.md`) has a `result: pass` record on staging, run with `/live-gate <id>` in the owner's Chrome while they watch. A feature plan that changes user-visible or money behaviour names its gate, written in the same PR. See `docs/live-gates/README.md`.
 - Frontend proxies `/api/v1/*` to the backend via a Next.js rewrite (`BACKEND_URL`) so the httpOnly auth cookie stays first-party — never call the backend origin directly from the browser.
 - The production Atlas URI lives in the gitignored `backend/.env.production.local` (`MONGO_URI`) on the owner's machine, and in the Vercel dashboard for deployed envs — **never commit credentials**, and never store them in Claude memory.
 - Email: Nodemailer over Brevo SMTP in deployed envs (`SMTP_*` env vars); Ethereal auto-fallback locally.
@@ -104,6 +105,7 @@ Public site shipped (2026-08-21) — logged-out home/`/classes`/`/coaches`, `/*/
 | Testing strategy — layers, mocking rules, interaction/date rules, typed fixtures, naming conventions, error-handling contract | `docs/TESTING_STRATEGY.md` |
 | Test coverage — current suite counts (real, re-run per update), per-layer table, honest gaps, improvement plan | `docs/TEST_COVERAGE.md` |
 | `/audit-tests` — read-only test-suite quality audit (pyramid, 13 anti-pattern checks incl. route negative paths and dead negative assertions, `TEST_COVERAGE.md` drift) | `.claude/skills/audit-tests/SKILL.md` |
+| `/live-gate <id>` — watched browser check of one feature on staging in the owner's Chrome: narrates each step, records a GIF, writes `docs/live-gates/results/`. Required before promoting a feature to `main` | `.claude/skills/live-gate/SKILL.md` + `docs/live-gates/README.md` |
 | `/health` — read-only repo + environment health: git/CI/branch protection, last session-extension and live-audit runs, staging/production data checks (`npm run health -- --env staging\|production`) | `.claude/skills/health/SKILL.md` |
 | Email system — block-based design system architecture, tokens, template registry, CC table, the `APP_ENV` staging gate, preview-script usage | `docs/modules/email.md` |
 | Admin panel — per-page behavior spec (Pattern A CRUD, delete guards, Subscriptions/Coach Contracts/Private Classes pages, amended schedule-edit deferral note) | `docs/features/admin.md` |
@@ -136,4 +138,5 @@ Before touching any of the following areas, **read the linked doc first** — it
 | Touch the kiosk sign-in (`/kiosk`, `app/kiosk/`, `lib/kiosk.ts`, `/kiosk/*` endpoints) or the `kiosk` role | `docs/plans/kiosk-signin-plan.md` + `docs/features/admin.md` ("Kiosk sign-in page") — update `frontend/e2e/kiosk.spec.ts` in the same PR, and keep `kiosk` out of `ADMIN_ROLES` (the lock-down test in `kiosk.routes.test.js` guards it) |
 | Touch the calendar (`CalendarView`, `lib/calendarView.ts`, any calendar page or `/calendar*` endpoint) | `docs/design-system.md`'s "Calendar" page pattern + `docs/plans/calendar-view-plan.md` |
 | Touch `audit/**`, `backend/scripts/audit-*.js`, `scripts/lib/seedAuditFixtures.js`, or the live-audit skills | `docs/plans/audit-and-health-refresh-plan.md` §4 + `docs/TESTING_STRATEGY.md`'s "Live audits" — keep selectors strings/simple regexes so `auditSelectorGuard` can check them; the audit accounts are defined once in `seedAuditFixtures.js` (`AUDIT_FAMILIES`) |
+| Write a feature plan, add or change a live gate, or run `/live-gate` | `docs/live-gates/README.md` — every user-visible or money feature names its gate; gates use the audit fixtures and never hold passwords |
 | Touch group-session generation (`plannedSessionsFor`, `generateInitialSessions`, `scripts/lib/extendGroupSessions.js`) | `docs/plans/audit-and-health-refresh-plan.md` §3 — schedule creation and the weekly extension share the one planner; never add a second |
