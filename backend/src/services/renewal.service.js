@@ -343,7 +343,11 @@ async function previewRenewal(subscriptionId) {
   }
 
   const student = await User.findById(subscription.studentId);
-  const fullMonthCharge = await calculateChargeAmount(student, monthlyFee, { mode: 'renewal', subscription });
+  const fullMonthCharge = await calculateChargeAmount(student, monthlyFee, {
+    mode: 'renewal',
+    subscription,
+    planFee: monthlyFee,
+  });
 
   // "Prorated from today" (docs/plans/payment-airtight-plan.md D4) — the
   // SAME computeProration() the registration flow uses, anchored at TODAY
@@ -357,9 +361,12 @@ async function previewRenewal(subscriptionId) {
   if (levelId !== null) {
     const today = todayDateOnly();
     const proration = await computeProration({ levelId, monthlyFee, registrationDate: today });
+    // planFee: the top payer is decided by plan, not by this prorated
+    // charge (F15) — and chargeProratedNow passes the exact same inputs.
     const proratedCharge = await calculateChargeAmount(student, proration.proratedAmount, {
       mode: 'renewal',
       subscription,
+      planFee: monthlyFee,
     });
 
     proratedOption = {
@@ -546,6 +553,7 @@ async function renewOne(subscriptionId, { recordedBy = null } = {}) {
   const { amount, siblingDiscountApplied, siblingDiscountAmount } = await calculateChargeAmount(student, monthlyFee, {
     mode: 'renewal',
     subscription,
+    planFee: monthlyFee,
   });
 
   const paymentMethod = await paymentMethodService.getMine(subscription.parentId);
@@ -652,7 +660,8 @@ async function chargeProratedNow(subscriptionId, adminUser) {
   const { amount, siblingDiscountApplied, siblingDiscountAmount } = await calculateChargeAmount(
     student,
     proration.proratedAmount,
-    { mode: 'renewal', subscription }
+    // Same inputs as previewRenewal's prorated option (preview == charge).
+    { mode: 'renewal', subscription, planFee: monthlyFee }
   );
 
   const paymentMethod = await paymentMethodService.getMine(subscription.parentId);

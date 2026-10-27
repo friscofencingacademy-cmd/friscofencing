@@ -598,7 +598,7 @@ async function listMine(parentId) {
       // excluded rule), using this subscription's own createdAt for the
       // tiebreak if it's tied with a sibling at the family's top fee.
       const { amount, siblingDiscountApplied, siblingDiscountAmount, reason } =
-        await calculateChargeAmount(student, currentFee, { mode: 'renewal', subscription });
+        await calculateChargeAmount(student, currentFee, { mode: 'renewal', subscription, planFee: currentFee });
 
       return {
         ...subscription,

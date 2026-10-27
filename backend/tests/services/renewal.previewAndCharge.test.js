@@ -877,3 +877,130 @@ describe('Guard B across pathways — one payment per subscription per calendar 
     30000
   );
 });
+
+// F15 (docs/plans/sibling-discount-top-payer-by-plan-plan.md): the Charge
+// dialog's "prorated from today" option must decide the sibling-discount top
+// payer by PLAN, not by the prorated amount. The clock is pinned late in the
+// month so the pricier plan's prorated slice falls BELOW the cheaper
+// sibling's full plan fee — the exact condition that used to demote the top
+// payer. Every expected amount comes from computeProration, never hard-coded.
+describe('prorated charge with siblings — the top payer is decided by plan (F15)', () => {
+  // Oct 29, 10:00 Central: 3 of October's 31 days remain.
+  const LATE_MONTH = '2026-10-29T15:00:00.000Z';
+  const TOP_PLAN_FEE = MONTHLY_FEE * 2;
+  const SIBLING_PLAN_FEE = MONTHLY_FEE;
+
+  beforeAll(() => {
+    freezeAt(LATE_MONTH);
+  });
+
+  afterAll(() => {
+    // Back to this file's own pinned instant for every later describe.
+    freezeAt(NOW);
+  });
+
+  // One parent, two children: `top` on the pricier plan, `sibling` on the
+  // cheaper one, both active, both levels with a class every day (so the
+  // prorated slice is always chargeable).
+  async function seedTwoChildFamily(key, order) {
+    const { level: topLevel, schedule: topSchedule } = await seedLevelWithPriceAndScheduleEveryDay(TOP_PLAN_FEE, {
+      name: `${key}Top`,
+      order,
+    });
+    const { level: siblingLevel, schedule: siblingSchedule } = await seedLevelWithPriceAndScheduleEveryDay(
+      SIBLING_PLAN_FEE,
+      { name: `${key}Sibling`, order: order + 1 }
+    );
+    const { parent, student: top } = await seedParentAndStudent(`${key.toLowerCase()}@example.com`);
+    const sibling = await User.create({ role: 'student', firstName: 'Sibling', lastName: 'Test', parentId: parent._id });
+    await savePaymentMethodForParent(parent);
+    const adminUser = await seedAdmin(`${key.toLowerCase()}-admin@example.com`);
+
+    const notDue = {
+      parentId: parent._id,
+      currentPeriodStart: new Date('2020-01-01T00:00:00.000Z'),
+      currentPeriodEnd: FAR_FUTURE_DATE,
+      nextBillingDate: FAR_FUTURE_DATE,
+    };
+    const topSubscription = await buildActiveSubscription({ studentId: top._id, scheduleId: topSchedule._id, ...notDue });
+    const siblingSubscription = await buildActiveSubscription({
+      studentId: sibling._id,
+      scheduleId: siblingSchedule._id,
+      ...notDue,
+    });
+
+    return { topLevel, siblingLevel, topSubscription, siblingSubscription, adminUser };
+  }
+
+  async function prorationFor(level, monthlyFee) {
+    return computeProration({ levelId: level._id, monthlyFee, registrationDate: todayDateOnly() });
+  }
+
+  it(
+    'S1: previewRenewal does not discount the top payer — prorated or full month',
+    async () => {
+      const { topLevel, topSubscription } = await seedTwoChildFamily('F15PreviewTop', 40);
+      const expected = await prorationFor(topLevel, TOP_PLAN_FEE);
+
+      // The precondition that triggered F15: the top payer's prorated charge
+      // sits below the cheaper sibling's full plan fee.
+      expect(expected.prorated).toBe(true);
+      expect(expected.proratedAmount).toBeLessThan(SIBLING_PLAN_FEE);
+
+      const preview = await previewRenewal(topSubscription._id);
+
+      expect(preview.options.prorated.amount).toBe(expected.proratedAmount);
+      expect(preview.options.prorated.breakdown.siblingDiscountApplied).toBe(false);
+      expect(preview.options.prorated.breakdown.siblingDiscountAmount).toBe(0);
+      expect(preview.options.fullMonth.amount).toBe(TOP_PLAN_FEE);
+      expect(preview.options.fullMonth.breakdown.siblingDiscountApplied).toBe(false);
+    },
+    30000
+  );
+
+  it(
+    'S2: chargeProratedNow charges the top payer the full prorated amount — the same amount the preview showed',
+    async () => {
+      const { topLevel, topSubscription, adminUser } = await seedTwoChildFamily('F15ChargeTop', 42);
+      const expected = await prorationFor(topLevel, TOP_PLAN_FEE);
+      expect(expected.proratedAmount).toBeLessThan(SIBLING_PLAN_FEE);
+
+      const preview = await previewRenewal(topSubscription._id);
+      const result = await chargeProratedNow(topSubscription._id, adminUser);
+
+      expect(result.outcome).toBe('charged');
+      expect(result.chargeAmount).toBe(expected.proratedAmount);
+      expect(result.chargeAmount).toBe(preview.options.prorated.amount);
+
+      const row = await SubscriptionCycleRegistration.findOne({ subscriptionId: topSubscription._id });
+      expect(row.status).toBe('completed');
+      expect(row.amount).toBe(expected.proratedAmount);
+      expect(row.breakdown.prorated).toBe(true);
+      expect(row.breakdown.siblingDiscountApplied).toBe(false);
+      expect(row.breakdown.siblingDiscountAmount).toBe(0);
+    },
+    30000
+  );
+
+  it(
+    "S3: the cheaper sibling's chargeProratedNow still gets 10% off its own prorated amount",
+    async () => {
+      const { siblingLevel, siblingSubscription, adminUser } = await seedTwoChildFamily('F15ChargeSibling', 44);
+      const expected = await prorationFor(siblingLevel, SIBLING_PLAN_FEE);
+      const expectedDiscount = Math.round(expected.proratedAmount * 0.1 * 100) / 100;
+      const expectedAmount = Math.round((expected.proratedAmount - expectedDiscount) * 100) / 100;
+
+      const preview = await previewRenewal(siblingSubscription._id);
+      const result = await chargeProratedNow(siblingSubscription._id, adminUser);
+
+      expect(result.outcome).toBe('charged');
+      expect(result.chargeAmount).toBe(expectedAmount);
+      expect(result.chargeAmount).toBe(preview.options.prorated.amount);
+
+      const row = await SubscriptionCycleRegistration.findOne({ subscriptionId: siblingSubscription._id });
+      expect(row.breakdown.siblingDiscountApplied).toBe(true);
+      expect(row.breakdown.siblingDiscountAmount).toBe(expectedDiscount);
+    },
+    30000
+  );
+});

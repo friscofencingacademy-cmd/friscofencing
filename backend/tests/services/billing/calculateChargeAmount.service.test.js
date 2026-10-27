@@ -122,7 +122,26 @@ describe('calculateChargeAmount', () => {
       const parent = await seedParent('parent-no-sub@example.com');
       const student = await seedStudent(parent._id);
 
-      await expect(calculateChargeAmount(student, 150, { mode: 'renewal' })).rejects.toThrow(/subscription/);
+      await expect(calculateChargeAmount(student, 150, { mode: 'renewal', planFee: 150 })).rejects.toThrow(/subscription/);
+    });
+
+    // U1 (F15, docs/plans/sibling-discount-top-payer-by-plan-plan.md D1):
+    // renewal mode ranks by plan, so it needs the plan fee stated — never
+    // defaulted to feeNow, which may be prorated.
+    it("throws in 'renewal' mode without a valid planFee — the top payer is decided by plan", async () => {
+      const parent = await seedParent('parent-renewal-no-plan-fee@example.com');
+      const student = await seedStudent(parent._id);
+      const level = await seedLevelWithPrice(150);
+      const schedule = await seedScheduleForLevel(level, { locationName: 'loc-renewal-no-plan-fee' });
+      const subscription = await seedActiveSubscription(student, parent, schedule._id);
+
+      await expect(calculateChargeAmount(student, 150, { mode: 'renewal', subscription })).rejects.toThrow(/planFee/);
+      await expect(calculateChargeAmount(student, 150, { mode: 'renewal', subscription, planFee: NaN })).rejects.toThrow(
+        /planFee/
+      );
+      await expect(calculateChargeAmount(student, 150, { mode: 'renewal', subscription, planFee: -1 })).rejects.toThrow(
+        /planFee/
+      );
     });
 
     it("throws in 'registration' mode without planFee — the reason must describe the plan, not just this month's charge", async () => {
@@ -142,7 +161,7 @@ describe('calculateChargeAmount', () => {
       const schedule = await seedScheduleForLevel(level, { locationName: 'loc-no-sib-renewal' });
       const subscription = await seedActiveSubscription(student, parent, schedule._id);
 
-      const result = await calculateChargeAmount(student, 150, { mode: 'renewal', subscription });
+      const result = await calculateChargeAmount(student, 150, { mode: 'renewal', subscription, planFee: 150 });
 
       expect(result).toEqual({ amount: 150, siblingDiscountApplied: false, siblingDiscountAmount: 0, reason: null });
     });
@@ -170,7 +189,7 @@ describe('calculateChargeAmount', () => {
       await seedActiveSubscription(sibling, parent, siblingSchedule._id);
       const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
 
-      const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription });
+      const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription, planFee: 100 });
 
       // Exact-shape assertion (no extra keys) is deliberate here — it's the
       // regression guard that the registration-mode-only siblingComparison/
@@ -196,7 +215,7 @@ describe('calculateChargeAmount', () => {
       await seedActiveSubscription(sibling, parent, siblingSchedule._id);
       const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
 
-      const result = await calculateChargeAmount(thisStudent, 200, { mode: 'renewal', subscription: thisSubscription });
+      const result = await calculateChargeAmount(thisStudent, 200, { mode: 'renewal', subscription: thisSubscription, planFee: 200 });
 
       expect(result).toEqual({
         amount: 200,
@@ -224,9 +243,9 @@ describe('calculateChargeAmount', () => {
       const midSub = await seedActiveSubscription(mid, parent, midSchedule._id);
       const lowSub = await seedActiveSubscription(low, parent, lowSchedule._id);
 
-      const topResult = await calculateChargeAmount(top, 300, { mode: 'renewal', subscription: topSub });
-      const midResult = await calculateChargeAmount(mid, 200, { mode: 'renewal', subscription: midSub });
-      const lowResult = await calculateChargeAmount(low, 100, { mode: 'renewal', subscription: lowSub });
+      const topResult = await calculateChargeAmount(top, 300, { mode: 'renewal', subscription: topSub, planFee: 300 });
+      const midResult = await calculateChargeAmount(mid, 200, { mode: 'renewal', subscription: midSub, planFee: 200 });
+      const lowResult = await calculateChargeAmount(low, 100, { mode: 'renewal', subscription: lowSub, planFee: 100 });
 
       expect(topResult.siblingDiscountApplied).toBe(false);
       expect(topResult.amount).toBe(300);
@@ -256,8 +275,8 @@ describe('calculateChargeAmount', () => {
         createdAt: new Date('2026-01-02T00:00:00.000Z'),
       });
 
-      const resultFromA = await calculateChargeAmount(studentA, 150, { mode: 'renewal', subscription: subA });
-      const resultFromB = await calculateChargeAmount(studentB, 150, { mode: 'renewal', subscription: subB });
+      const resultFromA = await calculateChargeAmount(studentA, 150, { mode: 'renewal', subscription: subA, planFee: 150 });
+      const resultFromB = await calculateChargeAmount(studentB, 150, { mode: 'renewal', subscription: subB, planFee: 150 });
 
       // B enrolled earlier -> B is the "top payer" (full price); A gets the
       // discount. Exactly one winner, symmetric regardless of which
@@ -279,8 +298,8 @@ describe('calculateChargeAmount', () => {
       const subA = await seedActiveSubscription(studentA, parent, scheduleA._id, { createdAt: sameInstant });
       const subB = await seedActiveSubscription(studentB, parent, scheduleB._id, { createdAt: sameInstant });
 
-      const resultFromA = await calculateChargeAmount(studentA, 150, { mode: 'renewal', subscription: subA });
-      const resultFromB = await calculateChargeAmount(studentB, 150, { mode: 'renewal', subscription: subB });
+      const resultFromA = await calculateChargeAmount(studentA, 150, { mode: 'renewal', subscription: subA, planFee: 150 });
+      const resultFromB = await calculateChargeAmount(studentB, 150, { mode: 'renewal', subscription: subB, planFee: 150 });
 
       // The smaller studentId is the deterministic "winner" (pays full,
       // no discount) on an exact createdAt tie.
@@ -307,7 +326,7 @@ describe('calculateChargeAmount', () => {
       });
       const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
 
-      const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription });
+      const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription, planFee: 100 });
 
       // No siblings counted at all -> no discount, not even the "lower
       // payer" outcome that would apply if the pricier sibling still
@@ -333,7 +352,7 @@ describe('calculateChargeAmount', () => {
       });
       const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
 
-      const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription });
+      const result = await calculateChargeAmount(thisStudent, 100, { mode: 'renewal', subscription: thisSubscription, planFee: 100 });
 
       expect(result.siblingDiscountApplied).toBe(true);
       expect(result.amount).toBe(90);
@@ -351,7 +370,7 @@ describe('calculateChargeAmount', () => {
       await seedActiveSubscription(sibling, parent, siblingSchedule._id);
       const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
 
-      const result = await calculateChargeAmount(thisStudent, 149.99, { mode: 'renewal', subscription: thisSubscription });
+      const result = await calculateChargeAmount(thisStudent, 149.99, { mode: 'renewal', subscription: thisSubscription, planFee: 149.99 });
 
       expect(result.siblingDiscountAmount).toBe(15);
       expect(result.amount).toBe(134.99);
@@ -369,7 +388,7 @@ describe('calculateChargeAmount', () => {
       const siblingSubscription = await seedActiveSubscription(activeSibling, parent, siblingSchedule._id);
       const thisSubscription = await seedActiveSubscription(remainingStudent, parent, thisSchedule._id);
 
-      const beforeCancel = await calculateChargeAmount(remainingStudent, 100, { mode: 'renewal', subscription: thisSubscription });
+      const beforeCancel = await calculateChargeAmount(remainingStudent, 100, { mode: 'renewal', subscription: thisSubscription, planFee: 100 });
       expect(beforeCancel).toEqual({
         amount: 90,
         siblingDiscountApplied: true,
@@ -380,9 +399,95 @@ describe('calculateChargeAmount', () => {
       siblingSubscription.status = 'cancelled';
       await siblingSubscription.save();
 
-      const afterCancel = await calculateChargeAmount(remainingStudent, 100, { mode: 'renewal', subscription: thisSubscription });
+      const afterCancel = await calculateChargeAmount(remainingStudent, 100, { mode: 'renewal', subscription: thisSubscription, planFee: 100 });
 
       expect(afterCancel).toEqual({ amount: 100, siblingDiscountApplied: false, siblingDiscountAmount: 0, reason: null });
+    });
+  });
+
+  // F15 (docs/plans/sibling-discount-top-payer-by-plan-plan.md): the
+  // superadmin Charge dialog's "prorated from today" option passes a
+  // prorated feeNow. The top payer is decided by PLAN; the 10% still comes
+  // off the charge being made.
+  describe("mode: 'renewal' with a prorated charge — the top payer is decided by plan (F15)", () => {
+    it("U2: the top payer charged a prorated amount below a cheaper sibling's plan still pays full", async () => {
+      const cheapLevel = await seedLevelWithPrice(50, { name: 'F15Cheap', order: 1 });
+      const parent = await seedParent('parent-f15-top-prorated@example.com');
+      const thisStudent = await seedStudent(parent._id, { firstName: 'Hundred' });
+      const sibling = await seedStudent(parent._id, { firstName: 'Fifty' });
+      const siblingSchedule = await seedScheduleForLevel(cheapLevel, { locationName: 'loc-f15-top-a' });
+      const thisSchedule = await seedScheduleForLevel(await seedLevelWithPrice(100, { name: 'F15Pricier', order: 2 }), {
+        locationName: 'loc-f15-top-b',
+      });
+      await seedActiveSubscription(sibling, parent, siblingSchedule._id);
+      const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
+
+      // The $100 plan, prorated to $25 — below the sibling's $50 plan.
+      const result = await calculateChargeAmount(thisStudent, 25, {
+        mode: 'renewal',
+        subscription: thisSubscription,
+        planFee: 100,
+      });
+
+      expect(result).toEqual({
+        amount: 25,
+        siblingDiscountApplied: false,
+        siblingDiscountAmount: 0,
+        reason: SIBLING_DISCOUNT_REASONS.TOP_PAYER,
+      });
+    });
+
+    it('U3: a non-top child charged a prorated amount gets 10% of that prorated amount', async () => {
+      const pricierLevel = await seedLevelWithPrice(100, { name: 'F15U3Pricier', order: 2 });
+      const parent = await seedParent('parent-f15-low-prorated@example.com');
+      const thisStudent = await seedStudent(parent._id, { firstName: 'Fifty' });
+      const sibling = await seedStudent(parent._id, { firstName: 'Hundred' });
+      const siblingSchedule = await seedScheduleForLevel(pricierLevel, { locationName: 'loc-f15-low-a' });
+      const thisSchedule = await seedScheduleForLevel(await seedLevelWithPrice(50, { name: 'F15U3Cheap', order: 1 }), {
+        locationName: 'loc-f15-low-b',
+      });
+      await seedActiveSubscription(sibling, parent, siblingSchedule._id);
+      const thisSubscription = await seedActiveSubscription(thisStudent, parent, thisSchedule._id);
+
+      const result = await calculateChargeAmount(thisStudent, 12.5, {
+        mode: 'renewal',
+        subscription: thisSubscription,
+        planFee: 50,
+      });
+
+      expect(result).toEqual({
+        amount: 11.25,
+        siblingDiscountApplied: true,
+        siblingDiscountAmount: 1.25,
+        reason: SIBLING_DISCOUNT_REASONS.OWN_PLAN,
+      });
+    });
+
+    it('U4: a tie at the top BY PLAN is broken by enrollment order, even when this charge is prorated', async () => {
+      const level = await seedLevelWithPrice(100, { name: 'F15TieLevel', order: 1 });
+      const parent = await seedParent('parent-f15-tie@example.com');
+      const earlier = await seedStudent(parent._id, { firstName: 'Earlier' });
+      const later = await seedStudent(parent._id, { firstName: 'Later' });
+      const scheduleEarlier = await seedScheduleForLevel(level, { locationName: 'loc-f15-tie-a' });
+      const scheduleLater = await seedScheduleForLevel(level, { locationName: 'loc-f15-tie-b' });
+
+      const subEarlier = await seedActiveSubscription(earlier, parent, scheduleEarlier._id, {
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      const subLater = await seedActiveSubscription(later, parent, scheduleLater._id, {
+        createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      });
+
+      // Both on the $100 plan; this month's prorated charge is $25.
+      const fromEarlier = await calculateChargeAmount(earlier, 25, { mode: 'renewal', subscription: subEarlier, planFee: 100 });
+      const fromLater = await calculateChargeAmount(later, 25, { mode: 'renewal', subscription: subLater, planFee: 100 });
+
+      expect(fromEarlier.siblingDiscountApplied).toBe(false);
+      expect(fromEarlier.amount).toBe(25);
+      expect(fromEarlier.reason).toBe(SIBLING_DISCOUNT_REASONS.TOP_PAYER);
+      expect(fromLater.siblingDiscountApplied).toBe(true);
+      expect(fromLater.amount).toBe(22.5);
+      expect(fromLater.reason).toBe(SIBLING_DISCOUNT_REASONS.OWN_PLAN);
     });
   });
 

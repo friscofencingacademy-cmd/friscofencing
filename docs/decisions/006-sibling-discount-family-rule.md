@@ -63,11 +63,19 @@ The reason is now chosen by comparing the PLANS (monthly list prices; the caller
 | higher, charge above the sibling fee | the sibling's fee | `BRIDGE` — "…based on your other child's lower-priced plan." |
 | higher, prorated charge at or below it | this prorated charge | `BRIDGE_PRORATED` — "…based on this month's prorated charge, which is lower than your other child's plan." |
 
-No amount changes. Renewal mode is not changed by this addendum. **Open, same root cause (F15,
-owner decision pending):** the superadmin Charge dialog's prorated option (`renewal.service.js`
-`previewRenewal`) passes the prorated amount into renewal mode, which picks the top payer by
-comparing amounts — so a top payer whose prorated charge falls below a sibling's plan fee is
-wrongly discounted. The proposed fix is the same principle: decide the top payer by plans.
+No amount changes from this part.
+
+**Renewal mode ranks by plan too (F15, fixed 2026-10-26,
+`docs/plans/sibling-discount-top-payer-by-plan-plan.md`).** The superadmin Charge dialog's
+"prorated from today" option (`renewal.service.js` `previewRenewal` and `chargeProratedNow`)
+passed the prorated amount into renewal mode, which picked the top payer by comparing that amount
+with the siblings' plan fees. A child on the $100 plan charged a prorated $25 next to a sibling on
+the $50 plan was treated as not the top payer and got 10% off. Renewal mode now requires `planFee`
+as registration mode does, and the top payer is the child on the highest-priced **plan**. The 10%
+is still taken from the charge being made, so a non-top child charged a prorated amount gets 10%
+of that prorated amount. This matches CKQ's rule: rank by plan, discount the charge. Full-month
+renewals are unchanged, because their charge is the plan fee. No past charge is re-priced, and
+staging held no prorated renewal rows when this was fixed.
 
 ## Alternatives considered
 
