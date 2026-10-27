@@ -52,9 +52,12 @@ A precondition that fails makes the run `blocked`: write the result file (sectio
 3. Navigate to the staging URL (`audit/.env`'s `AUDIT_STAGING_URL`, default
    `https://friscofencing-git-develop-frisco-fencing.vercel.app`). Refuse any URL that is the bare
    production host.
-4. Log in as the gate's `login`. If the tab is already logged in as that role, keep it. Passwords
-   come from `audit/.env` (`AUDIT_SUPERADMIN_*`, `AUDIT_TEST_PASSWORD`) or are typed by the owner;
-   never echo a password in chat or write it to any file.
+4. Log in as the gate's `login`. If the tab is already logged in as that role, keep it. Otherwise
+   ask the owner to sign in in that tab and wait: **Claude never types a password** into staging
+   (the values live in `audit/.env`, `AUDIT_SUPERADMIN_*` and `AUDIT_TEST_PASSWORD`, for the
+   owner). Never echo a password in chat or write it to any file. A gate whose `login` names two
+   accounts switches mid-run at the step that says so; signing in as a parent replaces the
+   superadmin session in that browser.
 5. Start the GIF recording, and capture a couple of frames before the first step.
 
 ## 4. Walk the steps
