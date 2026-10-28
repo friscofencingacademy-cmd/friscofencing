@@ -159,6 +159,16 @@ export interface MyTrialClassesResponse {
   trialClasses: TrialClass[];
 }
 
+/** POST /trial-classes, PATCH /trial-classes/:id */
+export interface TrialClassResponse {
+  trialClass: TrialClass;
+}
+
+/** DELETE /trial-classes/:id */
+export interface SuccessResponse {
+  success: true;
+}
+
 /** GET /registrations/mine */
 export interface MySubscriptionsResponse {
   subscriptions: Subscription[];

@@ -1,8 +1,8 @@
 # Trial Cancel and Reschedule
 
-**Status (2026-10-28):** built on `feature/trial-cancel-reschedule`, not yet committed; the owner
-tests locally first. Two PRs to `develop`: PR 1 backend, PR 2 frontend + live gate. Not in
-production. Live gate: `trial-cancel-reschedule` (`docs/live-gates/trial-cancel-reschedule.md`,
+**Status (2026-10-28):** PR 1 (backend) MERGED to `develop` as #145; PR 2 (frontend + live gate)
+shipped to `develop` the same day at the owner's request — the owner tests on staging. Not in
+production; the live gate has not run yet (rollout §3). Live gate: `trial-cancel-reschedule` (`docs/live-gates/trial-cancel-reschedule.md`,
 `audit/gates/trial-cancel-reschedule.js`).
 
 **Owner request (2026-10-28):** a parent who scheduled a trial can **cancel** it (back to square

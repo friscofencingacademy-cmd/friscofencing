@@ -37,7 +37,7 @@ export default defineConfig({
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 5'] },
-      testMatch: /(public-site|login|calendar|kiosk|billing|subscriptions)\.spec\.ts$/,
+      testMatch: /(public-site|login|calendar|kiosk|billing|subscriptions|trial-change)\.spec\.ts$/,
     },
   ],
   // Builds+starts the real Next.js app once per run and reuses it locally

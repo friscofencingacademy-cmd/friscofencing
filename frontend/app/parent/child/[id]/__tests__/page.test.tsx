@@ -5,6 +5,7 @@ import { onUnhandledRequest } from '../../../../../test-utils/msw';
 
 import ChildDetailPage from '../page';
 import { ParentPortalProvider } from '../../../../context/ParentPortalContext';
+import type { Student, StudentBase } from '../../../../../lib/types';
 
 let mockParams = { id: 'student-1' };
 let mockSearchParams = new URLSearchParams();
@@ -20,7 +21,7 @@ jest.mock('next/navigation', () => ({
 // since the page no longer derives status/CTA-gating at all. Kept
 // consistent with each test's own /registrations/mine or /trial-classes/mine
 // override below, matching what the real backend would compute together.
-const STUDENT_BASE = { _id: 'student-1', firstName: 'Kid', lastName: 'One', skillLevel: 'beginner' };
+const STUDENT_BASE: StudentBase = { _id: 'student-1', firstName: 'Kid', lastName: 'One', skillLevel: 'beginner' };
 const STUDENT_NOT_ENROLLED = {
   ...STUDENT_BASE,
   enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null, trial: null },
@@ -34,14 +35,20 @@ const STUDENT_ENROLLED = {
     trial: null,
   },
 };
-const STUDENT_TRIAL_SCHEDULED = {
+const STUDENT_TRIAL_SCHEDULED: Student = {
   ...STUDENT_BASE,
   // 21:00Z–22:00Z on Sep 1 2026 (CDT, UTC-5) is 4:00–5:00 PM Central.
   enrollment: {
-    status: 'trial_scheduled' as const,
+    status: 'trial_scheduled',
     canBookTrial: false,
     schedule: null,
-    trial: { startsAt: '2026-09-01T21:00:00.000Z', endsAt: '2026-09-01T22:00:00.000Z' },
+    trial: {
+      _id: 'trial-1',
+      sessionId: 'session-1',
+      startsAt: '2026-09-01T21:00:00.000Z',
+      endsAt: '2026-09-01T22:00:00.000Z',
+      canChange: true,
+    },
   },
 };
 const STUDENT_TRIAL_COMPLETED = {
@@ -132,6 +139,49 @@ describe('ChildDetailPage', () => {
     // no CTA (canBookTrial is false: the one trial is already spoken for).
     expect(screen.queryByText('Not Enrolled')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /book a free trial/i })).not.toBeInTheDocument();
+  });
+
+  // docs/plans/trial-cancel-reschedule-plan.md — the dialog itself is
+  // covered by TrialActions' own suite.
+  it('offers Reschedule and Cancel on the Trial Class card while the trial can change', async () => {
+    server.use(
+      http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_TRIAL_SCHEDULED] })),
+      http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('link', { name: 'Reschedule trial' })).toHaveAttribute(
+      'href',
+      '/parent/book-trial?reschedule=student-1'
+    );
+    expect(screen.getByRole('button', { name: 'Cancel trial' })).toBeInTheDocument();
+  });
+
+  it('keeps the trial date but offers no actions once the server says it can no longer change', async () => {
+    const locked: Student = {
+      ...STUDENT_TRIAL_SCHEDULED,
+      enrollment: {
+        ...STUDENT_TRIAL_SCHEDULED.enrollment,
+        trial: {
+          _id: 'trial-1',
+          sessionId: 'session-1',
+          startsAt: '2026-09-01T21:00:00.000Z',
+          endsAt: '2026-09-01T22:00:00.000Z',
+          canChange: false,
+        },
+      },
+    };
+    server.use(
+      http.get('*/students/mine', () => HttpResponse.json({ students: [locked] })),
+      http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Scheduled for Tue, Sep 1 · 4:00 PM–5:00 PM.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Reschedule trial' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel trial' })).not.toBeInTheDocument();
   });
 
   // Named per TESTING_STRATEGY's regression-naming convention — the bug the

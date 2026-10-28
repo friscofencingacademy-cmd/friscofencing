@@ -211,9 +211,25 @@ export interface StudentEnrollment {
   status: EnrollmentStatus;
   canBookTrial: boolean;
   schedule: { dayOfWeek: number; startTime: string; endTime: string } | null;
-  // The upcoming trial's real start/end instants — set only when status is
-  // 'trial_scheduled', null otherwise.
-  trial: { startsAt: string; endsAt: string } | null;
+  // The upcoming trial — set only when status is 'trial_scheduled', null
+  // otherwise.
+  trial: UpcomingTrial | null;
+}
+
+// student.service.js's attachEnrollment() (docs/plans/trial-cancel-
+// reschedule-plan.md). `canChange` is the server's answer to "may this trial
+// still be cancelled or rescheduled?" — the same rule PATCH/DELETE
+// /trial-classes/:id enforce (not started, attendance not yet taken). The
+// portal shows Reschedule / Cancel on it alone, never by comparing dates.
+export interface UpcomingTrial {
+  // The TrialClass id — what PATCH/DELETE /trial-classes/:id take.
+  _id: string;
+  // The session the trial is booked into, so the reschedule picker can leave
+  // it out.
+  sessionId: string;
+  startsAt: string;
+  endsAt: string;
+  canChange: boolean;
 }
 
 export interface StudentBase {

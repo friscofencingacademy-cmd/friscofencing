@@ -6,6 +6,7 @@ import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import ParentDashboardPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+import type { Student } from '../../../../lib/types';
 
 let user: ReturnType<typeof userEvent.setup>;
 
@@ -17,7 +18,7 @@ beforeEach(() => {
 // docs/plans/frontend-polish-plan.md PR 3) — these fixtures set it directly
 // rather than relying on the page to derive it from subscriptions/
 // trialClasses, since the page no longer does that at all.
-const STUDENT_ENROLLED = {
+const STUDENT_ENROLLED: Student = {
   _id: 'student-1',
   firstName: 'Enrolled',
   lastName: 'Kid',
@@ -28,19 +29,25 @@ const STUDENT_ENROLLED = {
     trial: null,
   },
 };
-const STUDENT_TRIAL = {
+const STUDENT_TRIAL: Student = {
   _id: 'student-2',
   firstName: 'Trial',
   lastName: 'Kid',
   // 21:00Z–22:00Z on Sep 1 2026 (CDT, UTC-5) is 4:00–5:00 PM Central.
   enrollment: {
-    status: 'trial_scheduled' as const,
+    status: 'trial_scheduled',
     canBookTrial: false,
     schedule: null,
-    trial: { startsAt: '2026-09-01T21:00:00.000Z', endsAt: '2026-09-01T22:00:00.000Z' },
+    trial: {
+      _id: 'trial-1',
+      sessionId: 'session-1',
+      startsAt: '2026-09-01T21:00:00.000Z',
+      endsAt: '2026-09-01T22:00:00.000Z',
+      canChange: true,
+    },
   },
 };
-const STUDENT_NONE = {
+const STUDENT_NONE: Student = {
   _id: 'student-3',
   firstName: 'New',
   lastName: 'Kid',
@@ -50,7 +57,7 @@ const STUDENT_NONE = {
 // from months ago no longer reads as "scheduled" forever) — canBookTrial is
 // false here too (the one-trial-ever rule), so no CTA renders for this
 // child either.
-const STUDENT_TRIAL_COMPLETED = {
+const STUDENT_TRIAL_COMPLETED: Student = {
   _id: 'student-4',
   firstName: 'PastTrial',
   lastName: 'Kid',
@@ -152,6 +159,57 @@ describe('ParentDashboardPage', () => {
 
     expect(await screen.findByText('Trial Kid')).toBeInTheDocument();
     expect(screen.getByText('Trial class scheduled')).toBeInTheDocument();
+  });
+
+  // docs/plans/trial-cancel-reschedule-plan.md — the dialog itself is
+  // covered by TrialActions' own suite; this proves the dashboard wiring.
+  describe('trial Reschedule / Cancel', () => {
+    it('offers both actions on the upcoming-trial card only', async () => {
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({ students: [STUDENT_ENROLLED, STUDENT_TRIAL, STUDENT_NONE] })
+        )
+      );
+
+      renderDashboard();
+
+      expect(await screen.findByText('Trial Kid')).toBeInTheDocument();
+      expect(screen.getAllByRole('link', { name: 'Reschedule trial' })).toHaveLength(1);
+      expect(screen.getByRole('link', { name: 'Reschedule trial' })).toHaveAttribute(
+        'href',
+        '/parent/book-trial?reschedule=student-2'
+      );
+      expect(screen.getAllByRole('button', { name: 'Cancel trial' })).toHaveLength(1);
+    });
+
+    it('cancels the trial and reloads the household, so the child is offered a new trial', async () => {
+      let cancelled = false;
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({
+            students: [
+              cancelled
+                ? { ...STUDENT_TRIAL, enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null } }
+                : STUDENT_TRIAL,
+            ],
+          })
+        ),
+        http.delete('*/trial-classes/trial-1', () => {
+          cancelled = true;
+          return HttpResponse.json({ success: true });
+        })
+      );
+
+      renderDashboard();
+
+      await user.click(await screen.findByRole('button', { name: 'Cancel trial' }));
+      await user.click(screen.getByRole('button', { name: 'Cancel Trial' }));
+
+      expect(await screen.findByText('Not enrolled')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /book a free trial/i })).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(cancelled).toBe(true);
+    });
   });
 
   it('renders the Quick Actions rail', async () => {

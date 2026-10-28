@@ -68,6 +68,7 @@ cd audit
 npm run gate -- f15-prorated-top-payer --headed            # a visible window, 700 ms between actions
 npm run gate -- register-quote --headed --slow 300          # faster
 npm run gate -- payment-history                             # headless
+npm run gate -- trial-cancel-reschedule --headed --allow-writes   # books, moves and cancels a trial (no money)
 ```
 
 - The script signs in itself from `.env` (`AUDIT_SUPERADMIN_*`, `AUDIT_TEST_PASSWORD`). Each

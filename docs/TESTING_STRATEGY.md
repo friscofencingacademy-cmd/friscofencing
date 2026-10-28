@@ -294,7 +294,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 | Project | Device | Specs |
 |---|---|---|
 | `chromium` | Desktop Chrome | every spec |
-| `mobile-chrome` | Pixel 5 (393 px, touch) | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions` — the pages parents, students and staff mostly reach on a phone. A spec joins once it passes on a phone and any layout bug it finds is fixed in the product, never by relaxing the spec. |
+| `mobile-chrome` | Pixel 5 (393 px, touch) | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions`, `trial-change` — the pages parents, students and staff mostly reach on a phone. A spec joins once it passes on a phone and any layout bug it finds is fixed in the product, never by relaxing the spec. |
 
 ### Specs
 
@@ -311,6 +311,7 @@ npx playwright test --list                    # the per-project count TEST_COVER
 | `private-booking.spec.ts` | The public private-lesson listing into the booking wizard: a 10-session pack paid at the quoted total, a booking with an already-paid session, a slot taken mid-checkout (the server's 409 shown, nothing booked, dates refetched, back to the date step), and a coach marking a private lesson attended — exact request payloads asserted | ADR 011. Also the register-private wizard's coverage — there is no separate spec |
 | `subscriptions.spec.ts` | Parent: cancel (no body, the row then cancels at period end). Admin: the status filter (asks the server, shows only its rows), Change Schedule (same-level options only, exact `{ newScheduleId }`), cancel and reactivate through their confirm dialogs, a superadmin Charge from the server's preview (exact `{ period: 'full' }`), and no Charge for a plain admin | Runs on the phone project too |
 | `billing.spec.ts` | `/parent/billing`: rows across billing shapes, the Manual chip and note, a failed row with no download, the exact invoice `href`, no sideways scroll | Runs on the phone project too |
+| `trial-change.spec.ts` | Cancel from the dashboard (the exact `DELETE`, then the child is offered a new trial), reschedule from the dashboard into the wizard's reschedule mode (child fixed, current class left out, the exact `PATCH { sessionId }`), and no actions plus an explanation for a trial the server says can no longer change | Runs on the phone project too. `docs/plans/trial-cancel-reschedule-plan.md` |
 | `spotlights-admin.spec.ts` | Create with a real multipart image upload (a 1×1 PNG via `setInputFiles`) and the exact create body, publish (the exact PUT body), delete through the confirm dialog | |
 
 ### Mocking rules
