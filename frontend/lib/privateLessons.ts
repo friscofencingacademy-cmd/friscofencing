@@ -8,6 +8,7 @@ import type {
   PrivateAttendance,
   PrivateBookingStatus,
   PrivatePurchaseOption,
+  PrivateWindowRemovalResult,
   SessionPriceRow,
 } from './types';
 
@@ -40,6 +41,153 @@ export function formatRuleRange(rule: { startDate: string; endDate: string }): s
   return `${formatDateOnly(rule.startDate)} – ${formatDateOnly(rule.endDate)}`;
 }
 
+// ── Availability windows ──────────────────────────────────────────────────
+// Bulk publish stores one rule per slot ("Tue 6–8 pm, 15 min" = 8 rules at
+// 6:00, 6:15 … 7:45). The coach and admin tables show them back as the
+// window they were published as: back-to-back rules of the same coach,
+// weekday, length and bookable range. Display grouping only — every field
+// is the rules' own.
+
+interface WindowableRule {
+  _id: string;
+  dayOfWeek: number;
+  startTime: string;
+  durationMinutes: number;
+  startDate: string;
+  endDate: string;
+  bookedCount: number;
+}
+
+export interface AvailabilityWindow<R extends WindowableRule> {
+  key: string;
+  rules: R[];
+  dayOfWeek: number;
+  /** "HH:mm" — the first slot's start. */
+  startTime: string;
+  /** "HH:mm" — the last slot's end. */
+  endTime: string;
+  durationMinutes: number;
+  startDate: string;
+  endDate: string;
+  /** Upcoming bookings across every slot in the window. */
+  bookedCount: number;
+}
+
+function minutesOf(hhmm: string): number {
+  const [hours, minutes] = hhmm.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function hhmmOf(totalMinutes: number): string {
+  return `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
+}
+
+function toWindow<R extends WindowableRule>(run: R[]): AvailabilityWindow<R> {
+  const first = run[0];
+  const last = run[run.length - 1];
+  return {
+    key: first._id,
+    rules: run,
+    dayOfWeek: first.dayOfWeek,
+    startTime: first.startTime,
+    endTime: hhmmOf(minutesOf(last.startTime) + last.durationMinutes),
+    durationMinutes: first.durationMinutes,
+    startDate: first.startDate,
+    endDate: first.endDate,
+    bookedCount: run.reduce((sum, rule) => sum + rule.bookedCount, 0),
+  };
+}
+
+/**
+ * Groups rules into windows, ordered by coach (first seen), weekday, then
+ * start time. `coachKeyOf` names each rule's coach (the coach's own page has
+ * just one).
+ */
+export function groupAvailabilityWindows<R extends WindowableRule>(
+  rules: R[],
+  coachKeyOf: (rule: R) => string
+): AvailabilityWindow<R>[] {
+  const coachOrder = new Map<string, number>();
+  const groups = new Map<string, R[]>();
+
+  rules.forEach((rule) => {
+    const coachKey = coachKeyOf(rule);
+    if (!coachOrder.has(coachKey)) coachOrder.set(coachKey, coachOrder.size);
+    const key = [coachKey, rule.dayOfWeek, rule.durationMinutes, rule.startDate, rule.endDate].join('|');
+    groups.set(key, [...(groups.get(key) ?? []), rule]);
+  });
+
+  const windows: { coach: number; window: AvailabilityWindow<R> }[] = [];
+
+  groups.forEach((group) => {
+    const coach = coachOrder.get(coachKeyOf(group[0])) ?? 0;
+    const sorted = [...group].sort((a, b) => minutesOf(a.startTime) - minutesOf(b.startTime));
+    let run: R[] = [];
+
+    sorted.forEach((rule) => {
+      const previous = run[run.length - 1];
+      if (previous && minutesOf(rule.startTime) !== minutesOf(previous.startTime) + previous.durationMinutes) {
+        windows.push({ coach, window: toWindow(run) });
+        run = [];
+      }
+      run.push(rule);
+    });
+
+    windows.push({ coach, window: toWindow(run) });
+  });
+
+  return windows
+    .sort(
+      (a, b) =>
+        a.coach - b.coach ||
+        a.window.dayOfWeek - b.window.dayOfWeek ||
+        minutesOf(a.window.startTime) - minutesOf(b.window.startTime)
+    )
+    .map(({ window }) => window);
+}
+
+/** "Tuesdays". */
+export function formatWindowDay(window: { dayOfWeek: number }): string {
+  return `${DAY_LABELS[window.dayOfWeek]}s`;
+}
+
+/** "6:00 PM–8:00 PM". */
+export function formatWindowTime(window: { startTime: string; endTime: string }): string {
+  return `${formatTime(window.startTime)}–${formatTime(window.endTime)}`;
+}
+
+/** "Tuesdays · 6:00 PM–8:00 PM" — names a window in a button or dialog. */
+export function formatWindowLabel(window: { dayOfWeek: number; startTime: string; endTime: string }): string {
+  return `${formatWindowDay(window)} · ${formatWindowTime(window)}`;
+}
+
+/**
+ * The notice after removing a window slot by slot: success, or which slots
+ * the backend kept and why (a booking made since the page loaded).
+ */
+export function windowRemovalMessage(
+  window: AvailabilityWindow<WindowableRule>,
+  result: PrivateWindowRemovalResult
+): { ok: boolean; message: string } {
+  if (result.failures.length === 0) {
+    return {
+      ok: true,
+      message: result.retired > 0 ? 'Availability removed — slots with past lessons stay on record.' : 'Availability removed.',
+    };
+  }
+
+  const startTimeById = new Map(window.rules.map((rule) => [rule._id, rule.startTime]));
+  const keptTimes = result.failures.map((failure) => formatTime(startTimeById.get(failure.id) ?? '00:00'));
+  const reasons = [...new Set(result.failures.map((failure) => failure.message))].join(' ');
+  const done = result.removed + result.retired;
+  const lead = done === 0 ? 'Nothing was removed.' : `Removed ${done} of ${window.rules.length} slots.`;
+
+  return {
+    ok: false,
+    message: `${lead} ${keptTimes.join(', ')} ${keptTimes.length === 1 ? "wasn't" : "weren't"} removed: ${reasons}`,
+  };
+}
+
 /** The one label for where a booking stands. */
 export function bookingStatusLabel(booking: { status: PrivateBookingStatus; attendance: PrivateAttendance }): string {
   if (booking.status === 'cancelled') return 'Cancelled';
@@ -59,6 +207,11 @@ export function personName(
 /** "10 sessions" / "1 session". */
 export function sessionCount(count: number): string {
   return count === 1 ? '1 session' : `${count} sessions`;
+}
+
+/** "8 slots" / "1 slot". */
+export function slotCount(count: number): string {
+  return count === 1 ? '1 slot' : `${count} slots`;
 }
 
 // ── Purchase options and packs (docs/plans/coach-pack-pricing-plan.md) ───────

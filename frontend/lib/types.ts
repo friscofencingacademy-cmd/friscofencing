@@ -847,6 +847,14 @@ export interface PublishPrivateAvailabilityInput {
 // bookings (kept for their history), 'deleted' otherwise.
 export type PrivateAvailabilityRemovalOutcome = 'deleted' | 'retired';
 
+// Removing a whole availability window: one DELETE per slot, tallied.
+// `failures` are the slots the backend refused (with its message).
+export interface PrivateWindowRemovalResult {
+  removed: number;
+  retired: number;
+  failures: { id: string; message: string }[];
+}
+
 // GET /private-class-schedules/public — no auth, no student/parent data.
 export interface PublicPrivateClassSlot {
   scheduleId: string;

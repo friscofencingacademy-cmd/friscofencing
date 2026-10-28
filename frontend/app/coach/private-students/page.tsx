@@ -7,9 +7,20 @@ import { fetchMyPrivateAvailability, fetchMyPrivateBookings } from '../../../lib
 import {
   cancelPrivateBooking,
   markPrivateAttendance,
-  removePrivateAvailabilityRule,
+  removePrivateAvailabilityWindow,
 } from '../../../lib/services/privateClass';
-import { formatLessonTime, formatRuleRange, formatRuleSlot, personName } from '../../../lib/privateLessons';
+import {
+  type AvailabilityWindow,
+  formatLessonTime,
+  formatRuleRange,
+  formatWindowDay,
+  formatWindowLabel,
+  formatWindowTime,
+  groupAvailabilityWindows,
+  personName,
+  slotCount,
+  windowRemovalMessage,
+} from '../../../lib/privateLessons';
 import type { CoachPrivateAvailabilityRule, CoachPrivateBookingRow } from '../../../lib/types';
 import ProtectedRoute from '../../components/ProtectedRoute';
 import AppShell from '../../components/layout/AppShell';
@@ -259,25 +270,29 @@ function AvailabilityTab() {
   const { data, error, isLoading, retry } = useLoadState(fetchMyPrivateAvailability, []);
   const [publishOpen, setPublishOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [target, setTarget] = useState<CoachPrivateAvailabilityRule | null>(null);
+  const [target, setTarget] = useState<AvailabilityWindow<CoachPrivateAvailabilityRule> | null>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+
+  // Only this coach's own rules here — one coach key.
+  const windows = data ? groupAvailabilityWindows(data, () => 'me') : [];
 
   async function confirmRemove() {
     if (!target) return;
     setRemoving(true);
     setRemoveError(null);
 
-    const result = await removePrivateAvailabilityRule(target._id);
+    const result = await removePrivateAvailabilityWindow(target.rules.map((rule) => rule._id));
+    const { ok, message } = windowRemovalMessage(target, result);
 
     setRemoving(false);
+    retry();
 
-    if (result.status === 'success') {
+    if (ok) {
       setTarget(null);
-      setNotice(result.data === 'retired' ? 'Slot closed — its past lessons stay on record.' : 'Slot removed.');
-      retry();
+      setNotice(message);
     } else {
-      setRemoveError(result.message);
+      setRemoveError(message);
     }
   }
 
@@ -301,7 +316,7 @@ function AvailabilityTab() {
 
       {isLoading || !data ? (
         <p>Loading...</p>
-      ) : data.length === 0 ? (
+      ) : windows.length === 0 ? (
         <Card>
           <p style={{ margin: 0 }}>You haven&apos;t published any private lesson times yet.</p>
         </Card>
@@ -311,30 +326,45 @@ function AvailabilityTab() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>Slot</th>
+                  <th>Day</th>
+                  <th>Window</th>
+                  <th>Slot length</th>
+                  <th>Slots</th>
                   <th>Open</th>
                   <th>Booked</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {data.map((rule) => (
-                  <tr key={rule._id}>
-                    <td>{formatRuleSlot(rule)}</td>
-                    <td>{formatRuleRange(rule)}</td>
-                    <td>{rule.bookedCount}</td>
+                {windows.map((slotWindow) => (
+                  <tr key={slotWindow.key}>
+                    <td>{formatWindowDay(slotWindow)}</td>
+                    <td>{formatWindowTime(slotWindow)}</td>
+                    <td>{slotWindow.durationMinutes} min</td>
+                    <td>{slotWindow.rules.length}</td>
+                    <td>{formatRuleRange(slotWindow)}</td>
+                    <td>{slotWindow.bookedCount}</td>
                     <td>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setRemoveError(null);
-                          setTarget(rule);
-                        }}
-                      >
-                        Remove
-                      </Button>
+                      {/* A window with upcoming bookings can't be removed —
+                          the same rule the backend's DELETE enforces per slot. */}
+                      {slotWindow.bookedCount > 0 ? (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                          Has bookings — can&apos;t be removed
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          aria-label={`Remove ${formatWindowLabel(slotWindow)}`}
+                          onClick={() => {
+                            setRemoveError(null);
+                            setTarget(slotWindow);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -349,7 +379,7 @@ function AvailabilityTab() {
         onClose={() => setPublishOpen(false)}
         onPublished={(count) => {
           setPublishOpen(false);
-          setNotice(`Published ${count} slot${count === 1 ? '' : 's'}.`);
+          setNotice(`Published ${slotCount(count)}.`);
           retry();
         }}
       />
@@ -357,7 +387,7 @@ function AvailabilityTab() {
       <Modal
         open={target !== null}
         onClose={() => setTarget(null)}
-        title={removeError ? 'Cannot Remove' : 'Remove Slot'}
+        title={removeError ? 'Cannot Remove' : 'Remove Availability'}
         size="sm"
         hideCloseButton
         disableClose={removing}
@@ -379,7 +409,10 @@ function AvailabilityTab() {
         }
       >
         <p style={{ margin: 0 }}>
-          {removeError ?? (target ? `Stop offering ${formatRuleSlot(target)}? Families can no longer book it.` : '')}
+          {removeError ??
+            (target
+              ? `Stop offering ${formatWindowLabel(target)} (${slotCount(target.rules.length)})? Families can no longer book them.`
+              : '')}
         </p>
       </Modal>
     </>

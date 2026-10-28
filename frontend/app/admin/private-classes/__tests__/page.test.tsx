@@ -77,14 +77,22 @@ const RULE: AdminPrivateAvailabilityRule = {
   isActive: true,
   bookedCount: 1,
 };
+// A second coach's back-to-back 15-minute slots, no bookings — one window,
+// Thu 6:00–6:30 PM.
+const OTHER_COACH = { _id: 'coach-2', firstName: 'Lee', lastName: 'Park', email: 'lee@example.com' };
+const FREE_RULES: AdminPrivateAvailabilityRule[] = [
+  { ...RULE, _id: 'rule-2', coachId: OTHER_COACH, dayOfWeek: 4, startTime: '18:00', durationMinutes: 15, bookedCount: 0 },
+  { ...RULE, _id: 'rule-3', coachId: OTHER_COACH, dayOfWeek: 4, startTime: '18:15', durationMinutes: 15, bookedCount: 0 },
+];
 
 let cancelledId: string | null = null;
 let publishPayload: unknown = null;
+let deletedIds: string[] = [];
 
 const server = setupServer(
   http.get('*/private-class-enrollments', () => HttpResponse.json({ enrollments: [PURCHASE] })),
   http.get('*/private-class-sessions', () => HttpResponse.json({ sessions: [BOOKING, PAST_BOOKING] })),
-  http.get('*/private-class-schedules', () => HttpResponse.json({ schedules: [RULE] })),
+  http.get('*/private-class-schedules', () => HttpResponse.json({ schedules: [RULE, ...FREE_RULES] })),
   http.get('*/users', () => HttpResponse.json({ users: [COACH] })),
   http.post('*/private-class-sessions/:id/cancel', ({ params }) => {
     cancelledId = String(params.id);
@@ -94,9 +102,10 @@ const server = setupServer(
     publishPayload = await request.json();
     return HttpResponse.json({ schedules: [RULE] }, { status: 201 });
   }),
-  http.delete('*/private-class-schedules/:id', () =>
-    HttpResponse.json({ message: 'This slot has upcoming bookings — cancel them before removing it' }, { status: 409 })
-  )
+  http.delete('*/private-class-schedules/:id', ({ params }) => {
+    deletedIds.push(String(params.id));
+    return HttpResponse.json({ outcome: 'deleted' });
+  })
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest }));
@@ -106,6 +115,7 @@ afterEach(() => {
   mockSearchParams = new URLSearchParams();
   cancelledId = null;
   publishPayload = null;
+  deletedIds = [];
 });
 afterAll(() => server.close());
 
@@ -149,12 +159,42 @@ describe('AdminPrivateClassesPage', () => {
     await waitFor(() => expect(cancelledId).toBe('session-1'));
   });
 
-  it('Availability: publishes on a coach\'s behalf (the coach picker is required) and shows a removal 409 verbatim', async () => {
+  it('Availability: one row per window, with day, window, slot length and slot count', async () => {
+    mockSearchParams = new URLSearchParams({ tab: 'availability' });
+    render(<AdminPrivateClassesPage />);
+
+    const freeRow = (await screen.findByText('6:00 PM–6:30 PM')).closest('tr') as HTMLElement;
+    expect(within(freeRow).getByText('Lee Park')).toBeInTheDocument();
+    expect(within(freeRow).getByText('Thursdays')).toBeInTheDocument();
+    expect(within(freeRow).getByText('15 min')).toBeInTheDocument();
+    expect(within(freeRow).getByText('2')).toBeInTheDocument();
+    expect(within(freeRow).getByText('Oct 1, 2026 – Dec 31, 2026')).toBeInTheDocument();
+
+    // A window with upcoming bookings: a note instead of Remove.
+    const bookedRow = screen.getByText('4:30 PM–5:00 PM').closest('tr') as HTMLElement;
+    expect(within(bookedRow).getByText('Dana Cole')).toBeInTheDocument();
+    expect(within(bookedRow).getByText("Has bookings — can't be removed")).toBeInTheDocument();
+    expect(within(bookedRow).queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+  });
+
+  it('Availability: removing a window deletes each of its slots', async () => {
     mockSearchParams = new URLSearchParams({ tab: 'availability' });
     const user = userEvent.setup();
     render(<AdminPrivateClassesPage />);
 
-    expect(await screen.findByText('Tuesdays · 4:30 PM · 30 min')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Remove Thursdays · 6:00 PM–6:30 PM' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('Availability removed.')).toBeInTheDocument();
+    expect(deletedIds).toEqual(['rule-2', 'rule-3']);
+  });
+
+  it('Availability: publishes on a coach\'s behalf (the coach picker is required)', async () => {
+    mockSearchParams = new URLSearchParams({ tab: 'availability' });
+    const user = userEvent.setup();
+    render(<AdminPrivateClassesPage />);
+
+    expect(await screen.findByText('4:30 PM–5:00 PM')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /publish availability/i }));
     const dialog = await screen.findByRole('dialog');
@@ -177,10 +217,6 @@ describe('AdminPrivateClassesPage', () => {
       })
     );
     expect(await screen.findByText('Published 1 slot.')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Remove Tuesdays · 4:30 PM · 30 min' }));
-    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }));
-    expect(await screen.findByRole('heading', { name: 'Cannot Remove' })).toBeInTheDocument();
   });
 
   it('renders LoadError with a working retry when a tab fails to load', async () => {
