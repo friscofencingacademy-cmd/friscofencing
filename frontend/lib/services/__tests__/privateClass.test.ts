@@ -5,7 +5,6 @@ import { onUnhandledRequest } from '../../../test-utils/msw';
 import {
   bookPrivateLessonWithCredit,
   cancelPrivateBooking,
-  fetchPrivateAvailableDates,
   fetchPrivatePurchaseQuote,
   markPrivateAttendance,
   publishPrivateAvailability,
@@ -51,7 +50,6 @@ describe('privateClass service — queries throw on failure', () => {
 
   it.each([
     ['fetchPrivatePurchaseQuote', '*/private-class-enrollments/quote', () => fetchPrivatePurchaseQuote('s', 'r')],
-    ['fetchPrivateAvailableDates', '*/private-class-schedules/:id/available-dates', () => fetchPrivateAvailableDates('r')],
   ])('%s rejects on a server error', async (_name, url, call) => {
     server.use(http.get(url, () => HttpResponse.json({ message: 'boom' }, { status: 500 })));
 

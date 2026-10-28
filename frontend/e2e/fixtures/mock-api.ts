@@ -18,7 +18,6 @@ import type {
   MySubscriptionsResponse,
   MyTrialClassesResponse,
   PricesResponse,
-  PrivateAvailableDatesResponse,
   PublicGroupClassSchedulesResponse,
   PublicLevelsResponse,
   PublicLocationsResponse,
@@ -39,7 +38,6 @@ import type {
   PaymentMethodInfo,
   Price,
   PrivateAttendanceResult,
-  PrivateAvailableDate,
   PrivateBooking,
   PrivateBookingResult,
   PrivatePurchaseOption,
@@ -256,7 +254,9 @@ export const FIXTURE_PRIVATE_SLOT: PublicPrivateClassSlot = {
   hourlyRate: 65,
   options: FIXTURE_PRIVATE_OPTIONS,
 };
-export const FIXTURE_PRIVATE_DATE: PrivateAvailableDate = {
+// The one open date of FIXTURE_PRIVATE_SLOT — served as a calendar
+// 'private-open' event below (Tue Oct 6, 4:30 PM Central).
+export const FIXTURE_PRIVATE_DATE = {
   day: '2026-10-06',
   startDate: '2026-10-06T21:30:00.000Z',
   endDate: '2026-10-06T22:00:00.000Z',
@@ -530,13 +530,12 @@ const DEFAULT_RULES: MockRule[] = [
     path: '/private-class-schedules/public',
     handler: (route) =>
       json<PublicPrivateLessons>(route, 200, {
-        coaches: [{ coachId: 'user-coach', coachName: 'Dana Cole', slots: [FIXTURE_PRIVATE_SLOT] }],
+        // The same coach as the calendar's open-slot event, so the booking
+        // wizard's calendar lookup (by this coachId) finds it.
+        coaches: [
+          { coachId: FIXTURE_CALENDAR_COACH_PRIVATE.id, coachName: 'Dana Cole', slots: [FIXTURE_PRIVATE_SLOT] },
+        ],
       }),
-  },
-  {
-    method: 'GET',
-    path: '/private-class-schedules/:id/available-dates',
-    handler: (route) => json<PrivateAvailableDatesResponse>(route, 200, { dates: [FIXTURE_PRIVATE_DATE] }),
   },
   {
     method: 'GET',
@@ -564,8 +563,14 @@ const DEFAULT_RULES: MockRule[] = [
     handler: (route, { url }) => {
       const coachId = url.searchParams.get('coachId');
       const type = url.searchParams.get('type');
+      const from = url.searchParams.get('from') ?? '';
+      const to = url.searchParams.get('to') ?? '';
+      // Only the requested range, like the real endpoint — a caller paging
+      // through several ranges must not get the same event twice.
       const events = FIXTURE_CALENDAR_EVENTS.filter(
         (event) =>
+          (!from || event.day >= from) &&
+          (!to || event.day <= to) &&
           (!coachId || event.coach?.id === coachId) &&
           (!type || (type === 'group' ? event.kind === 'group' : event.kind !== 'group'))
       );

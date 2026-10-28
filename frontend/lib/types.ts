@@ -881,14 +881,6 @@ export interface PublicPrivateLessons {
   coaches: PublicPrivateClassCoach[];
 }
 
-// GET /private-class-schedules/:id/available-dates — `day` is 'YYYY-MM-DD';
-// startDate/endDate are real instants (format with formatInstant).
-export interface PrivateAvailableDate {
-  day: string;
-  startDate: string;
-  endDate: string;
-}
-
 // One priced purchase option — every figure computed by the backend
 // (privateClassPricing.js's purchaseOptionsFor); render verbatim. `packId`
 // is null for the single session. Used by both the purchase quote and the
@@ -1109,6 +1101,16 @@ export interface CalendarResponse {
   events: CalendarEvent[];
   // Every coach with something in range — the coach filter's options.
   coaches: CalendarPersonRef[];
+}
+
+// One bookable private-lesson slot on one day, from the calendar's
+// 'private-open' events — scheduleId is the slot (rule), day 'YYYY-MM-DD'
+// (Central), startsAt/endsAt real instants.
+export interface PrivateOpenSlot {
+  scheduleId: string;
+  day: string;
+  startsAt: string;
+  endsAt: string;
 }
 
 export interface CalendarQuery {

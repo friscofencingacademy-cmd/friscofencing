@@ -31,11 +31,6 @@ export function formatLessonClock(iso: string): string {
   return formatInstant(iso, { hour: 'numeric', minute: '2-digit', month: undefined, day: undefined, year: undefined });
 }
 
-/** "Tuesdays · 4:30 PM · 30 min" — an availability rule. */
-export function formatRuleSlot(rule: { dayOfWeek: number; startTime: string; durationMinutes: number }): string {
-  return `${DAY_LABELS[rule.dayOfWeek]}s · ${formatTime(rule.startTime)} · ${rule.durationMinutes} min`;
-}
-
 /** "Oct 1, 2026 – Dec 31, 2026" — a rule's bookable range (calendar-day sentinels). */
 export function formatRuleRange(rule: { startDate: string; endDate: string }): string {
   return `${formatDateOnly(rule.startDate)} – ${formatDateOnly(rule.endDate)}`;
@@ -46,16 +41,16 @@ export function formatRuleRange(rule: { startDate: string; endDate: string }): s
 // 6:00, 6:15 … 7:45). The coach and admin tables show them back as the
 // window they were published as: back-to-back rules of the same coach,
 // weekday, length and bookable range. Display grouping only — every field
-// is the rules' own.
+// is the rules' own. Works on the coach/admin rules and on the public
+// listing's slots alike (the latter carry no bookedCount).
 
 interface WindowableRule {
-  _id: string;
   dayOfWeek: number;
   startTime: string;
   durationMinutes: number;
   startDate: string;
   endDate: string;
-  bookedCount: number;
+  bookedCount?: number;
 }
 
 export interface AvailabilityWindow<R extends WindowableRule> {
@@ -82,11 +77,11 @@ function hhmmOf(totalMinutes: number): string {
   return `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
 }
 
-function toWindow<R extends WindowableRule>(run: R[]): AvailabilityWindow<R> {
+function toWindow<R extends WindowableRule>(coachKey: string, run: R[]): AvailabilityWindow<R> {
   const first = run[0];
   const last = run[run.length - 1];
   return {
-    key: first._id,
+    key: [coachKey, first.dayOfWeek, first.startTime, first.durationMinutes, first.startDate, first.endDate].join('|'),
     rules: run,
     dayOfWeek: first.dayOfWeek,
     startTime: first.startTime,
@@ -94,7 +89,7 @@ function toWindow<R extends WindowableRule>(run: R[]): AvailabilityWindow<R> {
     durationMinutes: first.durationMinutes,
     startDate: first.startDate,
     endDate: first.endDate,
-    bookedCount: run.reduce((sum, rule) => sum + rule.bookedCount, 0),
+    bookedCount: run.reduce((sum, rule) => sum + (rule.bookedCount ?? 0), 0),
   };
 }
 
@@ -120,20 +115,21 @@ export function groupAvailabilityWindows<R extends WindowableRule>(
   const windows: { coach: number; window: AvailabilityWindow<R> }[] = [];
 
   groups.forEach((group) => {
-    const coach = coachOrder.get(coachKeyOf(group[0])) ?? 0;
+    const coachKey = coachKeyOf(group[0]);
+    const coach = coachOrder.get(coachKey) ?? 0;
     const sorted = [...group].sort((a, b) => minutesOf(a.startTime) - minutesOf(b.startTime));
     let run: R[] = [];
 
     sorted.forEach((rule) => {
       const previous = run[run.length - 1];
       if (previous && minutesOf(rule.startTime) !== minutesOf(previous.startTime) + previous.durationMinutes) {
-        windows.push({ coach, window: toWindow(run) });
+        windows.push({ coach, window: toWindow(coachKey, run) });
         run = [];
       }
       run.push(rule);
     });
 
-    windows.push({ coach, window: toWindow(run) });
+    windows.push({ coach, window: toWindow(coachKey, run) });
   });
 
   return windows
@@ -166,7 +162,7 @@ export function formatWindowLabel(window: { dayOfWeek: number; startTime: string
  * the backend kept and why (a booking made since the page loaded).
  */
 export function windowRemovalMessage(
-  window: AvailabilityWindow<WindowableRule>,
+  window: AvailabilityWindow<WindowableRule & { _id: string }>,
   result: PrivateWindowRemovalResult
 ): { ok: boolean; message: string } {
   if (result.failures.length === 0) {

@@ -85,7 +85,7 @@ describe('PrivateClassesPage', () => {
     renderPage();
 
     expect(await screen.findByText('Dana Cole')).toBeInTheDocument();
-    expect(screen.getByText('Tuesdays · 4:30 PM · 30 min')).toBeInTheDocument();
+    expect(screen.getByText('Tuesdays · 4:30 PM–5:00 PM · 30-min lessons')).toBeInTheDocument();
     expect(screen.queryByText(/16:30/)).not.toBeInTheDocument();
     expect(screen.getByText('$31.99 / session · Open Oct 1, 2026 – Dec 31, 2026')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /pick a date/i })).toHaveAttribute(
@@ -95,7 +95,32 @@ describe('PrivateClassesPage', () => {
     expect(screen.queryByText(/register/i)).not.toBeInTheDocument();
   });
 
-  it("lists each slot's own packs from the server (the single session is not a pack)", async () => {
+  // The reported bug: "Tue 6–8 pm, 15 min" listed as 8 separate rows. The
+  // listing now shows the window once; its button opens the wizard on the
+  // window's first slot, where every time inside it is offered.
+  it('shows back-to-back slots as one window row with one "Pick a date" button (bug fix)', async () => {
+    const window: PublicPrivateLessons['coaches'][number]['slots'] = ['18:00', '18:15', '18:30', '18:45'].map(
+      (startTime, index) => ({
+        ...LESSONS.coaches[0].slots[0],
+        scheduleId: `win-${index}`,
+        startTime,
+        durationMinutes: 15,
+      })
+    );
+    server.use(
+      http.get('*/private-class-schedules/public', () =>
+        HttpResponse.json({ coaches: [{ ...LESSONS.coaches[0], slots: window }] })
+      )
+    );
+    renderPage();
+
+    expect(await screen.findByText('Tuesdays · 6:00 PM–7:00 PM · 15-min lessons')).toBeInTheDocument();
+    const links = screen.getAllByRole('link', { name: /pick a date/i });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', `/login?next=${encodeURIComponent('/parent/register-private?slot=win-0')}`);
+  });
+
+  it("lists each window's own packs from the server (the single session is not a pack)", async () => {
     // A second slot at another length, where this coach has no pack.
     const sixtyMinuteSlot: PublicPrivateLessons['coaches'][number]['slots'][number] = {
       scheduleId: 'sched-2',
