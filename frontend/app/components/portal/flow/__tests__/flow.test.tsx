@@ -193,6 +193,41 @@ describe('ChildPickerCards', () => {
       expect(screen.queryByText('Already enrolled')).not.toBeInTheDocument();
     });
   });
+
+  // Caller-decided lock, same split as getBadge — e.g. a child who can't
+  // book a trial.
+  describe('isDisabled', () => {
+    it('disables only the locked card, and clicking it never calls onSelect', async () => {
+      const onSelect = jest.fn();
+
+      render(
+        <ChildPickerCards
+          students={STUDENTS}
+          selectedId=""
+          onSelect={onSelect}
+          isDisabled={(student) => student._id === 's1'}
+        />
+      );
+
+      const locked = screen.getByRole('radio', { name: /kid one/i });
+      expect(locked).toBeDisabled();
+      expect(screen.getByRole('radio', { name: /kid two/i })).toBeEnabled();
+
+      await user.click(locked);
+      expect(onSelect).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('radio', { name: /kid two/i }));
+      expect(onSelect).toHaveBeenCalledWith('s2');
+    });
+
+    it('leaves every card enabled when isDisabled is omitted', () => {
+      render(<ChildPickerCards students={STUDENTS} selectedId="" onSelect={jest.fn()} />);
+
+      for (const card of screen.getAllByRole('radio')) {
+        expect(card).toBeEnabled();
+      }
+    });
+  });
 });
 
 describe('PillRow', () => {

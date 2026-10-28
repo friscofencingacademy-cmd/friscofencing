@@ -15,9 +15,19 @@ export interface ChildPickerCardsProps {
   // whatever string (or null, for "no chip") the caller hands back per
   // student (docs/plans/booking-and-private-class-fixes-plan.md §1).
   getBadge?: (student: StudentBase) => string | null;
+  // Optional per-card lock (e.g. a child who can't book a trial) — same
+  // caller-decides split as getBadge. A disabled card renders greyed out
+  // and can't be selected; pair it with a badge saying why.
+  isDisabled?: (student: StudentBase) => boolean;
 }
 
-export default function ChildPickerCards({ students, selectedId, onSelect, getBadge }: ChildPickerCardsProps) {
+export default function ChildPickerCards({
+  students,
+  selectedId,
+  onSelect,
+  getBadge,
+  isDisabled,
+}: ChildPickerCardsProps) {
   return (
     <div className={styles.childGrid} role="radiogroup" aria-label="Select a child">
       {students.map((student, index) => {
@@ -37,6 +47,7 @@ export default function ChildPickerCards({ students, selectedId, onSelect, getBa
             type="button"
             role="radio"
             aria-checked={selected}
+            disabled={isDisabled?.(student) ?? false}
             className={`${styles.childCard} ${selected ? styles.childCardSelected : ''}`}
             onClick={() => onSelect(student._id)}
           >

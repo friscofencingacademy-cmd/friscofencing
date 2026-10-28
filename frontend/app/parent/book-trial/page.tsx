@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { useParentPortal } from '../../context/ParentPortalContext';
@@ -10,7 +11,7 @@ import { fetchSessionsByClass } from '../../../lib/services/scheduling';
 import { bookTrialClass } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
 import { formatDateOnly } from '../../../lib/formatDate';
-import type { GroupClass, GroupClassSessionWithSchedule, Level } from '../../../lib/types';
+import type { GroupClass, GroupClassSessionWithSchedule, Level, Student } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
 import LoadError from '../../components/ui/LoadError/LoadError';
@@ -49,6 +50,23 @@ function formatSessionLine(session: GroupClassSessionWithSchedule): string {
   return `${formatSessionDate(session.date)} · ${formatSessionTimeRange(session.scheduleId)}`;
 }
 
+// Why a child can't book a trial — wording only. Whether they can is the
+// backend's enrollment.canBookTrial (student.service.js's
+// attachEnrollment()), the same one-trial-ever / already-enrolled rule
+// POST /trial-classes enforces; status only picks the words.
+function trialIneligibleNote(student: Student): string | null {
+  if (student.enrollment.canBookTrial) return null;
+
+  switch (student.enrollment.status) {
+    case 'enrolled':
+      return 'Already enrolled';
+    case 'trial_scheduled':
+      return 'Trial already booked';
+    default:
+      return 'Already used their free trial';
+  }
+}
+
 interface BookedInfo {
   childName: string;
   sessionLine: string;
@@ -78,13 +96,15 @@ export default function BookTrialPage() {
   const [submitting, setSubmitting] = useState(false);
   const [booked, setBooked] = useState<BookedInfo | null>(null);
 
-  // Deep-link preselect: /parent/book-trial?child=<studentId>
+  // Deep-link preselect: /parent/book-trial?child=<studentId> — only for a
+  // child who can still book a trial, so a stale link can't skip past the
+  // greyed-out card below.
   useEffect(() => {
     const preselect = searchParams.get('child');
-    if (preselect) {
+    if (preselect && students.some((student) => student._id === preselect && student.enrollment.canBookTrial)) {
       setStudentId(preselect);
     }
-  }, [searchParams]);
+  }, [searchParams, students]);
 
   // A level maps 1:1 to a GroupClass in practice (confirmed against real
   // schedule data — className always equals levelName), but the data model
@@ -151,6 +171,11 @@ export default function BookTrialPage() {
 
   const selectedStudent = students.find((student) => student._id === studentId);
   const selectedSession = sessions.find((session) => session._id === sessionId);
+  // Keyed by id so ChildPickerCards' StudentBase-typed callbacks can look a
+  // child up without reading enrollment themselves (register/page.tsx's
+  // enrolledStudentIds pattern).
+  const ineligibleNotes = new Map(students.map((student) => [student._id, trialIneligibleNote(student)]));
+  const noChildEligible = students.length > 0 && students.every((student) => !student.enrollment.canBookTrial);
 
   async function handleSubmit() {
     setStepError(null);
@@ -235,7 +260,19 @@ export default function BookTrialPage() {
         ) : (
           <>
             <FlowSection title="Who is this trial for?">
-              <ChildPickerCards students={students} selectedId={studentId} onSelect={setStudentId} />
+              <ChildPickerCards
+                students={students}
+                selectedId={studentId}
+                onSelect={setStudentId}
+                getBadge={(student) => ineligibleNotes.get(student._id) ?? null}
+                isDisabled={(student) => Boolean(ineligibleNotes.get(student._id))}
+              />
+              {noChildEligible ? (
+                <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
+                  None of your children can book a trial. <Link href="/parent/register">Register for a class</Link>{' '}
+                  instead.
+                </p>
+              ) : null}
             </FlowSection>
 
             {studentId ? (

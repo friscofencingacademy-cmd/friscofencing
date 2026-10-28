@@ -19,7 +19,42 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
-const STUDENT = { _id: 'student-1', firstName: 'Kid', lastName: 'One' };
+// enrollment is server-decided (student.service.js's attachEnrollment()) —
+// canBookTrial is what locks a child's card on this page.
+const STUDENT = {
+  _id: 'student-1',
+  firstName: 'Kid',
+  lastName: 'One',
+  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null, trial: null },
+};
+const STUDENT_TRIAL_USED = {
+  _id: 'student-2',
+  firstName: 'Used',
+  lastName: 'Trial',
+  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null, trial: null },
+};
+const STUDENT_TRIAL_BOOKED = {
+  _id: 'student-3',
+  firstName: 'Booked',
+  lastName: 'Trial',
+  enrollment: {
+    status: 'trial_scheduled' as const,
+    canBookTrial: false,
+    schedule: null,
+    trial: { startsAt: '2099-01-01T22:00:00.000Z', endsAt: '2099-01-01T23:00:00.000Z' },
+  },
+};
+const STUDENT_ENROLLED = {
+  _id: 'student-4',
+  firstName: 'Enrolled',
+  lastName: 'Kid',
+  enrollment: {
+    status: 'enrolled' as const,
+    canBookTrial: false,
+    schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+    trial: null,
+  },
+};
 
 // LEVEL_BEGINNER/LEVEL_ADVANCED + CLASS_A/CLASS_B's levelId link, same
 // fixture convention as register/__tests__/page.test.tsx — the picker is
@@ -153,6 +188,69 @@ describe('BookTrialPage wizard', () => {
     const childCard = await screen.findByRole('radio', { name: /kid one/i });
     expect(childCard).toHaveAttribute('aria-checked', 'true');
     expect(await screen.findByLabelText('Level')).toBeInTheDocument();
+  });
+
+  // The reported bug: an ineligible child could be picked and walked all the
+  // way to "Book Trial Class" before the POST's 409 said no. The card is now
+  // locked up front from the server's canBookTrial, with the reason under it.
+  describe('trial eligibility shown at the child step (bug fix)', () => {
+    it('greys out every child who cannot book a trial, with the reason under each, and leaves eligible children selectable', async () => {
+      server.use(
+        http.get('*/students/mine', () =>
+          HttpResponse.json({ students: [STUDENT, STUDENT_TRIAL_USED, STUDENT_TRIAL_BOOKED, STUDENT_ENROLLED] })
+        )
+      );
+
+      renderBookTrialPage();
+
+      const usedCard = await screen.findByRole('radio', { name: /used trial/i });
+      expect(usedCard).toBeDisabled();
+      expect(within(usedCard).getByText('Already used their free trial')).toBeInTheDocument();
+
+      const bookedCard = screen.getByRole('radio', { name: /booked trial/i });
+      expect(bookedCard).toBeDisabled();
+      expect(within(bookedCard).getByText('Trial already booked')).toBeInTheDocument();
+
+      const enrolledCard = screen.getByRole('radio', { name: /enrolled kid/i });
+      expect(enrolledCard).toBeDisabled();
+      expect(within(enrolledCard).getByText('Already enrolled')).toBeInTheDocument();
+
+      // Clicking a locked card selects nothing — the Level step never opens.
+      await user.click(usedCard);
+      expect(usedCard).toHaveAttribute('aria-checked', 'false');
+      expect(screen.queryByLabelText('Level')).not.toBeInTheDocument();
+
+      // The eligible child is untouched.
+      const eligibleCard = screen.getByRole('radio', { name: /kid one/i });
+      expect(eligibleCard).toBeEnabled();
+      await user.click(eligibleCard);
+      expect(await screen.findByLabelText('Level')).toBeInTheDocument();
+      expect(screen.queryByText(/none of your children can book a trial/i)).not.toBeInTheDocument();
+    });
+
+    it('ignores a ?child= deep link to a child who cannot book a trial', async () => {
+      server.use(
+        http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT, STUDENT_TRIAL_USED] }))
+      );
+      mockSearchParams = new URLSearchParams({ child: STUDENT_TRIAL_USED._id });
+
+      renderBookTrialPage();
+
+      const usedCard = await screen.findByRole('radio', { name: /used trial/i });
+      expect(usedCard).toHaveAttribute('aria-checked', 'false');
+      expect(screen.queryByLabelText('Level')).not.toBeInTheDocument();
+    });
+
+    it('points to Register when no child in the family can book a trial', async () => {
+      server.use(
+        http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_TRIAL_USED, STUDENT_ENROLLED] }))
+      );
+
+      renderBookTrialPage();
+
+      expect(await screen.findByText(/none of your children can book a trial/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /register for a class/i })).toHaveAttribute('href', '/parent/register');
+    });
   });
 
   it('picking a different child keeps the Level/Session sections in place, not a separate navigable step', async () => {
