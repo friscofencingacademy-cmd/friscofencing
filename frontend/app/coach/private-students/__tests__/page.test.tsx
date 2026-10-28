@@ -38,6 +38,8 @@ const UPCOMING: CoachPrivateBookingRow = {
   canCancel: true,
 };
 
+// Two back-to-back slots = one window (Tue 4:30–5:30 PM, 30 min), no
+// bookings; plus a one-slot Thursday window that has bookings.
 const RULE: CoachPrivateAvailabilityRule = {
   _id: 'rule-1',
   coachId: 'coach-1',
@@ -47,14 +49,18 @@ const RULE: CoachPrivateAvailabilityRule = {
   startDate: '2026-10-01T00:00:00.000Z',
   endDate: '2026-12-31T00:00:00.000Z',
   isActive: true,
-  bookedCount: 3,
+  bookedCount: 0,
 };
+const RULE_NEXT: CoachPrivateAvailabilityRule = { ...RULE, _id: 'rule-2', startTime: '17:00' };
+const BOOKED_RULE: CoachPrivateAvailabilityRule = { ...RULE, _id: 'rule-3', dayOfWeek: 4, startTime: '18:00', bookedCount: 3 };
 
 let unmarked: CoachPrivateBookingRow[] = [UNMARKED];
 let attendancePayload: { id: string; body: unknown } | null = null;
 let cancelledId: string | null = null;
 let publishPayload: unknown = null;
-let removeStatus = 200;
+let deletedIds: string[] = [];
+// The slot the backend refuses (a booking landed since the page loaded).
+let refusedId: string | null = null;
 
 const server = setupServer(
   http.get('*/auth/me', () => HttpResponse.json({ user: COACH_USER })),
@@ -71,16 +77,22 @@ const server = setupServer(
     cancelledId = String(params.id);
     return HttpResponse.json({ session: { ...UPCOMING, status: 'cancelled', attendance: 'cancelled' }, remaining: 10 });
   }),
-  http.get('*/private-class-schedules/mine', () => HttpResponse.json({ schedules: [RULE] })),
+  http.get('*/private-class-schedules/mine', () => HttpResponse.json({ schedules: [RULE, RULE_NEXT, BOOKED_RULE] })),
   http.post('*/private-class-schedules', async ({ request }) => {
     publishPayload = await request.json();
-    return HttpResponse.json({ schedules: [RULE, { ...RULE, _id: 'rule-2', startTime: '17:00' }] }, { status: 201 });
+    return HttpResponse.json({ schedules: [RULE, RULE_NEXT] }, { status: 201 });
   }),
-  http.delete('*/private-class-schedules/:id', () =>
-    removeStatus === 200
-      ? HttpResponse.json({ outcome: 'retired' })
-      : HttpResponse.json({ message: 'This slot has upcoming bookings — cancel them before removing it' }, { status: 409 })
-  )
+  http.delete('*/private-class-schedules/:id', ({ params }) => {
+    const id = String(params.id);
+    if (id === refusedId) {
+      return HttpResponse.json(
+        { message: 'This slot has upcoming bookings — cancel them before removing it' },
+        { status: 409 }
+      );
+    }
+    deletedIds.push(id);
+    return HttpResponse.json({ outcome: id === 'rule-1' ? 'retired' : 'deleted' });
+  })
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest }));
@@ -90,7 +102,8 @@ afterEach(() => {
   attendancePayload = null;
   cancelledId = null;
   publishPayload = null;
-  removeStatus = 200;
+  deletedIds = [];
+  refusedId = null;
 });
 afterAll(() => server.close());
 
@@ -152,8 +165,12 @@ describe('CoachPrivateLessonsPage', () => {
     renderPage();
 
     await user.click(await screen.findByRole('tab', { name: 'Availability' }));
-    expect(await screen.findByText('Tuesdays · 4:30 PM · 30 min')).toBeInTheDocument();
-    expect(screen.getByText('Oct 1, 2026 – Dec 31, 2026')).toBeInTheDocument();
+    // The two back-to-back slots read as one window row.
+    const windowRow = (await screen.findByText('4:30 PM–5:30 PM')).closest('tr') as HTMLElement;
+    expect(within(windowRow).getByText('Tuesdays')).toBeInTheDocument();
+    expect(within(windowRow).getByText('30 min')).toBeInTheDocument();
+    expect(within(windowRow).getByText('2')).toBeInTheDocument();
+    expect(within(windowRow).getByText('Oct 1, 2026 – Dec 31, 2026')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /publish availability/i }));
     const dialog = await screen.findByRole('dialog');
@@ -203,19 +220,46 @@ describe('CoachPrivateLessonsPage', () => {
     expect(await within(dialog).findByText(/overlap availability already published/i)).toBeInTheDocument();
   });
 
-  it('removing a slot reports a retired slot, and a 409 turns the dialog into "Cannot Remove"', async () => {
+  it('a window with bookings offers no Remove, only a note saying why', async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole('tab', { name: 'Availability' }));
 
-    await user.click(await screen.findByRole('button', { name: 'Remove' }));
-    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }));
-    expect(await screen.findByText(/slot closed — its past lessons stay on record/i)).toBeInTheDocument();
+    const bookedRow = (await screen.findByText('6:00 PM–6:30 PM')).closest('tr') as HTMLElement;
+    expect(within(bookedRow).getByText('3')).toBeInTheDocument();
+    expect(within(bookedRow).getByText("Has bookings — can't be removed")).toBeInTheDocument();
+    expect(within(bookedRow).queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+  });
 
-    removeStatus = 409;
-    await user.click(await screen.findByRole('button', { name: 'Remove' }));
+  it('removing a window deletes every one of its slots, and says past lessons stay on record', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Availability' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Remove Tuesdays · 4:30 PM–5:30 PM' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/stop offering tuesdays · 4:30 pm–5:30 pm \(2 slots\)/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('Availability removed — slots with past lessons stay on record.')).toBeInTheDocument();
+    expect(deletedIds).toEqual(['rule-1', 'rule-2']);
+  });
+
+  it('when the backend refuses a slot booked since the page loaded, the dialog turns into "Cannot Remove" naming it', async () => {
+    refusedId = 'rule-2';
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Availability' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Remove Tuesdays · 4:30 PM–5:30 PM' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }));
+
     expect(await screen.findByRole('heading', { name: 'Cannot Remove' })).toBeInTheDocument();
-    expect(screen.getByText(/has upcoming bookings/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Removed 1 of 2 slots. 5:00 PM wasn't removed: This slot has upcoming bookings — cancel them before removing it"
+      )
+    ).toBeInTheDocument();
+    expect(deletedIds).toEqual(['rule-1']);
   });
 });

@@ -8,6 +8,7 @@ import type {
   PrivateCancelResult,
   PrivatePurchaseEntry,
   PrivatePurchaseQuote,
+  PrivateWindowRemovalResult,
   PublicPrivateLessons,
   PublishPrivateAvailabilityInput,
 } from '../types';
@@ -132,4 +133,25 @@ export async function removePrivateAvailabilityRule(
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to remove the slot.') };
   }
+}
+
+// A window is several rules — removed one DELETE at a time, so a slot the
+// backend refuses (e.g. booked since the page loaded) stays and is reported,
+// while the rest are removed.
+export async function removePrivateAvailabilityWindow(ids: string[]): Promise<PrivateWindowRemovalResult> {
+  const result: PrivateWindowRemovalResult = { removed: 0, retired: 0, failures: [] };
+
+  for (const id of ids) {
+    const outcome = await removePrivateAvailabilityRule(id);
+
+    if (outcome.status === 'error') {
+      result.failures.push({ id, message: outcome.message });
+    } else if (outcome.data === 'retired') {
+      result.retired += 1;
+    } else {
+      result.removed += 1;
+    }
+  }
+
+  return result;
 }

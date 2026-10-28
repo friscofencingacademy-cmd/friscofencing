@@ -139,7 +139,7 @@ Management pages show a fallback label for a missing person.
 | `/private-classes` | public | Each coach's availability rules (slot, server price per session, bookable range) with that coach's own packs for each slot's length; "Pick a date" → the wizard (`/login?next=` when logged out) |
 | `/parent/register-private` | parent | 5-step wizard — Who → When (open dates) → Sessions (use a paid session, or buy 1 / a pack, all from the quote) → Review (card guard for a purchase; cancel-cutoff consent) → Done. `?slot=&child=&day=` deep links |
 | `/parent/subscriptions` (Private Lessons section) | parent | Each purchase — sessions left, amount paid — with its bookings; Cancel where `canCancel` |
-| `/coach/private-students` ("Private Lessons" in the nav) | coach | Tabs: Needs attendance (Attended / Missed — a Visit, no money) · Upcoming (Cancel where `canCancel`) · Availability (publish in bulk, remove) |
+| `/coach/private-students` ("Private Lessons" in the nav) | coach | Tabs: Needs attendance (Attended / Missed — a Visit, no money) · Upcoming (Cancel where `canCancel`) · Availability (publish in bulk; one row per window — day, window, slot length, slots, range, booked; remove a whole window, refused while it has upcoming bookings — same as admin, see `docs/features/admin.md`) |
 | `/admin/private-classes` | admin | Tabs: Purchases (read-only) · Bookings (cancel) · Availability (publish for any coach, remove) |
 | `/admin/coach-contracts` | admin | Every contract version: the current one with Edit and Deactivate, older ones read-only with "Replaced on"/"Ended on". One dialog (Add for a coach with no contract, Edit otherwise) with Rates — lesson prices shown under the rate — and Packs, each with a live backend preview |
 

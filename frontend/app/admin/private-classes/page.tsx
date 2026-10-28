@@ -11,16 +11,22 @@ import {
   fetchPrivateBookingsAdmin,
   fetchPrivatePurchasesAdmin,
 } from '../../../lib/services/privateClassAdmin';
-import { cancelPrivateBooking, removePrivateAvailabilityRule } from '../../../lib/services/privateClass';
+import { cancelPrivateBooking, removePrivateAvailabilityWindow } from '../../../lib/services/privateClass';
 import { formatInstant } from '../../../lib/formatDate';
 import { formatMoney } from '../../../lib/formatMoney';
 import {
+  type AvailabilityWindow,
   bookingStatusLabel,
   formatLessonTime,
   formatRuleRange,
-  formatRuleSlot,
+  formatWindowDay,
+  formatWindowLabel,
+  formatWindowTime,
+  groupAvailabilityWindows,
   packSavingsLabel,
   personName,
+  slotCount,
+  windowRemovalMessage,
 } from '../../../lib/privateLessons';
 import type { AdminPrivateAvailabilityRule, AdminPrivateBookingRow } from '../../../lib/types';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
@@ -221,25 +227,28 @@ async function fetchAvailabilityWithCoaches() {
 function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean; onPublishClose: () => void }) {
   const { data, error, isLoading, retry } = useLoadState(fetchAvailabilityWithCoaches, []);
   const [notice, setNotice] = useState<string | null>(null);
-  const [target, setTarget] = useState<AdminPrivateAvailabilityRule | null>(null);
+  const [target, setTarget] = useState<AvailabilityWindow<AdminPrivateAvailabilityRule> | null>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const windows = data ? groupAvailabilityWindows(data.rules, (rule) => rule.coachId?._id ?? 'no-coach') : [];
 
   async function confirmRemove() {
     if (!target) return;
     setRemoving(true);
     setRemoveError(null);
 
-    const result = await removePrivateAvailabilityRule(target._id);
+    const result = await removePrivateAvailabilityWindow(target.rules.map((rule) => rule._id));
+    const { ok, message } = windowRemovalMessage(target, result);
 
     setRemoving(false);
+    retry();
 
-    if (result.status === 'success') {
+    if (ok) {
       setTarget(null);
-      setNotice(result.data === 'retired' ? 'Slot closed — its past lessons stay on record.' : 'Slot removed.');
-      retry();
+      setNotice(message);
     } else {
-      setRemoveError(result.message);
+      setRemoveError(message);
     }
   }
 
@@ -254,37 +263,51 @@ function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean
           <thead className={styles.tHead}>
             <tr>
               <th className={styles.th}>Coach</th>
-              <th className={styles.th}>Slot</th>
+              <th className={styles.th}>Day</th>
+              <th className={styles.th}>Window</th>
+              <th className={styles.th}>Slot length</th>
+              <th className={styles.th}>Slots</th>
               <th className={styles.th}>Open</th>
               <th className={styles.th}>Booked</th>
-              <th className={styles.th} style={{ width: 80 }} />
+              <th className={styles.th} />
             </tr>
           </thead>
           <tbody>
             {isLoading || !data ? (
-              <AdminLoadingRow colSpan={5} />
-            ) : data.rules.length === 0 ? (
-              <AdminEmptyRow colSpan={5} message="No private lesson availability published" />
+              <AdminLoadingRow colSpan={8} />
+            ) : windows.length === 0 ? (
+              <AdminEmptyRow colSpan={8} message="No private lesson availability published" />
             ) : (
-              data.rules.map((rule) => (
-                <tr key={rule._id} className={styles.trHover}>
-                  <td className={styles.td}>{personName(rule.coachId, 'Coach no longer available')}</td>
-                  <td className={styles.td}>{formatRuleSlot(rule)}</td>
-                  <td className={styles.td}>{formatRuleRange(rule)}</td>
-                  <td className={styles.td}>{rule.bookedCount}</td>
+              windows.map((slotWindow) => (
+                <tr key={slotWindow.key} className={styles.trHover}>
+                  <td className={styles.td}>{personName(slotWindow.rules[0].coachId, 'Coach no longer available')}</td>
+                  <td className={styles.td}>{formatWindowDay(slotWindow)}</td>
+                  <td className={styles.td}>{formatWindowTime(slotWindow)}</td>
+                  <td className={styles.td}>{slotWindow.durationMinutes} min</td>
+                  <td className={styles.td}>{slotWindow.rules.length}</td>
+                  <td className={styles.td}>{formatRuleRange(slotWindow)}</td>
+                  <td className={styles.td}>{slotWindow.bookedCount}</td>
                   <td className={`${styles.td} ${styles.tdRight}`}>
-                    <button
-                      type="button"
-                      className={`${styles.btnIcon} ${styles.btnIconDelete}`}
-                      title="Remove"
-                      aria-label={`Remove ${formatRuleSlot(rule)}`}
-                      onClick={() => {
-                        setRemoveError(null);
-                        setTarget(rule);
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
+                    {/* A window with upcoming bookings can't be removed —
+                        the same rule the backend's DELETE enforces per slot. */}
+                    {slotWindow.bookedCount > 0 ? (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                        Has bookings — can&apos;t be removed
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`${styles.btnIcon} ${styles.btnIconDelete}`}
+                        title="Remove"
+                        aria-label={`Remove ${formatWindowLabel(slotWindow)}`}
+                        onClick={() => {
+                          setRemoveError(null);
+                          setTarget(slotWindow);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
@@ -299,7 +322,7 @@ function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean
         onClose={onPublishClose}
         onPublished={(count) => {
           onPublishClose();
-          setNotice(`Published ${count} slot${count === 1 ? '' : 's'}.`);
+          setNotice(`Published ${slotCount(count)}.`);
           retry();
         }}
       />
@@ -307,7 +330,7 @@ function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean
       <Modal
         open={target !== null}
         onClose={() => setTarget(null)}
-        title={removeError ? 'Cannot Remove' : 'Remove Slot'}
+        title={removeError ? 'Cannot Remove' : 'Remove Availability'}
         size="sm"
         hideCloseButton
         disableClose={removing}
@@ -329,7 +352,10 @@ function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean
         }
       >
         <p style={{ margin: 0 }}>
-          {removeError ?? (target ? `Stop offering ${formatRuleSlot(target)}? Families can no longer book it.` : '')}
+          {removeError ??
+            (target
+              ? `Stop offering ${formatWindowLabel(target)} (${slotCount(target.rules.length)})? Families can no longer book them.`
+              : '')}
         </p>
       </Modal>
     </>
