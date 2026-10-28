@@ -183,7 +183,7 @@ export const FIXTURE_STUDENT: Student = {
   _id: 'student-1',
   firstName: 'Test',
   lastName: 'Child',
-  enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
+  enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null },
 };
 export const FIXTURE_PAYMENT_METHOD: PaymentMethodInfo = {
   _id: 'payment-method-1',

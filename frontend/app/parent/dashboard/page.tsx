@@ -7,6 +7,7 @@ import { CalendarPlus, ClipboardList, Wallet } from 'lucide-react';
 import { useParentPortal } from '../../context/ParentPortalContext';
 import { getChildPalette } from '../../../lib/childPalette';
 import { formatTime } from '../../../lib/formatTime';
+import { formatInstantRange } from '../../../lib/formatDate';
 import { DAY_LABELS } from '../../../lib/constants';
 import type { StudentEnrollment } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
@@ -32,7 +33,9 @@ function enrollmentStatusLabel(enrollment: StudentEnrollment): string {
         : 'Enrolled';
     }
     case 'trial_scheduled':
-      return 'Trial class scheduled';
+      return enrollment.trial
+        ? `Trial class — ${formatInstantRange(enrollment.trial.startsAt, enrollment.trial.endsAt)}`
+        : 'Trial class scheduled';
     case 'trial_completed':
       return 'Trial completed';
     case 'not_enrolled':

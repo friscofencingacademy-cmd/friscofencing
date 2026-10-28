@@ -93,6 +93,7 @@ describe('student.service — listMine() enrollment', () => {
       status: 'enrolled',
       canBookTrial: false,
       schedule: { dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
+      trial: null,
     });
   });
 
@@ -102,7 +103,7 @@ describe('student.service — listMine() enrollment', () => {
 
     const [result] = await studentService.listMine(parent._id);
 
-    expect(result.enrollment).toEqual({ status: 'not_enrolled', canBookTrial: true, schedule: null });
+    expect(result.enrollment).toEqual({ status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null });
   });
 
   // Named per TESTING_STRATEGY's regression-naming convention — the bug the
@@ -121,7 +122,18 @@ describe('student.service — listMine() enrollment', () => {
 
         const [result] = await studentService.listMine(parent._id);
 
-        expect(result.enrollment).toEqual({ status: 'trial_scheduled', canBookTrial: false, schedule: null });
+        // The trial's real start/end instants travel with the status, so the
+        // portal can show the date and time. August 2026 is CDT (UTC-5):
+        // 16:00–17:00 Central is 21:00Z–22:00Z.
+        expect(result.enrollment).toEqual({
+          status: 'trial_scheduled',
+          canBookTrial: false,
+          schedule: null,
+          trial: {
+            startsAt: new Date('2026-08-25T21:00:00.000Z'),
+            endsAt: new Date('2026-08-25T22:00:00.000Z'),
+          },
+        });
       } finally {
         jest.useRealTimers();
       }
@@ -157,7 +169,7 @@ describe('student.service — listMine() enrollment', () => {
 
         const [result] = await studentService.listMine(parent._id);
 
-        expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null });
+        expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null, trial: null });
       } finally {
         jest.useRealTimers();
       }
@@ -174,7 +186,7 @@ describe('student.service — listMine() enrollment', () => {
 
         const [result] = await studentService.listMine(parent._id);
 
-        expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null });
+        expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null, trial: null });
       } finally {
         jest.useRealTimers();
       }
@@ -237,6 +249,7 @@ describe('student.service — listMine() enrollment', () => {
         status: 'not_enrolled',
         canBookTrial: true,
         schedule: null,
+        trial: null,
       });
     });
 
@@ -271,7 +284,7 @@ describe('student.service — listMine() enrollment', () => {
 
       const [result] = await studentService.listMine(parent._id);
 
-      expect(result.enrollment).toEqual({ status: 'enrolled', canBookTrial: false, schedule: null });
+      expect(result.enrollment).toEqual({ status: 'enrolled', canBookTrial: false, schedule: null, trial: null });
     });
 
     it('keeps canBookTrial false (never a doomed-retry CTA) when a trial\'s session was deleted', async () => {
@@ -283,7 +296,7 @@ describe('student.service — listMine() enrollment', () => {
 
       const [result] = await studentService.listMine(parent._id);
 
-      expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null });
+      expect(result.enrollment).toEqual({ status: 'trial_completed', canBookTrial: false, schedule: null, trial: null });
     });
   });
 });

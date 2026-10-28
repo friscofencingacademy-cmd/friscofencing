@@ -1,6 +1,7 @@
 import {
   formatDateOnly,
   formatInstant,
+  formatInstantRange,
   todayInAcademyTZ,
   sentinelCalendarDay,
   calendarDayOrdinal,
@@ -70,6 +71,22 @@ describe('formatInstant', () => {
     );
     expect(formatInstant('2026-11-01T09:00:00.000Z', { hour: 'numeric', minute: '2-digit' })).toBe(
       'Nov 1, 2026, 3:00 AM' // now CST (UTC-6)
+    );
+  });
+});
+
+describe('formatInstantRange', () => {
+  it('renders the day and both clock times in the academy timezone', () => {
+    // 21:00Z–22:00Z in August (CDT, UTC-5) is 4:00–5:00 PM Central.
+    expect(formatInstantRange('2026-08-25T21:00:00.000Z', '2026-08-25T22:00:00.000Z')).toBe(
+      'Tue, Aug 25 · 4:00 PM–5:00 PM'
+    );
+  });
+
+  it('keeps the Central calendar day for an evening class that is already the next day in UTC', () => {
+    // 6:30–7:30 PM CST on Mon Nov 2 is 00:30Z–01:30Z on Tue Nov 3.
+    expect(formatInstantRange('2026-11-03T00:30:00.000Z', '2026-11-03T01:30:00.000Z')).toBe(
+      'Mon, Nov 2 · 6:30 PM–7:30 PM'
     );
   });
 });

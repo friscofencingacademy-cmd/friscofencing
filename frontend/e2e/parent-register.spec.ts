@@ -164,6 +164,7 @@ test.describe('parent register wizard', () => {
         status: 'enrolled' as const,
         canBookTrial: false,
         schedule: { dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
+        trial: null,
       },
     };
 

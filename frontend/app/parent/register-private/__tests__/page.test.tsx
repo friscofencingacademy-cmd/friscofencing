@@ -28,7 +28,7 @@ const STUDENT: Student = {
   _id: 'student-1',
   firstName: 'Sam',
   lastName: 'Kid',
-  enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
+  enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null },
 };
 
 // Server-verbatim regression guard (docs/design-system.md anti-pattern 10):

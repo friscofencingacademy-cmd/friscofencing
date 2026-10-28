@@ -59,6 +59,23 @@ export function formatInstant(iso: string, options?: Intl.DateTimeFormatOptions)
   }).format(new Date(iso));
 }
 
+const CLOCK_ONLY: Intl.DateTimeFormatOptions = {
+  hour: 'numeric',
+  minute: '2-digit',
+  month: undefined,
+  day: undefined,
+  year: undefined,
+};
+
+/**
+ * "Mon, Nov 2 · 5:00 PM–6:00 PM" — a same-day span between two real
+ * instants (a class session's startsAt/endsAt), in the academy's timezone.
+ */
+export function formatInstantRange(startsAt: string, endsAt: string): string {
+  const day = formatInstant(startsAt, { weekday: 'short', year: undefined });
+  return `${day} · ${formatInstant(startsAt, CLOCK_ONLY)}–${formatInstant(endsAt, CLOCK_ONLY)}`;
+}
+
 // ── Calendar-day arithmetic (sentinel-only — never mixed with instant math) ─
 //
 // The register wizard's start-date window (thisMonthWindowEnd/

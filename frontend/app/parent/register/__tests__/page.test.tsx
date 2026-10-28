@@ -362,13 +362,14 @@ describe('RegisterPage wizard', () => {
         status: 'enrolled',
         canBookTrial: false,
         schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+        trial: null,
       },
     };
     const NOT_ENROLLED_STUDENT = {
       _id: 'student-fresh',
       firstName: 'Fresh',
       lastName: 'Kid',
-      enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
+      enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null },
     };
 
     it('shows an "Already enrolled" chip on the enrolled child\'s card, and none on a not-yet-enrolled child\'s', async () => {

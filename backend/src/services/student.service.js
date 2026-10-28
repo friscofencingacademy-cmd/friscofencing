@@ -64,7 +64,7 @@ async function attachEnrollment(students) {
       'scheduleId',
       'dayOfWeek startTime endTime'
     ),
-    TrialClass.find({ studentId: { $in: studentIds } }).populate('sessionId', 'date startsAt'),
+    TrialClass.find({ studentId: { $in: studentIds } }).populate('sessionId', 'date startsAt endsAt'),
   ]);
 
   // Keyed on the RAW result (existence), not the populated one — canBookTrial
@@ -102,6 +102,7 @@ async function attachEnrollment(students) {
           schedule: scheduleDoc
             ? { dayOfWeek: scheduleDoc.dayOfWeek, startTime: scheduleDoc.startTime, endTime: scheduleDoc.endTime }
             : null,
+          trial: null,
         },
       };
     }
@@ -116,15 +117,19 @@ async function attachEnrollment(students) {
       // dated at all — default to "completed" rather than risk a stale
       // "scheduled" line for an unrenderable trial.
       const status = sessionDoc && sessionDoc.startsAt > now ? 'trial_scheduled' : 'trial_completed';
+      // The upcoming trial's real instants, so the portal can show its date
+      // and time — only while it's still scheduled.
+      const trialTimes =
+        status === 'trial_scheduled' ? { startsAt: sessionDoc.startsAt, endsAt: sessionDoc.endsAt } : null;
       return {
         ...student,
-        enrollment: { status, canBookTrial: false, schedule: null },
+        enrollment: { status, canBookTrial: false, schedule: null, trial: trialTimes },
       };
     }
 
     return {
       ...student,
-      enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null },
+      enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null },
     };
   });
 }
