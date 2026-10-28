@@ -180,7 +180,7 @@ describe('scripts/lib/refreshStagingData', () => {
 
     expect(second.importSummary.studentsCreated).toBe(1); // recreated fresh after the wipe, not "already existing"
     expect(await User.countDocuments({ role: 'student', firstName: 'Real' })).toBe(1);
-    expect(await User.countDocuments({ role: 'student', firstName: 'Audit' })).toBe(7);
+    expect(await User.countDocuments({ role: 'student', firstName: 'Audit' })).toBe(8);
     expect(await User.countDocuments({ role: 'superadmin' })).toBe(1);
   });
 

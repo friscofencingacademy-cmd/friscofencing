@@ -113,6 +113,85 @@ describe('mail.service', () => {
 
       expect(consoleErrorSpy).toHaveBeenCalled();
     });
+
+    it('tells the parent the trial can be rescheduled or cancelled from the dashboard', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendTrialConfirmationEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam', lastName: 'Rivera' },
+        session: { date: new Date('2030-01-01T00:00:00.000Z') },
+        schedule: { dayOfWeek: 2, startTime: '16:00', endTime: '17:00' },
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.text).toContain('Tuesday, Jan 1, 2030 · 4:00 PM');
+      expect(call.text).toContain('Reschedule or cancel the trial from your parent dashboard any time before the class starts.');
+    });
+  });
+
+  // docs/plans/trial-cancel-reschedule-plan.md
+  describe('sendTrialRescheduledEmail', () => {
+    const coach = { firstName: 'Dana', lastName: 'Coach', email: 'coach@example.com' };
+
+    it('sends to the parent, cc ADMIN_EMAIL + the new coach, naming the new date and the previous one', async () => {
+      const mailService = loadMailService();
+
+      const result = await mailService.sendTrialRescheduledEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam', lastName: 'Rivera' },
+        session: { date: new Date('2030-01-02T00:00:00.000Z') },
+        // The previous session may belong to another schedule, so its time
+        // comes from its own start instant: 22:00Z in January is 4:00 PM
+        // Central (CST, UTC-6).
+        previousSession: { date: new Date('2030-01-01T00:00:00.000Z'), startsAt: new Date('2030-01-01T22:00:00.000Z') },
+        schedule: { dayOfWeek: 3, startTime: '17:30', endTime: '18:30' },
+        groupClass: { name: 'Beginner Foil' },
+        level: { name: 'Beginner' },
+        location: { name: 'Frisco HQ' },
+        coach,
+      });
+
+      expect(result).not.toBe(false);
+      const call = sendMail.mock.calls[0][0];
+      expect(call.to).toBe('pat@example.com');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com', 'coach@example.com']);
+      expect(call.subject).toBe("Sam Rivera's free trial class has been rescheduled");
+      expect(call.text).toContain('Wednesday, Jan 2, 2030 · 5:30 PM');
+      expect(call.text).toContain('Tuesday, Jan 1, 2030 · 4:00 PM');
+    });
+
+    it('degrades to placeholder dates instead of crashing when the sessions are missing their details', async () => {
+      const mailService = loadMailService();
+
+      await mailService.sendTrialRescheduledEmail({
+        parent: { firstName: 'Pat', email: 'pat@example.com' },
+        student: { firstName: 'Sam' },
+        session: {},
+        previousSession: null,
+      });
+
+      const call = sendMail.mock.calls[0][0];
+      expect(call.text).toContain('the scheduled date');
+      expect(call.text).toContain('the earlier date');
+      expect(call.cc).toEqual(['friscofencingacademy@gmail.com']);
+    });
+
+    it('catches a sendMail rejection, logs it, and returns false without throwing', async () => {
+      sendMail.mockRejectedValue(new Error('SMTP exploded'));
+      const mailService = loadMailService();
+
+      await expect(
+        mailService.sendTrialRescheduledEmail({
+          parent: { firstName: 'Pat', email: 'pat@example.com' },
+          student: { firstName: 'Sam' },
+          session: { date: new Date('2030-01-02T00:00:00.000Z') },
+          previousSession: { date: new Date('2030-01-01T00:00:00.000Z') },
+        })
+      ).resolves.toBe(false);
+
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    });
   });
 
   describe('sendRegistrationConfirmationEmail', () => {

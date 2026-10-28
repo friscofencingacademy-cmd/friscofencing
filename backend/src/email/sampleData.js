@@ -17,6 +17,16 @@ const SAMPLE_DATA = {
     locationName: 'Frisco HQ',
   },
 
+  trialRescheduled: {
+    studentName: 'Sam Rivera',
+    className: 'Beginner Foil',
+    levelName: 'Beginner',
+    coachName: 'Coach Dana',
+    whenLabel: 'Wednesday, Aug 27, 2026 · 4:00 PM',
+    previousWhenLabel: 'Monday, Aug 25, 2026 · 4:00 PM',
+    locationName: 'Frisco HQ',
+  },
+
   trialEvaluation: {
     studentName: 'Sam Rivera',
     coachName: 'Coach Dana',

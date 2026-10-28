@@ -120,6 +120,38 @@ async function cancelVisitsForStudent(studentId, sessionIds) {
   );
 }
 
+// Cancels every still-'scheduled' TRIAL Visit of a student except the one on
+// `keepSessionId` (all of them when it is null). How a trial cancel or
+// reschedule takes the old roster entry off (docs/plans/trial-cancel-
+// reschedule-plan.md D3): the TrialClass row says where the trial is, and
+// the roster is reconciled to it. A Visit already marked attended or missed
+// is never touched, and a regular (enrolled) Visit is never touched.
+async function cancelStaleTrialVisits(studentId, keepSessionId) {
+  const filter = { studentId, classType: 'trial', status: 'scheduled' };
+  if (keepSessionId) {
+    filter.groupClassSessionId = { $ne: keepSessionId };
+  }
+
+  return Visit.updateMany(filter, { $set: { status: 'cancelled' } });
+}
+
+// `${studentId}:${sessionId}` -> status of the non-cancelled group Visit, for
+// a batch of (student, session) pairs in one query. A pair with no active
+// Visit is absent from the map.
+async function getActiveGroupVisitStatusByPair(pairs) {
+  if (!pairs || pairs.length === 0) return new Map();
+
+  const visits = await Visit.find(
+    {
+      $or: pairs.map(({ studentId, sessionId }) => ({ studentId, groupClassSessionId: sessionId })),
+      status: { $ne: 'cancelled' },
+    },
+    'studentId groupClassSessionId status'
+  ).lean();
+
+  return new Map(visits.map((visit) => [`${visit.studentId}:${visit.groupClassSessionId}`, visit.status]));
+}
+
 // Every Visit of any service, newest first.
 async function getVisitsByStudent(studentId) {
   return Visit.find({ studentId }).sort({ createdAt: -1 }).lean();
@@ -220,6 +252,8 @@ module.exports = {
   markAttendance,
   markAsMakeupClass,
   cancelVisitsForStudent,
+  cancelStaleTrialVisits,
+  getActiveGroupVisitStatusByPair,
   getVisitsByStudent,
   createScheduledPrivateVisit,
   findActivePrivateVisit,

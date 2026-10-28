@@ -55,8 +55,8 @@ describe('scripts/lib/seedAuditFixtures', () => {
 
     const result = await seedAuditFixtures({ testPassword: PASSWORD });
 
-    expect(await User.countDocuments({ role: 'parent', email: /^audit-/ })).toBe(5);
-    expect(await User.countDocuments({ role: 'student', firstName: 'Audit' })).toBe(7);
+    expect(await User.countDocuments({ role: 'parent', email: /^audit-/ })).toBe(6);
+    expect(await User.countDocuments({ role: 'student', firstName: 'Audit' })).toBe(8);
     expect(await User.countDocuments({ role: 'coach', email: 'audit-coach@example.com' })).toBe(1);
 
     for (const family of AUDIT_FAMILIES) {
