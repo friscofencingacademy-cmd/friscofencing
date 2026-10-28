@@ -136,8 +136,8 @@ Management pages show a fallback label for a missing person.
 
 | Page | Role | Purpose |
 |---|---|---|
-| `/private-classes` | public | Each coach's availability rules (slot, server price per session, bookable range) with that coach's own packs for each slot's length; "Pick a date" → the wizard (`/login?next=` when logged out) |
-| `/parent/register-private` | parent | 5-step wizard — Who → When (open dates) → Sessions (use a paid session, or buy 1 / a pack, all from the quote) → Review (card guard for a purchase; cancel-cutoff consent) → Done. `?slot=&child=&day=` deep links |
+| `/private-classes` | public | Each coach's availability as one row per **window** ("Tuesdays · 6:00 PM–8:00 PM · 15-min lessons", grouped by `groupAvailabilityWindows`), with the server price per session, bookable range and that coach's own packs for the window's length; "Pick a date" → the wizard on the window's first slot (`/login?next=` when logged out) |
+| `/parent/register-private` | parent | 5-step wizard — Who → When (a date, then a time: every open slot of the chosen window, from `GET /calendar/public?coachId&type=private`) → Sessions (use a paid session, or buy 1 / a pack, all from the quote) → Review (card guard for a purchase; cancel-cutoff consent) → Done. `?slot=&child=&day=` deep links |
 | `/parent/subscriptions` (Private Lessons section) | parent | Each purchase — sessions left, amount paid — with its bookings; Cancel where `canCancel` |
 | `/coach/private-students` ("Private Lessons" in the nav) | coach | Tabs: Needs attendance (Attended / Missed — a Visit, no money) · Upcoming (Cancel where `canCancel`) · Availability (publish in bulk; one row per window — day, window, slot length, slots, range, booked; remove a whole window, refused while it has upcoming bookings — same as admin, see `docs/features/admin.md`) |
 | `/admin/private-classes` | admin | Tabs: Purchases (read-only) · Bookings (cancel) · Availability (publish for any coach, remove) |

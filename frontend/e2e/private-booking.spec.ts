@@ -1,8 +1,8 @@
 import { test, expect } from './fixtures/test';
 
-import type { ApiErrorResponse, MyPrivateBookingsResponse, PrivateAvailableDatesResponse } from '../lib/apiResponses';
+import type { ApiErrorResponse, MyPrivateBookingsResponse } from '../lib/apiResponses';
 import type { PrivateAttendanceResult, PrivateBookingResult, PrivatePurchaseQuote } from '../lib/types';
-import { json, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_DATE, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
+import { json, CALENDAR_NOW, FIXTURE_PRIVATE_BOOKING, FIXTURE_PRIVATE_QUOTE, type MockRule } from './fixtures/mock-api';
 import { loginAs } from './fixtures/auth';
 
 // Private lessons, end to end in a real browser (docs/decisions/011-private-
@@ -11,7 +11,14 @@ import { loginAs } from './fixtures/auth';
 // (fixtures/mock-api.ts) — the real backend flow is covered by the backend
 // route suites against real Stripe test mode.
 test.describe('private lesson booking', () => {
-  test("a parent picks a slot, a date and the coach's 10-session pack, pays the pack price, and is booked", async ({ page }) => {
+  // The wizard lists open slots from today to the booking horizon — pin
+  // "today" to CALENDAR_NOW (Mon Oct 5 2026) so the fixture's Tue Oct 6 slot
+  // is ahead of it.
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(CALENDAR_NOW);
+  });
+
+  test("a parent picks a window, a date, a time and the coach's 10-session pack, pays the pack price, and is booked", async ({ page }) => {
     let purchasePayload: unknown = null;
     const overrides: MockRule[] = [
       {
@@ -26,7 +33,7 @@ test.describe('private lesson booking', () => {
     await loginAs(page, 'parent', overrides);
 
     await page.goto('/private-classes');
-    await expect(page.getByText('Tuesdays · 4:30 PM · 30 min')).toBeVisible();
+    await expect(page.getByText('Tuesdays · 4:30 PM–5:00 PM · 30-min lessons')).toBeVisible();
     await expect(page.getByText('Packs: 10 lessons for $300.00')).toBeVisible();
     await page.getByRole('link', { name: 'Pick a date' }).click();
 
@@ -34,7 +41,9 @@ test.describe('private lesson booking', () => {
     await page.getByRole('radio', { name: /test child/i }).click();
     await page.getByRole('button', { name: 'Continue' }).click();
 
+    // A date first, then a time on that date.
     await page.getByRole('radio', { name: /tue, oct 6/i }).click();
+    await page.getByRole('radio', { name: '4:30 PM' }).click();
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await page.getByRole('radio', { name: /buy 10 sessions/i }).click();
@@ -93,16 +102,13 @@ test.describe('private lesson booking', () => {
   // or booked: the wizard shows the server's message, refetches the dates and
   // sends the parent back to pick another one.
   test('a slot taken mid-checkout shows the server message, books nothing, and sends the parent back to pick another date', async ({ page }) => {
+    // Open slots come from the calendar (the default mock serves them); count
+    // its requests to prove the wizard refetches after the refusal.
     let dateFetches = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/calendar/public')) dateFetches += 1;
+    });
     const overrides: MockRule[] = [
-      {
-        method: 'GET',
-        path: '/private-class-schedules/:id/available-dates',
-        handler: (route) => {
-          dateFetches += 1;
-          return json<PrivateAvailableDatesResponse>(route, 200, { dates: [FIXTURE_PRIVATE_DATE] });
-        },
-      },
       {
         method: 'POST',
         path: '/private-class-enrollments',

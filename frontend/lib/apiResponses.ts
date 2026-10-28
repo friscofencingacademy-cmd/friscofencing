@@ -14,7 +14,6 @@ import type {
   PaymentHistoryRow,
   PaymentMethodInfo,
   Price,
-  PrivateAvailableDate,
   PrivatePurchaseEntry,
   PublicGroupClassSchedule,
   PublicLevel,
@@ -183,11 +182,6 @@ export interface MyPaymentMethodResponse {
 /** GET /private-class-enrollments/mine */
 export interface MyPrivatePurchasesResponse {
   enrollments: PrivatePurchaseEntry[];
-}
-
-/** GET /private-class-schedules/:id/available-dates */
-export interface PrivateAvailableDatesResponse {
-  dates: PrivateAvailableDate[];
 }
 
 /** GET /private-class-schedules/mine (coach) */

@@ -6,7 +6,13 @@ import { useAuth } from '../context/AuthContext';
 import { useLoadState, getErrorMessage } from '../../lib/hooks/useLoadState';
 import { fetchPublicPrivateLessons } from '../../lib/services/privateClass';
 import { formatMoney } from '../../lib/formatMoney';
-import { formatRuleRange, formatRuleSlot, packListingLabel } from '../../lib/privateLessons';
+import {
+  type AvailabilityWindow,
+  formatRuleRange,
+  formatWindowLabel,
+  groupAvailabilityWindows,
+  packListingLabel,
+} from '../../lib/privateLessons';
 import type { PublicPrivateClassSlot } from '../../lib/types';
 import AppShell from '../components/layout/AppShell';
 import Button from '../components/ui/Button/Button';
@@ -23,9 +29,20 @@ function packsLine(slot: PublicPrivateClassSlot): string | null {
   return `Packs: ${packs.map(packListingLabel).join(' · ')}`;
 }
 
-function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isLoggedInParent: boolean }) {
-  // A logged-in parent goes straight to the booking wizard; anyone else goes
-  // to log in first, carrying ?next= back to this exact slot.
+// One row per availability window ("Tuesdays · 6:00 PM–8:00 PM", every
+// slot inside it). Its slots share the coach and lesson length, so the
+// first slot's price and packs are the whole window's.
+function WindowRow({
+  slotWindow,
+  isLoggedInParent,
+}: {
+  slotWindow: AvailabilityWindow<PublicPrivateClassSlot>;
+  isLoggedInParent: boolean;
+}) {
+  const slot = slotWindow.rules[0];
+  // A logged-in parent goes straight to the booking wizard (which offers
+  // every date and time inside this window); anyone else goes to log in
+  // first, carrying ?next= back here.
   const bookingHref = `/parent/register-private?slot=${slot.scheduleId}`;
   const href = isLoggedInParent ? bookingHref : `/login?next=${encodeURIComponent(bookingHref)}`;
   const packs = packsLine(slot);
@@ -33,9 +50,11 @@ function SlotRow({ slot, isLoggedInParent }: { slot: PublicPrivateClassSlot; isL
   return (
     <div className={styles.scheduleRow}>
       <div>
-        <div className={styles.scheduleRowTitle}>{formatRuleSlot(slot)}</div>
+        <div className={styles.scheduleRowTitle}>
+          {formatWindowLabel(slotWindow)} · {slotWindow.durationMinutes}-min lessons
+        </div>
         <div className={styles.pageSubtitle}>
-          {formatMoney(slot.sessionPrice)} / session · Open {formatRuleRange(slot)}
+          {formatMoney(slot.sessionPrice)} / session · Open {formatRuleRange(slotWindow)}
         </div>
         {packs ? <div className={styles.pageSubtitle}>{packs}</div> : null}
       </div>
@@ -91,8 +110,8 @@ export default function PrivateClassesPage() {
                 <Link href={`/calendar?coach=${coach.coachId}&type=private`}>View on calendar</Link>
               </div>
               <div>
-                {coach.slots.map((slot) => (
-                  <SlotRow key={slot.scheduleId} slot={slot} isLoggedInParent={isLoggedInParent} />
+                {groupAvailabilityWindows(coach.slots, () => coach.coachId).map((slotWindow) => (
+                  <WindowRow key={slotWindow.key} slotWindow={slotWindow} isLoggedInParent={isLoggedInParent} />
                 ))}
               </div>
             </Card>

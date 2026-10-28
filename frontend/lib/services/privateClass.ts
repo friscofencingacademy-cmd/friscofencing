@@ -3,7 +3,6 @@ import type {
   CoachPrivateAvailabilityRule,
   PrivateAttendanceResult,
   PrivateAvailabilityRemovalOutcome,
-  PrivateAvailableDate,
   PrivateBookingResult,
   PrivateCancelResult,
   PrivatePurchaseEntry,
@@ -13,7 +12,7 @@ import type {
   PublishPrivateAvailabilityInput,
 } from '../types';
 import { extractErrorMessage, type MutationResult } from './shared';
-import type { MyPrivatePurchasesResponse, PrivateAvailableDatesResponse } from '../apiResponses';
+import type { MyPrivatePurchasesResponse } from '../apiResponses';
 
 // Private lessons (docs/decisions/011-private-per-session-booking.md). One
 // client function per endpoint: queries throw (pair with useLoadState),
@@ -27,13 +26,6 @@ import type { MyPrivatePurchasesResponse, PrivateAvailableDatesResponse } from '
 export async function fetchPublicPrivateLessons(): Promise<PublicPrivateLessons> {
   const res = await api.get<PublicPrivateLessons>('/private-class-schedules/public');
   return res.data;
-}
-
-export async function fetchPrivateAvailableDates(scheduleId: string): Promise<PrivateAvailableDate[]> {
-  const res = await api.get<PrivateAvailableDatesResponse>(
-    `/private-class-schedules/${scheduleId}/available-dates`
-  );
-  return res.data.dates;
 }
 
 // ── Parent ──────────────────────────────────────────────────────────────────

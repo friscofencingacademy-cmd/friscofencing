@@ -86,7 +86,7 @@ describe('groupAvailabilityWindows', () => {
       rule('c1-tue-early', '08:00'),
     ];
 
-    expect(groupAvailabilityWindows(rules, byCoach).map((w) => w.key)).toEqual([
+    expect(groupAvailabilityWindows(rules, byCoach).map((w) => w.rules[0]._id)).toEqual([
       'c2-sun',
       'c2-mon',
       'c1-tue-early',
