@@ -6,6 +6,9 @@ const GroupClassSchedule = require('../../src/models/groupClassSchedule.model');
 const GroupClassSession = require('../../src/models/groupClassSession.model');
 const Subscription = require('../../src/models/subscription.model');
 const TrialClass = require('../../src/models/trialClass.model');
+const Visit = require('../../src/models/visit.model');
+const { seedServices } = require('../../scripts/lib/seedServices');
+const visitService = require('../../src/services/visit.service');
 const { hashPassword } = require('../../src/utils/password');
 const { connectTestDB, disconnectTestDB, clearTestDB } = require('../testUtils/db');
 const { createSession } = require('../testUtils/sessions');
@@ -18,6 +21,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await disconnectTestDB(mongod);
+});
+
+// Visit writes resolve their serviceId by Service code (ADR 010).
+beforeEach(async () => {
+  await seedServices();
 });
 
 afterEach(async () => {
@@ -118,20 +126,24 @@ describe('student.service — listMine() enrollment', () => {
         const parent = await makeParent('trial-today');
         const student = await makeStudent(parent._id, 'TrialToday');
         const session = await makeSession(new Date('2026-08-25')); // today, Central
-        await TrialClass.create({ studentId: student._id, sessionId: session._id });
+        const trial = await TrialClass.create({ studentId: student._id, sessionId: session._id });
 
         const [result] = await studentService.listMine(parent._id);
 
-        // The trial's real start/end instants travel with the status, so the
-        // portal can show the date and time. August 2026 is CDT (UTC-5):
-        // 16:00–17:00 Central is 21:00Z–22:00Z.
+        // The trial's id and real start/end instants travel with the status,
+        // so the portal can show the date and time and offer Reschedule /
+        // Cancel. August 2026 is CDT (UTC-5): 16:00–17:00 Central is
+        // 21:00Z–22:00Z.
         expect(result.enrollment).toEqual({
           status: 'trial_scheduled',
           canBookTrial: false,
           schedule: null,
           trial: {
+            _id: trial._id,
+            sessionId: session._id,
             startsAt: new Date('2026-08-25T21:00:00.000Z'),
             endsAt: new Date('2026-08-25T22:00:00.000Z'),
+            canChange: true,
           },
         });
       } finally {
@@ -190,6 +202,61 @@ describe('student.service — listMine() enrollment', () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+  });
+
+  // docs/plans/trial-cancel-reschedule-plan.md D2 — the same rule the
+  // cancel/reschedule endpoints enforce (trialChangeBlocker). Clock pinned at
+  // 12:00 Central on the trial's own day: attendance is open, the 16:00 class
+  // has not started.
+  describe('enrollment.trial.canChange', () => {
+    const TRIAL_DAY_NOON_CENTRAL = '2026-08-25T17:00:00.000Z';
+
+    async function seedTrialWithVisit(suffix, visitStatus) {
+      const parent = await makeParent(suffix);
+      const student = await makeStudent(parent._id, suffix);
+      const session = await makeSession(new Date('2026-08-25'));
+      await TrialClass.create({ studentId: student._id, sessionId: session._id });
+      if (visitStatus === 'scheduled') {
+        await visitService.createScheduledVisit(student._id, session._id, session.scheduleId, 'trial');
+      } else if (visitStatus) {
+        await visitService.markAttendance(student._id, session._id, session.scheduleId, 'trial', visitStatus);
+      }
+      return parent;
+    }
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("is true while the trial's roster Visit is still scheduled", async () => {
+      jest.useFakeTimers({ now: new Date(TRIAL_DAY_NOON_CENTRAL), doNotFake: DO_NOT_FAKE });
+      const parent = await seedTrialWithVisit('can-change-scheduled', 'scheduled');
+
+      const [result] = await studentService.listMine(parent._id);
+
+      expect(result.enrollment.status).toBe('trial_scheduled');
+      expect(result.enrollment.trial.canChange).toBe(true);
+    });
+
+    it.each(['attended', 'missed'])('is false once the trial was marked %s before the class started', async (visitStatus) => {
+      jest.useFakeTimers({ now: new Date(TRIAL_DAY_NOON_CENTRAL), doNotFake: DO_NOT_FAKE });
+      const parent = await seedTrialWithVisit(`can-change-${visitStatus}`, visitStatus);
+
+      const [result] = await studentService.listMine(parent._id);
+
+      expect(result.enrollment.status).toBe('trial_scheduled');
+      expect(result.enrollment.trial.canChange).toBe(false);
+    });
+
+    it('is true when the trial has no active roster Visit (a cancelled one counts as none)', async () => {
+      jest.useFakeTimers({ now: new Date(TRIAL_DAY_NOON_CENTRAL), doNotFake: DO_NOT_FAKE });
+      const parent = await seedTrialWithVisit('can-change-cancelled-visit', 'scheduled');
+      await Visit.updateMany({}, { $set: { status: 'cancelled' } });
+
+      const [result] = await studentService.listMine(parent._id);
+
+      expect(result.enrollment.trial.canChange).toBe(true);
     });
   });
 
@@ -253,24 +320,35 @@ describe('student.service — listMine() enrollment', () => {
       });
     });
 
-    it('issues exactly two queries total regardless of household size — never a per-student loop', async () => {
+    it('issues exactly three queries total regardless of household size — never a per-student loop', async () => {
       const parent = await makeParent('batch-query-count');
       const schedule = await makeSchedule();
       const students = await Promise.all(
         Array.from({ length: 4 }, (_, i) => makeStudent(parent._id, `BatchQuery${i}`))
       );
       await makeActiveSubscription(students[0]._id, parent._id, schedule._id);
+      // Two upcoming trials (2030 — always ahead of the real clock), so the
+      // trial-Visit lookup has more than one pair to batch.
+      await Promise.all(
+        students.slice(1, 3).map(async (student) => {
+          const session = await makeSession(new Date('2030-01-02'));
+          await TrialClass.create({ studentId: student._id, sessionId: session._id });
+        })
+      );
 
       const subscriptionFindSpy = jest.spyOn(Subscription, 'find');
       const trialFindSpy = jest.spyOn(TrialClass, 'find');
+      const visitFindSpy = jest.spyOn(Visit, 'find');
 
       await studentService.listMine(parent._id);
 
       expect(subscriptionFindSpy).toHaveBeenCalledTimes(1);
       expect(trialFindSpy).toHaveBeenCalledTimes(1);
+      expect(visitFindSpy).toHaveBeenCalledTimes(1);
 
       subscriptionFindSpy.mockRestore();
       trialFindSpy.mockRestore();
+      visitFindSpy.mockRestore();
     });
   });
 

@@ -1,6 +1,8 @@
 const User = require('../models/user.model');
 const Subscription = require('../models/subscription.model');
 const TrialClass = require('../models/trialClass.model');
+const visitService = require('./visit.service');
+const { trialChangeBlocker } = require('./trialClass.service');
 const { withAge } = require('../utils/age');
 const { badRequestError } = require('../utils/errors');
 
@@ -84,6 +86,15 @@ async function attachEnrollment(students) {
 
   const now = new Date();
 
+  // The roster Visit of every still-upcoming trial, in one query — a trial
+  // marked attended before its start (attendance opens on the class's day,
+  // and the kiosk signs students in early) can no longer be changed
+  // (docs/plans/trial-cancel-reschedule-plan.md D2).
+  const upcomingTrialPairs = trialClasses
+    .filter((trial) => trial.sessionId && trial.sessionId.startsAt > now)
+    .map((trial) => ({ studentId: trial.studentId, sessionId: trial.sessionId._id }));
+  const trialVisitStatusByPair = await visitService.getActiveGroupVisitStatusByPair(upcomingTrialPairs);
+
   return students.map((student) => {
     const studentId = String(student._id);
     const activeSubscription = activeSubscriptionByStudentId.get(studentId);
@@ -117,13 +128,31 @@ async function attachEnrollment(students) {
       // dated at all — default to "completed" rather than risk a stale
       // "scheduled" line for an unrenderable trial.
       const status = sessionDoc && sessionDoc.startsAt > now ? 'trial_scheduled' : 'trial_completed';
-      // The upcoming trial's real instants, so the portal can show its date
-      // and time — only while it's still scheduled.
-      const trialTimes =
-        status === 'trial_scheduled' ? { startsAt: sessionDoc.startsAt, endsAt: sessionDoc.endsAt } : null;
+      // The upcoming trial's id and real instants, so the portal can show
+      // its date and time and offer Reschedule / Cancel — only while it's
+      // still scheduled. `canChange` is the same rule the cancel/reschedule
+      // endpoints enforce (trialClass.service.js's trialChangeBlocker), so
+      // the buttons never show for a change the server would refuse.
+      const trialDetails =
+        status === 'trial_scheduled'
+          ? {
+              _id: trial._id,
+              // So the reschedule picker can leave out the class the trial
+              // is already in (the PATCH refuses it).
+              sessionId: sessionDoc._id,
+              startsAt: sessionDoc.startsAt,
+              endsAt: sessionDoc.endsAt,
+              canChange:
+                trialChangeBlocker({
+                  session: sessionDoc,
+                  visitStatus: trialVisitStatusByPair.get(`${trial.studentId}:${sessionDoc._id}`) || null,
+                  now,
+                }) === null,
+            }
+          : null;
       return {
         ...student,
-        enrollment: { status, canBookTrial: false, schedule: null, trial: trialTimes },
+        enrollment: { status, canBookTrial: false, schedule: null, trial: trialDetails },
       };
     }
 

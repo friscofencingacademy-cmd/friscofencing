@@ -55,11 +55,12 @@ mapping to a background+border pair in `tokens.js`. `breakdown` renders a border
 from `{ monthlyFee, siblingDiscountAmount|null, total }` — the arithmetic happens in the caller
 (`calculateChargeAmount.service.js`/`privateClassPricing.js`), never inside the block itself.
 
-## Template registry (11 keys)
+## Template registry (12 keys)
 
 | Key | Used by | CC |
 |---|---|---|
-| `trialConfirmation` | Trial booking | admin, coach |
+| `trialConfirmation` | Trial booking (always to the family's parent, also on an admin booking) | admin, coach |
+| `trialRescheduled` | A trial moved to another class (`docs/plans/trial-cancel-reschedule-plan.md` D5) — the new date and the one it moved from. A cancelled trial sends no email. | admin, the new class's coach |
 | `trialEvaluation` | Coach records a trial evaluation (docs/plans/premium-registration-and-attendance-plan.md §3.10) | admin |
 | `registrationConfirmation` | New group-class registration | admin, coach |
 | `renewalReceipt` | Monthly renewal charge | — |

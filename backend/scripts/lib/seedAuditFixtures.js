@@ -48,6 +48,10 @@ const AUDIT_FAMILIES = [
   { email: 'audit-decline-parent@example.com', lastName: 'DeclineParent', children: ['DeclineChild'] }, // S4
   { email: 'audit-bridge-parent@example.com', lastName: 'BridgeParent', children: ['BridgeFirst', 'BridgeSecond'] }, // S5
   { email: 'audit-retry-parent@example.com', lastName: 'RetryParent', children: ['RetryChild'] }, // S6
+  // The trial-cancel-reschedule live gate's own family: no weekly scenario
+  // uses it, so its child is never enrolled and the gate can always book,
+  // move and cancel a trial (docs/live-gates/trial-cancel-reschedule.md).
+  { email: 'audit-trial-parent@example.com', lastName: 'TrialParent', children: ['TrialChild'] }, // gate trial-cancel-reschedule
 ];
 
 // Level A is the pricier plan, Level B the cheaper one (S3/S5 depend on the

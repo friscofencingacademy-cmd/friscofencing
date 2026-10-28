@@ -47,6 +47,8 @@ No `scope`/`locations` (single-location academy — CKQ's own Holiday has both),
 | `studentId` | ObjectId ref `User` | required, **unique** — one trial ever, platform-wide, backed by a service-layer pre-check + this index (same two-layer pattern as `Price.levelId`) |
 | `sessionId` | ObjectId ref `GroupClassSession` | required — booking adds the student into this session's roster |
 
+A parent (own child) or an admin can change an upcoming trial (`docs/plans/trial-cancel-reschedule-plan.md`): `PATCH /trial-classes/:id { sessionId }` moves `sessionId` and `DELETE /trial-classes/:id` deletes the row, which frees the one-trial-ever slot. Both are refused once the class has started or its Visit is marked. The row is the source of truth for where the trial is; the trial `Visit`s are reconciled to it (`visit.service.js`'s `cancelStaleTrialVisits`).
+
 `POST /auth/register` is the platform's first public (unauthenticated) endpoint — parent self-signup. Students (`role: 'student'`) are created via `POST /students`; a parent's own `parentId` is forced server-side and cannot be overridden by the request body.
 
 ## `Visit` — the attendance ledger, every service (`backend/src/models/visit.model.js`, [ADR 010](./docs/decisions/010-universal-visit-ledger.md))

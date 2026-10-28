@@ -59,7 +59,48 @@ const TEMPLATES = [
       },
       {
         t: 'text',
-        html: "Need a different time? Just reply to this email and we'll reschedule.",
+        html: 'Need a different time? Reschedule or cancel the trial from your parent dashboard any time before the class starts.',
+        muted: true,
+        size: 'sm',
+      },
+    ],
+  },
+
+  // docs/plans/trial-cancel-reschedule-plan.md — the parent moved the trial
+  // to another class from the portal.
+  {
+    key: 'trialRescheduled',
+    subject: "{{studentName}}'s free trial class has been rescheduled",
+    preheader: 'Your free trial has a new date — here are the details.',
+    build: (v) => [
+      { t: 'badge', tone: 'green', glyph: '&#9876;' },
+      { t: 'eyebrow', text: 'Free trial class', tone: 'green' },
+      { t: 'heading', text: `${v.studentName}'s trial is rescheduled` },
+      {
+        t: 'text',
+        html: `${strong(v.studentName)}'s free trial class has moved to a new date. Here are the updated details.`,
+      },
+      {
+        t: 'card',
+        tone: 'green',
+        children: [
+          {
+            t: 'detailList',
+            rows: [
+              ['Student', esc(v.studentName)],
+              ['Class', esc(v.className)],
+              ['Level', esc(v.levelName)],
+              ['Coach', esc(v.coachName)],
+              ['When', esc(v.whenLabel)],
+              ['Previously', esc(v.previousWhenLabel)],
+              ['Location', esc(v.locationName)],
+            ],
+          },
+        ],
+      },
+      {
+        t: 'text',
+        html: 'Need a different time? Reschedule or cancel the trial from your parent dashboard any time before the class starts.',
         muted: true,
         size: 'sm',
       },

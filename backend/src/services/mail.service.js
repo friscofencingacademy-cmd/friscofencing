@@ -157,28 +157,38 @@ function scheduleLabel(schedule) {
 
 // ── Group class ──────────────────────────────────────────────────────────
 
+// "Monday, Aug 25, 2026 · 4:00 PM" for a trial's session. session.date is a
+// calendar-day sentinel, not a real instant (docs/plans/utc-date-standard-
+// plan.md) — dateOnlyFull renders it UTC-anchored. Using dateFull (Central)
+// here was the original, real-shipped instance of this bug: a Monday trial's
+// confirmation email stated "Sunday." The time comes from the schedule when
+// it is at hand, else from the session's own start instant (Central) — a
+// rescheduled trial's PREVIOUS session may belong to a different schedule.
+function trialWhenLabel(session, schedule) {
+  let time = null;
+  if (schedule && schedule.startTime) {
+    time = timeOfDay(schedule.startTime);
+  } else if (session && session.startsAt) {
+    time = timeOfInstant(session.startsAt);
+  }
+
+  return [session && session.date ? dateOnlyFull(session.date) : null, time].filter(Boolean).join(' · ');
+}
+
+function trialEmailData({ student, session, schedule, groupClass, level, location, coach }) {
+  return {
+    studentName: fullName(student),
+    className: groupClass ? groupClass.name : '',
+    levelName: level ? level.name : '',
+    coachName: fullName(coach),
+    whenLabel: trialWhenLabel(session, schedule) || 'the scheduled date',
+    locationName: location ? location.name : '',
+  };
+}
+
 async function sendTrialConfirmationEmail({ parent, student, session, schedule, groupClass, level, location, coach }) {
   try {
-    // session.date is a calendar-day sentinel, not a real instant
-    // (docs/plans/utc-date-standard-plan.md) — dateOnlyFull renders it
-    // UTC-anchored. Using dateFull (Central) here was the original,
-    // real-shipped instance of this bug: a Monday trial's confirmation
-    // email stated "Sunday."
-    const whenLabel = [
-      session && session.date ? dateOnlyFull(session.date) : null,
-      schedule ? timeOfDay(schedule.startTime) : null,
-    ]
-      .filter(Boolean)
-      .join(' · ');
-
-    const data = {
-      studentName: fullName(student),
-      className: groupClass ? groupClass.name : '',
-      levelName: level ? level.name : '',
-      coachName: fullName(coach),
-      whenLabel: whenLabel || 'the scheduled date',
-      locationName: location ? location.name : '',
-    };
+    const data = trialEmailData({ student, session, schedule, groupClass, level, location, coach });
 
     const { subject, html, text } = renderEmail('trialConfirmation', data);
 
@@ -191,6 +201,31 @@ async function sendTrialConfirmationEmail({ parent, student, session, schedule, 
     });
   } catch (error) {
     console.error('mail.service: failed to build trialConfirmation email:', error.message);
+    return false;
+  }
+}
+
+// docs/plans/trial-cancel-reschedule-plan.md — same recipients as the
+// confirmation (the family, cc admin + the NEW class's coach), plus the date
+// the trial moved from.
+async function sendTrialRescheduledEmail({ parent, student, session, previousSession, schedule, groupClass, level, location, coach }) {
+  try {
+    const data = {
+      ...trialEmailData({ student, session, schedule, groupClass, level, location, coach }),
+      previousWhenLabel: trialWhenLabel(previousSession, null) || 'the earlier date',
+    };
+
+    const { subject, html, text } = renderEmail('trialRescheduled', data);
+
+    return sendMailSafely({
+      to: parent.email,
+      cc: [ADMIN_EMAIL(), coach && coach.email],
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    console.error('mail.service: failed to build trialRescheduled email:', error.message);
     return false;
   }
 }
@@ -528,6 +563,7 @@ async function sendPrivateClassBookingCancelledEmail({ parent, student, coach, s
 module.exports = {
   getTransporter,
   sendTrialConfirmationEmail,
+  sendTrialRescheduledEmail,
   sendTrialEvaluationEmail,
   sendRegistrationConfirmationEmail,
   sendRenewalReceiptEmail,

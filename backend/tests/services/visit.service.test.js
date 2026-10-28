@@ -12,6 +12,8 @@ const {
   markAttendance,
   markAsMakeupClass,
   cancelVisitsForStudent,
+  cancelStaleTrialVisits,
+  getActiveGroupVisitStatusByPair,
   getVisitsByStudent,
   createScheduledPrivateVisit,
   findActivePrivateVisit,
@@ -215,6 +217,89 @@ describe('visit.service', () => {
 
     it('is a no-op for an empty sessionIds array', async () => {
       await expect(cancelVisitsForStudent(id(), [])).resolves.toBeNull();
+    });
+  });
+
+  // docs/plans/trial-cancel-reschedule-plan.md D3 — how a trial cancel or
+  // reschedule reconciles the roster to the TrialClass row.
+  describe('cancelStaleTrialVisits', () => {
+    it("cancels the student's scheduled trial Visits except the kept session", async () => {
+      const studentId = id();
+      const scheduleId = id();
+      const [oldSession, keptSession] = [id(), id()];
+      await createScheduledVisit(studentId, oldSession, scheduleId, 'trial');
+      await createScheduledVisit(studentId, keptSession, scheduleId, 'trial');
+
+      await cancelStaleTrialVisits(studentId, keptSession);
+
+      expect((await Visit.findOne({ studentId, groupClassSessionId: oldSession })).status).toBe('cancelled');
+      expect((await Visit.findOne({ studentId, groupClassSessionId: keptSession })).status).toBe('scheduled');
+    });
+
+    it('cancels every scheduled trial Visit of the student when no session is kept', async () => {
+      const studentId = id();
+      const scheduleId = id();
+      const [sessionA, sessionB] = [id(), id()];
+      await upsertScheduledVisits(studentId, [sessionA, sessionB].map((sessionId) => ({ sessionId, scheduleId })), 'trial');
+
+      await cancelStaleTrialVisits(studentId, null);
+
+      const statuses = (await Visit.find({ studentId })).map((visit) => visit.status);
+      expect(statuses).toEqual(['cancelled', 'cancelled']);
+    });
+
+    it("never touches a marked trial Visit, a regular Visit, a private Visit, or another student's Visit", async () => {
+      const studentId = id();
+      const otherStudentId = id();
+      const scheduleId = id();
+      const [attendedSession, missedSession, regularSession, otherSession] = [id(), id(), id(), id()];
+      const privateSession = id();
+      await markAttendance(studentId, attendedSession, scheduleId, 'trial', 'attended');
+      await markAttendance(studentId, missedSession, scheduleId, 'trial', 'missed');
+      await createScheduledVisit(studentId, regularSession, scheduleId, 'regular');
+      await createScheduledPrivateVisit(studentId, privateSession);
+      await createScheduledVisit(otherStudentId, otherSession, scheduleId, 'trial');
+
+      await cancelStaleTrialVisits(studentId, null);
+
+      const statusOf = async (filter) => (await Visit.findOne(filter)).status;
+      expect(await statusOf({ studentId, groupClassSessionId: attendedSession })).toBe('attended');
+      expect(await statusOf({ studentId, groupClassSessionId: missedSession })).toBe('missed');
+      expect(await statusOf({ studentId, groupClassSessionId: regularSession })).toBe('scheduled');
+      expect(await statusOf({ studentId, privateClassSessionId: privateSession })).toBe('scheduled');
+      expect(await statusOf({ studentId: otherStudentId, groupClassSessionId: otherSession })).toBe('scheduled');
+    });
+  });
+
+  describe('getActiveGroupVisitStatusByPair', () => {
+    it('maps each (student, session) pair to its active Visit status, omitting cancelled and unknown pairs', async () => {
+      const scheduleId = id();
+      const [studentA, studentB, studentC] = [id(), id(), id()];
+      const [sessionA, sessionB, sessionC] = [id(), id(), id()];
+      await createScheduledVisit(studentA, sessionA, scheduleId, 'trial');
+      await markAttendance(studentB, sessionB, scheduleId, 'trial', 'attended');
+      await createScheduledVisit(studentC, sessionC, scheduleId, 'trial');
+      await cancelVisitsForStudent(studentC, [sessionC]);
+      // A Visit of studentA on ANOTHER session must not answer for (studentA, sessionB).
+      await markAttendance(studentA, sessionC, scheduleId, 'regular', 'missed');
+
+      const statusByPair = await getActiveGroupVisitStatusByPair([
+        { studentId: studentA, sessionId: sessionA },
+        { studentId: studentB, sessionId: sessionB },
+        { studentId: studentC, sessionId: sessionC },
+        { studentId: studentA, sessionId: sessionB },
+      ]);
+
+      expect(statusByPair).toEqual(
+        new Map([
+          [`${studentA}:${sessionA}`, 'scheduled'],
+          [`${studentB}:${sessionB}`, 'attended'],
+        ])
+      );
+    });
+
+    it('returns an empty map for no pairs', async () => {
+      await expect(getActiveGroupVisitStatusByPair([])).resolves.toEqual(new Map());
     });
   });
 

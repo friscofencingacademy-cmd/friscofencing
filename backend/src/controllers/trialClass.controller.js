@@ -18,4 +18,22 @@ async function listMine(req, res, next) {
   }
 }
 
-module.exports = { create, listMine };
+async function reschedule(req, res, next) {
+  try {
+    const trialClass = await trialClassService.reschedule(req.params.id, req.body, req.user);
+    return res.status(200).json({ trialClass });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function cancel(req, res, next) {
+  try {
+    await trialClassService.cancel(req.params.id, req.user);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+module.exports = { create, listMine, reschedule, cancel };
