@@ -189,6 +189,38 @@ describe('AdminPrivateClassesPage', () => {
     expect(deletedIds).toEqual(['rule-2', 'rule-3']);
   });
 
+  it('Availability: a window shows its slots, and an open slot is removed on its own while a booked one stays', async () => {
+    mockSearchParams = new URLSearchParams({ tab: 'availability' });
+    server.use(
+      http.get('*/private-class-schedules', () =>
+        HttpResponse.json({ schedules: [{ ...FREE_RULES[0], bookedCount: 1 }, FREE_RULES[1]] })
+      )
+    );
+    const user = userEvent.setup();
+    render(<AdminPrivateClassesPage />);
+
+    // The window has a booking, so it can't go whole — and its slots are hidden until shown.
+    const windowRow = (await screen.findByText('6:00 PM–6:30 PM')).closest('tr') as HTMLElement;
+    expect(within(windowRow).getByText("Has bookings — can't be removed")).toBeInTheDocument();
+    expect(screen.queryByText('6:00 PM–6:15 PM')).not.toBeInTheDocument();
+
+    const toggle = within(windowRow).getByRole('button', { name: 'Show slots of Thursdays · 6:00 PM–6:30 PM' });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    const bookedSlot = screen.getByText('6:00 PM–6:15 PM').closest('tr') as HTMLElement;
+    expect(within(bookedSlot).getByText("Booked — can't be removed")).toBeInTheDocument();
+    expect(within(bookedSlot).queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove Thursdays · 6:15 PM–6:30 PM' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/Stop offering Thursdays · 6:15 PM–6:30 PM \(1 slot\)\?/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('Availability removed.')).toBeInTheDocument();
+    expect(deletedIds).toEqual(['rule-3']);
+  });
+
   it('Availability: publishes on a coach\'s behalf (the coach picker is required)', async () => {
     mockSearchParams = new URLSearchParams({ tab: 'availability' });
     const user = userEvent.setup();

@@ -142,6 +142,14 @@ export function groupAvailabilityWindows<R extends WindowableRule>(
     .map(({ window }) => window);
 }
 
+/**
+ * One slot of a window, as a window of its own — so removing a single slot
+ * reuses the window's dialog, removal call and notice.
+ */
+export function slotWindowOf<R extends WindowableRule>(window: AvailabilityWindow<R>, rule: R): AvailabilityWindow<R> {
+  return { ...toWindow('', [rule]), key: `${window.key}|${rule.startTime}` };
+}
+
 /** "Tuesdays". */
 export function formatWindowDay(window: { dayOfWeek: number }): string {
   return `${DAY_LABELS[window.dayOfWeek]}s`;
