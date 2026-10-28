@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchMyPrivateAvailability, fetchMyPrivateBookings } from '../../../lib/services/privateClassCoach';
@@ -19,6 +20,7 @@ import {
   groupAvailabilityWindows,
   personName,
   slotCount,
+  slotWindowOf,
   windowRemovalMessage,
 } from '../../../lib/privateLessons';
 import type { CoachPrivateAvailabilityRule, CoachPrivateBookingRow } from '../../../lib/types';
@@ -274,8 +276,30 @@ function AvailabilityTab() {
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
+  // Rule ids of the windows showing their slots — by id, not window key, so
+  // a window split by a single-slot removal stays open.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   // Only this coach's own rules here — one coach key.
   const windows = data ? groupAvailabilityWindows(data, () => 'me') : [];
+
+  function isExpanded(slotWindow: AvailabilityWindow<CoachPrivateAvailabilityRule>): boolean {
+    return slotWindow.rules.some((rule) => expanded.has(rule._id));
+  }
+
+  function toggleExpanded(slotWindow: AvailabilityWindow<CoachPrivateAvailabilityRule>) {
+    const open = isExpanded(slotWindow);
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      slotWindow.rules.forEach((rule) => (open ? next.delete(rule._id) : next.add(rule._id)));
+      return next;
+    });
+  }
+
+  function askRemove(slotWindow: AvailabilityWindow<CoachPrivateAvailabilityRule>) {
+    setRemoveError(null);
+    setTarget(slotWindow);
+  }
 
   async function confirmRemove() {
     if (!target) return;
@@ -337,36 +361,90 @@ function AvailabilityTab() {
               </thead>
               <tbody>
                 {windows.map((slotWindow) => (
-                  <tr key={slotWindow.key}>
-                    <td>{formatWindowDay(slotWindow)}</td>
-                    <td>{formatWindowTime(slotWindow)}</td>
-                    <td>{slotWindow.durationMinutes} min</td>
-                    <td>{slotWindow.rules.length}</td>
-                    <td>{formatRuleRange(slotWindow)}</td>
-                    <td>{slotWindow.bookedCount}</td>
-                    <td>
-                      {/* A window with upcoming bookings can't be removed —
-                          the same rule the backend's DELETE enforces per slot. */}
-                      {slotWindow.bookedCount > 0 ? (
-                        <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
-                          Has bookings — can&apos;t be removed
-                        </span>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          aria-label={`Remove ${formatWindowLabel(slotWindow)}`}
-                          onClick={() => {
-                            setRemoveError(null);
-                            setTarget(slotWindow);
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
+                  <Fragment key={slotWindow.key}>
+                    <tr>
+                      <td>{formatWindowDay(slotWindow)}</td>
+                      <td>{formatWindowTime(slotWindow)}</td>
+                      <td>{slotWindow.durationMinutes} min</td>
+                      <td>
+                        {slotWindow.rules.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            aria-expanded={isExpanded(slotWindow)}
+                            aria-label={`${isExpanded(slotWindow) ? 'Hide' : 'Show'} slots of ${formatWindowLabel(slotWindow)}`}
+                            onClick={() => toggleExpanded(slotWindow)}
+                          >
+                            {slotWindow.rules.length}
+                            <ChevronRight
+                              size={14}
+                              style={{
+                                transform: isExpanded(slotWindow) ? 'rotate(90deg)' : undefined,
+                                transition: 'transform 0.15s',
+                              }}
+                            />
+                          </Button>
+                        ) : (
+                          slotWindow.rules.length
+                        )}
+                      </td>
+                      <td>{formatRuleRange(slotWindow)}</td>
+                      <td>{slotWindow.bookedCount}</td>
+                      <td>
+                        {/* A window with upcoming bookings can't be removed —
+                            the same rule the backend's DELETE enforces per slot.
+                            Its open slots can still go one at a time below. */}
+                        {slotWindow.bookedCount > 0 ? (
+                          <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                            Has bookings — can&apos;t be removed
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            aria-label={`Remove ${formatWindowLabel(slotWindow)}`}
+                            onClick={() => askRemove(slotWindow)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                    {slotWindow.rules.length > 1 && isExpanded(slotWindow)
+                      ? slotWindow.rules.map((rule) => {
+                          const slot = slotWindowOf(slotWindow, rule);
+                          return (
+                            <tr key={slot.key}>
+                              <td />
+                              <td style={{ paddingLeft: 'var(--space-5)', color: 'var(--color-muted)' }}>
+                                {formatWindowTime(slot)}
+                              </td>
+                              <td colSpan={3} />
+                              <td style={{ color: 'var(--color-muted)' }}>{slot.bookedCount}</td>
+                              <td>
+                                {slot.bookedCount > 0 ? (
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                                    Booked — can&apos;t be removed
+                                  </span>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    aria-label={`Remove ${formatWindowLabel(slot)}`}
+                                    onClick={() => askRemove(slot)}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

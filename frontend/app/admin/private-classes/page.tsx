@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Plus, X } from 'lucide-react';
+import { ChevronRight, Plus, X } from 'lucide-react';
 
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchUsers } from '../../../lib/services/users';
@@ -26,6 +26,7 @@ import {
   packSavingsLabel,
   personName,
   slotCount,
+  slotWindowOf,
   windowRemovalMessage,
 } from '../../../lib/privateLessons';
 import type { AdminPrivateAvailabilityRule, AdminPrivateBookingRow } from '../../../lib/types';
@@ -230,8 +231,29 @@ function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean
   const [target, setTarget] = useState<AvailabilityWindow<AdminPrivateAvailabilityRule> | null>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // Rule ids of the windows showing their slots — by id, not window key, so
+  // a window split by a single-slot removal stays open.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const windows = data ? groupAvailabilityWindows(data.rules, (rule) => rule.coachId?._id ?? 'no-coach') : [];
+
+  function isExpanded(slotWindow: AvailabilityWindow<AdminPrivateAvailabilityRule>): boolean {
+    return slotWindow.rules.some((rule) => expanded.has(rule._id));
+  }
+
+  function toggleExpanded(slotWindow: AvailabilityWindow<AdminPrivateAvailabilityRule>) {
+    const open = isExpanded(slotWindow);
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      slotWindow.rules.forEach((rule) => (open ? next.delete(rule._id) : next.add(rule._id)));
+      return next;
+    });
+  }
+
+  function askRemove(slotWindow: AvailabilityWindow<AdminPrivateAvailabilityRule>) {
+    setRemoveError(null);
+    setTarget(slotWindow);
+  }
 
   async function confirmRemove() {
     if (!target) return;
@@ -279,37 +301,90 @@ function AvailabilityTab({ publishOpen, onPublishClose }: { publishOpen: boolean
               <AdminEmptyRow colSpan={8} message="No private lesson availability published" />
             ) : (
               windows.map((slotWindow) => (
-                <tr key={slotWindow.key} className={styles.trHover}>
-                  <td className={styles.td}>{personName(slotWindow.rules[0].coachId, 'Coach no longer available')}</td>
-                  <td className={styles.td}>{formatWindowDay(slotWindow)}</td>
-                  <td className={styles.td}>{formatWindowTime(slotWindow)}</td>
-                  <td className={styles.td}>{slotWindow.durationMinutes} min</td>
-                  <td className={styles.td}>{slotWindow.rules.length}</td>
-                  <td className={styles.td}>{formatRuleRange(slotWindow)}</td>
-                  <td className={styles.td}>{slotWindow.bookedCount}</td>
-                  <td className={`${styles.td} ${styles.tdRight}`}>
-                    {/* A window with upcoming bookings can't be removed —
-                        the same rule the backend's DELETE enforces per slot. */}
-                    {slotWindow.bookedCount > 0 ? (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
-                        Has bookings — can&apos;t be removed
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`${styles.btnIcon} ${styles.btnIconDelete}`}
-                        title="Remove"
-                        aria-label={`Remove ${formatWindowLabel(slotWindow)}`}
-                        onClick={() => {
-                          setRemoveError(null);
-                          setTarget(slotWindow);
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={slotWindow.key}>
+                  <tr className={styles.trHover}>
+                    <td className={styles.td}>{personName(slotWindow.rules[0].coachId, 'Coach no longer available')}</td>
+                    <td className={styles.td}>{formatWindowDay(slotWindow)}</td>
+                    <td className={styles.td}>{formatWindowTime(slotWindow)}</td>
+                    <td className={styles.td}>{slotWindow.durationMinutes} min</td>
+                    <td className={styles.td}>
+                      {slotWindow.rules.length > 1 ? (
+                        <button
+                          type="button"
+                          className={styles.btnIcon}
+                          aria-expanded={isExpanded(slotWindow)}
+                          aria-label={`${isExpanded(slotWindow) ? 'Hide' : 'Show'} slots of ${formatWindowLabel(slotWindow)}`}
+                          onClick={() => toggleExpanded(slotWindow)}
+                        >
+                          {slotWindow.rules.length}
+                          <ChevronRight
+                            size={14}
+                            style={{
+                              transform: isExpanded(slotWindow) ? 'rotate(90deg)' : undefined,
+                              transition: 'transform 0.15s',
+                            }}
+                          />
+                        </button>
+                      ) : (
+                        slotWindow.rules.length
+                      )}
+                    </td>
+                    <td className={styles.td}>{formatRuleRange(slotWindow)}</td>
+                    <td className={styles.td}>{slotWindow.bookedCount}</td>
+                    <td className={`${styles.td} ${styles.tdRight}`}>
+                      {/* A window with upcoming bookings can't be removed —
+                          the same rule the backend's DELETE enforces per slot.
+                          Its open slots can still go one at a time below. */}
+                      {slotWindow.bookedCount > 0 ? (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                          Has bookings — can&apos;t be removed
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`${styles.btnIcon} ${styles.btnIconDelete}`}
+                          title="Remove"
+                          aria-label={`Remove ${formatWindowLabel(slotWindow)}`}
+                          onClick={() => askRemove(slotWindow)}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {slotWindow.rules.length > 1 && isExpanded(slotWindow)
+                    ? slotWindow.rules.map((rule) => {
+                        const slot = slotWindowOf(slotWindow, rule);
+                        return (
+                          <tr key={slot.key}>
+                            <td className={styles.td} colSpan={2} />
+                            <td className={`${styles.td} ${styles.cellMuted}`} style={{ paddingLeft: 'var(--space-5)' }}>
+                              {formatWindowTime(slot)}
+                            </td>
+                            <td className={styles.td} colSpan={3} />
+                            <td className={`${styles.td} ${styles.cellMuted}`}>{slot.bookedCount}</td>
+                            <td className={`${styles.td} ${styles.tdRight}`}>
+                              {slot.bookedCount > 0 ? (
+                                <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                                  Booked — can&apos;t be removed
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className={`${styles.btnIcon} ${styles.btnIconDelete}`}
+                                  title="Remove this slot"
+                                  aria-label={`Remove ${formatWindowLabel(slot)}`}
+                                  onClick={() => askRemove(slot)}
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : null}
+                </Fragment>
               ))
             )}
           </tbody>

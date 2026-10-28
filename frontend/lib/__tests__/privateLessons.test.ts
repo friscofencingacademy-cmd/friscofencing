@@ -2,6 +2,7 @@ import {
   formatWindowLabel,
   groupAvailabilityWindows,
   slotCount,
+  slotWindowOf,
   windowRemovalMessage,
 } from '../privateLessons';
 import type { CoachPrivateAvailabilityRule } from '../types';
@@ -97,6 +98,32 @@ describe('groupAvailabilityWindows', () => {
 
   it('returns no windows for no rules', () => {
     expect(groupAvailabilityWindows([], byCoach)).toEqual([]);
+  });
+});
+
+describe('slotWindowOf', () => {
+  it('names one slot of a window as a window of its own, with its own bookings', () => {
+    const [window] = groupAvailabilityWindows(SIX_TO_EIGHT, byCoach);
+    const slot = slotWindowOf(window, { ...SIX_TO_EIGHT[2], bookedCount: 2 });
+
+    expect(slot.rules.map((r) => r._id)).toEqual(['r2']);
+    expect(formatWindowLabel(slot)).toBe('Tuesdays · 6:30 PM–6:45 PM');
+    expect(slot.bookedCount).toBe(2);
+    expect(slot.key).not.toBe(window.key);
+    expect(slot.key).not.toBe(slotWindowOf(window, SIX_TO_EIGHT[3]).key);
+  });
+
+  it('reports removing it in the window removal wording', () => {
+    const [window] = groupAvailabilityWindows(SIX_TO_EIGHT, byCoach);
+    const slot = slotWindowOf(window, SIX_TO_EIGHT[2]);
+
+    expect(windowRemovalMessage(slot, { removed: 1, retired: 0, failures: [] })).toEqual({
+      ok: true,
+      message: 'Availability removed.',
+    });
+    expect(
+      windowRemovalMessage(slot, { removed: 0, retired: 0, failures: [{ id: 'r2', message: 'It has bookings.' }] })
+    ).toEqual({ ok: false, message: "Nothing was removed. 6:30 PM wasn't removed: It has bookings." });
   });
 });
 

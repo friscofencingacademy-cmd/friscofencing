@@ -245,6 +245,43 @@ describe('CoachPrivateLessonsPage', () => {
     expect(deletedIds).toEqual(['rule-1', 'rule-2']);
   });
 
+  it('removing one slot from the middle of a window splits it, and the remaining slots stay shown', async () => {
+    // Tue 4:30–6:30 PM, four 30-minute slots; the list reloads without what was deleted.
+    const tuesdayRules = [
+      RULE,
+      RULE_NEXT,
+      { ...RULE, _id: 'rule-4', startTime: '17:30' },
+      { ...RULE, _id: 'rule-5', startTime: '18:00' },
+    ];
+    server.use(
+      http.get('*/private-class-schedules/mine', () =>
+        HttpResponse.json({ schedules: tuesdayRules.filter((rule) => !deletedIds.includes(rule._id)) })
+      )
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Availability' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Show slots of Tuesdays · 4:30 PM–6:30 PM' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Tuesdays · 5:00 PM–5:30 PM' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/stop offering tuesdays · 5:00 pm–5:30 pm \(1 slot\)/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('Availability removed.')).toBeInTheDocument();
+    expect(deletedIds).toEqual(['rule-2']);
+
+    // Two windows now: 4:30–5:00 on its own, and 5:30–6:30 still showing its two slots.
+    expect(await screen.findByRole('button', { name: 'Remove Tuesdays · 4:30 PM–5:00 PM' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide slots of Tuesdays · 5:30 PM–6:30 PM' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Remove Tuesdays · 5:30 PM–6:00 PM' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Tuesdays · 6:00 PM–6:30 PM' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /show slots of tuesdays · 4:30 pm–5:00 pm/i })).not.toBeInTheDocument();
+  });
+
   it('when the backend refuses a slot booked since the page loaded, the dialog turns into "Cannot Remove" naming it', async () => {
     refusedId = 'rule-2';
     const user = userEvent.setup();
