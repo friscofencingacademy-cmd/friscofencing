@@ -8,9 +8,9 @@ import { useParentPortal } from '../../context/ParentPortalContext';
 import { useLoadState, getErrorMessage } from '../../../lib/hooks/useLoadState';
 import { fetchGroupClasses, fetchLevels } from '../../../lib/services/catalog';
 import { fetchSessionsByClass } from '../../../lib/services/scheduling';
-import { bookTrialClass } from '../../../lib/services/parent';
+import { bookTrialClass, rescheduleTrialClass } from '../../../lib/services/parent';
 import { formatTime } from '../../../lib/formatTime';
-import { formatDateOnly } from '../../../lib/formatDate';
+import { formatDateOnly, formatInstantRange } from '../../../lib/formatDate';
 import type { GroupClass, GroupClassSessionWithSchedule, Level, Student } from '../../../lib/types';
 import Alert from '../../components/ui/Alert/Alert';
 import Button from '../../components/ui/Button/Button';
@@ -72,9 +72,28 @@ interface BookedInfo {
   sessionLine: string;
 }
 
+const BOOK_CRUMBS = [{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }];
+const RESCHEDULE_CRUMBS = [{ label: 'Home', href: '/parent/dashboard' }, { label: 'Reschedule Trial' }];
+
 export default function BookTrialPage() {
-  const { students, reload } = useParentPortal();
+  const { students, loading: studentsLoading, reload } = useParentPortal();
   const searchParams = useSearchParams();
+
+  // Reschedule mode (docs/plans/trial-cancel-reschedule-plan.md):
+  // /parent/book-trial?reschedule=<studentId>, linked from the dashboard and
+  // child page. The child is fixed and the wizard starts at the level. It is
+  // offered only while the server says the trial can still change
+  // (enrollment.trial.canChange), the same rule PATCH /trial-classes/:id
+  // enforces; a stale link says why instead of falling back to booking.
+  const rescheduleChildId = searchParams.get('reschedule');
+  const isReschedule = rescheduleChildId !== null;
+  const rescheduleStudent = isReschedule ? students.find((student) => student._id === rescheduleChildId) : undefined;
+  const rescheduleTrial =
+    rescheduleStudent &&
+    rescheduleStudent.enrollment.status === 'trial_scheduled' &&
+    rescheduleStudent.enrollment.trial?.canChange
+      ? rescheduleStudent.enrollment.trial
+      : null;
 
   const { data, error, isLoading, retry } = useLoadState(fetchBookingOptions, []);
   const [groupClasses, setGroupClasses] = useState<GroupClass[]>([]);
@@ -87,7 +106,9 @@ export default function BookTrialPage() {
     }
   }, [data]);
 
-  const [studentId, setStudentId] = useState('');
+  const [pickedStudentId, setPickedStudentId] = useState('');
+  // Derived, not stored: in reschedule mode the child comes from the URL.
+  const studentId = rescheduleStudent && rescheduleTrial ? rescheduleStudent._id : isReschedule ? '' : pickedStudentId;
   const [levelId, setLevelId] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<GroupClassSessionWithSchedule[]>([]);
@@ -102,7 +123,7 @@ export default function BookTrialPage() {
   useEffect(() => {
     const preselect = searchParams.get('child');
     if (preselect && students.some((student) => student._id === preselect && student.enrollment.canBookTrial)) {
-      setStudentId(preselect);
+      setPickedStudentId(preselect);
     }
   }, [searchParams, students]);
 
@@ -169,8 +190,14 @@ export default function BookTrialPage() {
     setSessionId('');
   }, []);
 
+  // The class the trial is already in is not a reschedule target (the server
+  // refuses it).
+  const pickableSessions = rescheduleTrial
+    ? sessions.filter((session) => session._id !== rescheduleTrial.sessionId)
+    : sessions;
+
   const selectedStudent = students.find((student) => student._id === studentId);
-  const selectedSession = sessions.find((session) => session._id === sessionId);
+  const selectedSession = pickableSessions.find((session) => session._id === sessionId);
   // Keyed by id so ChildPickerCards' StudentBase-typed callbacks can look a
   // child up without reading enrollment themselves (register/page.tsx's
   // enrolledStudentIds pattern).
@@ -181,7 +208,9 @@ export default function BookTrialPage() {
     setStepError(null);
     setSubmitting(true);
 
-    const result = await bookTrialClass({ studentId, sessionId });
+    const result = rescheduleTrial
+      ? await rescheduleTrialClass(rescheduleTrial._id, { sessionId })
+      : await bookTrialClass({ studentId, sessionId });
 
     setSubmitting(false);
 
@@ -204,12 +233,15 @@ export default function BookTrialPage() {
     );
   }
 
+  const crumbs = isReschedule ? RESCHEDULE_CRUMBS : BOOK_CRUMBS;
+  const title = isReschedule ? 'Reschedule Trial' : 'Book a Trial';
+
   if (booked) {
     return (
       <main>
-        <FlowMain crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }]} title="Book a Trial" steps={STEPS} current={2} singleColumn>
+        <FlowMain crumbs={crumbs} title={title} steps={STEPS} current={2} singleColumn>
           <FlowConfirmation
-            title="Trial class booked!"
+            title={isReschedule ? 'Trial class rescheduled!' : 'Trial class booked!'}
             subtitle="We look forward to seeing you."
             lines={[
               { label: 'Child', value: booked.childName },
@@ -226,6 +258,22 @@ export default function BookTrialPage() {
     );
   }
 
+  if (isReschedule && !studentsLoading && !rescheduleTrial) {
+    return (
+      <main>
+        <FlowMain crumbs={crumbs} title={title} steps={STEPS} current={0} singleColumn>
+          <Alert variant="error">
+            This trial can no longer be rescheduled. A trial can be moved only before its class starts and before
+            attendance is taken.
+          </Alert>
+          <Button as="a" href="/parent/dashboard">
+            Back to Dashboard
+          </Button>
+        </FlowMain>
+      </main>
+    );
+  }
+
   // Derived, not stored — the stepper reflects how far the parent has
   // gotten through the sequential form below, never a separately-tracked
   // "current step" that could drift out of sync with it.
@@ -237,8 +285,8 @@ export default function BookTrialPage() {
         { label: 'Child', value: selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : '—' },
         { label: 'Session', value: selectedSession ? formatSessionLine(selectedSession) : '—' },
       ]}
-      cta="Book Trial Class"
-      ctaDisabled={!sessionId}
+      cta={isReschedule ? 'Reschedule Trial' : 'Book Trial Class'}
+      ctaDisabled={!selectedSession}
       ctaLoading={submitting}
       onCta={handleSubmit}
     />
@@ -247,33 +295,46 @@ export default function BookTrialPage() {
   return (
     <main>
       <FlowMain
-        crumbs={[{ label: 'Home', href: '/parent/dashboard' }, { label: 'Book a Trial' }]}
-        title="Book a Trial"
+        crumbs={crumbs}
+        title={title}
         steps={STEPS}
         current={currentStep}
         summary={summary}
       >
         {stepError ? <Alert variant="error">{stepError}</Alert> : null}
 
-        {isLoading ? (
+        {isLoading || (isReschedule && studentsLoading) ? (
           <p>Loading...</p>
         ) : (
           <>
-            <FlowSection title="Who is this trial for?">
-              <ChildPickerCards
-                students={students}
-                selectedId={studentId}
-                onSelect={setStudentId}
-                getBadge={(student) => ineligibleNotes.get(student._id) ?? null}
-                isDisabled={(student) => Boolean(ineligibleNotes.get(student._id))}
-              />
-              {noChildEligible ? (
-                <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
-                  None of your children can book a trial. <Link href="/parent/register">Register for a class</Link>{' '}
-                  instead.
-                </p>
-              ) : null}
-            </FlowSection>
+            {rescheduleStudent && rescheduleTrial ? (
+              <FlowSection title="Whose trial is moving?">
+                {/* The only card, already chosen: the child can't change in
+                    reschedule mode. The badge shows the current date. */}
+                <ChildPickerCards
+                  students={[rescheduleStudent]}
+                  selectedId={rescheduleStudent._id}
+                  onSelect={() => undefined}
+                  getBadge={() => `Currently ${formatInstantRange(rescheduleTrial.startsAt, rescheduleTrial.endsAt)}`}
+                />
+              </FlowSection>
+            ) : (
+              <FlowSection title="Who is this trial for?">
+                <ChildPickerCards
+                  students={students}
+                  selectedId={studentId}
+                  onSelect={setPickedStudentId}
+                  getBadge={(student) => ineligibleNotes.get(student._id) ?? null}
+                  isDisabled={(student) => Boolean(ineligibleNotes.get(student._id))}
+                />
+                {noChildEligible ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
+                    None of your children can book a trial. <Link href="/parent/register">Register for a class</Link>{' '}
+                    instead.
+                  </p>
+                ) : null}
+              </FlowSection>
+            )}
 
             {studentId ? (
               <FlowSection title="Choose a level">
@@ -297,13 +358,13 @@ export default function BookTrialPage() {
               <FlowSection title="Choose a session">
                 {sessionsLoading ? (
                   <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>Loading sessions...</p>
-                ) : sessions.length === 0 ? (
+                ) : pickableSessions.length === 0 ? (
                   <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)' }}>
                     No upcoming trial sessions for this level in the next 30 days.
                   </p>
                 ) : (
                   <PillRow
-                    items={sessions}
+                    items={pickableSessions}
                     selectedKey={sessionId || null}
                     onSelect={setSessionId}
                     getKey={(session) => session._id}

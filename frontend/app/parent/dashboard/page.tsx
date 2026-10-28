@@ -13,6 +13,7 @@ import type { StudentEnrollment } from '../../../lib/types';
 import Button from '../../components/ui/Button/Button';
 import Card from '../../components/ui/Card/Card';
 import AddChildModal from '../../components/portal/AddChildModal';
+import TrialActions from '../../components/portal/TrialActions';
 import styles from './dashboard.module.css';
 
 // Presentation only — the ENROLLMENT DECISION (which of these four states a
@@ -121,6 +122,7 @@ export default function ParentDashboardPage() {
                       Book a free trial →
                     </Button>
                   ) : null}
+                  <TrialActions student={student} onCancelled={reload} />
                 </div>
               </Card>
             );

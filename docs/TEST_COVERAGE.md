@@ -2,17 +2,18 @@
 
 Every number here is real, captured by running the suites — not estimated. The policy behind them (floors, what each layer is for) lives in `docs/TESTING_STRATEGY.md`; this file holds the figures, and is re-measured on every PR that adds or moves tests.
 
-**Backend: 97 suites / 1,315 tests, all passing. Statements 94.38%.**
-**Frontend: 81 suites / 636 tests, all passing (re-counted 2026-10-27). Statements 90.30% (measured 2026-10-26). The full run prints no warning or error.**
+**Backend: 97 suites / 1,378 tests, all passing. Statements 94.45% (measured 2026-10-28).**
+**Frontend: 83 suites / 691 tests, all passing. Statements 90.87% (measured 2026-10-28). The full run prints no warning or error.**
 **Live-gate runner (`audit/`, CI job `audit-tests`): 5 files / 36 tests, all passing under Node 24 and Node 20, `TZ=UTC`, offline.**
-**Live gates (staging, not CI): 4 gate scripts, all PASSED headed on staging with the owner watching on 2026-10-27 (`docs/live-gates/results/2026-10-27-{f15-prorated-top-payer-4,charge-dialog-modes,payment-history,register-quote}.md`).**
+**Live gates (staging, not CI): 5 gate scripts. The first 4 PASSED headed on staging with the owner watching on 2026-10-27 (`docs/live-gates/results/2026-10-27-{f15-prorated-top-payer-4,charge-dialog-modes,payment-history,register-quote}.md`); `trial-cancel-reschedule` (2026-10-28) has not run yet.**
 **Live audit (staging, not CI): 6 scenarios + the P0 preflight. Last real run 2026-08-28, 6/6 pass — before the 2026-10-26 refresh; the next run is the owner step in `docs/plans/audit-and-health-refresh-plan.md` §7.4, then weekly.**
-**E2E: 99 tests listed in 12 specs — 61 on `chromium`, 38 on `mobile-chrome`; 95 pass and 4 are the known visual-baseline skips (2 per project).**
+**E2E: 105 tests listed in 13 specs — 64 on `chromium`, 41 on `mobile-chrome`; 101 pass and 4 are the known visual-baseline skips (2 per project).**
 
-Measured 2026-10-26: backend after the explicit-database fix, frontend after PR 2 (live-audit refresh), E2E after the frontend env cleanup, with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
+Measured 2026-10-28 on `feature/trial-cancel-reschedule`, with `npm run test:coverage` in each repo (`--coverageReporters=text` for the directory tables) and `npx playwright test --list`. Coverage counts **every** source file (`collectCoverageFrom`: backend `src/**` + `scripts/lib/**`, frontend `app/**` + `lib/**`) — a file no test loads shows as 0%, never as absent. CI fails below 80% statements in either repo.
 
 ## Change log (newest first)
 
+- **2026-10-28 — trial cancel and reschedule** (`feature/trial-cancel-reschedule`, `docs/plans/trial-cancel-reschedule-plan.md`): `trialClass.routes.test.js` — `DELETE`/`PATCH /trial-classes/:id` happy paths (row gone and the child can book again; Visit moved, moving back reactivates instead of duplicating; family emailed, also on an admin change), every refusal leaving the trial exactly as it was (started, marked attended/missed, deleted session, holiday, same session, unknown session, missing body, another family, coach/student/kiosk, 401, 404, malformed id), a rollback when the new Visit write fails, the race-only branches pinned by a call-through spy, and two concurrent-request races (stable over 12 repeated runs); `visit.service` (`cancelStaleTrialVisits`, `getActiveGroupVisitStatusByPair`), `student.service` (`enrollment.trial.canChange`, one batched Visit query), `mail.service` (`trialRescheduled`); the seed and refresh fixture counts now include the gate family. Frontend: a new `TrialActions` suite, plus dashboard, child page, book-trial reschedule mode and `parent` service cases; the touched page fixtures are now typed `Student`. New E2E `trial-change.spec.ts` (3 tests, both projects). Backend 1,315 → 1,378 tests (the 1,315 baseline predates #133–#144); frontend 81 → 83 suites / 636 → 691 tests (likewise); E2E 99 → 105 listed.
 - **2026-10-27 — Playwright live gates PR 1** (`feature/playwright-live-gates`, `docs/plans/playwright-live-gates-plan.md`): new `audit/tests/` run by `node --test` in the new CI job `audit-tests` — `gate-runner` (6: narration, stop at the first fail, skipped steps, one retry on a load timeout only, a blocked write fails the step), `write-guard` (5), `gate-dates` (11: four- and five-weekday months, last class day, none left, month ends on the 31st/30th/28th, Central/UTC midnight and the DST change, holidays ignored, rounding once), `gate-result` (5: exact README format, password redaction, `-2`/`-3` suffixing, commit only with both Vercel deployments green), `run-gate` refusals (9). `auditSelectorGuard.test.ts` now also scans `audit/gates/` and pairs each gate spec with its script (+3 cases; proven to fail on a planted label). Frontend 633 → 636 tests.
 - **2026-10-26 — explicit-database fix** (`fix/scripts-require-explicit-database`): new `tests/scripts/lib/mongoTarget.test.js` (13 cases: database name from srv, standard, multi-host and query-string URIs; refusal of a URI naming no database, a non-MongoDB string and the wrong database; no credential in any error). Backend 96 → 97 suites / 1,302 → 1,315 tests.
 - **2026-10-26 — audit-health PR 3** (`feature/health-skill`): new `tests/scripts/lib/healthCheck.test.js` (15 cases: an all-ok database, each check's warn/fail branches — sessions incl. past sessions not counting, services incl. a dormant service left alone, legacy payment fields, inactive-provider cards, stuck pending rows, retry exhaustion, a Guard A bypass, the live-audit fixtures and last run on staging vs production — and a proof that no write method is called). Backend 95 → 96 suites / 1,287 → 1,302 tests.
@@ -35,10 +36,10 @@ Measured 2026-10-26: backend after the explicit-database fix, frontend after PR 
 
 | Area | Target | Backend | Frontend |
 |---|---|---|---|
-| Statements | **80% — enforced in CI** | 94.08% | 90.13% |
-| Branches | — (read per directory) | 85.18% | 83.45% |
-| Functions | — | 97.30% | 88.61% |
-| Lines | — | 94.30% | 91.47% |
+| Statements | **80% — enforced in CI** | 94.45% | 90.87% |
+| Branches | — (read per directory) | 85.96% | 84.48% |
+| Functions | — | 97.52% | 89.39% |
+| Lines | — | 94.66% | 92.10% |
 
 | Backend directory | Statements | Branches | Lines |
 |---|---|---|---|
@@ -46,22 +47,22 @@ Measured 2026-10-26: backend after the explicit-database fix, frontend after PR 
 | `src/models` | 100% | 96.77% | 100% |
 | `src/middlewares` | 100% | 94.28% | 100% |
 | `src/payments` | 100% | 100% | 100% |
-| `src/payments/stripe` | 93.33% | 76.31% | 93.18% |
-| `src/services/billing` | 97.31% | 91.46% | 97.18% |
-| `src/services` — the business logic | 93.34% | 85.14% | 93.50% |
-| `scripts/lib` | 97.61% | 84.31% | 98.69% |
+| `src/payments/stripe` | 93.87% | 77.50% | 93.75% |
+| `src/services/billing` | 97.45% | 92.04% | 97.33% |
+| `src/services` — the business logic | 93.54% | 85.88% | 93.69% |
+| `scripts/lib` | 97.95% | 85.84% | 98.83% |
 | `src/config` | 91.66% | 85.71% | 91.66% |
-| `src/email` | 92.57% | 75.73% | 93.33% |
-| `src/controllers` | 85.63% | 78.12% | 85.63% |
-| `src/routes` | 99.29% | 50.00% | 99.29% |
+| `src/email` | 92.61% | 75.73% | 93.37% |
+| `src/controllers` | 85.96% | 78.12% | 85.96% |
+| `src/routes` | 99.31% | 50.00% | 99.31% |
 
 `src/routes`' 50% branches is multer upload-handler branches in `spotlight`/`testimonial`, not business logic. `src/controllers` is a real signal since duplication-cleanup PR B moved the fallback error logic into the directly-tested `errorHandler.js` (see `docs/TESTING_STRATEGY.md`, "Branch coverage").
 
 | Frontend directory (grouped) | Statements | Branches | Lines |
 |---|---|---|---|
 | `lib/hooks` | 98.07% | 94.23% | 98.86% |
-| `lib` (formatters, calendar view, kiosk) | 95.75% | 89.85% | 97.22% |
-| `lib/services` | 90.50% | 81.25% | 90.50% |
+| `lib` (formatters, calendar view, kiosk) | 96.61% | 90.10% | 97.82% |
+| `lib/services` | 92.29% | 89.28% | 92.27% |
 | `app/parent/*` | 89–100% | 78–100% | 89–100% |
 | `app/components/*` | 88–100% | 50–100% | 87–100% |
 | `app/admin/*` | 78–100% | 59–100% | 82–100% |
@@ -104,8 +105,8 @@ npm run typecheck                 # app + e2e
 | Layer | Location | What it tests | Network |
 |---|---|---|---|
 | Component — admin | `app/admin/**/__tests__/*.test.tsx` | Shell role-gate, dashboard counts, Pattern A CRUD per entity (create/edit/delete/blocked-delete, holidays' `YYYY-MM-DD` payload), subscriptions (filter/change-schedule/cancel/reactivate/charge), coach contracts and packs, private classes, audits, settings, users | MSW (strict) |
-| Component — portal | `app/components/portal/**/__tests__/*.test.tsx` | Portal shell nav and per-child rows, `AddChildModal`, the flow kit (stepper, order summary, child picker), the card form | MSW (strict) / none |
-| Component — parent pages | `app/parent/**/__tests__/*.test.tsx` | The book-trial, register and register-private wizards with exact payloads (frozen `Date`), dashboard, children, child detail, subscriptions, billing history, payment method | MSW (strict) + the Stripe SDK module mock |
+| Component — portal | `app/components/portal/**/__tests__/*.test.tsx` | Portal shell nav and per-child rows, `AddChildModal`, `TrialActions` (shown only on the server's `canChange`, the cancel confirm and its inline refusal), the flow kit (stepper, order summary, child picker), the card form | MSW (strict) / none |
+| Component — parent pages | `app/parent/**/__tests__/*.test.tsx` | The book-trial (incl. its reschedule mode), register and register-private wizards with exact payloads (frozen `Date`), dashboard, children, child detail, subscriptions, billing history, payment method | MSW (strict) + the Stripe SDK module mock |
 | Component — public/coach/shared | `app/{page,classes,coaches,calendar,private-classes,login,register,kiosk}/__tests__`, `app/coach/**/__tests__`, `app/sessions/[id]/attendance/__tests__` | Public pages, auth forms, the kiosk tablet (partial fake timers), coach pages, shared attendance incl. the holiday-blocked state | MSW (strict) |
 | Component — UI primitives | `app/components/ui/**/__tests__`, `app/components/layout/__tests__/AppShell.test.tsx`, `app/components/__tests__/ProtectedRoute.test.tsx` | Design-system primitives, the app shell, the route guard | None / MSW |
 | Hook | `lib/hooks/__tests__/*.test.ts(x)` | `useLoadState`, `useContractPreview`, debounce | None / MSW |
@@ -131,12 +132,12 @@ Real Chromium against a real, locally-built Next.js server, network fully mocked
 
 | Project | Tests listed | Specs |
 |---|---|---|
-| `chromium` (Desktop Chrome) | 61 | all 12 |
-| `mobile-chrome` (Pixel 5) | 38 | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions` |
+| `chromium` (Desktop Chrome) | 64 | all 13 |
+| `mobile-chrome` (Pixel 5) | 41 | `public-site`, `login`, `calendar`, `kiosk`, `billing`, `subscriptions`, `trial-change` |
 
 Skipped: the two visual-baseline tests in `public-site.spec.ts` on each project (a baseline has to be generated inside the CI container — see the in-file comment).
 
-**Not yet covered by E2E:** testimonials admin, the coach schedule pages, parent children/child detail, the book-trial wizard end to end (holiday-blocking drives its date picker only). Each is covered by its Jest page test.
+**Not yet covered by E2E:** testimonials admin, the coach schedule pages, parent children/child detail, and a first trial booking end to end (holiday-blocking drives its date picker; `trial-change` drives its reschedule mode). Each is covered by its Jest page test.
 
 ## Improvement plan (short)
 

@@ -12,6 +12,7 @@ import { fetchSchedules } from '../../../../lib/services/scheduling';
 import { formatDateOnly, formatInstantRange } from '../../../../lib/formatDate';
 import type { EnrollmentStatus } from '../../../../lib/types';
 import Button from '../../../components/ui/Button/Button';
+import TrialActions from '../../../components/portal/TrialActions';
 import styles from './child-detail.module.css';
 
 const VALID_TABS = new Set(['overview', 'schedule']);
@@ -52,7 +53,7 @@ function statusPillClass(status: EnrollmentStatus): string {
 export default function ChildDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
-  const { students, subscriptions, loading } = useParentPortal();
+  const { students, subscriptions, loading, reload } = useParentPortal();
   // Page-specific option-list fetch, same exception ParentPortalContext's
   // own doc comment already carves out for book-trial/register/payment-
   // method — needed here only to show a premium subscription's full sibling
@@ -141,6 +142,7 @@ export default function ChildDetailPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Trial Class</h2>
               <p>Scheduled for {formatInstantRange(trial.startsAt, trial.endsAt)}.</p>
+              <TrialActions student={student} onCancelled={reload} />
             </div>
           ) : null}
 

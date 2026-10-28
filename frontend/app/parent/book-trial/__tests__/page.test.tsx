@@ -6,6 +6,7 @@ import { onUnhandledRequest } from '../../../../test-utils/msw';
 
 import BookTrialPage from '../page';
 import { ParentPortalProvider } from '../../../context/ParentPortalContext';
+import type { Student } from '../../../../lib/types';
 
 let user: ReturnType<typeof userEvent.setup>;
 
@@ -21,35 +22,43 @@ jest.mock('next/navigation', () => ({
 
 // enrollment is server-decided (student.service.js's attachEnrollment()) —
 // canBookTrial is what locks a child's card on this page.
-const STUDENT = {
+const STUDENT: Student = {
   _id: 'student-1',
   firstName: 'Kid',
   lastName: 'One',
-  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null, trial: null },
+  enrollment: { status: 'not_enrolled', canBookTrial: true, schedule: null, trial: null },
 };
-const STUDENT_TRIAL_USED = {
+const STUDENT_TRIAL_USED: Student = {
   _id: 'student-2',
   firstName: 'Used',
   lastName: 'Trial',
-  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null, trial: null },
+  enrollment: { status: 'trial_completed', canBookTrial: false, schedule: null, trial: null },
 };
-const STUDENT_TRIAL_BOOKED = {
+// Booked into SESSION_A (below). 22:00Z–23:00Z on Jan 1 2099 is
+// 4:00–5:00 PM Central (CST, UTC-6).
+const STUDENT_TRIAL_BOOKED: Student = {
   _id: 'student-3',
   firstName: 'Booked',
   lastName: 'Trial',
   enrollment: {
-    status: 'trial_scheduled' as const,
+    status: 'trial_scheduled',
     canBookTrial: false,
     schedule: null,
-    trial: { startsAt: '2099-01-01T22:00:00.000Z', endsAt: '2099-01-01T23:00:00.000Z' },
+    trial: {
+      _id: 'trial-3',
+      sessionId: 'session-a',
+      startsAt: '2099-01-01T22:00:00.000Z',
+      endsAt: '2099-01-01T23:00:00.000Z',
+      canChange: true,
+    },
   },
 };
-const STUDENT_ENROLLED = {
+const STUDENT_ENROLLED: Student = {
   _id: 'student-4',
   firstName: 'Enrolled',
   lastName: 'Kid',
   enrollment: {
-    status: 'enrolled' as const,
+    status: 'enrolled',
     canBookTrial: false,
     schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
     trial: null,
@@ -83,6 +92,7 @@ const SESSION_B = {
 };
 
 let postPayload: unknown = null;
+let patchPayload: unknown = null;
 
 const server = setupServer(
   http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT] })),
@@ -96,6 +106,10 @@ const server = setupServer(
   http.post('*/trial-classes', async ({ request }) => {
     postPayload = await request.json();
     return HttpResponse.json({ trialClass: { _id: 'trial-1' } }, { status: 201 });
+  }),
+  http.patch('*/trial-classes/trial-3', async ({ request }) => {
+    patchPayload = await request.json();
+    return HttpResponse.json({ trialClass: { _id: 'trial-3' } });
   })
 );
 
@@ -103,6 +117,7 @@ beforeAll(() => server.listen({ onUnhandledRequest }));
 afterEach(() => {
   server.resetHandlers();
   postPayload = null;
+  patchPayload = null;
   mockSearchParams = new URLSearchParams();
 });
 afterAll(() => server.close());
@@ -293,6 +308,113 @@ describe('BookTrialPage wizard', () => {
 
     // Still on step 1 — the level select is still visible.
     expect(screen.getByLabelText('Level')).toBeInTheDocument();
+  });
+});
+
+// docs/plans/trial-cancel-reschedule-plan.md — /parent/book-trial?reschedule=
+// <studentId>, linked from the dashboard and child page.
+describe('BookTrialPage — reschedule mode', () => {
+  function withFamily(...students: Student[]) {
+    server.use(http.get('*/students/mine', () => HttpResponse.json({ students })));
+  }
+
+  it('fixes the child, starts at the level, leaves out the current class, and moves the trial with PATCH', async () => {
+    withFamily(STUDENT, STUDENT_TRIAL_BOOKED);
+    mockSearchParams = new URLSearchParams({ reschedule: STUDENT_TRIAL_BOOKED._id });
+
+    renderBookTrialPage();
+
+    expect(await screen.findByRole('heading', { name: 'Reschedule Trial' })).toBeInTheDocument();
+
+    // Only the child whose trial is moving, already chosen, with the current
+    // date under the name. The sibling is not offered.
+    const childCard = await screen.findByRole('radio', { name: /booked trial/i });
+    expect(childCard).toHaveAttribute('aria-checked', 'true');
+    expect(within(childCard).getByText('Currently Thu, Jan 1 · 4:00 PM–5:00 PM')).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /kid one/i })).not.toBeInTheDocument();
+
+    // Straight to the level.
+    await user.selectOptions(await screen.findByLabelText('Level'), LEVEL_BEGINNER._id);
+
+    // SESSION_A is the class the trial is already in: not offered.
+    const sessionB = await screen.findByRole('radio', { name: /6:00 PM–7:00 PM/i });
+    const sessionPicker = screen.getByRole('radiogroup', { name: 'Select a session' });
+    expect(within(sessionPicker).getAllByRole('radio')).toEqual([sessionB]);
+
+    const cta = screen.getByRole('button', { name: 'Reschedule Trial' });
+    expect(cta).toBeDisabled();
+    await user.click(sessionB);
+    await user.click(cta);
+
+    expect(await screen.findByText('Trial class rescheduled!')).toBeInTheDocument();
+    expect(patchPayload).toEqual({ sessionId: SESSION_B._id });
+    expect(postPayload).toBeNull();
+    expect(screen.getByRole('link', { name: /back to dashboard/i })).toHaveAttribute('href', '/parent/dashboard');
+  });
+
+  it("shows the server's refusal inline without crashing, and keeps the form on screen", async () => {
+    withFamily(STUDENT_TRIAL_BOOKED);
+    mockSearchParams = new URLSearchParams({ reschedule: STUDENT_TRIAL_BOOKED._id });
+    server.use(
+      http.patch('*/trial-classes/trial-3', () =>
+        HttpResponse.json({ message: 'This trial class has already started — it can no longer be changed' }, { status: 400 })
+      )
+    );
+
+    renderBookTrialPage();
+
+    await user.selectOptions(await screen.findByLabelText('Level'), LEVEL_BEGINNER._id);
+    await user.click(await screen.findByRole('radio', { name: /6:00 PM–7:00 PM/i }));
+    await user.click(screen.getByRole('button', { name: 'Reschedule Trial' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This trial class has already started — it can no longer be changed'
+    );
+    expect(screen.getByLabelText('Level')).toBeInTheDocument();
+    expect(screen.queryByText('Trial class rescheduled!')).not.toBeInTheDocument();
+  });
+
+  // A stale link never falls back to booking a new trial.
+  it.each([
+    [
+      'the server says the trial can no longer change',
+      {
+        ...STUDENT_TRIAL_BOOKED,
+        enrollment: {
+          status: 'trial_scheduled',
+          canBookTrial: false,
+          schedule: null,
+          trial: {
+            _id: 'trial-3',
+            sessionId: 'session-a',
+            startsAt: '2099-01-01T22:00:00.000Z',
+            endsAt: '2099-01-01T23:00:00.000Z',
+            canChange: false,
+          },
+        },
+      } satisfies Student,
+    ],
+    ['the trial is already completed', { ...STUDENT_TRIAL_USED }],
+    ['the child has no trial at all', { ...STUDENT }],
+  ])('explains it can no longer be rescheduled when %s', async (_label, student) => {
+    withFamily(student);
+    mockSearchParams = new URLSearchParams({ reschedule: student._id });
+
+    renderBookTrialPage();
+
+    expect(await screen.findByText(/this trial can no longer be rescheduled/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /back to dashboard/i })).toHaveAttribute('href', '/parent/dashboard');
+    expect(screen.queryByLabelText('Level')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /book trial class/i })).not.toBeInTheDocument();
+  });
+
+  it('explains it can no longer be rescheduled for a child who is not in this family', async () => {
+    withFamily(STUDENT);
+    mockSearchParams = new URLSearchParams({ reschedule: 'someone-else' });
+
+    renderBookTrialPage();
+
+    expect(await screen.findByText(/this trial can no longer be rescheduled/i)).toBeInTheDocument();
   });
 });
 

@@ -17,6 +17,7 @@ import type {
   MySubscriptionsResponse,
   MyTrialClassesResponse,
   PaymentHistoryResponse,
+  TrialClassResponse,
 } from '../apiResponses';
 
 // ── Students (children) ─────────────────────────────────────────────────
@@ -52,10 +53,34 @@ export async function bookTrialClass(data: {
   sessionId: string;
 }): Promise<MutationResult<TrialClass>> {
   try {
-    const res = await api.post<{ trialClass: TrialClass }>('/trial-classes', data);
+    const res = await api.post<TrialClassResponse>('/trial-classes', data);
     return { status: 'success', data: res.data.trialClass };
   } catch (err) {
     return { status: 'error', message: extractErrorMessage(err, 'Failed to book trial class. Please try again.') };
+  }
+}
+
+// docs/plans/trial-cancel-reschedule-plan.md — moves an upcoming trial to
+// another session. The server checks the trial can still change and the new
+// session is bookable; its refusal message is shown as-is.
+export async function rescheduleTrialClass(
+  trialClassId: string,
+  data: { sessionId: string }
+): Promise<MutationResult<TrialClass>> {
+  try {
+    const res = await api.patch<TrialClassResponse>(`/trial-classes/${trialClassId}`, data);
+    return { status: 'success', data: res.data.trialClass };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to reschedule the trial class. Please try again.') };
+  }
+}
+
+export async function cancelTrialClass(trialClassId: string): Promise<MutationResult<undefined>> {
+  try {
+    await api.delete(`/trial-classes/${trialClassId}`);
+    return { status: 'success', data: undefined };
+  } catch (err) {
+    return { status: 'error', message: extractErrorMessage(err, 'Failed to cancel the trial class. Please try again.') };
   }
 }
 
