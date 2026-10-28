@@ -23,7 +23,7 @@ jest.mock('next/navigation', () => ({
 const STUDENT_BASE = { _id: 'student-1', firstName: 'Kid', lastName: 'One', skillLevel: 'beginner' };
 const STUDENT_NOT_ENROLLED = {
   ...STUDENT_BASE,
-  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null },
+  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null, trial: null },
 };
 const STUDENT_ENROLLED = {
   ...STUDENT_BASE,
@@ -31,15 +31,22 @@ const STUDENT_ENROLLED = {
     status: 'enrolled' as const,
     canBookTrial: false,
     schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+    trial: null,
   },
 };
 const STUDENT_TRIAL_SCHEDULED = {
   ...STUDENT_BASE,
-  enrollment: { status: 'trial_scheduled' as const, canBookTrial: false, schedule: null },
+  // 21:00Z–22:00Z on Sep 1 2026 (CDT, UTC-5) is 4:00–5:00 PM Central.
+  enrollment: {
+    status: 'trial_scheduled' as const,
+    canBookTrial: false,
+    schedule: null,
+    trial: { startsAt: '2026-09-01T21:00:00.000Z', endsAt: '2026-09-01T22:00:00.000Z' },
+  },
 };
 const STUDENT_TRIAL_COMPLETED = {
   ...STUDENT_BASE,
-  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null },
+  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null, trial: null },
 };
 
 const SUBSCRIPTION = {
@@ -109,7 +116,7 @@ describe('ChildDetailPage', () => {
     );
   });
 
-  it('shows the Trial Class card with the session date for a trial_scheduled child', async () => {
+  it('shows the Trial Class card with the session date and time for a trial_scheduled child', async () => {
     server.use(
       http.get('*/students/mine', () => HttpResponse.json({ students: [STUDENT_TRIAL_SCHEDULED] })),
       http.get('*/trial-classes/mine', () => HttpResponse.json({ trialClasses: [TRIAL_CLASS] }))
@@ -119,7 +126,8 @@ describe('ChildDetailPage', () => {
 
     expect(await screen.findByText('Trial booked')).toBeInTheDocument();
     expect(screen.getByText('Trial Class')).toBeInTheDocument();
-    expect(screen.getByText(/scheduled for/i)).toBeInTheDocument();
+    // Read from the server's enrollment.trial, not the trialClasses list.
+    expect(screen.getByText('Scheduled for Tue, Sep 1 · 4:00 PM–5:00 PM.')).toBeInTheDocument();
     // Not enrolled AND not a fresh not_enrolled — no "Not Enrolled" card,
     // no CTA (canBookTrial is false: the one trial is already spoken for).
     expect(screen.queryByText('Not Enrolled')).not.toBeInTheDocument();

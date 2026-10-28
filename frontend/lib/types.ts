@@ -211,6 +211,9 @@ export interface StudentEnrollment {
   status: EnrollmentStatus;
   canBookTrial: boolean;
   schedule: { dayOfWeek: number; startTime: string; endTime: string } | null;
+  // The upcoming trial's real start/end instants — set only when status is
+  // 'trial_scheduled', null otherwise.
+  trial: { startsAt: string; endsAt: string } | null;
 }
 
 export interface StudentBase {

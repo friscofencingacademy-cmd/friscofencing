@@ -25,19 +25,26 @@ const STUDENT_ENROLLED = {
     status: 'enrolled' as const,
     canBookTrial: false,
     schedule: { dayOfWeek: 3, startTime: '16:00', endTime: '17:00' },
+    trial: null,
   },
 };
 const STUDENT_TRIAL = {
   _id: 'student-2',
   firstName: 'Trial',
   lastName: 'Kid',
-  enrollment: { status: 'trial_scheduled' as const, canBookTrial: false, schedule: null },
+  // 21:00Z–22:00Z on Sep 1 2026 (CDT, UTC-5) is 4:00–5:00 PM Central.
+  enrollment: {
+    status: 'trial_scheduled' as const,
+    canBookTrial: false,
+    schedule: null,
+    trial: { startsAt: '2026-09-01T21:00:00.000Z', endsAt: '2026-09-01T22:00:00.000Z' },
+  },
 };
 const STUDENT_NONE = {
   _id: 'student-3',
   firstName: 'New',
   lastName: 'Kid',
-  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null },
+  enrollment: { status: 'not_enrolled' as const, canBookTrial: true, schedule: null, trial: null },
 };
 // The previously-impossible-to-represent state this PR makes real (a trial
 // from months ago no longer reads as "scheduled" forever) — canBookTrial is
@@ -47,7 +54,7 @@ const STUDENT_TRIAL_COMPLETED = {
   _id: 'student-4',
   firstName: 'PastTrial',
   lastName: 'Kid',
-  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null },
+  enrollment: { status: 'trial_completed' as const, canBookTrial: false, schedule: null, trial: null },
 };
 
 const server = setupServer(
@@ -98,7 +105,7 @@ describe('ParentDashboardPage', () => {
     expect(await screen.findByText('Enrolled Kid')).toBeInTheDocument();
     expect(screen.getByText(/enrolled — wednesday 4:00 pm-5:00 pm/i)).toBeInTheDocument();
     expect(screen.getByText('Trial Kid')).toBeInTheDocument();
-    expect(screen.getByText('Trial class scheduled')).toBeInTheDocument();
+    expect(screen.getByText('Trial class — Tue, Sep 1 · 4:00 PM–5:00 PM')).toBeInTheDocument();
     expect(screen.getByText('New Kid')).toBeInTheDocument();
     expect(screen.getByText('Not enrolled')).toBeInTheDocument();
 
@@ -132,6 +139,19 @@ describe('ParentDashboardPage', () => {
       // even though the child isn't currently enrolled.
       expect(screen.queryByRole('link', { name: /book a free trial/i })).not.toBeInTheDocument();
     });
+  });
+
+  it('falls back to "Trial class scheduled" when a scheduled trial arrives without its times', async () => {
+    server.use(
+      http.get('*/students/mine', () =>
+        HttpResponse.json({ students: [{ ...STUDENT_TRIAL, enrollment: { ...STUDENT_TRIAL.enrollment, trial: null } }] })
+      )
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByText('Trial Kid')).toBeInTheDocument();
+    expect(screen.getByText('Trial class scheduled')).toBeInTheDocument();
   });
 
   it('renders the Quick Actions rail', async () => {

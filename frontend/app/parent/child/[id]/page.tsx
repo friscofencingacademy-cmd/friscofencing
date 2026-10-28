@@ -9,7 +9,7 @@ import { formatTime } from '../../../../lib/formatTime';
 import { DAY_LABELS } from '../../../../lib/constants';
 import { useLoadState } from '../../../../lib/hooks/useLoadState';
 import { fetchSchedules } from '../../../../lib/services/scheduling';
-import { formatDateOnly } from '../../../../lib/formatDate';
+import { formatDateOnly, formatInstantRange } from '../../../../lib/formatDate';
 import type { EnrollmentStatus } from '../../../../lib/types';
 import Button from '../../../components/ui/Button/Button';
 import styles from './child-detail.module.css';
@@ -52,7 +52,7 @@ function statusPillClass(status: EnrollmentStatus): string {
 export default function ChildDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
-  const { students, subscriptions, trialClasses, loading } = useParentPortal();
+  const { students, subscriptions, loading } = useParentPortal();
   // Page-specific option-list fetch, same exception ParentPortalContext's
   // own doc comment already carves out for book-trial/register/payment-
   // method — needed here only to show a premium subscription's full sibling
@@ -82,16 +82,15 @@ export default function ChildDetailPage() {
   }
 
   const palette = getChildPalette(index);
-  // DISPLAY-only lookups from here down — the actual subscription/trial ROW
-  // this page needs to render schedule/next-billing/session-date details
-  // the enrollment object doesn't carry. The ENROLLMENT DECISION itself
-  // (status pill, "Not Enrolled" card, CTA gate below) comes from
-  // student.enrollment instead — see docs/plans/frontend-polish-plan.md
-  // PR 3. Neither of these two lookups gates anything on its own any more.
+  // DISPLAY-only lookup — the actual subscription ROW this page needs to
+  // render schedule/next-billing details the enrollment object doesn't
+  // carry. The ENROLLMENT DECISION itself (status pill, trial date, "Not
+  // Enrolled" card, CTA gate below) comes from student.enrollment instead —
+  // see docs/plans/frontend-polish-plan.md PR 3. It gates nothing on its own.
   const activeSubscription = subscriptions.find(
     (sub) => sub.studentId._id === student._id && sub.status === 'active'
   );
-  const trial = trialClasses.find((t) => t.studentId._id === student._id);
+  const { trial } = student.enrollment;
 
   return (
     <main>
@@ -141,7 +140,7 @@ export default function ChildDetailPage() {
           {student.enrollment.status === 'trial_scheduled' && trial ? (
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Trial Class</h2>
-              <p>Scheduled for {formatDateOnly(trial.sessionId.date)}.</p>
+              <p>Scheduled for {formatInstantRange(trial.startsAt, trial.endsAt)}.</p>
             </div>
           ) : null}
 

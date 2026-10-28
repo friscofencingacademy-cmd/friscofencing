@@ -275,6 +275,7 @@ describe('Student routes', () => {
         status: 'not_enrolled',
         canBookTrial: true,
         schedule: null,
+        trial: null,
       });
     });
 
